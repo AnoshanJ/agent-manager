@@ -34,8 +34,6 @@ type TraceByIdAndServiceParams struct {
 	TraceID        string
 	ComponentUid   string
 	EnvironmentUid string
-	SortOrder      string
-	Limit          int
 }
 
 // Span represents a single trace span

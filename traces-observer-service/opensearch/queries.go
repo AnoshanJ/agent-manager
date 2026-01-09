@@ -167,18 +167,6 @@ func BuildTraceByIdAndServiceQuery(params TraceByIdAndServiceParams) map[string]
 		})
 	}
 
-	// Set default limit if not provided
-	limit := params.Limit
-	if limit == 0 {
-		limit = 10000 // Get all spans for the trace by default
-	}
-
-	// Set default sort order
-	sortOrder := params.SortOrder
-	if sortOrder == "" {
-		sortOrder = "asc"
-	}
-
 	// Build the complete query
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -186,14 +174,7 @@ func BuildTraceByIdAndServiceQuery(params TraceByIdAndServiceParams) map[string]
 				"must": mustConditions,
 			},
 		},
-		"size": limit,
-		"sort": []map[string]interface{}{
-			{
-				"startTime": map[string]string{
-					"order": sortOrder,
-				},
-			},
-		},
+		"size": 10000,
 	}
 
 	return query

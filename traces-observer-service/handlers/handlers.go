@@ -56,8 +56,6 @@ type TraceByIdAndServiceRequest struct {
 	TraceID        string `json:"traceId"`
 	ComponentUid   string `json:"componentUid"`
 	EnvironmentUid string `json:"environmentUid"`
-	SortOrder      string `json:"sortOrder,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
 }
 
 // ErrorResponse represents an error response
@@ -171,34 +169,11 @@ func (h *Handler) GetTraceByIdAndService(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Parse sortOrder (default: desc)
-	sortOrder := query.Get("sortOrder")
-	if sortOrder == "" {
-		sortOrder = "desc"
-	}
-	if sortOrder != "asc" && sortOrder != "desc" {
-		h.writeError(w, http.StatusBadRequest, "sortOrder must be 'asc' or 'desc'")
-		return
-	}
-
-	// Parse limit (default: 100 for spans)
-	limit := 100
-	if limitStr := query.Get("limit"); limitStr != "" {
-		parsedLimit, err := strconv.Atoi(limitStr)
-		if err != nil || parsedLimit <= 0 {
-			h.writeError(w, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		limit = parsedLimit
-	}
-
 	// Build query parameters
 	params := opensearch.TraceByIdAndServiceParams{
 		TraceID:        traceID,
 		ComponentUid:   componentUid,
 		EnvironmentUid: environmentUid,
-		SortOrder:      sortOrder,
-		Limit:          limit,
 	}
 
 	// Execute query

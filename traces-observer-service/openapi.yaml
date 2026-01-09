@@ -26,7 +26,7 @@ paths:
       tags:
         - traces
       summary: Get a single trace by trace ID
-      description: Retrieves detailed span information for a specific trace
+      description: Retrieves all span information for a specific trace without pagination. Returns up to 10,000 spans.
       operationId: getTrace
       parameters:
         - name: traceId

@@ -126,19 +126,18 @@ curl --location 'http://localhost:9098/api/v1/traces?serviceName=sample-app&star
 
 ### 2. Get trace spans - `GET /api/v1/trace`
 
-Retrieves all spans for a specific trace ID and service.
+Retrieves all spans for a specific trace ID and component. Returns up to 10,000 spans without pagination.
 
 **Query Parameters:**
 
 - `traceId` (required) - The trace ID to retrieve spans for
-- `serviceName` (required) - Name of the service
-- `sortOrder` (optional) - Sort order for spans: `asc` or `desc` (default: `asc` - chronological)
-- `limit` (optional) - Maximum number of spans to return (default: 100)
+- `componentUid` (required) - The component unique identifier
+- `environmentUid` (required) - The environment unique identifier
 
 **Example request:**
 
 ```bash
-curl --location 'http://localhost:9098/api/v1/trace?traceId=21a29d5d24837ca724b8751494e70a95&serviceName=langchain-docker-app&sortOrder=asc&limit=100'
+curl --location 'http://localhost:9098/api/v1/trace?traceId=21a29d5d24837ca724b8751494e70a95&componentUid=default-component&environmentUid=default-environment'
 ```
 
 **Response (200):**
