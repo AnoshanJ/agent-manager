@@ -45,6 +45,7 @@ services:
       # - OPENSEARCH_URL=http://host.docker.internal:9200
       - OBSERVER_URL=http://host.docker.internal:8085
       - AMP_VERSION=v0.1.0
+      - TRACE_OBSERVER_URL=http://host.docker.internal:9098
     volumes:
       # Mount source code for hot-reloading
       - ../agent-manager-service:/app
@@ -76,7 +77,7 @@ services:
       - AUTH_BASE_URL=null
       - SIGN_IN_REDIRECT_URL=null
       - SIGN_OUT_REDIRECT_URL=null
-      - API_BASE_URL=http://localhost:8080
+      - API_BASE_URL=http://localhost:9000
       - DISABLE_AUTH=true
       - OBS_API_BASE_URL=http://localhost:9098
     volumes:
