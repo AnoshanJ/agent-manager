@@ -3,7 +3,7 @@ name: Test deployment
 on:
   pull_request:
     branches:
-      - main
+      - feat/doc-pages
     paths:
       - 'website/**'
       - '.github/workflows/test-deploy.yml'
