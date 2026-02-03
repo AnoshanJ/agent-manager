@@ -80,18 +80,16 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    // image: 'img/amp-social-card.png',
-    // Algolia search configuration
-    // To enable search, apply for Algolia DocSearch at https://docsearch.algolia.com/apply/
-    // Once approved, you'll receive your appId and apiKey
-    // algolia: {
-    //   appId: 'YOUR_APP_ID',
-    //   apiKey: 'YOUR_SEARCH_API_KEY',
-    //   indexName: 'agent-manager',
-    //   contextualSearch: true,
-    //   searchParameters: {},
-    // },
+
+    algolia: {
+      appId: 'EJOBC214C5',
+      apiKey: 'ff22863fb14e56b902c3b876af855462',
+      indexName: 'agent-manager',
+      contextualSearch: true,
+      searchParameters: {},
+      askAi: 'U0BbZwaDbiIZ',
+
+    },
     colorMode: {
       respectPrefersColorScheme: true,
     },
