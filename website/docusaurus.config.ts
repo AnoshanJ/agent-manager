@@ -94,7 +94,7 @@ const config: Config = {
     algolia: {
       appId: 'EJOBC214C5',
       apiKey: 'ff22863fb14e56b902c3b876af855462',
-      indexName: 'agent-manager',
+      indexName: 'Agent Manager',
       contextualSearch: true,
       searchParameters: {},
       askAi: 'U0BbZwaDbiIZ',
