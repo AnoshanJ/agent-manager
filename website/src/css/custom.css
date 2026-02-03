@@ -206,21 +206,14 @@
   background: #2a2a2a !important;
 }
 
-/* .DocSearch-Hit[aria-selected="true"] mark,
-.DocSearch-Hit--active mark {
-  color: #ff7a18 !important;
-  background: transparent !important;
-} */
 
 /* Ask AI section - remove blue background */
-.DocSearch-AskAI {
+.DocSearch-AskAI,
+.DocSearch-StartScreen .DocSearch-Help,
+[class*="DocSearch"][class*="AskAI"] {
   background: #1a1a1a !important;
-  border: 1px solid #ff7a18 !important;
-  border-left: 3px solid #ff7a18 !important;
-}
+  background-color: #1a1a1a !important;
 
-.DocSearch-AskAI span {
-  color: #ff7a18 !important;
 }
 
 /* Override keyboard shortcut keys - remove blue, add orange theme */
