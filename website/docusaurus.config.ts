@@ -25,7 +25,7 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'wso2', // Usually your GitHub org/user name.
+  organizationName: 'agent-manager', // Usually your GitHub org/user name.
   projectName: 'agent-manager', // Usually your repo name.
 
   onBrokenLinks: 'throw',
@@ -69,7 +69,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/wso2/agent-manager/edit/main/website/',
+            'https://github.com/agent-manager/agent-manager/edit/main/website/',
         },
         blog: false, // Disable blog until we have content
         theme: {
@@ -80,18 +80,16 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    // image: 'img/amp-social-card.png',
-    // Algolia search configuration
-    // To enable search, apply for Algolia DocSearch at https://docsearch.algolia.com/apply/
-    // Once approved, you'll receive your appId and apiKey
-    // algolia: {
-    //   appId: 'YOUR_APP_ID',
-    //   apiKey: 'YOUR_SEARCH_API_KEY',
-    //   indexName: 'agent-manager',
-    //   contextualSearch: true,
-    //   searchParameters: {},
-    // },
+
+    algolia: {
+      appId: 'EJOBC214C5',
+      apiKey: 'ff22863fb14e56b902c3b876af855462',
+      indexName: 'agent-manager',
+      contextualSearch: true,
+      searchParameters: {},
+      askAi: 'U0BbZwaDbiIZ',
+
+    },
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -114,7 +112,7 @@ const config: Config = {
           dropdownActiveClassDisabled: true,
         },
         {
-          href: 'https://github.com/wso2/agent-manager',
+          href: 'https://github.com/agent-manager/agent-manager',
           position: 'right',
           className: 'header-github-link',
           'aria-label': 'GitHub repository',
@@ -142,11 +140,11 @@ const config: Config = {
           items: [
             {
               label: 'GitHub Discussions',
-              href: 'https://github.com/wso2/agent-manager/discussions',
+              href: 'https://github.com/agent-manager/agent-manager/discussions',
             },
             {
               label: 'Issues',
-              href: 'https://github.com/wso2/agent-manager/issues',
+              href: 'https://github.com/agent-manager/agent-manager/issues',
             },
           ],
         },
@@ -155,7 +153,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/wso2/agent-manager',
+              href: 'https://github.com/agent-manager/agent-manager',
             },
             {
               label: 'WSO2',
