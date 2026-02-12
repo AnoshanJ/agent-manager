@@ -290,7 +290,7 @@ if kubectl get buildplane default -n default &>/dev/null; then
         || echo "   ⚠️  BuildPlane observer configuration failed (non-fatal)"
 else
     echo "   ⚠️  BuildPlane resource not found yet"
-fi
+fi 
 echo ""
 
 # Verify ObservabilityPlane
@@ -313,48 +313,27 @@ echo "✅ Logs collection enabled in Observability Plane"
 echo ""
 
 # ============================================================================
-# Step 5: Install Gateway Operator
-echo "9️⃣  Installing Gateway Operator..."
-if helm status gateway-operator -n openchoreo-data-plane &>/dev/null; then
-    echo "⏭️  Gateway Operator already installed, skipping..."
-else
-    helm install gateway-operator oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
-        --version 0.2.0 \
-        --namespace openchoreo-data-plane \
-        --create-namespace \
-        --set logging.level=debug \
-        --set gateway.helm.chartVersion=0.3.0
-    echo "✅ Gateway Operator installed successfully"
-fi
-echo ""
+# Step 5: Configure API Platform Gateway
+echo "9️⃣  Configuring API Platform Gateway..."
 
-# Apply Gateway Operator Configuration
-echo "🔟 Applying Gateway Operator Configuration..."
 # Create local config from template for development
 echo "   Creating local development config..."
-cp "${SCRIPT_DIR}/../values/api-platform-operator-full-config.yaml" "${SCRIPT_DIR}/../values/api-platform-operator-local-config.yaml"
+rm -f "${SCRIPT_DIR}/../values/api-platform-gw-config-local.yaml"
+cp "${SCRIPT_DIR}/../values/api-platform-gw-config.yaml" "${SCRIPT_DIR}/../values/api-platform-gw-config-local.yaml"
 # Update JWKS URI for local development
-sed -i '' 's|http://amp-api.wso2-amp.svc.cluster.local:9000/auth/external/jwks.json|http://host.docker.internal:9000/auth/external/jwks.json|g' "${SCRIPT_DIR}/../values/api-platform-operator-local-config.yaml"
-kubectl apply -f "${SCRIPT_DIR}/../values/api-platform-operator-local-config.yaml"
-echo "✅ Gateway configuration applied"
+sed -i '' 's|http://amp-api.wso2-amp.svc.cluster.local:9000/auth/external/jwks.json|http://host.docker.internal:9000/auth/external/jwks.json|g' "${SCRIPT_DIR}/../values/api-platform-gw-config-local.yaml"
+
+echo "   Applying API Platform Gateway ConfigMap..."
+kubectl delete configmap api-platform-default-gateway-values -n openchoreo-data-plane --ignore-not-found=true
+kubectl apply -f "${SCRIPT_DIR}/../values/api-platform-gw-config-local.yaml" -n openchoreo-data-plane
+echo "✅ Gateway ConfigMap applied"
 echo ""
 
-# Apply Gateway and API Resources
-echo "1️⃣1️⃣ Applying Gateway and API Resources..."
-kubectl apply -f "${SCRIPT_DIR}/../values/obs-gateway.yaml"
+# kubectl annotate gateway api-platform-default \
+#   force-reconcile=$(date +%s) --overwrite
 
-echo "⏳ Waiting for Gateway to be ready..."
-if kubectl wait --for=condition=Programmed gateway/obs-gateway -n openchoreo-data-plane --timeout=180s; then
-    echo "✅ Gateway is programmed"
-else
-    echo "⚠️  Gateway did not become ready in time"
-fi
-
-echo ""
-echo "Gateway status:"
-kubectl get gateway obs-gateway -n openchoreo-data-plane -o yaml
-echo ""
-
+# Apply RestAPI Resource
+echo "🔟 Applying RestAPI Resource..."
 kubectl apply -f "${SCRIPT_DIR}/../values/otel-collector-rest-api.yaml"
 
 echo "⏳ Waiting for RestApi to be programmed..."
@@ -369,7 +348,7 @@ echo "RestApi status:"
 kubectl get restapi traces-api-secure -n openchoreo-data-plane -o yaml
 echo ""
 
-echo "✅ Gateway and API resources applied"
+echo "✅ API Platform Gateway and RestAPI resources applied"
 echo ""
 
 # ============================================================================

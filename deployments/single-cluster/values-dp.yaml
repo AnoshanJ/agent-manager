@@ -11,7 +11,7 @@ gateway:
 
 # API Platform (APIM integration)
 api-platform:
-  enabled: false
+  enabled: true
 
 gatewayController:
   enabled: false
