@@ -103,6 +103,18 @@ func (h *Handler) GetTraceOverviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse cursor parameters for search_after pagination
+	afterStartTime := query.Get("afterStartTime")
+	afterTraceId := query.Get("afterTraceId")
+
+	var afterCursor *opensearch.PaginationCursor
+	if afterStartTime != "" && afterTraceId != "" {
+		afterCursor = &opensearch.PaginationCursor{
+			StartTime: afterStartTime,
+			TraceID:   afterTraceId,
+		}
+	}
+
 	// Build query parameters
 	params := opensearch.TraceQueryParams{
 		ComponentUid:   componentUid,
@@ -112,6 +124,7 @@ func (h *Handler) GetTraceOverviews(w http.ResponseWriter, r *http.Request) {
 		Limit:          limit,
 		Offset:         offset,
 		SortOrder:      sortOrder,
+		AfterCursor:    afterCursor,
 	}
 
 	// Execute query
@@ -271,6 +284,18 @@ func (h *Handler) ExportTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse cursor parameters for search_after pagination
+	afterStartTime := query.Get("afterStartTime")
+	afterTraceId := query.Get("afterTraceId")
+
+	var afterCursor *opensearch.PaginationCursor
+	if afterStartTime != "" && afterTraceId != "" {
+		afterCursor = &opensearch.PaginationCursor{
+			StartTime: afterStartTime,
+			TraceID:   afterTraceId,
+		}
+	}
+
 	// Build query parameters
 	params := opensearch.TraceQueryParams{
 		ComponentUid:   componentUid,
@@ -280,6 +305,7 @@ func (h *Handler) ExportTraces(w http.ResponseWriter, r *http.Request) {
 		Limit:          limit,
 		Offset:         offset,
 		SortOrder:      sortOrder,
+		AfterCursor:    afterCursor,
 	}
 
 	// Execute query

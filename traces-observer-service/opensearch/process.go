@@ -37,6 +37,18 @@ func ParseSpans(response *SearchResponse) []Span {
 	return spans
 }
 
+// ParseRootSpanHits converts RootSpanSearchResponse hits to Span structs
+func ParseRootSpanHits(response *RootSpanSearchResponse) []Span {
+	spans := make([]Span, 0, len(response.Hits.Hits))
+
+	for _, hit := range response.Hits.Hits {
+		span := parseSpan(hit.Source)
+		spans = append(spans, span)
+	}
+
+	return spans
+}
+
 // parseSpan extracts span information from a source document
 func parseSpan(source map[string]interface{}) Span {
 	span := Span{}

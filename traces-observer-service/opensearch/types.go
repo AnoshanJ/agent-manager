@@ -18,6 +18,12 @@ package opensearch
 
 import "time"
 
+// PaginationCursor represents the cursor for search_after pagination
+type PaginationCursor struct {
+	StartTime string `json:"startTime"`
+	TraceID   string `json:"traceId"`
+}
+
 // TraceQueryParams holds parameters for trace queries
 type TraceQueryParams struct {
 	ComponentUid   string
@@ -27,6 +33,7 @@ type TraceQueryParams struct {
 	Limit          int
 	Offset         int
 	SortOrder      string
+	AfterCursor    *PaginationCursor // Cursor for search_after pagination (takes precedence over Offset)
 }
 
 // TraceByIdParams holds parameters for querying spans by trace IDs
@@ -210,8 +217,9 @@ type TokenUsage struct {
 
 // TraceOverviewResponse represents the response for trace overview queries
 type TraceOverviewResponse struct {
-	Traces     []TraceOverview `json:"traces"`
-	TotalCount int             `json:"totalCount"`
+	Traces     []TraceOverview  `json:"traces"`
+	TotalCount int              `json:"totalCount"`
+	NextCursor *PaginationCursor `json:"nextCursor,omitempty"`
 }
 
 // FullTrace represents a complete trace with all spans and metadata
@@ -235,9 +243,10 @@ type FullTrace struct {
 
 // TraceExportResponse represents the response for trace export queries
 type TraceExportResponse struct {
-	Traces     []FullTrace `json:"traces"`
-	TotalCount int         `json:"totalCount"`
-	Truncated  bool        `json:"truncated"`
+	Traces     []FullTrace       `json:"traces"`
+	TotalCount int               `json:"totalCount"`
+	Truncated  bool              `json:"truncated"`
+	NextCursor *PaginationCursor `json:"nextCursor,omitempty"`
 }
 
 // SearchResponse represents OpenSearch search response
@@ -268,4 +277,35 @@ type AggregationResponse struct {
 type TraceBucket struct {
 	Key      string `json:"key"`
 	DocCount int    `json:"doc_count"`
+}
+
+// RootSpanSearchResponse represents an OpenSearch response from a search_after query
+// on root spans, including both hits (with sort values) and aggregations.
+type RootSpanSearchResponse struct {
+	Hits struct {
+		Total struct {
+			Value int `json:"value"`
+		} `json:"total"`
+		Hits []RootSpanHit `json:"hits"`
+	} `json:"hits"`
+	Aggregations struct {
+		TotalTraces struct {
+			Value int `json:"value"`
+		} `json:"total_traces"`
+	} `json:"aggregations"`
+}
+
+// RootSpanHit represents a single hit in a root span search_after response
+type RootSpanHit struct {
+	Source map[string]interface{} `json:"_source"`
+	Sort   []interface{}          `json:"sort"` // search_after sort values
+}
+
+// SpanCountResponse represents an OpenSearch aggregation response for span counts
+type SpanCountResponse struct {
+	Aggregations struct {
+		Traces struct {
+			Buckets []TraceBucket `json:"buckets"`
+		} `json:"traces"`
+	} `json:"aggregations"`
 }

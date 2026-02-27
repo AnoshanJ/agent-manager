@@ -153,6 +153,74 @@ func (c *Client) SearchWithAggregation(ctx context.Context, indices []string, qu
 	return &response, nil
 }
 
+// SearchRootSpans executes a search_after query and returns root spans with sort values and aggregations
+func (c *Client) SearchRootSpans(ctx context.Context, indices []string, query map[string]interface{}) (*RootSpanSearchResponse, error) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("failed to encode query: %w", err)
+	}
+
+	req := opensearchapi.SearchRequest{
+		Index:             indices,
+		Body:              &buf,
+		IgnoreUnavailable: opensearchapi.BoolPtr(true),
+	}
+
+	res, err := req.Do(ctx, c.client)
+	if err != nil {
+		return nil, fmt.Errorf("root span search request failed: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("root span search request failed with status: %s", res.Status())
+	}
+
+	var response RootSpanSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode root span search response: %w", err)
+	}
+
+	log := logger.GetLogger(ctx)
+	log.Info("Root span search completed",
+		"total_hits", response.Hits.Total.Value,
+		"returned_hits", len(response.Hits.Hits),
+		"total_traces", response.Aggregations.TotalTraces.Value)
+
+	return &response, nil
+}
+
+// SearchSpanCounts executes a span count aggregation query for specific trace IDs
+func (c *Client) SearchSpanCounts(ctx context.Context, indices []string, query map[string]interface{}) (*SpanCountResponse, error) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(query); err != nil {
+		return nil, fmt.Errorf("failed to encode query: %w", err)
+	}
+
+	req := opensearchapi.SearchRequest{
+		Index:             indices,
+		Body:              &buf,
+		IgnoreUnavailable: opensearchapi.BoolPtr(true),
+	}
+
+	res, err := req.Do(ctx, c.client)
+	if err != nil {
+		return nil, fmt.Errorf("span count request failed: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("span count request failed with status: %s", res.Status())
+	}
+
+	var response SpanCountResponse
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode span count response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // HealthCheck checks if OpenSearch is accessible
 func (c *Client) HealthCheck(ctx context.Context) error {
 	_, err := c.client.Info()

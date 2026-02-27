@@ -167,6 +167,122 @@ func BuildTraceAggregationQuery(params TraceQueryParams) map[string]interface{} 
 	}
 }
 
+// BuildRootSpanSearchQuery builds a search_after query on root spans for deterministic pagination.
+// Root spans are identified by parentSpanId == "".
+// Returns documents sorted by [startTime, traceId] with a cardinality aggregation for totalCount.
+func BuildRootSpanSearchQuery(params TraceQueryParams) map[string]interface{} {
+	mustConditions := []map[string]interface{}{
+		{"term": map[string]interface{}{"parentSpanId": ""}},
+	}
+
+	if params.ComponentUid != "" {
+		mustConditions = append(mustConditions, map[string]interface{}{
+			"term": map[string]interface{}{
+				"resource.openchoreo.dev/component-uid": params.ComponentUid,
+			},
+		})
+	}
+
+	if params.EnvironmentUid != "" {
+		mustConditions = append(mustConditions, map[string]interface{}{
+			"term": map[string]interface{}{
+				"resource.openchoreo.dev/environment-uid": params.EnvironmentUid,
+			},
+		})
+	}
+
+	if params.StartTime != "" && params.EndTime != "" {
+		mustConditions = append(mustConditions, map[string]interface{}{
+			"range": map[string]interface{}{
+				"startTime": map[string]interface{}{
+					"gte": params.StartTime,
+					"lte": params.EndTime,
+				},
+			},
+		})
+	}
+
+	sortOrder := params.SortOrder
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	query := map[string]interface{}{
+		"size": limit,
+		"query": map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": mustConditions,
+			},
+		},
+		"sort": []map[string]interface{}{
+			{"startTime": map[string]interface{}{"order": sortOrder}},
+			{"traceId": map[string]interface{}{"order": "asc"}},
+		},
+		"aggs": map[string]interface{}{
+			"total_traces": map[string]interface{}{
+				"cardinality": map[string]interface{}{
+					"field": "traceId",
+				},
+			},
+		},
+	}
+
+	if params.AfterCursor != nil {
+		query["search_after"] = []interface{}{
+			params.AfterCursor.StartTime,
+			params.AfterCursor.TraceID,
+		}
+	}
+
+	return query
+}
+
+// BuildSpanCountQuery builds a terms aggregation query to get span counts for specific trace IDs.
+// This is safe for small sets of trace IDs (page size, typically 10-50).
+func BuildSpanCountQuery(traceIDs []string, params TraceQueryParams) map[string]interface{} {
+	mustConditions := []map[string]interface{}{
+		{"terms": map[string]interface{}{"traceId": traceIDs}},
+	}
+
+	if params.ComponentUid != "" {
+		mustConditions = append(mustConditions, map[string]interface{}{
+			"term": map[string]interface{}{
+				"resource.openchoreo.dev/component-uid": params.ComponentUid,
+			},
+		})
+	}
+
+	if params.EnvironmentUid != "" {
+		mustConditions = append(mustConditions, map[string]interface{}{
+			"term": map[string]interface{}{
+				"resource.openchoreo.dev/environment-uid": params.EnvironmentUid,
+			},
+		})
+	}
+
+	return map[string]interface{}{
+		"size": 0,
+		"query": map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": mustConditions,
+			},
+		},
+		"aggs": map[string]interface{}{
+			"traces": map[string]interface{}{
+				"terms": map[string]interface{}{
+					"field": "traceId",
+					"size":  len(traceIDs),
+				},
+			},
+		},
+	}
+}
+
 // BuildTraceByIdsQuery builds a query to fetch spans for one or more trace IDs.
 // When parentSpan is true, adds a filter for parentSpanId == "" to return only root spans.
 func BuildTraceByIdsQuery(params TraceByIdParams) map[string]interface{} {
