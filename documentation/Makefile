@@ -65,6 +65,8 @@ endif
 		DOCKER_TAG_NO_V=$$(echo $(DOCKER_TAG) | sed 's/^v//'); \
 		find ./versioned_docs/version-$(VERSION) -type f \( -name "*.md" -o -name "*.mdx" \) ! -name "_constants.md" -exec \
 			$(SED_INPLACE) "s/v0\.0\.0-dev/$(DOCKER_TAG)/g; s/0\.0\.0-dev/$$DOCKER_TAG_NO_V/g" {} \;; \
+		$(SED_INPLACE) "s/latestVersion: '.*'/latestVersion: '$(VERSION)'/" versioned_docs/version-$(VERSION)/_constants.md; \
+		$(SED_INPLACE) "s/quickStartDockerTag: '.*'/quickStartDockerTag: '$(DOCKER_TAG)'/" versioned_docs/version-$(VERSION)/_constants.md; \
 		$(SED_INPLACE) "s/latestVersion: '.*'/latestVersion: '$(VERSION)'/" docs/_constants.md; \
 		$(SED_INPLACE) "s/quickStartDockerTag: '.*'/quickStartDockerTag: '$(DOCKER_TAG)'/" docs/_constants.md; \
 		echo "✓ Version $(VERSION) created successfully!"; \
@@ -97,6 +99,8 @@ endif
 	@DOCKER_TAG_NO_V=$$(echo $(DOCKER_TAG) | sed 's/^v//'); \
 	find ./versioned_docs/version-$(VERSION) -type f \( -name "*.md" -o -name "*.mdx" \) ! -name "_constants.md" -exec \
 		$(SED_INPLACE) "s/v0\.0\.0-dev/$(DOCKER_TAG)/g; s/0\.0\.0-dev/$$DOCKER_TAG_NO_V/g" {} \;
+	@$(SED_INPLACE) "s/latestVersion: '.*'/latestVersion: '$(VERSION)'/" versioned_docs/version-$(VERSION)/_constants.md
+	@$(SED_INPLACE) "s/quickStartDockerTag: '.*'/quickStartDockerTag: '$(DOCKER_TAG)'/" versioned_docs/version-$(VERSION)/_constants.md
 	@$(SED_INPLACE) "s/latestVersion: '.*'/latestVersion: '$(VERSION)'/" docs/_constants.md
 	@$(SED_INPLACE) "s/quickStartDockerTag: '.*'/quickStartDockerTag: '$(DOCKER_TAG)'/" docs/_constants.md
 	@echo "✓ Version $(VERSION) updated successfully!"
