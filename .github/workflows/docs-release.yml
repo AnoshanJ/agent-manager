@@ -17,8 +17,7 @@ run-name: Documentation Release ${{ inputs.version }}
 jobs:
   release-docs:
     name: Release Documentation
-    runs-on:
-      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
