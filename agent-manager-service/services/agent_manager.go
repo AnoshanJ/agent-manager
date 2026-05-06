@@ -311,22 +311,6 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 		}
 	}
 
-	// API configuration trait (only for chat and custom API agents)
-	if isAPIAgent {
-		var traitOpts []client.TraitOption
-		if req.InputInterface != nil && req.InputInterface.HasPort() && req.InputInterface.GetPort() > 0 {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(req.InputInterface.GetPort()))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(config.GetConfig().DefaultChatAPI.DefaultHTTPPort))
-		}
-		if req.InputInterface != nil && req.InputInterface.HasBasePath() {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(req.InputInterface.GetBasePath()))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(config.GetConfig().DefaultChatAPI.DefaultBasePath))
-		}
-		traits = append(traits, client.TraitRequest{TraitKind: client.TraitKindTrait, TraitType: client.TraitAPIManagement, Opts: traitOpts})
-	}
-
 	return traits, nil
 }
 
@@ -559,8 +543,10 @@ func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, proj
 			if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
 				// No config in DB - default to true for display purposes
 				defaultEnabled := true
+				defaultDisabled := false
 				agent.Configurations = &models.Configurations{
 					EnableAutoInstrumentation: &defaultEnabled,
+					EnableApiKeySecurity:      &defaultDisabled,
 				}
 				s.logger.Debug("No agent config in database, defaulting to enabled", "agentName", agentName)
 			} else if configErr != nil {
@@ -568,8 +554,11 @@ func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, proj
 			} else {
 				agent.Configurations = &models.Configurations{
 					EnableAutoInstrumentation: &agentConfig.EnableAutoInstrumentation,
+					EnableApiKeySecurity:      &agentConfig.EnableApiKeySecurity,
 				}
-				s.logger.Debug("Populated enableAutoInstrumentation from database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", agentConfig.EnableAutoInstrumentation)
+				s.logger.Debug("Populated agent configs from database", "agentName", agentName, "environment", lowestEnv,
+					"enableAutoInstrumentation", agentConfig.EnableAutoInstrumentation,
+					"enableApiKeySecurity", agentConfig.EnableApiKeySecurity)
 			}
 		}
 	}
@@ -1652,30 +1641,49 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		s.logger.Warn("Failed to get environment details", "environment", lowestEnv, "error", err)
 	}
 
-	// Resolve enableAutoInstrumentation value:
+	// Resolve enableAutoInstrumentation and enableApiKeySecurity:
 	// 1. Use request value if provided
 	// 2. Otherwise, read from DB for this environment
-	// 3. If not in DB, default to true (first deployment)
+	// 3. If not in DB, use defaults (autoInstrumentation=true, apiKeySecurity=false)
 	var enableAutoInstrumentation bool
+	var enableApiKeySecurity bool
 	if req.EnableAutoInstrumentation != nil {
 		enableAutoInstrumentation = *req.EnableAutoInstrumentation
 		s.logger.Info("Using enableAutoInstrumentation from request", "agentName", agentName, "value", enableAutoInstrumentation)
-	} else if targetEnv != nil {
-		// Try to read from database
-		existingConfig, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, targetEnv.Name)
-		if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
-			// No config in DB - this is first deployment, default to true
-			enableAutoInstrumentation = true
-			s.logger.Debug("No instrumentation config in database, defaulting to enabled", "agentName", agentName, "environment", targetEnv.Name)
-		} else if configErr != nil {
-			s.logger.Warn("Failed to read instrumentation config from database", "agentName", agentName, "environment", targetEnv.Name, "error", configErr)
-			enableAutoInstrumentation = true // Default to enabled on error
+	}
+	if req.EnableApiKeySecurity != nil {
+		enableApiKeySecurity = *req.EnableApiKeySecurity
+		s.logger.Info("Using enableApiKeySecurity from request", "agentName", agentName, "value", enableApiKeySecurity)
+	}
+	if req.EnableAutoInstrumentation == nil || req.EnableApiKeySecurity == nil {
+		if targetEnv != nil {
+			existingConfig, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, targetEnv.Name)
+			if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
+				if req.EnableAutoInstrumentation == nil {
+					enableAutoInstrumentation = true
+				}
+				// enableApiKeySecurity stays false (zero value) if not in request
+				s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
+			} else if configErr != nil {
+				s.logger.Warn("Failed to read config from database", "agentName", agentName, "environment", targetEnv.Name, "error", configErr)
+				if req.EnableAutoInstrumentation == nil {
+					enableAutoInstrumentation = true
+				}
+			} else {
+				if req.EnableAutoInstrumentation == nil {
+					enableAutoInstrumentation = existingConfig.EnableAutoInstrumentation
+				}
+				if req.EnableApiKeySecurity == nil {
+					enableApiKeySecurity = existingConfig.EnableApiKeySecurity
+				}
+				s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
+					"enableAutoInstrumentation", enableAutoInstrumentation, "enableApiKeySecurity", enableApiKeySecurity)
+			}
 		} else {
-			enableAutoInstrumentation = existingConfig.EnableAutoInstrumentation
-			s.logger.Debug("Read instrumentation config from database", "agentName", agentName, "environment", targetEnv.Name, "enableAutoInstrumentation", enableAutoInstrumentation)
+			if req.EnableAutoInstrumentation == nil {
+				enableAutoInstrumentation = true
+			}
 		}
-	} else {
-		enableAutoInstrumentation = true // Default if no environment info available
 	}
 
 	// Update instrumentation traits before deploy for Python buildpack builds (agent-api only)
@@ -1723,6 +1731,44 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		}
 	}
 
+	// Manage api-configuration trait for API agents (attach/update with artifact-id and policies)
+	if agent.Type.Type == string(utils.AgentTypeAPI) {
+		artifactID := ""
+		artifact, artifactErr := s.artifactRepo.GetByHandle(projectName+"/"+agentName, orgName)
+		if artifactErr == nil {
+			artifactID = artifact.UUID.String()
+		} else {
+			s.logger.Warn("Agent artifact not found, api-configuration trait will have empty artifact-id", "agentName", agentName, "error", artifactErr)
+		}
+
+		traitOpts := []client.TraitOption{
+			client.WithArtifactID(artifactID),
+		}
+		if agent.InputInterface != nil && agent.InputInterface.Port > 0 {
+			traitOpts = append(traitOpts, client.WithUpstreamPort(agent.InputInterface.Port))
+		} else {
+			traitOpts = append(traitOpts, client.WithUpstreamPort(config.GetConfig().DefaultChatAPI.DefaultHTTPPort))
+		}
+		if agent.InputInterface != nil && agent.InputInterface.BasePath != "" {
+			traitOpts = append(traitOpts, client.WithUpstreamBasePath(agent.InputInterface.BasePath))
+		} else {
+			traitOpts = append(traitOpts, client.WithUpstreamBasePath(config.GetConfig().DefaultChatAPI.DefaultBasePath))
+		}
+		if enableApiKeySecurity {
+			traitOpts = append(traitOpts, client.WithPolicies([]map[string]interface{}{client.APIKeyAuthPolicy()}))
+		} else {
+			traitOpts = append(traitOpts, client.WithPolicies([]map[string]interface{}{}))
+		}
+
+		if attachErr := s.ocClient.AttachTraits(ctx, orgName, projectName, agentName, []client.TraitRequest{
+			{TraitKind: client.TraitKindTrait, TraitType: client.TraitAPIManagement, Opts: traitOpts},
+		}); attachErr != nil {
+			s.logger.Warn("Failed to update api-configuration trait", "agentName", agentName, "error", attachErr)
+		} else {
+			s.logger.Info("Updated api-configuration trait", "agentName", agentName, "artifactID", artifactID, "enableApiKeySecurity", enableApiKeySecurity)
+		}
+	}
+
 	// Replace Component CR workflow parameters with env vars from deploy request
 	// This replaces all existing env vars to ensure the component CR matches the deploy request
 	s.logger.Debug("Replacing component workflow parameters with environment variables", "agentName", agentName, "envVarCount", len(deployReq.Env))
@@ -1748,7 +1794,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		return "", err
 	}
 
-	// Persist instrumentation config to database
+	// Persist agent config to database
 	if targetEnv != nil {
 		agentConfig := &models.AgentConfig{
 			OrgName:                   orgName,
@@ -1756,11 +1802,13 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 			AgentName:                 agentName,
 			EnvironmentName:           targetEnv.Name,
 			EnableAutoInstrumentation: enableAutoInstrumentation,
+			EnableApiKeySecurity:      enableApiKeySecurity,
 		}
 		if configErr := s.agentConfigRepo.Upsert(agentConfig); configErr != nil {
-			s.logger.Error("Failed to persist instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "error", configErr)
+			s.logger.Error("Failed to persist agent config to database", "agentName", agentName, "environment", lowestEnv, "error", configErr)
 		} else {
-			s.logger.Debug("Persisted instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", enableAutoInstrumentation)
+			s.logger.Debug("Persisted agent config to database", "agentName", agentName, "environment", lowestEnv,
+				"enableAutoInstrumentation", enableAutoInstrumentation, "enableApiKeySecurity", enableApiKeySecurity)
 		}
 	}
 
