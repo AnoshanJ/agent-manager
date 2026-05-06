@@ -1829,6 +1829,32 @@ func WithAgentApiKey(apiKey string) TraitOption {
 	}
 }
 
+// WithPolicies sets the policies array for the api-configuration trait.
+func WithPolicies(policies []map[string]interface{}) TraitOption {
+	return func(params map[string]interface{}) {
+		params["policies"] = policies
+	}
+}
+
+// WithArtifactID sets the artifact UUID annotation for the api-configuration trait.
+func WithArtifactID(artifactID string) TraitOption {
+	return func(params map[string]interface{}) {
+		params["artifactId"] = artifactID
+	}
+}
+
+// APIKeyAuthPolicy returns the policy map for API key authentication.
+func APIKeyAuthPolicy() map[string]interface{} {
+	return map[string]interface{}{
+		"name":    "api-key-auth",
+		"version": "v1",
+		"params": map[string]interface{}{
+			"key": "X-API-Key",
+			"in":  "header",
+		},
+	}
+}
+
 func (c *openChoreoClient) buildTrait(ctx context.Context, namespaceName, projectName, componentName string, req TraitRequest) (gen.ComponentTrait, error) {
 	if req.TraitKind == "" {
 		return gen.ComponentTrait{}, fmt.Errorf("trait kind is required")
