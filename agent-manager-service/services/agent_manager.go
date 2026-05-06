@@ -33,6 +33,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
+	"gorm.io/gorm"
 )
 
 type AgentManagerService interface {
@@ -59,6 +60,7 @@ type AgentManagerService interface {
 }
 
 type agentManagerService struct {
+	db                        *gorm.DB
 	ocClient                  client.OpenChoreoClient
 	observabilitySvcClient    observabilitysvc.ObservabilitySvcClient
 	secretMgmtClient          secretmanagersvc.SecretManagementClient
@@ -66,10 +68,12 @@ type agentManagerService struct {
 	tokenManagerService       AgentTokenManagerService
 	agentConfigRepo           repositories.AgentConfigRepository
 	agentConfigurationService AgentConfigurationService
+	artifactRepo              repositories.ArtifactRepository
 	logger                    *slog.Logger
 }
 
 func NewAgentManagerService(
+	db *gorm.DB,
 	OpenChoreoClient client.OpenChoreoClient,
 	observabilitySvcClient observabilitysvc.ObservabilitySvcClient,
 	secretMgmtClient secretmanagersvc.SecretManagementClient,
@@ -77,9 +81,11 @@ func NewAgentManagerService(
 	tokenManagerService AgentTokenManagerService,
 	agentConfigRepo repositories.AgentConfigRepository,
 	agentConfigurationService AgentConfigurationService,
+	artifactRepo repositories.ArtifactRepository,
 	logger *slog.Logger,
 ) AgentManagerService {
 	return &agentManagerService{
+		db:                        db,
 		ocClient:                  OpenChoreoClient,
 		observabilitySvcClient:    observabilitySvcClient,
 		secretMgmtClient:          secretMgmtClient,
@@ -87,6 +93,7 @@ func NewAgentManagerService(
 		tokenManagerService:       tokenManagerService,
 		agentConfigRepo:           agentConfigRepo,
 		agentConfigurationService: agentConfigurationService,
+		artifactRepo:              artifactRepo,
 		logger:                    logger,
 	}
 }
@@ -674,6 +681,19 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, p
 			s.cleanupSecretsOnRollback(ctx, secretLocation)
 		}
 		return err
+	}
+
+	// Create artifact record so the gateway can match API keys via artifact-id annotation
+	agentArtifact := &models.Artifact{
+		UUID:             uuid.Must(uuid.NewV7()),
+		Handle:           projectName + "/" + req.Name,
+		Name:             req.Name,
+		Version:          "v1.0",
+		Kind:             models.KindAgent,
+		OrganizationName: orgName,
+	}
+	if err := s.artifactRepo.Create(s.db, agentArtifact); err != nil {
+		s.logger.Warn("Failed to create agent artifact record", "agentName", req.Name, "error", err)
 	}
 
 	// Create LLM configurations (applies to both internal and external agents)
@@ -1384,6 +1404,11 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 			if configErr := s.agentConfigRepo.DeleteAllByAgent(orgName, projectName, agentName); configErr != nil {
 				s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 			}
+			if artifact, getErr := s.artifactRepo.GetByHandle(projectName+"/"+agentName, orgName); getErr == nil {
+				if delErr := s.artifactRepo.Delete(s.db, artifact.UUID.String()); delErr != nil {
+					s.logger.Warn("Failed to delete agent artifact record", "agentName", agentName, "error", delErr)
+				}
+			}
 			return nil
 		}
 		s.logger.Error("Failed to delete oc agent", "agentName", agentName, "error", err)
@@ -1397,6 +1422,14 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 	if configErr := s.agentConfigRepo.DeleteAllByAgent(orgName, projectName, agentName); configErr != nil {
 		s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 		// Don't fail the deletion - configs will be orphaned but harmless
+	}
+
+	// Cleanup artifact record
+	artifact, err := s.artifactRepo.GetByHandle(projectName+"/"+agentName, orgName)
+	if err == nil {
+		if delErr := s.artifactRepo.Delete(s.db, artifact.UUID.String()); delErr != nil {
+			s.logger.Warn("Failed to delete agent artifact record", "agentName", agentName, "error", delErr)
+		}
 	}
 
 	s.logger.Debug("Agent deleted from OpenChoreo successfully", "orgName", orgName, "agentName", agentName)
