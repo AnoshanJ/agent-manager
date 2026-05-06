@@ -23,6 +23,7 @@ export interface DeployAgentRequest {
   imageId: string;
   env?: EnvironmentVariable[];
   enableAutoInstrumentation?: boolean;
+  enableApiKeySecurity?: boolean;
 }
 
 // Responses
