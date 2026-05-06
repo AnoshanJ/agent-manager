@@ -1733,13 +1733,11 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 
 	// Manage api-configuration trait for API agents (attach/update with artifact-id and policies)
 	if agent.Type.Type == string(utils.AgentTypeAPI) {
-		artifactID := ""
 		artifact, artifactErr := s.artifactRepo.GetByHandle(projectName+"/"+agentName, orgName)
-		if artifactErr == nil {
-			artifactID = artifact.UUID.String()
-		} else {
-			s.logger.Warn("Agent artifact not found, api-configuration trait will have empty artifact-id", "agentName", agentName, "error", artifactErr)
+		if artifactErr != nil {
+			return "", fmt.Errorf("cannot deploy API agent without artifact record: %w", artifactErr)
 		}
+		artifactID := artifact.UUID.String()
 
 		traitOpts := []client.TraitOption{
 			client.WithArtifactID(artifactID),
@@ -1760,13 +1758,12 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 			traitOpts = append(traitOpts, client.WithPolicies([]map[string]interface{}{}))
 		}
 
-		if attachErr := s.ocClient.AttachTraits(ctx, orgName, projectName, agentName, []client.TraitRequest{
+		if err := s.ocClient.AttachTraits(ctx, orgName, projectName, agentName, []client.TraitRequest{
 			{TraitKind: client.TraitKindTrait, TraitType: client.TraitAPIManagement, Opts: traitOpts},
-		}); attachErr != nil {
-			s.logger.Warn("Failed to update api-configuration trait", "agentName", agentName, "error", attachErr)
-		} else {
-			s.logger.Info("Updated api-configuration trait", "agentName", agentName, "artifactID", artifactID, "enableApiKeySecurity", enableApiKeySecurity)
+		}); err != nil {
+			return "", fmt.Errorf("failed to attach api-configuration trait: %w", err)
 		}
+		s.logger.Info("Updated api-configuration trait", "agentName", agentName, "artifactID", artifactID, "enableApiKeySecurity", enableApiKeySecurity)
 	}
 
 	// Replace Component CR workflow parameters with env vars from deploy request
