@@ -23,6 +23,8 @@ type Configurations struct {
 	Env []EnvironmentVariable `json:"env,omitempty"`
 	// Enable automatic OTEL instrumentation for the agent
 	EnableAutoInstrumentation *bool `json:"enableAutoInstrumentation,omitempty"`
+	// Enable API key security for the agent endpoint
+	EnableApiKeySecurity *bool `json:"enableApiKeySecurity,omitempty"`
 }
 
 // NewConfigurations instantiates a new Configurations object
@@ -110,6 +112,38 @@ func (o *Configurations) SetEnableAutoInstrumentation(v bool) {
 	o.EnableAutoInstrumentation = &v
 }
 
+// GetEnableApiKeySecurity returns the EnableApiKeySecurity field value if set, zero value otherwise.
+func (o *Configurations) GetEnableApiKeySecurity() bool {
+	if o == nil || IsNil(o.EnableApiKeySecurity) {
+		var ret bool
+		return ret
+	}
+	return *o.EnableApiKeySecurity
+}
+
+// GetEnableApiKeySecurityOk returns a tuple with the EnableApiKeySecurity field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Configurations) GetEnableApiKeySecurityOk() (*bool, bool) {
+	if o == nil || IsNil(o.EnableApiKeySecurity) {
+		return nil, false
+	}
+	return o.EnableApiKeySecurity, true
+}
+
+// HasEnableApiKeySecurity returns a boolean if a field has been set.
+func (o *Configurations) HasEnableApiKeySecurity() bool {
+	if o != nil && !IsNil(o.EnableApiKeySecurity) {
+		return true
+	}
+
+	return false
+}
+
+// SetEnableApiKeySecurity gets a reference to the given bool and assigns it to the EnableApiKeySecurity field.
+func (o *Configurations) SetEnableApiKeySecurity(v bool) {
+	o.EnableApiKeySecurity = &v
+}
+
 func (o Configurations) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -125,6 +159,9 @@ func (o Configurations) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.EnableAutoInstrumentation) {
 		toSerialize["enableAutoInstrumentation"] = o.EnableAutoInstrumentation
+	}
+	if !IsNil(o.EnableApiKeySecurity) {
+		toSerialize["enableApiKeySecurity"] = o.EnableApiKeySecurity
 	}
 	return toSerialize, nil
 }
