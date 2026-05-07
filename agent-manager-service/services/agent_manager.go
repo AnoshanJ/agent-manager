@@ -313,7 +313,7 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 	}
 
 	// Attach api-configuration trait at create time so the RestApi CRD is provisioned immediately.
-	// Deploy time will upsert this trait with the actual policies and port/basePath.
+	// API key security is enabled by default; deploy time upserts with the actual policy setting.
 	if isAPIAgent {
 		port := config.GetConfig().DefaultChatAPI.DefaultHTTPPort
 		basePath := config.GetConfig().DefaultChatAPI.DefaultBasePath
@@ -330,7 +330,7 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 				client.WithArtifactID(artifactID),
 				client.WithUpstreamPort(port),
 				client.WithUpstreamBasePath(basePath),
-				client.WithPolicies([]map[string]interface{}{}),
+				client.WithPolicies([]map[string]interface{}{client.APIKeyAuthPolicy()}),
 			},
 		})
 	}
@@ -565,12 +565,11 @@ func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, proj
 		if lowestEnv != "" {
 			agentConfig, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, lowestEnv)
 			if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
-				// No config in DB - default to true for display purposes
+				// No config in DB - default both to true for display purposes
 				defaultEnabled := true
-				defaultDisabled := false
 				agent.Configurations = &models.Configurations{
 					EnableAutoInstrumentation: &defaultEnabled,
-					EnableApiKeySecurity:      &defaultDisabled,
+					EnableApiKeySecurity:      &defaultEnabled,
 				}
 				s.logger.Debug("No agent config in database, defaulting to enabled", "agentName", agentName)
 			} else if configErr != nil {
@@ -1668,9 +1667,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// Resolve enableAutoInstrumentation and enableApiKeySecurity:
 	// 1. Use request value if provided
 	// 2. Otherwise, read from DB for this environment
-	// 3. If not in DB, use defaults (autoInstrumentation=true, apiKeySecurity=false)
-	var enableAutoInstrumentation bool
-	var enableApiKeySecurity bool
+	// 3. If not in DB, use defaults (both default to true)
+	enableAutoInstrumentation := true
+	enableApiKeySecurity := true
 	if req.EnableAutoInstrumentation != nil {
 		enableAutoInstrumentation = *req.EnableAutoInstrumentation
 		s.logger.Info("Using enableAutoInstrumentation from request", "agentName", agentName, "value", enableAutoInstrumentation)
@@ -1683,16 +1682,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		if targetEnv != nil {
 			existingConfig, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, targetEnv.Name)
 			if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
-				if req.EnableAutoInstrumentation == nil {
-					enableAutoInstrumentation = true
-				}
-				// enableApiKeySecurity stays false (zero value) if not in request
 				s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
 			} else if configErr != nil {
 				s.logger.Warn("Failed to read config from database", "agentName", agentName, "environment", targetEnv.Name, "error", configErr)
-				if req.EnableAutoInstrumentation == nil {
-					enableAutoInstrumentation = true
-				}
 			} else {
 				if req.EnableAutoInstrumentation == nil {
 					enableAutoInstrumentation = existingConfig.EnableAutoInstrumentation
@@ -1702,10 +1694,6 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 				}
 				s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
 					"enableAutoInstrumentation", enableAutoInstrumentation, "enableApiKeySecurity", enableApiKeySecurity)
-			}
-		} else {
-			if req.EnableAutoInstrumentation == nil {
-				enableAutoInstrumentation = true
 			}
 		}
 	}
