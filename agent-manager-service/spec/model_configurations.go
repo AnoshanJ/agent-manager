@@ -35,6 +35,8 @@ func NewConfigurations() *Configurations {
 	this := Configurations{}
 	var enableAutoInstrumentation bool = true
 	this.EnableAutoInstrumentation = &enableAutoInstrumentation
+	var enableApiKeySecurity bool = true
+	this.EnableApiKeySecurity = &enableApiKeySecurity
 	return &this
 }
 
@@ -45,6 +47,8 @@ func NewConfigurationsWithDefaults() *Configurations {
 	this := Configurations{}
 	var enableAutoInstrumentation bool = true
 	this.EnableAutoInstrumentation = &enableAutoInstrumentation
+	var enableApiKeySecurity bool = true
+	this.EnableApiKeySecurity = &enableApiKeySecurity
 	return &this
 }
 

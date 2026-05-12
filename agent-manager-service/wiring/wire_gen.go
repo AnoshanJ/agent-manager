@@ -74,8 +74,6 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	infraResourceManager := services.NewInfraResourceManager(openChoreoClient, logger)
 	llmProviderAPIKeyService := services.NewLLMProviderAPIKeyService(llmProviderRepository, gatewayRepository, gatewayEventsService, apiKeyRepository)
 	agentConfigurationService := services.NewAgentConfigurationService(db, agentConfigurationRepository, envAgentModelMappingRepository, agentEnvConfigVariableRepository, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, infraResourceManager, openChoreoClient, llmProviderAPIKeyService, logger, secretManagementClient, v)
-	llmProviderTemplateRepository := ProvideLLMProviderTemplateRepository(db)
-	llmTemplateStore := services.NewLLMTemplateStore()
 	artifactRepository := ProvideArtifactRepository(db)
 	agentManagerService := services.NewAgentManagerService(db, openChoreoClient, observabilitySvcClient, secretManagementClient, repositoryService, agentTokenManagerService, agentConfigRepository, agentConfigurationService, artifactRepository, logger)
 	agentController := controllers.NewAgentController(agentManagerService)
@@ -86,6 +84,8 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	environmentController := controllers.NewEnvironmentController(environmentService)
 	platformGatewayService := services.NewPlatformGatewayService(gatewayRepository)
 	gatewayController := controllers.NewGatewayController(platformGatewayService, openChoreoClient)
+	llmProviderTemplateRepository := ProvideLLMProviderTemplateRepository(db)
+	llmTemplateStore := services.NewLLMTemplateStore()
 	llmProviderTemplateService := services.NewLLMProviderTemplateService(llmProviderTemplateRepository, llmTemplateStore)
 	llmProviderService := services.NewLLMProviderService(db, llmProviderRepository, llmProviderTemplateRepository, llmTemplateStore, llmProxyRepository, artifactRepository, v, gatewayRepository)
 	llmProviderDeploymentService := services.NewLLMProviderDeploymentService(deploymentRepository, llmProviderRepository, llmProviderTemplateRepository, gatewayRepository, gatewayEventsService)
@@ -204,8 +204,6 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	infraResourceManager := services.NewInfraResourceManager(openChoreoClient, logger)
 	llmProviderAPIKeyService := services.NewLLMProviderAPIKeyService(llmProviderRepository, gatewayRepository, gatewayEventsService, apiKeyRepository)
 	agentConfigurationService := services.NewAgentConfigurationService(db, agentConfigurationRepository, envAgentModelMappingRepository, agentEnvConfigVariableRepository, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, infraResourceManager, openChoreoClient, llmProviderAPIKeyService, logger, secretManagementClient, v)
-	llmProviderTemplateRepository := ProvideLLMProviderTemplateRepository(db)
-	llmTemplateStore := services.NewLLMTemplateStore()
 	artifactRepository := ProvideArtifactRepository(db)
 	agentManagerService := services.NewAgentManagerService(db, openChoreoClient, observabilitySvcClient, secretManagementClient, repositoryService, agentTokenManagerService, agentConfigRepository, agentConfigurationService, artifactRepository, logger)
 	agentController := controllers.NewAgentController(agentManagerService)
@@ -216,6 +214,8 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	environmentController := controllers.NewEnvironmentController(environmentService)
 	platformGatewayService := services.NewPlatformGatewayService(gatewayRepository)
 	gatewayController := controllers.NewGatewayController(platformGatewayService, openChoreoClient)
+	llmProviderTemplateRepository := ProvideLLMProviderTemplateRepository(db)
+	llmTemplateStore := services.NewLLMTemplateStore()
 	llmProviderTemplateService := services.NewLLMProviderTemplateService(llmProviderTemplateRepository, llmTemplateStore)
 	llmProviderService := services.NewLLMProviderService(db, llmProviderRepository, llmProviderTemplateRepository, llmTemplateStore, llmProxyRepository, artifactRepository, v, gatewayRepository)
 	llmProviderDeploymentService := services.NewLLMProviderDeploymentService(deploymentRepository, llmProviderRepository, llmProviderTemplateRepository, gatewayRepository, gatewayEventsService)
@@ -309,9 +309,9 @@ var clientProviderSet = wire.NewSet(
 	ProvidePublisherProvisioner,
 )
 
-var serviceProviderSet = wire.NewSet(services.NewAgentManagerService, services.NewInfraResourceManager, services.NewAgentTokenManagerService, ProvideGitCredentialsService, services.NewRepositoryService, services.NewMonitorExecutor, services.NewMonitorManagerService, ProvideThunderConfig, services.NewMonitorSchedulerService, services.NewEvaluatorManagerService, services.NewEnvironmentService, services.NewPlatformGatewayService, services.NewLLMProviderTemplateService, services.NewLLMProviderService, services.NewLLMProxyService, services.NewLLMProviderDeploymentService, services.NewLLMProviderAPIKeyService, services.NewLLMProxyAPIKeyService, services.NewLLMProxyDeploymentService, services.NewGatewayInternalAPIService, services.NewMonitorScoresService, services.NewCatalogService, services.NewLLMProxyProvisioner, services.NewAgentConfigurationService, services.NewLLMTemplateStore, services.NewGitSecretService)
+var serviceProviderSet = wire.NewSet(services.NewAgentManagerService, services.NewInfraResourceManager, services.NewAgentTokenManagerService, ProvideGitCredentialsService, services.NewRepositoryService, services.NewMonitorExecutor, services.NewMonitorManagerService, ProvideThunderConfig, services.NewMonitorSchedulerService, services.NewEvaluatorManagerService, services.NewEnvironmentService, services.NewPlatformGatewayService, services.NewLLMProviderTemplateService, services.NewLLMProviderService, services.NewLLMProxyService, services.NewLLMProviderDeploymentService, services.NewLLMProviderAPIKeyService, services.NewLLMProxyAPIKeyService, services.NewAgentAPIKeyService, services.NewLLMProxyDeploymentService, services.NewGatewayInternalAPIService, services.NewMonitorScoresService, services.NewCatalogService, services.NewLLMProxyProvisioner, services.NewAgentConfigurationService, services.NewLLMTemplateStore, services.NewGitSecretService)
 
-var controllerProviderSet = wire.NewSet(controllers.NewAgentController, controllers.NewInfraResourceController, controllers.NewAgentTokenController, controllers.NewRepositoryController, controllers.NewEnvironmentController, controllers.NewGatewayController, controllers.NewLLMController, controllers.NewLLMDeploymentController, controllers.NewLLMProviderAPIKeyController, controllers.NewLLMProxyAPIKeyController, controllers.NewLLMProxyDeploymentController, ProvideWebSocketController, controllers.NewGatewayInternalController, controllers.NewMonitorController, controllers.NewMonitorScoresController, controllers.NewMonitorScoresPublisherController, controllers.NewEvaluatorController, controllers.NewCatalogController, controllers.NewAgentConfigurationController, controllers.NewGitSecretController)
+var controllerProviderSet = wire.NewSet(controllers.NewAgentController, controllers.NewInfraResourceController, controllers.NewAgentTokenController, controllers.NewRepositoryController, controllers.NewEnvironmentController, controllers.NewGatewayController, controllers.NewLLMController, controllers.NewLLMDeploymentController, controllers.NewLLMProviderAPIKeyController, controllers.NewLLMProxyAPIKeyController, controllers.NewAgentAPIKeyController, controllers.NewLLMProxyDeploymentController, ProvideWebSocketController, controllers.NewGatewayInternalController, controllers.NewMonitorController, controllers.NewMonitorScoresController, controllers.NewMonitorScoresPublisherController, controllers.NewEvaluatorController, controllers.NewCatalogController, controllers.NewAgentConfigurationController, controllers.NewGitSecretController)
 
 var testClientProviderSet = wire.NewSet(
 	ProvideTestOpenChoreoClient,
