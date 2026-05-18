@@ -68,7 +68,7 @@ export function AgentChat() {
         environment: envId ?? "",
       },
     );
-  const { data: agent } = useGetAgent({
+  const { data: agent, isLoading: isAgentLoading } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
@@ -80,7 +80,7 @@ export function AgentChat() {
     error: testKeyError,
   } = useTestAgentAPIKey(
     { orgName: orgId, projName: projectId, agentName: agentId, envId },
-    { enabled: securityEnabled },
+    { enabled: !isAgentLoading && securityEnabled },
   );
   const endpointOptions = useMemo(() => {
     return Object.entries(endpoints ?? {}).map(([key, value]) => ({
