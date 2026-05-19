@@ -18,8 +18,11 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
@@ -33,13 +36,21 @@ import (
 // The console refreshes the key at staleTime well before this elapses.
 const testKeyTTL = 10 * time.Minute
 
+// testKeyName returns a stable, per-user key name derived from the JWT subject.
+// Hashing keeps the name within the gateway's alphanumeric-hyphen constraint
+// and avoids storing raw user identifiers as key names.
+func testKeyName(userSub string) string {
+	h := sha256.Sum256([]byte(userSub))
+	return models.APIKeyTestKeyPrefix + hex.EncodeToString(h[:])[:12]
+}
+
 // AgentAPIKeyServiceInterface defines the contract for agent API key operations
 type AgentAPIKeyServiceInterface interface {
 	CreateAPIKey(ctx context.Context, orgName, projectName, agentName, envID string, req *models.CreateAPIKeyRequest) (*models.CreateAPIKeyResponse, error)
 	RevokeAPIKey(ctx context.Context, orgName, projectName, agentName, envID, keyName string) error
 	RotateAPIKey(ctx context.Context, orgName, projectName, agentName, envID, keyName string, req *models.RotateAPIKeyRequest) (*models.CreateAPIKeyResponse, error)
 	ListAPIKeys(ctx context.Context, orgName, projectName, agentName, envID string) ([]models.StoredAPIKey, error)
-	IssueTestAPIKey(ctx context.Context, orgName, projectName, agentName, envID string) (*models.IssueTestAPIKeyResponse, error)
+	IssueTestAPIKey(ctx context.Context, orgName, projectName, agentName, envID, userSub string) (*models.IssueTestAPIKeyResponse, error)
 }
 
 // AgentAPIKeyService handles API key management for agents
@@ -92,8 +103,8 @@ func (s *AgentAPIKeyService) CreateAPIKey(
 	orgName, projectName, agentName, envID string,
 	req *models.CreateAPIKeyRequest,
 ) (*models.CreateAPIKeyResponse, error) {
-	if req != nil && req.Name == models.APIKeyTestKeyName {
-		return nil, fmt.Errorf("%w: %q is reserved for console test keys", utils.ErrBadRequest, models.APIKeyTestKeyName)
+	if req != nil && strings.HasPrefix(req.Name, models.APIKeyTestKeyPrefix) {
+		return nil, fmt.Errorf("%w: names starting with %q are reserved for console test keys", utils.ErrBadRequest, models.APIKeyTestKeyPrefix)
 	}
 	artifact, err := s.resolveAgentAPIArtifact(ctx, orgName, projectName, agentName, envID)
 	if err != nil {
@@ -153,12 +164,13 @@ func (s *AgentAPIKeyService) ListAPIKeys(
 	return result, nil
 }
 
-// IssueTestAPIKey issues (or rotates) the single short-lived test API key
-// associated with an agent. Used by the console Try-It flow. The key is
-// scoped by APIKeyTestKeyName and never appears in the user-facing list.
+// IssueTestAPIKey issues (or rotates) a short-lived test API key scoped to the
+// calling user (userSub). Each user gets their own DB row, so concurrent sessions
+// across different users don't invalidate each other's keys. Used by the console
+// Try-It flow; test keys never appear in the user-facing list.
 func (s *AgentAPIKeyService) IssueTestAPIKey(
 	ctx context.Context,
-	orgName, projectName, agentName, envID string,
+	orgName, projectName, agentName, envID, userSub string,
 ) (*models.IssueTestAPIKeyResponse, error) {
 	artifact, err := s.resolveAgentAPIArtifact(ctx, orgName, projectName, agentName, envID)
 	if err != nil {
@@ -166,9 +178,10 @@ func (s *AgentAPIKeyService) IssueTestAPIKey(
 	}
 	artifactUUID := artifact.UUID.String()
 
+	keyName := testKeyName(userSub)
 	expiresAt := time.Now().UTC().Add(testKeyTTL).Format(time.RFC3339)
 
-	existing, err := s.apiKeyRepo.GetByArtifactAndName(artifactUUID, models.APIKeyTestKeyName)
+	existing, err := s.apiKeyRepo.GetByArtifactAndName(artifactUUID, keyName)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to look up existing test key: %w", err)
 	}
@@ -176,15 +189,15 @@ func (s *AgentAPIKeyService) IssueTestAPIKey(
 	var resp *models.CreateAPIKeyResponse
 	if existing != nil {
 		if existing.Purpose != models.APIKeyPurposeTest {
-			return nil, fmt.Errorf("%w: %q is reserved for console test keys", utils.ErrBadRequest, models.APIKeyTestKeyName)
+			return nil, fmt.Errorf("%w: %q is reserved for console test keys", utils.ErrBadRequest, keyName)
 		}
 		// Same DB row, new hash + expiry; purpose is preserved (Upsert.DoUpdates excludes it).
-		resp, err = s.broadcaster.broadcastRotate(orgName, artifactUUID, artifactUUID, models.APIKeyTestKeyName,
+		resp, err = s.broadcaster.broadcastRotate(orgName, artifactUUID, artifactUUID, keyName,
 			&models.RotateAPIKeyRequest{ExpiresAt: &expiresAt})
 	} else {
 		resp, err = s.broadcaster.broadcastCreate(orgName, artifactUUID, artifactUUID,
 			&models.CreateAPIKeyRequest{
-				Name:        models.APIKeyTestKeyName,
+				Name:        keyName,
 				DisplayName: "Console Try-It",
 				Purpose:     models.APIKeyPurposeTest,
 				ExpiresAt:   &expiresAt,

@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
@@ -274,7 +275,14 @@ func (c *agentAPIKeyController) IssueTestAPIKey(w http.ResponseWriter, r *http.R
 
 	log.Info("IssueTestAPIKey: starting", "orgName", orgName, "projName", projName, "agentName", agentName, "envID", envID)
 
-	response, err := c.apiKeyService.IssueTestAPIKey(ctx, orgName, projName, agentName, envID)
+	claims := jwtassertion.GetTokenClaims(ctx)
+	if claims == nil || claims.Sub == "" {
+		log.Warn("IssueTestAPIKey: missing token claims")
+		utils.WriteErrorResponse(w, http.StatusUnauthorized, "Missing token claims")
+		return
+	}
+
+	response, err := c.apiKeyService.IssueTestAPIKey(ctx, orgName, projName, agentName, envID, claims.Sub)
 	if err != nil {
 		switch {
 		case errors.Is(err, utils.ErrArtifactNotFound):
