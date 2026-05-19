@@ -122,6 +122,6 @@ export function useTestAgentAPIKey(
       && !!(params.orgName && params.projName && params.agentName && params.envId),
     staleTime: 9 * 60 * 1000,
     refetchInterval: 9 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: "always",
   });
 }
