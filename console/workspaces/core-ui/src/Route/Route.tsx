@@ -64,6 +64,14 @@ function SecurityRouteElement() {
   return <LazySecurityComponent key={agentId} />;
 }
 
+// Remounts the Test page on agent change so SwaggerUI's internal request
+// interceptor (which closes over the test API key) and AgentChat local state
+// don't carry over from the previous agent, causing 401s on the new agent.
+function TestRouteElement() {
+  const { orgId, projectId, agentId, envId } = useParams();
+  return <LazyTestComponent key={`${orgId}:${projectId}:${agentId}:${envId}`} />;
+}
+
 export function RootRouter() {
   const externalOrgPageModules = useExternalPageModules();
 
@@ -403,7 +411,7 @@ export function RootRouter() {
                       relativeRouteMap.children.org.children.projects.children
                         .agents.children.environment.children.tryOut.path + "/*"
                     }
-                    element={<LazyTestComponent />}
+                    element={<TestRouteElement />}
                   />
                   <Route
                     path={

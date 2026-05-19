@@ -68,7 +68,7 @@ export function AgentChat() {
         environment: envId ?? "",
       },
     );
-  const { data: agent } = useGetAgent({
+  const { data: agent, isLoading: isAgentLoading } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
@@ -78,9 +78,10 @@ export function AgentChat() {
     data: testKey,
     isLoading: isLoadingTestKey,
     error: testKeyError,
+    refetch: refetchTestKey,
   } = useTestAgentAPIKey(
     { orgName: orgId, projName: projectId, agentName: agentId, envId },
-    { enabled: securityEnabled },
+    { enabled: !isAgentLoading && securityEnabled },
   );
   const endpointOptions = useMemo(() => {
     return Object.entries(endpoints ?? {}).map(([key, value]) => ({
@@ -147,6 +148,17 @@ export function AgentChat() {
       }
 
       if (!apiResponse.ok) {
+        if (apiResponse.status === 401 && securityEnabled) {
+          const refetchResult = await refetchTestKey();
+          setMessages((prev) => prev.slice(0, -1));
+          setMessage(userMessage.content);
+          setError(
+            refetchResult.error
+              ? "The test API key is no longer valid, and refreshing it failed. Please try again."
+              : "The test API key was refreshed. Please try again.",
+          );
+          return;
+        }
         const errorMessage =
           typeof responseData === "string"
             ? responseData

@@ -55,12 +55,12 @@ export function Swagger() {
     }
   );
 
-  const { data: agent } = useGetAgent({
+  const { data: agent, isLoading: isAgentLoading } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
   });
-  const securityEnabled = !!agent?.configurations?.enableApiKeySecurity;
+  const securityEnabled = agent?.configurations?.enableApiKeySecurity ?? true;
   const {
     data: testKey,
     isLoading: isLoadingTestKey,
@@ -68,7 +68,7 @@ export function Swagger() {
     error: testKeyError,
   } = useTestAgentAPIKey(
     { orgName: orgId, projName: projectId, agentName: agentId, envId },
-    { enabled: securityEnabled },
+    { enabled: !isAgentLoading && securityEnabled },
   );
   const testApiKey = testKey?.apiKey;
 
@@ -101,7 +101,7 @@ export function Swagger() {
     [data, endpoint, securityEnabled, testApiKey]
   );
 
-  if (isLoading || (securityEnabled && isLoadingTestKey)) {
+  if (isLoading || isAgentLoading || (securityEnabled && isLoadingTestKey)) {
     return <Skeleton variant="rounded" height={500} />;
   }
 
