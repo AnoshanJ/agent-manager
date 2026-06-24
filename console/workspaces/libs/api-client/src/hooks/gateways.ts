@@ -25,10 +25,12 @@ import type {
   DeleteGatewayPathParams,
   DiscoverOidcPathParams,
   DiscoverOidcQuery,
+  GatewayIdentityProviderPathParams,
   GatewayListResponse,
   OidcDiscoveryResponse,
   GatewayResponse,
   GetGatewayPathParams,
+  IdentityProvider,
   IdentityProviderListResponse,
   ListEnvironmentIdentityProvidersPathParams,
   ListGatewaysPathParams,
@@ -36,11 +38,13 @@ import type {
   ListIdentityProvidersPathParams,
   UpdateGatewayPathParams,
   UpdateGatewayRequest,
+  UpsertIdentityProviderRequest,
 } from "@agent-management-platform/types";
 import {
   assignGatewayToEnvironment,
   createGateway,
   deleteGateway,
+  deleteGatewayIdentityProvider,
   discoverOidc,
   getGateway,
   listEnvironmentIdentityProviders,
@@ -51,6 +55,7 @@ import {
   revokeGatewayToken,
   rotateGatewayToken,
   updateGateway,
+  upsertGatewayIdentityProvider,
 } from "../apis";
 
 export function useListGateways(
@@ -107,6 +112,41 @@ export function useListEnvironmentIdentityProviders(
     queryKey: ["environment-identity-providers", params],
     queryFn: () => listEnvironmentIdentityProviders(params, getToken),
     enabled: !!params.orgName && !!params.environmentId,
+  });
+}
+
+/**
+ * Upserts a gateway identity provider via the REST API. Used when the host marks
+ * identity providers as server-managed; otherwise the dialog renders the script.
+ */
+export function useUpsertGatewayIdentityProvider() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<
+    IdentityProvider,
+    unknown,
+    { params: GatewayIdentityProviderPathParams; body: UpsertIdentityProviderRequest }
+  >({
+    action: { verb: 'create', target: 'identity provider' },
+    mutationFn: ({ params, body }) =>
+      upsertGatewayIdentityProvider(params, body, getToken),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["identity-providers"] });
+      queryClient.invalidateQueries({ queryKey: ["environment-identity-providers"] });
+    },
+  });
+}
+
+export function useDeleteGatewayIdentityProvider() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<void, unknown, GatewayIdentityProviderPathParams>({
+    action: { verb: 'delete', target: 'identity provider' },
+    mutationFn: (params) => deleteGatewayIdentityProvider(params, getToken),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["identity-providers"] });
+      queryClient.invalidateQueries({ queryKey: ["environment-identity-providers"] });
+    },
   });
 }
 
