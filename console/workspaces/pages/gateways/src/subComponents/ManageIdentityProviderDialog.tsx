@@ -37,18 +37,25 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerWrapper,
+  useExternalConfigModules,
 } from "@agent-management-platform/views";
 import { useAuthHooks } from "@agent-management-platform/auth";
 import {
+  useDeleteGatewayIdentityProvider,
   useDiscoverOidc,
   useListEnvironments,
   useListGateways,
+  useUpsertGatewayIdentityProvider,
 } from "@agent-management-platform/api-client";
 import {
   getGatewayVersion,
   getRawScriptUrl,
 } from "@agent-management-platform/shared-component";
 import type { IdentityProvider } from "@agent-management-platform/types";
+import {
+  IDENTITY_PROVIDER_MODE_MOUNT_POINT,
+  isIdentityProviderServerManaged,
+} from "./identityProviderMode";
 
 const SCRIPT_NAME = "manage-identity-provider.sh";
 const TOKEN_MASK = "•••••••••••••••";
@@ -111,6 +118,15 @@ export function ManageIdentityProviderDialog({
 }: ManageIdentityProviderDialogProps) {
   const isDelete = mode === "delete";
   const { getToken } = useAuthHooks();
+
+  // When a host injects `{ enabled: true }` at this mount point, identity
+  // providers are managed server-side: the dialog calls the REST API directly
+  // (which also patches the gateway) instead of rendering the script.
+  const modeConfigs = useExternalConfigModules(IDENTITY_PROVIDER_MODE_MOUNT_POINT);
+  const serverManaged = isIdentityProviderServerManaged(modeConfigs);
+  const upsertProvider = useUpsertGatewayIdentityProvider();
+  const deleteProvider = useDeleteGatewayIdentityProvider();
+  const submitting = upsertProvider.isPending || deleteProvider.isPending;
 
   const [envName, setEnvName] = useState("");
   const [gatewayId, setGatewayId] = useState("");
@@ -229,6 +245,41 @@ export function ManageIdentityProviderDialog({
     [scriptInputs, showToken, resolvedToken],
   );
 
+  // Server-managed submit: every field needed to address the gateway-scoped
+  // endpoint, plus issuer/JWKS for the upsert body.
+  const canSubmit = isDelete
+    ? Boolean(gatewayId && name)
+    : Boolean(gatewayId && name && issuer && jwksUri);
+
+  const handleSubmit = useCallback(async () => {
+    if (!canSubmit) return;
+    try {
+      if (isDelete) {
+        await deleteProvider.mutateAsync({ orgName: orgId, gatewayId, name });
+      } else {
+        await upsertProvider.mutateAsync({
+          params: { orgName: orgId, gatewayId, name },
+          body: { issuer, jwksUri, skipTlsVerify },
+        });
+      }
+      onClose();
+    } catch {
+      // Errors surface via the mutation's notification handler; keep the dialog open.
+    }
+  }, [
+    canSubmit,
+    isDelete,
+    deleteProvider,
+    upsertProvider,
+    orgId,
+    gatewayId,
+    name,
+    issuer,
+    jwksUri,
+    skipTlsVerify,
+    onClose,
+  ]);
+
   return (
     <DrawerWrapper open={open} onClose={onClose}>
       <DrawerHeader
@@ -239,10 +290,20 @@ export function ManageIdentityProviderDialog({
       <DrawerContent>
         <Stack spacing={3}>
           <Typography variant="body2" color="text.secondary">
-            Identity providers are owned by the gateway. This command patches the gateway
-            configuration and syncs Agent Manager. Run it in a terminal with{" "}
-            <code>kubectl</code>, <code>helm</code>, and <code>jq</code> configured against your
-            cluster — for the quickstart, run it inside the dev container shell.
+            {serverManaged ? (
+              isDelete ? (
+                "Identity providers are owned by the gateway. Removing this provider patches the gateway configuration and syncs Agent Manager."
+              ) : (
+                "Identity providers are owned by the gateway. Saving patches the gateway configuration and syncs Agent Manager."
+              )
+            ) : (
+              <>
+                Identity providers are owned by the gateway. This command patches the gateway
+                configuration and syncs Agent Manager. Run it in a terminal with{" "}
+                <code>kubectl</code>, <code>helm</code>, and <code>jq</code> configured against
+                your cluster — for the quickstart, run it inside the dev container shell.
+              </>
+            )}
           </Typography>
 
           <Stack spacing={2}>
@@ -363,54 +424,74 @@ export function ManageIdentityProviderDialog({
             )}
           </Stack>
 
-          <Stack spacing={1}>
-            <Typography variant="body2">Run this command:</Typography>
-            <Box
-              sx={{
-                position: "relative",
-                bgcolor: "grey.900",
-                borderRadius: 1,
-                p: 2,
-                pr: 8,
-                fontFamily: "monospace",
-                fontSize: "0.8125rem",
-                color: "grey.100",
-                whiteSpace: "pre",
-                overflowX: "auto",
-              }}
-            >
-              <Box sx={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 0.5 }}>
-                <Tooltip title={showToken ? "Hide token" : "Show token"}>
-                  <IconButton size="small" onClick={handleToggleToken} sx={{ color: "grey.400" }}>
-                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={copied ? "Copied!" : "Copy"}>
-                  <IconButton
-                    size="small"
-                    onClick={handleCopy}
-                    sx={{ color: copied ? "success.light" : "grey.400" }}
-                  >
-                    <Copy size={16} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-              {displayScript}
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              Your access token will be substituted when you copy.
-            </Typography>
-          </Stack>
+          {!serverManaged && (
+            <>
+              <Stack spacing={1}>
+                <Typography variant="body2">Run this command:</Typography>
+                <Box
+                  sx={{
+                    position: "relative",
+                    bgcolor: "grey.900",
+                    borderRadius: 1,
+                    p: 2,
+                    pr: 8,
+                    fontFamily: "monospace",
+                    fontSize: "0.8125rem",
+                    color: "grey.100",
+                    whiteSpace: "pre",
+                    overflowX: "auto",
+                  }}
+                >
+                  <Box sx={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 0.5 }}>
+                    <Tooltip title={showToken ? "Hide token" : "Show token"}>
+                      <IconButton size="small" onClick={handleToggleToken} sx={{ color: "grey.400" }}>
+                        {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={copied ? "Copied!" : "Copy"}>
+                      <IconButton
+                        size="small"
+                        onClick={handleCopy}
+                        sx={{ color: copied ? "success.light" : "grey.400" }}
+                      >
+                        <Copy size={16} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  {displayScript}
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  Your access token will be substituted when you copy.
+                </Typography>
+              </Stack>
 
-          <Alert severity="info">
-            Once the script completes, the list reflects the change. The script is idempotent —
-            safe to re-run.
-          </Alert>
+              <Alert severity="info">
+                Once the script completes, the list reflects the change. The script is idempotent —
+                safe to re-run.
+              </Alert>
+            </>
+          )}
 
-          <Box display="flex" justifyContent="flex-end">
+          <Box display="flex" justifyContent="flex-end" gap={1}>
             <Button variant="outlined" color="inherit" onClick={onClose}>
-              Close
+              {serverManaged ? "Cancel" : "Close"}
             </Button>
+            {serverManaged && (
+              <Button
+                variant="contained"
+                color={isDelete ? "error" : "primary"}
+                onClick={handleSubmit}
+                disabled={!canSubmit || submitting}
+              >
+                {submitting
+                  ? isDelete
+                    ? "Removing…"
+                    : "Saving…"
+                  : isDelete
+                    ? "Remove"
+                    : "Add"}
+              </Button>
+            )}
           </Box>
         </Stack>
       </DrawerContent>
