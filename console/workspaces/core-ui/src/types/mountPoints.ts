@@ -27,4 +27,9 @@ export enum MountPoints {
     BottomRightPanel = "bottom-right-panel",
     LeftNavItem = "left-nav-item",
     PrivateRepoSupport = "private-repo-support",
+    // Config-kind mount point. A host (e.g. the cloud build) injects
+    // `{ enabled: true }` here to signal that gateway identity providers are
+    // managed server-side, so the console drives the REST API directly instead
+    // of rendering the manage-identity-provider script.
+    IdentityProviderMode = "identity-provider-mode",
 }
