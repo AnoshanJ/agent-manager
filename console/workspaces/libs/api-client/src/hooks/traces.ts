@@ -460,14 +460,38 @@ export function useSpanDetail(
   traceId: string | undefined,
   spanId: string | null,
   enabled: boolean,
+  organization: string | undefined,
+  startTime: string | undefined,
+  endTime: string | undefined,
+  project?: string,
+  component?: string,
+  environment?: string,
 ) {
   const { getToken } = useAuthHooks();
   return useApiQuery({
-    queryKey: ["span-detail", traceId, spanId],
+    queryKey: ["span-detail", organization, traceId, spanId],
     queryFn: async () => {
-      return getSpanDetail({ traceId: traceId!, spanId: spanId! }, getToken);
+      return getSpanDetail(
+        {
+          traceId: traceId!,
+          spanId: spanId!,
+          organization: organization!,
+          project,
+          component,
+          environment,
+          startTime: startTime!,
+          endTime: endTime!,
+        },
+        getToken,
+      );
     },
-    enabled: enabled && !!traceId && !!spanId,
+    enabled:
+      enabled &&
+      !!traceId &&
+      !!spanId &&
+      !!organization &&
+      !!startTime &&
+      !!endTime,
   });
 }
 
