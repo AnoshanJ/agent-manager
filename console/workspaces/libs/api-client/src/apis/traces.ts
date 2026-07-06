@@ -52,11 +52,6 @@ export interface TraceObserverSpanDetailParams {
   traceId: string;
   spanId: string;
   organization: string;
-  project?: string;
-  component?: string;
-  environment?: string;
-  startTime: string;
-  endTime: string;
 }
 
 function assertRequired(value: string, field: string): void {
@@ -184,36 +179,15 @@ export async function getSpanDetail(
   params: TraceObserverSpanDetailParams,
   getToken?: () => Promise<string>,
 ): Promise<Span> {
-  const {
-    traceId,
-    spanId,
-    organization,
-    project,
-    component,
-    environment,
-    startTime,
-    endTime,
-  } = params;
+  const { traceId, spanId, organization } = params;
   assertRequired(traceId, "traceId");
   assertRequired(spanId, "spanId");
   assertRequired(organization, "organization");
-  assertRequired(startTime, "startTime");
-  assertRequired(endTime, "endTime");
 
   const token = getToken ? await getToken() : undefined;
-
-  const searchParams: Record<string, string> = {
-    organization,
-    startTime,
-    endTime,
-  };
-  if (project) searchParams.project = project;
-  if (component) searchParams.agent = component;
-  if (environment) searchParams.environment = environment;
-
   const res = await httpGETObserver(
     `/api/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}`,
-    { searchParams, token },
+    { searchParams: { organization }, token },
   );
   return res.json();
 }

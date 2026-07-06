@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -371,44 +370,5 @@ func TestExportTraces_UsesBulkAttributes(t *testing.T) {
 	}
 	if _, ok := root.Attributes["traceloop.entity.input"]; !ok {
 		t.Error("expected root span to retain bulk-fetched attributes")
-	}
-}
-
-// ── GetSpanDetail org scoping ────────────────────────────────────────────────
-
-// GetSpanDetail must refuse to fetch span details when the trace has no spans
-// within the requested organization's scope.
-func TestGetSpanDetailTraceNotInOrg(t *testing.T) {
-	fake := &fakeObserverClient{spans: nil}
-	c := NewTracingController(fake)
-
-	_, err := c.GetSpanDetail(context.Background(), "trace-1", "span-1", baseParams())
-	if !errors.Is(err, ErrTraceNotFoundInOrg) {
-		t.Fatalf("expected ErrTraceNotFoundInOrg, got %v", err)
-	}
-	if got := atomic.LoadInt32(&fake.getSpanDetailsCalls); got != 0 {
-		t.Errorf("expected no GetSpanDetails calls for out-of-org trace, got %d", got)
-	}
-	if fake.lastSpansReq.SearchScope.Namespace != baseParams().Organization {
-		t.Errorf("scope check not namespace-scoped: %+v", fake.lastSpansReq.SearchScope)
-	}
-}
-
-// GetSpanDetail fetches details once the trace is confirmed in-org.
-func TestGetSpanDetailTraceInOrg(t *testing.T) {
-	fake := &fakeObserverClient{
-		spans: []observer.SpanInfo{{SpanID: "span-1", SpanName: "s"}},
-		spanDetails: map[string]*observer.SpanDetailsResponse{
-			"span-1": {SpanID: "span-1", SpanName: "s", Attributes: map[string]interface{}{}},
-		},
-	}
-	c := NewTracingController(fake)
-
-	span, err := c.GetSpanDetail(context.Background(), "trace-1", "span-1", baseParams())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if span.SpanID != "span-1" {
-		t.Errorf("span ID = %q, want span-1", span.SpanID)
 	}
 }

@@ -179,23 +179,7 @@ func TestExportTraces_MissingEndTime(t *testing.T) {
 
 func TestGetSpanDetail_MissingOrganization(t *testing.T) {
 	h := newHandler()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/t1/spans/s1?startTime=2026-04-01T00:00:00Z&endTime=2026-04-06T23:59:59Z", nil)
-	rec := httptest.NewRecorder()
-	h.GetSpanDetail(rec, r)
-	assertBadRequest(t, rec)
-}
-
-func TestGetSpanDetail_MissingStartTime(t *testing.T) {
-	h := newHandler()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/t1/spans/s1?organization=default&endTime=2026-04-06T23:59:59Z", nil)
-	rec := httptest.NewRecorder()
-	h.GetSpanDetail(rec, r)
-	assertBadRequest(t, rec)
-}
-
-func TestGetSpanDetail_MissingEndTime(t *testing.T) {
-	h := newHandler()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/t1/spans/s1?organization=default&startTime=2026-04-01T00:00:00Z", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/t1/spans/s1", nil)
 	rec := httptest.NewRecorder()
 	h.GetSpanDetail(rec, r)
 	assertBadRequest(t, rec)

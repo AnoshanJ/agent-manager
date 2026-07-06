@@ -135,11 +135,6 @@ export function TraceDetails({
     selectedSpanId,
     !!traceDetails?.spans?.length && !!selectedSpanId,
     organization,
-    startTime,
-    endTime,
-    project,
-    component,
-    environment,
   );
 
   const panelSpan =

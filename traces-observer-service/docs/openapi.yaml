@@ -247,20 +247,10 @@ paths:
         - name: organization
           in: query
           required: true
-          description: Organization name the trace must belong to
+          description: Organization name; must match the token's organization
           schema:
             type: string
             example: "default"
-        - $ref: "#/components/parameters/projectOptional"
-        - name: agent
-          in: query
-          required: false
-          description: Component (agent) name filter
-          schema:
-            type: string
-        - $ref: "#/components/parameters/environmentOptional"
-        - $ref: "#/components/parameters/startTimeRequired"
-        - $ref: "#/components/parameters/endTimeRequired"
       responses:
         "200":
           description: Full enriched span
@@ -272,12 +262,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "404":
-          description: Trace not found in the requested organization
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "503":
           $ref: "#/components/responses/ObserverUnavailable"
         "500":

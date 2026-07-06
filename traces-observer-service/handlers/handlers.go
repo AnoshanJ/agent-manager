@@ -18,7 +18,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -283,41 +282,15 @@ func (h *Handler) GetSpanDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := r.URL.Query()
-
-	organization := query.Get("organization")
-	if organization == "" {
+	// The org value itself is validated against the token by the
+	// RequireOrgMatch middleware; the handler only enforces presence.
+	if r.URL.Query().Get("organization") == "" {
 		writeError(w, http.StatusBadRequest, "organization is required")
 		return
 	}
 
-	startTime, err := parseRFC3339(query.Get("startTime"))
+	result, err := h.controller.GetSpanDetail(r.Context(), traceID, spanID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid startTime: %v", err))
-		return
-	}
-
-	endTime, err := parseRFC3339(query.Get("endTime"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid endTime: %v", err))
-		return
-	}
-
-	params := controllers.TraceQueryParams{
-		Organization: organization,
-		Project:      optionalStr(query.Get("project")),
-		Agent:        optionalStr(query.Get("agent")),
-		Environment:  optionalStr(query.Get("environment")),
-		StartTime:    startTime,
-		EndTime:      endTime,
-	}
-
-	result, err := h.controller.GetSpanDetail(r.Context(), traceID, spanID, params)
-	if err != nil {
-		if errors.Is(err, controllers.ErrTraceNotFoundInOrg) {
-			writeError(w, http.StatusNotFound, "Trace not found")
-			return
-		}
 		log.Error("Failed to get v1 span detail", "traceId", traceID, "spanId", spanID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve span detail")
 		return
