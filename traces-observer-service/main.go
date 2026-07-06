@@ -111,8 +111,9 @@ func main() {
 
 	slog.Info("v1 observer-backed routes registered", "observerBaseURL", cfg.Observer.BaseURL)
 
-	// Apply JWT auth middleware to API routes
-	authenticatedHandler := middleware.JWTAuth(cfg.Auth)(apiMux)
+	// Apply JWT auth + org match middleware to API routes
+	authenticatedHandler := middleware.RequireOrgMatch()(apiMux)
+	authenticatedHandler = middleware.JWTAuth(cfg.Auth)(authenticatedHandler)
 	mux.Handle("/api/v1/", authenticatedHandler)
 
 	// Apply middleware: Request Logger -> CORS
