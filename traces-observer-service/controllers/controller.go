@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -517,8 +518,35 @@ func (c *TracingController) GetTraceSpans(ctx context.Context, traceID string, p
 	}, nil
 }
 
+// ErrTraceNotFoundInOrg is returned when a trace has no spans within the
+// requested organization's scope — either it does not exist or it belongs to
+// another organization.
+var ErrTraceNotFoundInOrg = errors.New("trace not found in organization")
+
 // GetSpanDetail fetches full span details including enriched AmpAttributes.
-func (c *TracingController) GetSpanDetail(ctx context.Context, traceID, spanID string) (*opensearch.Span, error) {
+// The observer's span-detail endpoint is not namespace-scoped, so the trace's
+// membership in params.Organization is verified first via a scoped span query.
+func (c *TracingController) GetSpanDetail(ctx context.Context, traceID, spanID string, params TraceQueryParams) (*opensearch.Span, error) {
+	limit := 1
+	scopeReq := observer.TracesQueryRequest{
+		StartTime: params.StartTime,
+		EndTime:   params.EndTime,
+		Limit:     &limit,
+		SearchScope: observer.ComponentSearchScope{
+			Namespace:   params.Organization,
+			Project:     params.Project,
+			Component:   params.Agent,
+			Environment: params.Environment,
+		},
+	}
+	scoped, err := c.observerClient.QueryTraceSpans(ctx, traceID, scopeReq)
+	if err != nil {
+		return nil, err
+	}
+	if scoped.Total == 0 {
+		return nil, ErrTraceNotFoundInOrg
+	}
+
 	details, err := c.observerClient.GetSpanDetails(ctx, traceID, spanID)
 	if err != nil {
 		return nil, err
