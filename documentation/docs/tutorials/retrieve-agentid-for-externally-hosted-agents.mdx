@@ -1,0 +1,139 @@
+---
+sidebar_position: 13
+---
+
+# Retrieve AgentID Credentials for an Externally-Hosted Agent
+
+An Externally-Hosted agent runs outside WSO2 Agent Manager, so the platform has no pod to
+inject its [AgentID](../concepts/agentid.mdx) credential into. Instead, you retrieve the
+credential once through the API and configure your agent with it yourself. This guide walks
+through retrieving, using, and rotating that credential.
+
+## Prerequisites
+
+- An Externally-Hosted agent, registered in a project.
+- The agent deployed (promoted) to at least one environment, so its AgentID has had a chance to
+  provision.
+- An Agent Manager access token with permission to update the agent, used to call the API
+  examples below.
+
+## Step 1: Check the Identity Status
+
+Before claiming a secret, confirm the agent's identity has finished provisioning for the
+environment you care about. This call is safe to repeat and never exposes the secret itself.
+
+```bash
+curl -s -X GET \
+  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+A completed identity looks like this:
+
+```json
+[
+  {
+    "environmentName": "production",
+    "provisioningType": "external",
+    "status": "completed",
+    "agentId": "3fa2c8e1-...",
+    "clientId": "9c1b7a44-...",
+    "hasUnclaimedSecret": true
+  }
+]
+```
+
+`hasUnclaimedSecret` tells you whether a secret is currently available to claim. It is `true`
+right after provisioning completes or after a regenerate, and `false` once you have claimed it.
+
+## Step 2: Claim the Secret
+
+Claiming is a one-time operation: the first successful call returns the `clientSecret` and
+permanently clears it from storage. If you call this again afterward, it fails, because there is
+nothing left to claim. Store the result immediately, since it cannot be retrieved a second time
+this way.
+
+```bash
+curl -s -X DELETE \
+  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities/secrets?environment=<env>" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+```json
+{
+  "environmentName": "production",
+  "agentId": "3fa2c8e1-...",
+  "clientId": "9c1b7a44-...",
+  "clientSecret": "a1b2c3d4e5f6...",
+  "status": "completed"
+}
+```
+
+:::note
+The claim endpoint uses `DELETE` because calling it consumes the secret. This keeps it distinct
+from the identity status check in Step 1, which is always safe to repeat.
+:::
+
+## Step 3: Configure Your Agent
+
+Set the retrieved values as configuration or environment variables for your externally-hosted
+agent process, in whatever form your deployment uses. The values you need are the same four
+described in [Use AgentID in a Platform-Hosted Agent](./use-agentid-in-platform-hosted-agents.mdx#what-gets-injected):
+
+- `clientId` and `clientSecret` from Step 2.
+- A token endpoint of `<environment ThunderID base URL>/oauth2/token`. You can find the
+  environment's base URL from its [ThunderID console URL](../administration/environment-management.mdx#access-the-environment-thunderid-console).
+- The scopes your agent should request, as documented in your organization's AgentID policy.
+
+From there, your agent mints and uses tokens exactly the same way a Platform-Hosted agent does:
+request a token with the `client_credentials` grant, cache it, and attach it as a bearer token
+on calls to the gateway. See
+[Step 2 and Step 3 of the Platform-Hosted guide](./use-agentid-in-platform-hosted-agents.mdx#step-2-mint-and-cache-a-token)
+for the exact request shape and a caching example.
+
+## Rotating the Credential
+
+If you need a new secret, for example because the old one may have leaked, regenerate it:
+
+```bash
+curl -s -X POST \
+  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+This immediately invalidates the previous secret and returns the new one directly in the
+response body, so you do not need a separate claim call afterward:
+
+```json
+{
+  "environmentName": "production",
+  "provisioningType": "external",
+  "clientId": "9c1b7a44-...",
+  "clientSecret": "f6e5d4c3b2a1...",
+  "status": "completed"
+}
+```
+
+Update your agent's configuration with the new secret and restart it. Tokens minted with the old
+secret before the rotation remain valid until they expire, since Thunder cannot invalidate a
+token it has already issued.
+
+## Revoking the Credential
+
+To disable the agent's ability to mint new tokens without immediately issuing a replacement:
+
+```bash
+curl -s -X DELETE \
+  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Call the regenerate endpoint from the previous section when you are ready to restore access.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `404` on claim, with "no unclaimed secret currently available" | The secret was already claimed. Call regenerate to obtain a new one. |
+| `404` on any identity call, with "identity not yet provisioned" | Provisioning has not completed for this environment yet. Check the status from Step 1, or confirm the agent has been deployed to that environment. |
+| Token request fails with `invalid_client` | The claimed `clientId`/`clientSecret` pair no longer matches what is stored, most likely because someone regenerated it after you claimed the original. Claim or regenerate again. |

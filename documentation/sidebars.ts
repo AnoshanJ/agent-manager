@@ -49,6 +49,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'concepts/observability',
         'concepts/evaluation',
+        'concepts/agentid',
       ],
     },
     {
@@ -108,7 +109,9 @@ const sidebars: SidebarsConfig = {
         'tutorials/secure-agent-endpoints-with-oauth',
         'tutorials/configure-cors-for-agent-endpoints',
         'tutorials/configure-agent-llm-configuration',
-        'tutorials/configure-agent-mcp-proxies'
+        'tutorials/configure-agent-mcp-proxies',
+        'tutorials/use-agentid-in-platform-hosted-agents',
+        'tutorials/retrieve-agentid-for-externally-hosted-agents'
       ],
     },
     {
