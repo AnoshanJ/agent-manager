@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -33,6 +35,12 @@ import (
 const (
 	apiVersionLLMProxy = "gateway.api-platform.wso2.com/v1"
 	kindLLMProxy       = "LlmProxy"
+
+	// gatewayDefaultRequestTimeout and gatewayDefaultIdleTimeout mirror the gateway's own
+	// RouteTimeoutMs/RouteIdleTimeoutMs defaults, applied when the provider being fronted
+	// has no explicit resilience config of its own.
+	gatewayDefaultRequestTimeout = "60s"
+	gatewayDefaultIdleTimeout    = "300s"
 )
 
 // LLMProxyDeploymentService handles LLM proxy deployment business logic
@@ -61,6 +69,53 @@ func NewLLMProxyDeploymentService(
 	}
 }
 
+// doubleDuration parses a gateway duration string (e.g. "15s", "500ms") and returns it
+// doubled in the same style it was written in (integer seconds stay integer seconds).
+// Returns the input unchanged if it can't be parsed.
+func doubleDuration(d string) string {
+	parsed, err := time.ParseDuration(d)
+	if err != nil {
+		return d
+	}
+	doubled := parsed * 2
+	if doubled%time.Second == 0 {
+		return fmt.Sprintf("%ds", int64(doubled/time.Second))
+	}
+	return doubled.String()
+}
+
+// resilienceWithLLMProxyDefaults derives the LLM proxy's resilience from the provider it
+// fronts, doubling each of the provider's timeout/idleTimeout (or the gateway's own default,
+// if the provider has none set). A proxy call fully contains the provider call inside it, so
+// its timeout must never fire first — matching the provider's budget 1:1 risks the outer
+// (proxy) timeout winning the race and returning a spurious timeout for a request the
+// provider would have completed. Any resilience value explicitly set on the proxy itself
+// takes precedence and is left untouched.
+func resilienceWithLLMProxyDefaults(proxyResilience, providerResilience *models.Resilience) *models.Resilience {
+	providerTimeout := gatewayDefaultRequestTimeout
+	providerIdleTimeout := gatewayDefaultIdleTimeout
+	if providerResilience != nil {
+		if providerResilience.Timeout != nil {
+			providerTimeout = *providerResilience.Timeout
+		}
+		if providerResilience.IdleTimeout != nil {
+			providerIdleTimeout = *providerResilience.IdleTimeout
+		}
+	}
+
+	timeout := doubleDuration(providerTimeout)
+	idleTimeout := doubleDuration(providerIdleTimeout)
+	if proxyResilience != nil {
+		if proxyResilience.Timeout != nil {
+			timeout = *proxyResilience.Timeout
+		}
+		if proxyResilience.IdleTimeout != nil {
+			idleTimeout = *proxyResilience.IdleTimeout
+		}
+	}
+	return &models.Resilience{Timeout: &timeout, IdleTimeout: &idleTimeout}
+}
+
 // LLMProxyDeploymentYAML represents the deployment YAML
 type LLMProxyDeploymentYAML struct {
 	ApiVersion string                 `yaml:"apiVersion" json:"apiVersion"`
@@ -76,6 +131,7 @@ type LLMProxyDeploymentSpec struct {
 	Context     string                     `yaml:"context,omitempty" json:"context,omitempty"`
 	VHost       string                     `yaml:"vhost,omitempty" json:"vhost,omitempty"`
 	Provider    LLMProxyDeploymentProvider `yaml:"provider" json:"provider"`
+	Resilience  *models.Resilience         `yaml:"resilience,omitempty" json:"resilience,omitempty"`
 	Policies    []models.LLMPolicy         `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Security    *models.SecurityConfig     `yaml:"security,omitempty" json:"security,omitempty"`
 }
@@ -127,6 +183,10 @@ func (s *LLMProxyDeploymentService) DeployLLMProxy(proxyID string, req *models.D
 	slog.Info("LLMProxyDeploymentService.DeployLLMProxy: getting proxy", "proxyID", proxyID, "ouID", ouID)
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			slog.Warn("LLMProxyDeploymentService.DeployLLMProxy: proxy not found", "proxyID", proxyID, "ouID", ouID)
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		slog.Error("LLMProxyDeploymentService.DeployLLMProxy: failed to get proxy", "proxyID", proxyID, "ouID", ouID, "error", err)
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
@@ -243,6 +303,10 @@ func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(proxyID, deployme
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: getting proxy", "proxyID", proxyID, "ouID", ouID)
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			slog.Warn("LLMProxyDeploymentService.UndeployLLMProxyDeployment: proxy not found", "proxyID", proxyID)
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		slog.Error("LLMProxyDeploymentService.UndeployLLMProxyDeployment: failed to get proxy", "proxyID", proxyID, "error", err)
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
@@ -317,6 +381,9 @@ func (s *LLMProxyDeploymentService) RestoreLLMProxyDeployment(proxyID, deploymen
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -391,6 +458,9 @@ func (s *LLMProxyDeploymentService) GetLLMProxyDeployments(proxyID, ouID string,
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -423,6 +493,9 @@ func (s *LLMProxyDeploymentService) GetLLMProxyDeployment(proxyID, deploymentID,
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -446,6 +519,9 @@ func (s *LLMProxyDeploymentService) DeleteLLMProxyDeployment(proxyID, deployment
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return utils.ErrLLMProxyNotFound
+		}
 		return fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -572,6 +648,7 @@ func (s *LLMProxyDeploymentService) generateLLMProxyDeploymentYAML(proxy *models
 			Context:     contextValue,
 			VHost:       vhostValue,
 			Provider:    providerRef,
+			Resilience:  resilienceWithLLMProxyDefaults(proxy.Configuration.Resilience, provider.Configuration.Resilience),
 			Policies:    policies,
 		},
 	}

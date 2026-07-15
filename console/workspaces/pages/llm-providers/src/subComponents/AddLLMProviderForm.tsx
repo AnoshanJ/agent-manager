@@ -40,6 +40,7 @@ import {
 import { useValidatedForm } from "../hooks/useValidatedForm";
 import {
   PolicyListSection,
+  ResilienceTimeoutFields,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
 import { useListGateways } from "@agent-management-platform/api-client";
@@ -127,6 +128,8 @@ const INITIAL_FORM_VALUES: AddLLMProviderFormValues = {
   context: "",
   upstreamUrl: "",
   apiKey: "",
+  resilienceTimeout: "",
+  resilienceIdleTimeout: "",
   gatewayIds: [],
 };
 
@@ -320,6 +323,8 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
         context: formData.context?.trim() ?? "",
         upstreamUrl: formData.upstreamUrl?.trim() ?? "",
         apiKey: requiresApiKey ? (formData.apiKey?.trim() ?? "") : "",
+        resilienceTimeout: formData.resilienceTimeout?.trim() ?? "",
+        resilienceIdleTimeout: formData.resilienceIdleTimeout?.trim() ?? "",
         gatewayIds: formData.gatewayIds ?? [],
       },
       guardrails,
@@ -604,7 +609,19 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
               />
             </Form.ElementWrapper>
           </Form.Stack>
+          <Form.Stack>
+            <ResilienceTimeoutFields
+              requestTimeout={formData.resilienceTimeout ?? ""}
+              onRequestTimeoutChange={(value) => handleFieldChange("resilienceTimeout", value)}
+              requestTimeoutError={errors.resilienceTimeout}
+              idleTimeout={formData.resilienceIdleTimeout ?? ""}
+              onIdleTimeoutChange={(value) => handleFieldChange("resilienceIdleTimeout", value)}
+              idleTimeoutError={errors.resilienceIdleTimeout}
+            />
+          </Form.Stack>
         </Form.Section>
+
+        
       </Collapse>
       {/* Guardrails */}
       {showGuardrails && (

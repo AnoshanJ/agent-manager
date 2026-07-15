@@ -117,6 +117,9 @@ func (s *LLMProxyAPIKeyService) CreateAPIKey(
 ) (*models.CreateAPIKeyResponse, error) {
 	proxy, err := s.proxyRepo.GetByID(proxyID, orgID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get LLM proxy: %w", err)
 	}
 	if proxy == nil {
@@ -146,6 +149,9 @@ func (s *LLMProxyAPIKeyService) RevokeAPIKey(
 ) error {
 	proxy, err := s.proxyRepo.GetByID(proxyID, orgID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return utils.ErrLLMProxyNotFound
+		}
 		return fmt.Errorf("failed to get LLM proxy: %w", err)
 	}
 	if proxy == nil {
@@ -177,6 +183,9 @@ func (s *LLMProxyAPIKeyService) RotateAPIKey(
 ) (*models.CreateAPIKeyResponse, error) {
 	proxy, err := s.proxyRepo.GetByID(proxyID, orgID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get LLM proxy: %w", err)
 	}
 	if proxy == nil {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -77,13 +78,15 @@ type MCPProxyDeploymentSpec struct {
 	Context     string             `yaml:"context" json:"context"`
 	Vhost       *string            `yaml:"vhost" json:"vhost"`
 	Upstream    MCPProxyUpstream   `yaml:"upstream" json:"upstream"`
+	Resilience  *models.Resilience `yaml:"resilience,omitempty" json:"resilience,omitempty"`
 	SpecVersion string             `yaml:"specVersion" json:"specVersion"`
 	Policies    []models.MCPPolicy `yaml:"policies,omitempty" json:"policies,omitempty"`
 }
 
 // MCPProxyUpstream represents the flat upstream shape expected by the gateway.
 type MCPProxyUpstream struct {
-	URL string `yaml:"url" json:"url"`
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	Ref string `yaml:"ref,omitempty" json:"ref,omitempty"`
 }
 
 // deployMCPProxyToGateway deploys a single MCP artifact to one gateway. It is used by
@@ -417,23 +420,6 @@ func (s *MCPProxyService) buildMCPProxyDeploymentYAML(proxy *models.MCPProxy, pr
 	if strings.TrimSpace(specVersion) == "" {
 		specVersion = mcpProtocolVersion
 	}
-
-	upstream := MCPProxyUpstream{}
-	var upstreamAuth *models.UpstreamAuth
-	if proxy.Configuration.Upstream.Main != nil {
-		upstream.URL = strings.TrimSpace(proxy.Configuration.Upstream.Main.URL)
-		upstreamAuth = proxy.Configuration.Upstream.Main.Auth
-	}
-	if strings.TrimSpace(upstream.URL) == "" {
-		return nil, fmt.Errorf("upstream URL is required")
-	}
-	policies, err := appendMCPAPIKeyAuthPolicy(proxy.Configuration.Policies, proxy.Configuration.Security)
-	if err != nil {
-		return nil, err
-	}
-	policies = appendMCPIdentityAuthPolicies(policies, proxy.Configuration.Security, proxyHandle, scopes)
-	policies = appendMCPBackendAuthPolicy(policies, upstreamAuth)
-	policies = mergeMCPPoliciesForDeployment(normalizeMCPPoliciesForDeployment(policies))
 	handle := proxy.Handle
 	displayName := proxy.Name
 	version := proxy.Version
@@ -452,6 +438,24 @@ func (s *MCPProxyService) buildMCPProxyDeploymentYAML(proxy *models.MCPProxy, pr
 		handle = proxy.UUID.String()
 	}
 
+	upstream := MCPProxyUpstream{}
+	var upstreamAuth *models.UpstreamAuth
+	if proxy.Configuration.Upstream.Main != nil {
+		main := proxy.Configuration.Upstream.Main
+		upstream.URL = normalizeMCPUpstreamURLForDeployment(main.URL)
+		upstreamAuth = main.Auth
+	}
+	if strings.TrimSpace(upstream.URL) == "" && strings.TrimSpace(upstream.Ref) == "" {
+		return nil, fmt.Errorf("upstream URL is required")
+	}
+	policies, err := appendMCPAPIKeyAuthPolicy(proxy.Configuration.Policies, proxy.Configuration.Security)
+	if err != nil {
+		return nil, err
+	}
+	policies = appendMCPIdentityAuthPolicies(policies, proxy.Configuration.Security, proxyHandle, scopes)
+	policies = appendMCPBackendAuthPolicy(policies, upstreamAuth)
+	policies = mergeMCPPoliciesForDeployment(normalizeMCPPoliciesForDeployment(policies))
+
 	return &MCPProxyDeploymentYAML{
 		ApiVersion: apiVersionMCPProxy,
 		Kind:       kindMCPProxy,
@@ -462,6 +466,7 @@ func (s *MCPProxyService) buildMCPProxyDeploymentYAML(proxy *models.MCPProxy, pr
 			Context:     contextValue,
 			Vhost:       proxy.Configuration.Vhost,
 			Upstream:    upstream,
+			Resilience:  proxy.Configuration.Resilience,
 			SpecVersion: specVersion,
 			Policies:    policies,
 		},
@@ -750,6 +755,35 @@ func cloneStringInterfaceMap(in map[string]interface{}) map[string]interface{} {
 		out[key] = value
 	}
 	return out
+}
+
+// normalizeMCPUpstreamURLForDeployment strips a trailing "/mcp" path segment from the
+// configured upstream URL: the gateway's MCP upstream handler appends its own "/mcp"
+// suffix when proxying, so a stored URL that already ends in "/mcp" would otherwise
+// double up to ".../mcp/mcp" at request time.
+func normalizeMCPUpstreamURLForDeployment(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return trimmed
+	}
+
+	path := strings.TrimRight(parsed.Path, "/")
+	if path == "" {
+		return trimmed
+	}
+	segments := strings.Split(path, "/")
+	if len(segments) == 0 || segments[len(segments)-1] != "mcp" {
+		return trimmed
+	}
+
+	segments = segments[:len(segments)-1]
+	parsed.Path = strings.Join(segments, "/")
+	if parsed.Path == "" {
+		parsed.Path = "/"
+	}
+	parsed.RawPath = ""
+	return parsed.String()
 }
 
 func deploymentName(proxy *models.MCPProxy) string {
