@@ -155,7 +155,7 @@ func (c *gatewayController) RegisterGateway(w http.ResponseWriter, r *http.Reque
 		envs, err := c.ocClient.ListEnvironments(ctx, ouID)
 		if err != nil {
 			log.Error("environment validation failed: failed to list environments")
-			utils.WriteErrorResponse(w, http.StatusInternalServerError, "environment validation error")
+			utils.WriteErrorResponse(w, http.StatusInternalServerError, "environment validation erro")
 			return
 		}
 		if len(envs) == 0 {

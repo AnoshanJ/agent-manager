@@ -801,9 +801,9 @@ func agentAPIKeySecretLocation(ouID, projectName, agentName, envName string) sec
 //
 // The reference is resolved from the SecretReference CR rather than computed locally:
 // CreateSecret returns the SecretReference name, and only the SecretReference knows the
-// provider's real remote reference. (For OpenBao that happens to be the KV path, but for
-// the Secret Manager API it is the provider's own reference — location.KVPath() is wrong
-// there, so we must read it back from the SecretReference.)
+// provider's real remote reference. (The provider manages the SecretReference and its
+// remoteRef internally — location.KVPath() is not the real reference, so we must read
+// it back from the SecretReference.)
 func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projectName, agentName, envName, apiKey string) (key string, property string, err error) {
 	if s.secretMgmtClient == nil {
 		return "", "", fmt.Errorf("secret management is not initialized; cannot store agent API key")
@@ -1504,7 +1504,8 @@ func (s *agentManagerService) toCreateAgentRequestWithSecrets(req *spec.CreateAg
 	return result
 }
 
-// saveSecretsAndCreateReference handles storing secrets in OpenBao and creating SecretReference CR
+// saveSecretsAndCreateReference stores secrets via the secret management client; the
+// provider stores the values and manages the associated SecretReference internally.
 func (s *agentManagerService) saveSecretsAndCreateReference(
 	ctx context.Context,
 	location secretmanagersvc.SecretLocation,
@@ -2171,7 +2172,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 
 	// Step 2-4: For each secret reference, get its details, delete from KV, then delete the CR
 	for _, secretRefName := range secretRefNames {
-		s.cleanupSecretReference(ctx, ouID, projectName, agentName, secretRefName)
+		s.cleanupSecretReference(ctx, ouID, secretRefName)
 	}
 
 	// Resolve agent type before component deletion so LLM config cleanup does not need
@@ -2313,51 +2314,30 @@ func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, 
 	}
 }
 
-// cleanupSecretReference deletes secrets from KV and the SecretReference CR.
-// It retrieves the SecretReference to get the actual KV path, parses it to a location,
-// then calls DeleteSecret which handles both KV and SecretReference deletion.
-func (s *agentManagerService) cleanupSecretReference(ctx context.Context, ouID, projectName, agentName, secretRefName string) {
-	if s.secretMgmtClient == nil {
-		s.logger.Warn("Secret management client not configured, skipping secret cleanup", "secretRefName", secretRefName)
-		return
-	}
-
-	// Get the SecretReference to find the actual KV path
-	secretRefInfo, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
+// cleanupSecretReference deletes an OpenChoreo-managed secret by name (the
+// secret name and its SecretReference name are the same); the API removes the
+// stored values and the SecretReference together. Only removes secrets owned
+// by this service (managed-by label).
+func (s *agentManagerService) cleanupSecretReference(ctx context.Context, ouID, secretRefName string) {
+	secret, err := s.ocClient.GetSecret(ctx, ouID, secretRefName)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
-			s.logger.Debug("SecretReference not found, skipping cleanup", "secretRefName", secretRefName)
+			s.logger.Debug("Secret not found, skipping cleanup", "secretRefName", secretRefName)
 			return
 		}
-		s.logger.Warn("Failed to get SecretReference, skipping cleanup", "secretRefName", secretRefName, "error", err)
+		s.logger.Warn("Failed to get secret, skipping cleanup", "secretRefName", secretRefName, "error", err)
 		return
 	}
 
-	if len(secretRefInfo.Data) == 0 {
-		s.logger.Warn("SecretReference has no data sources, skipping cleanup", "secretRefName", secretRefName)
+	if secret.Labels[secretmanagersvc.LabelKeyManagedBy] != secretmanagersvc.DefaultManagedBy {
+		s.logger.Warn("Secret not managed by this service, skipping cleanup", "secretRefName", secretRefName)
 		return
 	}
 
-	// Parse the KV path to get the correct location
-	kvPath := secretRefInfo.Data[0].RemoteRef.Key
-	if kvPath == "" {
-		s.logger.Warn("SecretReference has empty KV path, skipping cleanup", "secretRefName", secretRefName)
-		return
-	}
-
-	location, parseErr := secretmanagersvc.ParseKVPath(kvPath)
-	if parseErr != nil {
-		s.logger.Warn("Failed to parse KV path from SecretReference, skipping cleanup",
-			"kvPath", kvPath, "secretRefName", secretRefName, "error", parseErr)
-		return
-	}
-
-	// DeleteSecret handles both KV deletion and SecretReference CR deletion
-	if err := s.secretMgmtClient.DeleteSecret(ctx, location, secretRefName); err != nil {
-		s.logger.Warn("Failed to delete secret during cleanup",
-			"kvPath", kvPath, "secretRefName", secretRefName, "error", err)
+	if err := s.ocClient.DeleteSecret(ctx, ouID, secretRefName); err != nil && !errors.Is(err, utils.ErrNotFound) {
+		s.logger.Warn("Failed to delete secret during cleanup", "secretRefName", secretRefName, "error", err)
 	} else {
-		s.logger.Debug("Deleted secret during cleanup", "kvPath", kvPath, "secretRefName", secretRefName)
+		s.logger.Debug("Deleted secret during cleanup", "secretRefName", secretRefName)
 	}
 }
 
@@ -4012,8 +3992,8 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 //
 // System-managed env vars are identified by looking up the secretRef in the DB: if it is
 // recorded in agent_env_config_variables_mapping for this agent's LLM configurations, it is
-// system-managed. This is provider-agnostic — it works for both OpenBao and the Secret Manager
-// API without relying on secret reference name patterns.
+// system-managed. This is provider-agnostic — it does not rely on secret reference name
+// patterns.
 //
 // These must be handled separately from processEnvVars because processEnvVars would use the
 // env var name (e.g., "CUSTOM_API_KEY") as the SecretKeyRef.Key, but the actual key in the
@@ -4088,7 +4068,7 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 //
 // For sensitive env vars (isSensitive=true):
 //   - If secretRef is provided and value is empty: preserves existing secret (no KV update)
-//   - If value is provided: stores/updates the secret value in OpenBao
+//   - If value is provided: stores/updates the secret value in the secret store
 //   - Returns env var with secretKeyRef (Name=K8s Secret name, Key=property)
 //
 // For plain env vars:

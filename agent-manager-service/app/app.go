@@ -78,7 +78,7 @@ type Options struct {
 // The authProvider parameter allows different deployments to inject their own
 // authentication mechanism (e.g., OAuth2 for open-source, workload identity for cloud).
 // The secretProvider parameter allows different deployments to inject their own
-// secret management backend (e.g., OpenBao for open-source, cloud-specific for cloud).
+// secret management backend (e.g., the OpenChoreo secret API for open-source, cloud-specific for cloud).
 func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Provider, opts Options) {
 	cfg := config.GetConfig()
 

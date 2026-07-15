@@ -212,7 +212,7 @@ func (e *monitorExecutor) UpdateNextRunTime(ctx context.Context, monitorID uuid.
 // Returns empty strings if no proxy mapping exists.
 // The KV path and secret key are read from the persisted mapping (set during provisioning
 // from the OpenChoreo SecretReference remoteRef fields) rather than recomputed from the
-// raw OpenBao path, which the workflow runtime cannot use to mount env vars into pods.
+// raw KV path, which the workflow runtime cannot use to mount env vars into pods.
 func (e *monitorExecutor) resolveLLMProxyConfig(ctx context.Context, monitor *models.Monitor) (secretPath, proxyURL, templateHandle string, err error) {
 	mappings, err := e.monitorLLMMappingRepo.ListByMonitorID(ctx, monitor.ID)
 	if err != nil {

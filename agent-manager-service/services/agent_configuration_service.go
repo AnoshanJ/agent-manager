@@ -1109,7 +1109,7 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 			rollbackResources[rbIdx].appEnvName = env.Name
 		}
 
-		// Store proxy API key in OpenBao KV and create SecretReference
+		// Store proxy API key via the secret management client (provider manages the SecretReference)
 		proxySecretLoc := secretmanagersvc.SecretLocation{
 			OrgName:         ouID,
 			ProjectName:     projectName,
@@ -1728,7 +1728,7 @@ func (s *agentConfigurationService) processEnvProviderChange(
 		rbRes.appEnvName = envName
 	}
 
-	// Store proxy API key in OpenBao KV and create/update SecretReference
+	// Store proxy API key via the secret management client (provider manages the SecretReference)
 	proxySecretLoc := secretmanagersvc.SecretLocation{
 		OrgName:         ouID,
 		ProjectName:     config.ProjectName,
@@ -1984,7 +1984,7 @@ func (s *agentConfigurationService) processNewEnv(
 		rbRes.appEnvName = envName
 	}
 
-	// Store proxy API key in OpenBao KV and create/update SecretReference
+	// Store proxy API key via the secret management client (provider manages the SecretReference)
 	proxySecretLoc := secretmanagersvc.SecretLocation{
 		OrgName:         ouID,
 		ProjectName:     config.ProjectName,
