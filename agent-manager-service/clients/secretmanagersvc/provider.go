@@ -53,13 +53,13 @@ type SecretsClient interface {
 	// Returns the secret reference identifier (the secret name for OpenChoreo).
 	// If the secret already exists, it will be fully replaced.
 	// Metadata is used for ownership tracking (managed-by).
-	PushSecret(ctx context.Context, location SecretLocation, value []byte, metadata *SecretMetadata) (string, error)
+	PushSecret(ctx context.Context, location SecretLocation, data map[string]string, metadata *SecretMetadata) (string, error)
 
-	// PatchSecret merges data with an existing secret (server-side merge).
-	// Keys in value are added/updated, keys set to null are deleted, omitted keys are preserved.
+	// PatchSecret merges data with an existing secret.
+	// Keys in data are added/updated, keys in keysToDelete are removed, omitted keys are preserved.
 	// Returns the secret reference identifier (the secret name for OpenChoreo).
 	// Returns ErrSecretNotFound if the secret doesn't exist.
-	PatchSecret(ctx context.Context, location SecretLocation, value []byte, metadata *SecretMetadata) (string, error)
+	PatchSecret(ctx context.Context, location SecretLocation, data map[string]string, keysToDelete []string, metadata *SecretMetadata) (string, error)
 
 	// DeleteSecret removes a secret from the backend.
 	// Returns nil if the secret doesn't exist (idempotent).

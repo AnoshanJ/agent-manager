@@ -18,7 +18,6 @@ package secretmanagersvc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -319,17 +318,11 @@ func NewSecretManagementClientWithConfig(cfg SecretManagementClientConfig) (Secr
 // Returns the secret reference identifier from the provider (the name of the
 // secret, which is also the name of its provider-managed SecretReference).
 func (c *secretManagementClient) CreateSecret(ctx context.Context, location SecretLocation, secretData map[string]string) (string, error) {
-	// Convert map to JSON bytes
-	data, err := json.Marshal(secretData)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal secret data: %w", err)
-	}
-
 	// Push the secret - provider derives name/labels from location
 	metadata := &SecretMetadata{
 		ManagedBy: c.managedBy,
 	}
-	secretRef, err := c.lowLevelClient.PushSecret(ctx, location, data, metadata)
+	secretRef, err := c.lowLevelClient.PushSecret(ctx, location, secretData, metadata)
 	if err != nil {
 		return "", fmt.Errorf("failed to upsert secret: %w", err)
 	}
@@ -341,25 +334,10 @@ func (c *secretManagementClient) CreateSecret(ctx context.Context, location Secr
 // Keys in data are added/updated, keys in keysToDelete are removed.
 // Returns the secret reference identifier (same semantics as CreateSecret).
 func (c *secretManagementClient) PatchSecret(ctx context.Context, location SecretLocation, secretData map[string]string, keysToDelete []string) (string, error) {
-	// Build patch data: include updates and set deleted keys to null
-	patchData := make(map[string]any)
-	for k, v := range secretData {
-		patchData[k] = v
-	}
-	for _, k := range keysToDelete {
-		patchData[k] = nil // null signals deletion in JSON Merge Patch
-	}
-
-	// Convert to JSON bytes
-	data, err := json.Marshal(patchData)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal patch data: %w", err)
-	}
-
 	metadata := &SecretMetadata{
 		ManagedBy: c.managedBy,
 	}
-	secretRef, err := c.lowLevelClient.PatchSecret(ctx, location, data, metadata)
+	secretRef, err := c.lowLevelClient.PatchSecret(ctx, location, secretData, keysToDelete, metadata)
 	if err != nil {
 		return "", fmt.Errorf("failed to patch secret: %w", err)
 	}

@@ -18,9 +18,9 @@ package openchoreo
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
@@ -76,43 +76,14 @@ func userLabels(existing map[string]string, managedBy string) map[string]string 
 	return labels
 }
 
-// decodeSecretData unmarshals a JSON object of key/value pairs. Non-string
-// values are re-encoded as JSON strings; if the payload is not a JSON object,
-// it is stored under a single "value" key.
-func decodeSecretData(value []byte) (map[string]string, error) {
-	var raw map[string]any
-	if err := json.Unmarshal(value, &raw); err != nil {
-		return map[string]string{"value": string(value)}, nil
-	}
-	data := make(map[string]string, len(raw))
-	for k, v := range raw {
-		switch s := v.(type) {
-		case string:
-			data[k] = s
-		default:
-			encoded, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encode secret value for key %q: %w", k, err)
-			}
-			data[k] = string(encoded)
-		}
-	}
-	return data, nil
-}
-
 // PushSecret writes a secret via the OpenChoreo API, replacing all existing data.
 // Returns the secret name, which is also the underlying SecretReference name.
-func (c *Client) PushSecret(ctx context.Context, location secretmanagersvc.SecretLocation, value []byte, metadata *secretmanagersvc.SecretMetadata) (string, error) {
+func (c *Client) PushSecret(ctx context.Context, location secretmanagersvc.SecretLocation, data map[string]string, metadata *secretmanagersvc.SecretMetadata) (string, error) {
 	if err := validateMetadata(metadata); err != nil {
 		return "", err
 	}
 
 	name := location.SecretRefName()
-	data, err := decodeSecretData(value)
-	if err != nil {
-		return "", err
-	}
-
 	existing, err := c.oc.GetSecret(ctx, location.OrgName, name)
 	if err != nil && !errors.Is(err, utils.ErrNotFound) {
 		return "", fmt.Errorf("failed to check secret existence: %w", err)
@@ -155,10 +126,10 @@ func (c *Client) PushSecret(ctx context.Context, location secretmanagersvc.Secre
 	return name, nil
 }
 
-// PatchSecret merges data with an existing secret. Keys in value are
-// added/updated, keys set to null are deleted, omitted keys are preserved.
+// PatchSecret merges data with an existing secret. Keys in data are
+// added/updated, keys in keysToDelete are removed, omitted keys are preserved.
 // Returns the secret name, which is also the underlying SecretReference name.
-func (c *Client) PatchSecret(ctx context.Context, location secretmanagersvc.SecretLocation, value []byte, metadata *secretmanagersvc.SecretMetadata) (string, error) {
+func (c *Client) PatchSecret(ctx context.Context, location secretmanagersvc.SecretLocation, data map[string]string, keysToDelete []string, metadata *secretmanagersvc.SecretMetadata) (string, error) {
 	if err := validateMetadata(metadata); err != nil {
 		return "", err
 	}
@@ -176,31 +147,15 @@ func (c *Client) PatchSecret(ctx context.Context, location secretmanagersvc.Secr
 		return "", secretmanagersvc.ErrNotManaged
 	}
 
-	var patch map[string]any
-	if err := json.Unmarshal(value, &patch); err != nil {
-		return "", fmt.Errorf("failed to unmarshal patch data: %w", err)
-	}
-
-	// Merge the patch client-side: the OpenChoreo update replaces all data,
-	// so the JSON Merge Patch semantics are applied against the current state.
-	merged := make(map[string]string, len(existing.Data)+len(patch))
+	// Merge client-side: the OpenChoreo update replaces all data, so the merge
+	// semantics are applied against the current state.
+	merged := make(map[string]string, len(existing.Data)+len(data))
 	for k, v := range existing.Data {
 		merged[k] = string(v)
 	}
-	for k, v := range patch {
-		if v == nil {
-			delete(merged, k) // null signals deletion in JSON Merge Patch
-			continue
-		}
-		if s, ok := v.(string); ok {
-			merged[k] = s
-			continue
-		}
-		encoded, err := json.Marshal(v)
-		if err != nil {
-			return "", fmt.Errorf("failed to encode secret value for key %q: %w", k, err)
-		}
-		merged[k] = string(encoded)
+	maps.Copy(merged, data)
+	for _, k := range keysToDelete {
+		delete(merged, k)
 	}
 
 	if _, err := c.oc.UpdateSecret(ctx, location.OrgName, name, occlient.UpdateSecretRequest{
