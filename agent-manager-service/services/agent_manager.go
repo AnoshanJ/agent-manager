@@ -3485,6 +3485,15 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			}
 		}
 		fileOverrides = srcFileVars
+
+		// The cloned overrides reference the SOURCE environment's secret by name.
+		// Give the target environment its own copy and re-point the references,
+		// so a later secret edit in one environment cannot break the other.
+		envOverrides, fileOverrides, err = s.cloneEnvSecretForPromotion(ctx, ouID, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides)
+		if err != nil {
+			s.logger.Error("Failed to clone env secret for promotion", "agentName", agentName, "error", err)
+			return fmt.Errorf("failed to clone environment secret for promotion: %w", err)
+		}
 	} else {
 		// User-driven overrides: only what the request carries (plus target system vars
 		// appended below). Source env's user-managed env/files are NOT inherited.
@@ -4057,6 +4066,86 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 	}
 
 	return result, keySet, nil
+}
+
+// cloneEnvSecretForPromotion gives the target environment its own copy of the
+// source environment's agent secret. Workload overrides cloned from the source
+// environment reference the source secret by name; without a copy, both
+// environments would share one secret and a later secret edit in either
+// environment could break the other's rendering. Env var and file mount
+// references to the source secret are re-pointed at the target copy.
+// No-op when the cloned overrides don't reference the source env secret.
+func (s *agentManagerService) cloneEnvSecretForPromotion(
+	ctx context.Context,
+	ouID, projectName, agentName, sourceEnv, targetEnv string,
+	envVars []client.EnvVar,
+	fileVars []client.FileVar,
+) ([]client.EnvVar, []client.FileVar, error) {
+	srcLocation := secretmanagersvc.SecretLocation{
+		OrgName:         ouID,
+		ProjectName:     projectName,
+		EnvironmentName: sourceEnv,
+		EntityName:      agentName,
+	}
+	srcSecretName := srcLocation.SecretRefName()
+
+	refersToSrc := func(vf *client.EnvVarValueFrom) bool {
+		return vf != nil && vf.SecretKeyRef != nil && vf.SecretKeyRef.Name == srcSecretName
+	}
+	referenced := false
+	for _, ev := range envVars {
+		if refersToSrc(ev.ValueFrom) {
+			referenced = true
+			break
+		}
+	}
+	if !referenced {
+		for _, fv := range fileVars {
+			if refersToSrc(fv.ValueFrom) {
+				referenced = true
+				break
+			}
+		}
+	}
+	if !referenced {
+		return envVars, fileVars, nil
+	}
+
+	if s.secretMgmtClient == nil {
+		return nil, nil, fmt.Errorf("secret management is not initialized; cannot clone secret for promotion")
+	}
+
+	srcSecret, err := s.ocClient.GetSecret(ctx, ouID, srcSecretName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read source environment secret %q: %w", srcSecretName, err)
+	}
+	data := make(map[string]string, len(srcSecret.Data))
+	for k, v := range srcSecret.Data {
+		data[k] = string(v)
+	}
+
+	tgtLocation := srcLocation
+	tgtLocation.EnvironmentName = targetEnv
+	tgtSecretName, err := s.secretMgmtClient.CreateSecret(ctx, tgtLocation, data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create target environment secret: %w", err)
+	}
+
+	for i := range envVars {
+		if refersToSrc(envVars[i].ValueFrom) {
+			envVars[i].ValueFrom.SecretKeyRef.Name = tgtSecretName
+		}
+	}
+	for i := range fileVars {
+		if refersToSrc(fileVars[i].ValueFrom) {
+			fileVars[i].ValueFrom.SecretKeyRef.Name = tgtSecretName
+		}
+	}
+
+	s.logger.Info("Cloned environment secret for promotion",
+		"agentName", agentName, "sourceSecret", srcSecretName, "targetSecret", tgtSecretName,
+		"sourceEnv", sourceEnv, "targetEnv", targetEnv)
+	return envVars, fileVars, nil
 }
 
 // processEnvVars handles environment variables, separating secrets from plain values.
