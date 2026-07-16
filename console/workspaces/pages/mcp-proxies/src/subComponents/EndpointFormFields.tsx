@@ -89,7 +89,7 @@ const MASKED_CREDENTIAL_VALUE = "••••••••••••";
 // so a fetch isn't fired on every keystroke.
 const FETCH_DEBOUNCE_MS = 600;
 
-const DURATION_PATTERN = /^\d+(ms|s|m|h)$/;
+const DURATION_PATTERN = /^\d+(\.\d+)?(ms|s|m|h)$/;
 
 export interface EndpointFormFieldsProps {
   orgId: string;

@@ -494,8 +494,8 @@ func TestGenerateMCPProxyDeploymentYAML_MissingUpstreamURL(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error for missing upstream URL, got nil")
 			}
-			if !strings.Contains(err.Error(), "upstream URL is required") {
-				t.Errorf("expected 'upstream URL is required', got %q", err.Error())
+			if !strings.Contains(err.Error(), "upstream URL or ref is required") {
+				t.Errorf("expected 'upstream URL or ref is required', got %q", err.Error())
 			}
 		})
 	}

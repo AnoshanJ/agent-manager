@@ -18,7 +18,7 @@
 import { z } from "zod";
 
 const VERSION_PATTERN = /^v\d+\.\d+$/;
-const DURATION_PATTERN = /^\d+(ms|s|m|h)$/;
+const DURATION_PATTERN = /^\d+(\.\d+)?(ms|s|m|h)$/;
 
 export const addLLMProviderSchema = z.object({
   templateId: z

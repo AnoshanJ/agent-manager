@@ -443,10 +443,11 @@ func (s *MCPProxyService) buildMCPProxyDeploymentYAML(proxy *models.MCPProxy, pr
 	if proxy.Configuration.Upstream.Main != nil {
 		main := proxy.Configuration.Upstream.Main
 		upstream.URL = normalizeMCPUpstreamURLForDeployment(main.URL)
+		upstream.Ref = main.Ref
 		upstreamAuth = main.Auth
 	}
 	if strings.TrimSpace(upstream.URL) == "" && strings.TrimSpace(upstream.Ref) == "" {
-		return nil, fmt.Errorf("upstream URL is required")
+		return nil, fmt.Errorf("upstream URL or ref is required")
 	}
 	policies, err := appendMCPAPIKeyAuthPolicy(proxy.Configuration.Policies, proxy.Configuration.Security)
 	if err != nil {
