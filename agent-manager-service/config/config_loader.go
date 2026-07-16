@@ -214,6 +214,7 @@ func loadEnvs() {
 		Provider:        r.readOptionalString("SECRET_MANAGER_PROVIDER", "openchoreo"),
 		TargetPlaneKind: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_KIND", "ClusterDataPlane"),
 		TargetPlaneName: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_NAME", "default"),
+		RefreshInterval: r.readOptionalString("SECRET_MANAGER_REFRESH_INTERVAL", "1h"),
 	}
 
 	// OpenBao KV store configuration (data plane - for deployment secrets)

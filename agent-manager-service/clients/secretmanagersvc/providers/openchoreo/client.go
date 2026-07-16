@@ -18,6 +18,7 @@ package openchoreo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -222,6 +223,30 @@ func (c *Client) GetSecret(ctx context.Context, location secretmanagersvc.Secret
 		Labels:    secret.Labels,
 		CreatedAt: secret.CreatedAt,
 	}, nil
+}
+
+// GetSecretWithValue retrieves the actual secret values as raw JSON.
+func (c *Client) GetSecretWithValue(ctx context.Context, location secretmanagersvc.SecretLocation) ([]byte, error) {
+	name := location.SecretRefName()
+	secret, err := c.oc.GetSecret(ctx, location.OrgName, name)
+	if err != nil {
+		if errors.Is(err, utils.ErrNotFound) {
+			return nil, secretmanagersvc.ErrSecretNotFound
+		}
+		return nil, fmt.Errorf("failed to read secret: %w", err)
+	}
+
+	data := make(map[string]string, len(secret.Data))
+	for k, v := range secret.Data {
+		data[k] = string(v)
+	}
+
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal secret data: %w", err)
+	}
+
+	return raw, nil
 }
 
 // Close cleans up resources.

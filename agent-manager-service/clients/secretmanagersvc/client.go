@@ -18,6 +18,7 @@ package secretmanagersvc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -269,6 +270,11 @@ type SecretManagementClient interface {
 	// GetSecret retrieves secret metadata without values.
 	// Returns SecretInfo containing ID, keys list, and labels.
 	GetSecret(ctx context.Context, kvPath string) (*SecretInfo, error)
+
+	// GetSecretWithValue retrieves a secret by its full KV path including actual values.
+	// Returns the secret data as a key-value map.
+	// Returns ErrNotSupported if the provider doesn't support value retrieval.
+	GetSecretWithValue(ctx context.Context, kvPath string) (map[string]string, error)
 }
 
 // secretManagementClient implements SecretManagementClient using the low-level SecretsClient.
@@ -371,4 +377,24 @@ func (c *secretManagementClient) GetSecret(ctx context.Context, kvPath string) (
 		return nil, fmt.Errorf("failed to get secret info at path %q: %w", kvPath, err)
 	}
 	return info, nil
+}
+
+// GetSecretWithValue retrieves a secret by its KV path including actual values.
+// Returns the secret data as a key-value map.
+// Returns ErrNotSupported if the provider doesn't support value retrieval.
+func (c *secretManagementClient) GetSecretWithValue(ctx context.Context, kvPath string) (map[string]string, error) {
+	location, err := ParseKVPath(kvPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse KV path %q: %w", kvPath, err)
+	}
+	raw, err := c.lowLevelClient.GetSecretWithValue(ctx, location)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secret at path %q: %w", kvPath, err)
+	}
+
+	var data map[string]string
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal secret data at path %q: %w", kvPath, err)
+	}
+	return data, nil
 }

@@ -144,6 +144,9 @@ type SecretManagerConfig struct {
 	TargetPlaneKind string
 	// TargetPlaneName is the name of the plane hosting secret data
 	TargetPlaneName string
+	// RefreshInterval is how often SecretReference CRs should refresh from the
+	// secret store (default: "1h")
+	RefreshInterval string
 }
 
 // OpenBaoConfig holds OpenBao KV store configuration.
