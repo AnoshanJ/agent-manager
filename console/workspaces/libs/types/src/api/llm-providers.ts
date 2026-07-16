@@ -131,7 +131,10 @@ export interface UpstreamAuth {
 }
 
 export interface Resilience {
-  /** Max duration for the whole request→upstream-response. "0s" disables it; omit to use the gateway's default. */
+  /**
+   * Max duration for the whole request→upstream-response. "0s" disables it;
+   * omit to use the gateway's default.
+   */
   timeout?: string;
   /** Per-route stream idle timeout. "0s" disables it; omit to use the gateway's default. */
   idleTimeout?: string;
