@@ -71,11 +71,6 @@ type SecretsClient interface {
 	// Returns ErrSecretNotFound if the secret doesn't exist.
 	GetSecret(ctx context.Context, location SecretLocation) (*SecretInfo, error)
 
-	// GetSecretWithValue retrieves the actual secret values as raw JSON.
-	// Returns ErrSecretNotFound if the secret doesn't exist.
-	// Returns ErrNotSupported if the provider doesn't support value retrieval.
-	GetSecretWithValue(ctx context.Context, location SecretLocation) ([]byte, error)
-
 	// Close cleans up any resources held by the client.
 	Close(ctx context.Context) error
 }
