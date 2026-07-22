@@ -37,7 +37,7 @@ else
 fi
 
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.7.0"
+GATEWAY_OPERATOR_VERSION="0.10.0"
 GATEWAY_CHART_VERSION="1.1.0"
 
 # OpenChoreo community module versions compatible with OpenChoreo ${OPENCHOREO_VERSION}
@@ -1424,6 +1424,11 @@ fi
 
 log_step "Step 11/13: Installing Gateway Operator"
 log_info "Installing Gateway Operator..."
+# gateway-operator 0.10.0+'s own embedded default probe path is
+# /api/admin/v1/health, but gateway-controller ${GATEWAY_CHART_VERSION} only
+# serves /api/admin/v0.9/health (plus the legacy unversioned /health) — pin to
+# the version-agnostic legacy route so the self-installed controller doesn't
+# crash-loop on every health check.
 helm_install_idempotent \
     "gateway-operator" \
     "oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator" \
@@ -1432,7 +1437,9 @@ helm_install_idempotent \
     --version "${GATEWAY_OPERATOR_VERSION}" \
     --set "logging.level=debug" \
     --set gatewayApi.installStandardCRDs=false \
-    --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}"
+    --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}" \
+    --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/health \
+    --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/health
 
 log_success "Gateway Operator installed"
 
