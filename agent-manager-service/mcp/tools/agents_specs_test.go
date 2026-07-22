@@ -52,7 +52,7 @@ func agentToolSpecs() []toolTestSpec {
 		{
 			name:                "list_project_agent_pairs",
 			toolset:             "agent",
-			permissions:         []rbac.Permission{rbac.AgentRead},
+			permissions:         []rbac.Permission{rbac.AgentRead, rbac.ProjectRead},
 			descriptionKeywords: []string{"project", "agent"},
 			descriptionMinLen:   20,
 			requiredParams:      nil,

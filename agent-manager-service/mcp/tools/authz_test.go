@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
@@ -47,6 +48,24 @@ func callToolViaMiddleware(t *testing.T, reg *toolRegistry, ctx context.Context,
 		return &gomcp.CallToolResult{}, nil
 	}
 	req := &gomcp.CallToolRequest{Params: &gomcp.CallToolParamsRaw{Name: toolName}}
+	result, err := reg.authzMiddleware()(next)(ctx, "tools/call", req)
+	if err != nil {
+		t.Fatalf("middleware returned unexpected error: %v", err)
+	}
+	return result, nextCalled
+}
+
+// callToolViaMiddlewareWithExtra is callToolViaMiddleware but lets the caller
+// attach a RequestExtra (e.g. carrying per-request auth.TokenInfo), mirroring
+// what the SDK's streamable transport stamps onto every JSON-RPC request when
+// auth.RequireBearerToken is wired in front of it (see mcp/setup.go).
+func callToolViaMiddlewareWithExtra(t *testing.T, reg *toolRegistry, ctx context.Context, toolName string, extra *gomcp.RequestExtra) (result gomcp.Result, nextCalled bool) {
+	t.Helper()
+	next := func(_ context.Context, _ string, _ gomcp.Request) (gomcp.Result, error) {
+		nextCalled = true
+		return &gomcp.CallToolResult{}, nil
+	}
+	req := &gomcp.CallToolRequest{Params: &gomcp.CallToolParamsRaw{Name: toolName}, Extra: extra}
 	result, err := reg.authzMiddleware()(next)(ctx, "tools/call", req)
 	if err != nil {
 		t.Fatalf("middleware returned unexpected error: %v", err)
@@ -150,6 +169,22 @@ func TestAuthzMiddlewareDeniesMissingScope(t *testing.T) {
 	}
 }
 
+// TestAuthzMiddlewareDeniesWhenNoClaimsOnContext pins that RBAC enabled with
+// no claims/scopes at all on the context (not even an empty scope string)
+// fails closed rather than open.
+func TestAuthzMiddlewareDeniesWhenNoClaimsOnContext(t *testing.T) {
+	setRBACEnabled(t, true)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	result, nextCalled := callToolViaMiddleware(t, reg, context.Background(), "some_tool")
+	if nextCalled {
+		t.Fatal("next handler ran despite no claims on context")
+	}
+	if got, want := denialText(t, result), "insufficient permissions: this tool requires the amp:agent:build scope"; got != want {
+		t.Fatalf("denial text = %q, want %q", got, want)
+	}
+}
+
 func TestAuthzMiddlewareAllowsMatchingScope(t *testing.T) {
 	setRBACEnabled(t, true)
 	reg := newToolRegistry()
@@ -161,6 +196,45 @@ func TestAuthzMiddlewareAllowsMatchingScope(t *testing.T) {
 	_, nextCalled := callToolViaMiddleware(t, reg, ctx, "some_tool")
 	if !nextCalled {
 		t.Fatal("next handler did not run despite matching scope")
+	}
+}
+
+// TestAuthzMiddlewarePerRequestScopeAllowsWithEmptySession proves the
+// per-request auth.TokenInfo source is consulted (and is sufficient on its
+// own): the session context carries no scopes at all, yet the call is allowed
+// because call.Extra.TokenInfo has the required scope.
+func TestAuthzMiddlewarePerRequestScopeAllowsWithEmptySession(t *testing.T) {
+	setRBACEnabled(t, true)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{Scopes: []string{rbac.AgentBuild.Scope()}}}
+	_, nextCalled := callToolViaMiddlewareWithExtra(t, reg, context.Background(), "some_tool", extra)
+	if !nextCalled {
+		t.Fatal("next handler did not run despite matching per-request scope")
+	}
+}
+
+// TestAuthzMiddlewarePerRequestScopeTakesPrecedenceOverSession proves that
+// when call.Extra.TokenInfo is present, it is authoritative even if the
+// SESSION context separately carries the required scope: a request whose
+// per-request TokenInfo lacks the scope is denied.
+func TestAuthzMiddlewarePerRequestScopeTakesPrecedenceOverSession(t *testing.T) {
+	setRBACEnabled(t, true)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	// Session context has the required scope...
+	ctx := jwtassertion.ContextWithTokenClaimsAndScope(context.Background(), &jwtassertion.TokenClaims{
+		OuId:  testOrgName,
+		Scope: rbac.AgentBuild.Scope(),
+	})
+	// ...but the per-request TokenInfo does not.
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{Scopes: []string{rbac.AgentRead.Scope()}}}
+	result, nextCalled := callToolViaMiddlewareWithExtra(t, reg, ctx, "some_tool", extra)
+	if nextCalled {
+		t.Fatal("next handler ran despite per-request TokenInfo lacking the required scope")
+	}
+	if got, want := denialText(t, result), "insufficient permissions: this tool requires the amp:agent:build scope"; got != want {
+		t.Fatalf("denial text = %q, want %q", got, want)
 	}
 }
 

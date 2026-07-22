@@ -19,6 +19,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -81,13 +82,34 @@ func (reg *toolRegistry) authzMiddleware() gomcp.Middleware {
 			if !config.GetConfig().RBACEnabled {
 				return next(ctx, method, req)
 			}
+			hasScope := scopeChecker(ctx, call)
 			for _, perm := range perms {
-				if !jwtassertion.HasAllScopes(ctx, []string{perm.Scope()}) {
+				if !hasScope(perm.Scope()) {
 					return denyResult(fmt.Sprintf("insufficient permissions: this tool requires the %s scope", perm.Scope())), nil
 				}
 			}
 			return next(ctx, method, req)
 		}
+	}
+}
+
+// scopeChecker returns a function that reports whether a given scope is
+// present for the current request. It prefers the per-request scopes the SDK
+// attaches via call.Extra.TokenInfo (populated by claimsTokenVerifier through
+// auth.RequireBearerToken — see mcp/tokeninfo.go and mcp/setup.go) since those
+// reflect the token that made this specific HTTP request. When Extra.TokenInfo
+// is absent — in-memory transports and tests have no HTTP layer, so it's
+// always nil there — it falls back to the scopes jwtassertion put on the
+// session context.
+func scopeChecker(ctx context.Context, call *gomcp.CallToolRequest) func(scope string) bool {
+	if call.Extra != nil && call.Extra.TokenInfo != nil {
+		scopes := call.Extra.TokenInfo.Scopes
+		return func(scope string) bool {
+			return slices.Contains(scopes, scope)
+		}
+	}
+	return func(scope string) bool {
+		return jwtassertion.HasAllScopes(ctx, []string{scope})
 	}
 }
 

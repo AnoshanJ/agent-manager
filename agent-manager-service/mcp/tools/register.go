@@ -26,11 +26,15 @@ func (tools *Toolsets) Register(server *gomcp.Server) {
 
 // register is Register minus the exported surface: it returns the registry so
 // same-package tests can assert the tool→permission wiring directly.
-// A nil receiver returns an empty registry without touching the server,
-// matching the old behavior (production always passes a non-nil Toolsets,
-// and NewHTTPServer skips Register entirely for nil toolsets).
+// The fail-closed authorization middleware is installed on the server before
+// the nil-receiver check, so even a server built with nil toolsets (no tools
+// registered at all) denies every tools/call rather than silently having no
+// authz middleware installed. Installing it before any tools are added is
+// safe: sessions only exist after Connect, which happens after Register
+// returns in both production and tests.
 func (tools *Toolsets) register(server *gomcp.Server) *toolRegistry {
 	reg := newToolRegistry()
+	server.AddReceivingMiddleware(reg.authzMiddleware())
 	if tools == nil {
 		return reg
 	}
@@ -46,6 +50,5 @@ func (tools *Toolsets) register(server *gomcp.Server) *toolRegistry {
 	if tools.DeploymentToolset != nil {
 		tools.registerDeploymentTools(server, reg)
 	}
-	server.AddReceivingMiddleware(reg.authzMiddleware())
 	return reg
 }

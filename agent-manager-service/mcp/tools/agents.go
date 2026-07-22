@@ -163,7 +163,7 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 				"agent_limit":    intProperty("Optional. Agent pagination limit (1-50)."),
 				"agent_offset":   intProperty("Optional. Agent pagination offset (>= 0)."),
 			}, nil),
-		}, listProjectAgentPairs(t.AgentToolset, t.ProjectToolset), rbac.AgentRead)
+		}, listProjectAgentPairs(t.AgentToolset, t.ProjectToolset), rbac.AgentRead, rbac.ProjectRead)
 	}
 	addTool(reg, server, &gomcp.Tool{
 		Name: "create_external_agent",
