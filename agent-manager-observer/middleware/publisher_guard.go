@@ -17,36 +17,17 @@
 package middleware
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// RejectPublisherAudience returns middleware that rejects tokens whose audience
-// matches the amp-publisher-* carve-out with 403. It runs after JWTAuth, so the
-// token is already signature-verified; it is re-parsed here without verification
-// only to read the audience claim.
-func RejectPublisherAudience() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if IsPublisherAudience(r.Header.Get("Authorization")) {
-				writeAuthError(w, http.StatusForbidden,
-					"publisher tokens are not permitted on this endpoint")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // IsPublisherAudience reports whether the Bearer token in authHeader carries an
 // amp-publisher-* audience. The token is parsed without verifying its signature
 // — callers must ensure it was already validated by JWTAuth — purely to read
 // the audience claim. A missing, non-Bearer, or unparseable token reports false
-// (JWTAuth is responsible for rejecting those). It lets both the REST
-// RejectPublisherAudience middleware and the am-obs-mcp tool handlers apply the
-// same publisher carve-out regardless of transport.
+// (JWTAuth is responsible for rejecting those). It lets the am-obs-mcp tool
+// handlers apply the publisher carve-out.
 func IsPublisherAudience(authHeader string) bool {
 	tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	if tokenString == "" || tokenString == authHeader {
