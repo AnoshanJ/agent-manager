@@ -55,6 +55,35 @@ type ErrorBody struct {
 	Message string `json:"message"`
 }
 
+// TokenClaims are the JWT claims agent-manager-observer reads. Scope is the
+// space-delimited OAuth scope string. OuId/OuHandle are present on user tokens
+// minted via the platform IDP and absent on client-credentials (m2m) tokens.
+type TokenClaims struct {
+	Sub      string `json:"sub"`
+	Scope    string `json:"scope"`
+	OuId     string `json:"ouId"`
+	OuHandle string `json:"ouHandle"`
+	jwt.RegisteredClaims
+}
+
+type tokenClaimsCtxKey struct{}
+
+// GetTokenClaims returns the validated token claims stored by JWTAuth, or nil
+// when the request did not pass through JWTAuth.
+func GetTokenClaims(ctx context.Context) *TokenClaims {
+	claims, ok := ctx.Value(tokenClaimsCtxKey{}).(*TokenClaims)
+	if !ok {
+		return nil
+	}
+	return claims
+}
+
+// ContextWithTokenClaims returns ctx carrying claims as if JWTAuth had
+// validated a token. Intended for tests and non-HTTP entry points.
+func ContextWithTokenClaims(ctx context.Context, claims *TokenClaims) context.Context {
+	return context.WithValue(ctx, tokenClaimsCtxKey{}, claims)
+}
+
 var (
 	jwksCache      *JWKS
 	jwksCacheMutex sync.RWMutex
@@ -113,34 +142,31 @@ func JWTAuth(cfg config.AuthConfig) func(http.Handler) http.Handler {
 				return
 			}
 
-			if err := validateJWT(r.Context(), tokenString, cfg); err != nil {
+			claims, err := validateJWT(r.Context(), tokenString, cfg)
+			if err != nil {
 				slog.Error("JWT validation failed", "error", err)
 				w.Header().Set("WWW-Authenticate", buildBearerChallenge(resourceMetadataURL, "invalid_token"))
 				writeAuthError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ContextWithTokenClaims(r.Context(), claims)))
 		})
 	}
 }
 
-func validateJWT(ctx context.Context, tokenString string, cfg config.AuthConfig) error {
+func validateJWT(ctx context.Context, tokenString string, cfg config.AuthConfig) (*TokenClaims, error) {
 	if cfg.JWKSUrl != "" {
 		return validateWithJWKS(ctx, tokenString, cfg)
 	}
 	if cfg.IsLocalDevEnv {
 		return validateLocalDev(tokenString)
 	}
-	return fmt.Errorf("KEY_MANAGER_JWKS_URL must be configured for JWT validation")
+	return nil, fmt.Errorf("KEY_MANAGER_JWKS_URL must be configured for JWT validation")
 }
 
-func validateWithJWKS(ctx context.Context, tokenString string, cfg config.AuthConfig) error {
-	type claims struct {
-		jwt.RegisteredClaims
-	}
-
-	token, err := jwt.ParseWithClaims(tokenString, &claims{}, func(token *jwt.Token) (interface{}, error) {
+func validateWithJWKS(ctx context.Context, tokenString string, cfg config.AuthConfig) (*TokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -170,49 +196,37 @@ func validateWithJWKS(ctx context.Context, tokenString string, cfg config.AuthCo
 		jwt.WithIssuedAt(),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 	if !token.Valid {
-		return fmt.Errorf("token is not valid")
+		return nil, fmt.Errorf("token is not valid")
 	}
 
-	c, ok := token.Claims.(*claims)
+	c, ok := token.Claims.(*TokenClaims)
 	if !ok {
-		return fmt.Errorf("failed to extract claims")
+		return nil, fmt.Errorf("failed to extract claims")
 	}
 
 	if err := validateIssuer(c.Issuer, cfg.Issuer); err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateAudience(c.Audience, cfg.Audience); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return c, nil
 }
 
 // validateLocalDev parses the token without signature verification (dev-only).
-func validateLocalDev(tokenString string) error {
+func validateLocalDev(tokenString string) (*TokenClaims, error) {
 	p := jwt.NewParser()
-	token, _, err := p.ParseUnverified(tokenString, jwt.MapClaims{})
-	if err != nil {
-		return fmt.Errorf("failed to parse token: %w", err)
+	claims := &TokenClaims{}
+	if _, _, err := p.ParseUnverified(tokenString, claims); err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return fmt.Errorf("failed to extract claims")
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time) {
+		return nil, fmt.Errorf("token has expired")
 	}
-
-	expVal, hasExp := claims["exp"]
-	if hasExp {
-		switch v := expVal.(type) {
-		case float64:
-			if time.Now().Unix() > int64(v) {
-				return fmt.Errorf("token has expired")
-			}
-		}
-	}
-	return nil
+	return claims, nil
 }
 
 func validateIssuer(issuer string, allowed []string) error {
