@@ -126,11 +126,17 @@ run_install() {
   export PLATFORM_THUNDER_ISSUER="https://${thunder_host_full}"
   export PLATFORM_THUNDER_JWKS_URL="https://${thunder_host_full}/oauth2/jwks"
   # install_default_env_thunder() runs off-cluster and calls both the AMP API and
-  # platform Thunder's token endpoint over the host-facing ingress. Its localhost
-  # defaults resolve here but 404: the k3d loopback ports answer, while the routes
-  # are bound to the sslip.io hosts below, so no hostname matches.
-  export AMP_API_URL="https://$(vm_host api "$VM_IP")/api/v1"
-  export IDP_TOKEN_URL="https://${thunder_host_full}/oauth2/token"
+  # platform Thunder's token endpoint. Its *.amp.localhost defaults resolve here
+  # but 404, because this install binds those routes to the sslip.io hosts. Address
+  # them by their real hostnames on the control-plane kgateway's loopback port:
+  # Caddy is not up yet (start_caddy runs only after the base installer returns),
+  # so :443 would simply refuse the connection. ensure_loopback_alias makes the
+  # hostname resolve to 127.0.0.1 so the Host header still matches the route.
+  local api_host; api_host="$(vm_host api "$VM_IP")"
+  [[ -n "$api_host" ]] || die "could not derive the API host for ${VM_IP}"
+  ensure_loopback_alias "$api_host" "$thunder_host_full"
+  export AMP_API_URL="http://${api_host}:8080/api/v1"
+  export IDP_TOKEN_URL="http://${thunder_host_full}:8080/oauth2/token"
 
   # Loopback-bound k3d config.
   render_k3d_vm_config <"${QS_DIR}/k3d-config.yaml" >/tmp/k3d-config-vm.yaml

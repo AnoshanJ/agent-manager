@@ -1567,7 +1567,19 @@ if ! install_default_env_thunder; then
     echo "  ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"
     echo "  AMP_API_URL=${AMP_API_URL:-http://api.amp.localhost:8080/api/v1} \\"
     echo "  IDP_TOKEN_URL=${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token} \\"
-    echo "  bash ${DEPLOYMENTS_DIR}/scripts/add-environment-thunder.sh"
+    # install_default_env_thunder() prefers the bundled script and falls back to
+    # downloading it; a standalone (curl-piped) install has no scripts/ directory,
+    # so pointing at the bundled path there would send the operator to a file that
+    # does not exist. Name the release copy instead, and pass SCRIPT_BASE_URL so
+    # the script fetches its own siblings from that same release rather than main.
+    env_thunder_script="${DEPLOYMENTS_DIR}/scripts/add-environment-thunder.sh"
+    if [[ -f "${env_thunder_script}" ]]; then
+        echo "  bash ${env_thunder_script}"
+    else
+        env_thunder_base="https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/scripts"
+        echo "  SCRIPT_BASE_URL=${env_thunder_base} \\"
+        echo "  bash <(curl -fsSL ${env_thunder_base}/add-environment-thunder.sh)"
+    fi
     exit 1
 fi
 log_success "Default environment Thunder identity provider provisioned"
