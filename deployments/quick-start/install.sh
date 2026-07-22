@@ -1555,16 +1555,23 @@ echo ""
 
 log_info "Provisioning Thunder identity provider for the default environment..."
 ENV_THUNDER_PROVISIONED=false
+# Fatal: without env-Thunder the gateway extension silently skips its
+# ThunderKeyManager identity provider (install_gateway_extension only sets
+# bootstrap.identityProviders when this release exists), so the gateway keeps a
+# keymanager that Agent Manager has no mirror row for. That drift surfaces much
+# later as an empty Identity Providers page, long after the installer claimed
+# success — fail here instead, while the cause is still on screen.
 if ! install_default_env_thunder; then
-    log_warning "Default environment Thunder provisioning failed (non-fatal)"
+    log_error "Default environment Thunder provisioning failed"
     echo "Re-run manually once the platform is ready:"
     echo "  ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"
-    echo "  AMP_API_URL=http://api.amp.localhost:8080/api/v1 \\"
+    echo "  AMP_API_URL=${AMP_API_URL:-http://api.amp.localhost:8080/api/v1} \\"
+    echo "  IDP_TOKEN_URL=${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token} \\"
     echo "  bash ${DEPLOYMENTS_DIR}/scripts/add-environment-thunder.sh"
-else
-    log_success "Default environment Thunder identity provider provisioned"
-    ENV_THUNDER_PROVISIONED=true
+    exit 1
 fi
+log_success "Default environment Thunder identity provider provisioned"
+ENV_THUNDER_PROVISIONED=true
 echo ""
 
 # Install observability extension

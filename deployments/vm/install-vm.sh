@@ -125,6 +125,12 @@ run_install() {
   export SKIP_CA_BUNDLE_TRUST=true
   export PLATFORM_THUNDER_ISSUER="https://${thunder_host_full}"
   export PLATFORM_THUNDER_JWKS_URL="https://${thunder_host_full}/oauth2/jwks"
+  # install_default_env_thunder() runs off-cluster and calls both the AMP API and
+  # platform Thunder's token endpoint over the host-facing ingress. Its localhost
+  # defaults resolve here but 404: the k3d loopback ports answer, while the routes
+  # are bound to the sslip.io hosts below, so no hostname matches.
+  export AMP_API_URL="https://$(vm_host api "$VM_IP")/api/v1"
+  export IDP_TOKEN_URL="https://${thunder_host_full}/oauth2/token"
 
   # Loopback-bound k3d config.
   render_k3d_vm_config <"${QS_DIR}/k3d-config.yaml" >/tmp/k3d-config-vm.yaml

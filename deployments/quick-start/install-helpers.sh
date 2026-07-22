@@ -275,12 +275,17 @@ install_default_env_thunder() {
         script_base_url="$(dirname "$script_url")"
     fi
 
-    # AMP_API_URL uses the host-facing ingress (this runs off-cluster, not the
-    # gateway Job's in-cluster DNS); AMS is confirmed healthy before this runs.
+    # AMP_API_URL and IDP_TOKEN_URL address the host-facing ingress (this runs
+    # off-cluster, not on the gateway Job's in-cluster DNS); AMS is confirmed
+    # healthy before this runs. The localhost defaults hold only where the routes
+    # are still bound to *.amp.localhost — a deployment that rehosts them (the VM
+    # installers publish *.amp.<host> instead) must export both, or the route
+    # match fails with a 404 and no env-Thunder is ever created.
     ENV_NAME=default \
         DISPLAY_NAME="Default" \
         ORG_NAME=default \
-        AMP_API_URL="http://api.amp.localhost:8080/api/v1" \
+        AMP_API_URL="${AMP_API_URL:-http://api.amp.localhost:8080/api/v1}" \
+        IDP_TOKEN_URL="${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token}" \
         SCRIPT_BASE_URL="${script_base_url}" \
         bash "${script_path}"
     local status=$?
