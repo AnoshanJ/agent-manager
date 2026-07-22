@@ -37,6 +37,7 @@ window.__RUNTIME_CONFIG__ = {
   disableAuth: '$DISABLE_AUTH' === 'true',
   rbacEnabled: '$RBAC_ENABLED' === 'true',
   apiBaseUrl: '$API_BASE_URL',
+  configDiscoveryBaseUrl: '$CONFIG_DISCOVERY_BASE_URL',
   gatewayControlPlaneUrl: '$GATEWAY_CONTROL_PLANE_URL',
   gatewayVersion: '$GATEWAY_VERSION',
   ampVersion: '$AMP_VERSION',
