@@ -21,12 +21,34 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 )
+
+// testAuthMiddleware mimics jwtassertion.NewMockMiddleware — it pins fixed
+// claims on every request's context, standing in for our production JWT
+// middleware — but also sets Sub, since claimsTokenVerifier rejects an empty
+// sub (see mcp/tokeninfo.go). NewMockMiddleware itself doesn't expose a way
+// to set Sub, so this test builds its own equivalent rather than changing
+// that shared helper.
+func testAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := &jwtassertion.TokenClaims{
+			Sub:   "test-user-id",
+			Scope: "test-scopes",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			},
+		}
+		ctx := jwtassertion.ContextWithTokenClaimsAndScope(r.Context(), claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // bearerInjectingTransport adds a fixed Authorization header to every
 // outgoing request. claimsTokenVerifier ignores the raw token value — the
@@ -46,7 +68,7 @@ func (bearerInjectingTransport) RoundTrip(req *http.Request) (*http.Response, er
 // claimsTokenVerifier, nil)(handler)) — over a real HTTP round trip (not the
 // in-memory transport package tools tests use), and verifies that a tool
 // handler observes CallToolRequest.Extra.TokenInfo populated from the claims
-// jwtassertion.NewMockMiddleware puts on the request context.
+// testAuthMiddleware puts on the request context.
 func TestFullHTTPChainDeliversPerRequestTokenInfo(t *testing.T) {
 	var gotTokenInfo *auth.TokenInfo
 
@@ -65,8 +87,7 @@ func TestFullHTTPChainDeliversPerRequestTokenInfo(t *testing.T) {
 
 	// Mirrors mcp/setup.go RegisterRoute: the SDK's bearer-token middleware
 	// runs INSIDE our auth middleware.
-	authMiddleware := jwtassertion.NewMockMiddleware(t)
-	wrapped := authMiddleware(auth.RequireBearerToken(claimsTokenVerifier, nil)(streamableHandler))
+	wrapped := testAuthMiddleware(auth.RequireBearerToken(claimsTokenVerifier, nil)(streamableHandler))
 
 	httpServer := httptest.NewServer(wrapped)
 	t.Cleanup(httpServer.Close)

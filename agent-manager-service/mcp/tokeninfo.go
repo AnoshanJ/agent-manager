@@ -48,6 +48,13 @@ func claimsTokenVerifier(ctx context.Context, _ string, _ *http.Request) (*auth.
 		// reason is clear rather than relying on that implicit behavior.
 		return nil, fmt.Errorf("%w: token claims have no expiration", auth.ErrInvalidToken)
 	}
+	if claims.Sub == "" {
+		// The streamable transport's session-hijack guard only activates when
+		// the session's userID is non-empty (it skips the check entirely for
+		// ""), so an empty sub would silently deactivate the guard we just
+		// wired up. Reject it instead of letting UserID default to "".
+		return nil, fmt.Errorf("%w: token missing sub claim", auth.ErrInvalidToken)
+	}
 	return &auth.TokenInfo{
 		Scopes:     strings.Fields(claims.Scope),
 		UserID:     claims.Sub,

@@ -72,6 +72,22 @@ func TestClaimsTokenVerifierNoClaimsOnContext(t *testing.T) {
 	}
 }
 
+func TestClaimsTokenVerifierEmptySub(t *testing.T) {
+	claims := &jwtassertion.TokenClaims{
+		Sub:   "", // intentionally empty
+		Scope: "amp:agent:read",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	ctx := jwtassertion.ContextWithTokenClaims(context.Background(), claims)
+
+	_, err := claimsTokenVerifier(ctx, "ignored-raw-token", nil)
+	if !errors.Is(err, auth.ErrInvalidToken) {
+		t.Fatalf("err = %v, want wrapping auth.ErrInvalidToken", err)
+	}
+}
+
 func TestClaimsTokenVerifierNoExpiration(t *testing.T) {
 	claims := &jwtassertion.TokenClaims{
 		Sub:   "user-123",
