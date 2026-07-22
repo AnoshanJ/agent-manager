@@ -18,10 +18,12 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 )
 
 // constants for testing
@@ -53,8 +55,17 @@ func setupTestServer(t *testing.T) (*gomcp.ClientSession, *MockToolsetHandler) {
 // lower-level helper used when a test needs to register only a subset of toolsets
 func setupTestServerWithToolsets(t *testing.T, toolsets *Toolsets) *gomcp.ClientSession {
 	t.Helper()
+	return setupTestServerWithClaims(t, toolsets, &jwtassertion.TokenClaims{
+		OuId:  testOrgName,
+		Scope: unionScopes(),
+	})
+}
 
-	// create an in-memory MCP server with all toolsets registered to the same mock handler
+// lowest-level helper: lets authz tests pin the exact token claims (and
+// therefore scopes) the session context carries.
+func setupTestServerWithClaims(t *testing.T, toolsets *Toolsets, claims *jwtassertion.TokenClaims) *gomcp.ClientSession {
+	t.Helper()
+
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "test-agent-manager-mcp",
 		Version: "0.0.1",
@@ -62,18 +73,16 @@ func setupTestServerWithToolsets(t *testing.T, toolsets *Toolsets) *gomcp.Client
 
 	toolsets.Register(server)
 
-	// Tools resolve the caller's OU ID from token claims on the connection
-	// context, mirroring how the assertion middleware injects them in prod.
-	ctx := jwtassertion.ContextWithTokenClaims(context.Background(), &jwtassertion.TokenClaims{
-		OuId: testOrgName,
-	})
+	// Claims + scope string on the connection context, mirroring how the
+	// assertion middleware injects them in prod (HasAllScopes reads the
+	// scope key, not the claims struct).
+	ctx := jwtassertion.ContextWithTokenClaimsAndScope(context.Background(), claims)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
 		t.Fatalf("failed to connect server: %v", err)
 	}
 
-	// create an in-memory client and connect to the in-memory MCP server
 	client := gomcp.NewClient(&gomcp.Implementation{
 		Name:    "test-mcp-client",
 		Version: "0.0.1",
@@ -94,6 +103,10 @@ type toolTestSpec struct {
 
 	// Toolset group names, used by partial-registration tests
 	toolset string // "project", "agent", "build", "deployment"
+
+	// Permissions the tool must declare via addTool. Required: the
+	// registration test fails any tool whose spec leaves this empty.
+	permissions []rbac.Permission
 
 	// Description validation.
 	descriptionKeywords []string
@@ -118,3 +131,21 @@ var allToolSpecs = func() []toolTestSpec {
 	specs = append(specs, deploymentToolSpecs()...)
 	return specs
 }()
+
+// unionScopes returns a space-separated scope string covering every
+// permission any tool declares, so wiring tests are never blocked by authz.
+func unionScopes() string {
+	seen := make(map[string]struct{})
+	scopes := make([]string, 0)
+	for _, spec := range allToolSpecs {
+		for _, perm := range spec.permissions {
+			scope := perm.Scope()
+			if _, ok := seen[scope]; ok {
+				continue
+			}
+			seen[scope] = struct{}{}
+			scopes = append(scopes, scope)
+		}
+	}
+	return strings.Join(scopes, " ")
+}

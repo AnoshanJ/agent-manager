@@ -24,6 +24,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -50,8 +51,8 @@ type listProjectsOutput struct {
 	Projects []listProjectItem `json:"projects"`
 }
 
-func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
-	gomcp.AddTool(server, &gomcp.Tool{
+func (t *Toolsets) registerProjectTools(server *gomcp.Server, reg *toolRegistry) {
+	addTool(reg, server, &gomcp.Tool{
 		Name: "list_projects",
 		Description: "List projects in an organization. " +
 			"A project is a logical container that groups agents and related resources within an organization. " +
@@ -61,9 +62,9 @@ func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
 			"limit":    intProperty(fmt.Sprintf("Optional. Max projects to return (default %d, min %d, max %d).", utils.DefaultLimit, utils.MinLimit, utils.MaxLimit)),
 			"offset":   intProperty(fmt.Sprintf("Optional. Pagination offset (default %d, min %d).", utils.DefaultOffset, utils.MinOffset)),
 		}, nil),
-	}, withToolLogging("list_projects", listProjects(t.ProjectToolset)))
+	}, listProjects(t.ProjectToolset), rbac.ProjectRead)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "create_project",
 		Description: "Create a new project in an organization. " +
 			"A project is a logical container for agents and related resources within an organization.",
@@ -73,7 +74,7 @@ func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
 			"display_name": stringProperty("Required. Project display name."),
 			"description":  stringProperty("Optional. Project description."),
 		}, []string{"project_name", "display_name"}),
-	}, withToolLogging("create_project", createProject(t.ProjectToolset)))
+	}, createProject(t.ProjectToolset), rbac.ProjectCreate)
 }
 
 func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.CallToolRequest, listProjectsInput) (*gomcp.CallToolResult, any, error) {

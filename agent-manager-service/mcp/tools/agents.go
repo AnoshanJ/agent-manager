@@ -25,6 +25,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -135,8 +136,8 @@ type createExternalAgentOutput struct {
 	Note                        string       `json:"note"`
 }
 
-func (t *Toolsets) registerAgentTools(server *gomcp.Server) {
-	gomcp.AddTool(server, &gomcp.Tool{
+func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
+	addTool(reg, server, &gomcp.Tool{
 		Name: "list_agents",
 		Description: "List agents in a project. " +
 			"An agent is an AI application registered in Agent Manager. Provisioning indicates whether the platform hosts the agent internally or the agent runs externally.",
@@ -146,10 +147,10 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server) {
 			"limit":        intProperty(fmt.Sprintf("Optional. Max agents to return (default %d, min %d, max %d).", utils.DefaultLimit, utils.MinLimit, utils.MaxLimit)),
 			"offset":       intProperty(fmt.Sprintf("Optional. Pagination offset (default %d, min %d).", utils.DefaultOffset, utils.MinOffset)),
 		}, []string{"project_name"}),
-	}, withToolLogging("list_agents", listAgents(t.AgentToolset)))
+	}, listAgents(t.AgentToolset), rbac.AgentRead)
 
 	if t.ProjectToolset != nil {
-		gomcp.AddTool(server, &gomcp.Tool{
+		addTool(reg, server, &gomcp.Tool{
 			Name: "list_project_agent_pairs",
 			Description: "List project-agent name pairs within an organization, with optional project and agent name filters. " +
 				"Each pair shows the project and the registered agent inside that project.",
@@ -162,9 +163,9 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server) {
 				"agent_limit":    intProperty("Optional. Agent pagination limit (1-50)."),
 				"agent_offset":   intProperty("Optional. Agent pagination offset (>= 0)."),
 			}, nil),
-		}, withToolLogging("list_project_agent_pairs", listProjectAgentPairs(t.AgentToolset, t.ProjectToolset)))
+		}, listProjectAgentPairs(t.AgentToolset, t.ProjectToolset), rbac.AgentRead)
 	}
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "create_external_agent",
 		Description: "Register an external agent in a project. " +
 			"Returns the agent identity, the API token, and step-by-step instrumentation instructions to follow in order to start sending observability data to the platform.",
@@ -176,9 +177,9 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server) {
 			"description":  stringProperty("Optional. Short description about what the agent does."),
 			"language":     stringProperty("Required. Agent language for setup guide (python or ballerina)."),
 		}, []string{"project_name", "agent_name", "display_name", "language"}),
-	}, withToolLogging("create_external_agent", createExternalAgent(t.AgentToolset)))
+	}, createExternalAgent(t.AgentToolset), rbac.AgentCreate, rbac.AgentTokenManage)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "create_internal_agent_python",
 		Description: "Create an internal Python agent inside a project. " +
 			"An internal agent is hosted by the platform: Agent Manager fetches the source code, builds it, deploys it, and runs it for you. " +
@@ -214,7 +215,7 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server) {
 				"required": []string{"key", "value"},
 			}),
 		}, []string{"project_name", "agent_name", "display_name", "repository_url", "branch", "app_path", "interface_type", "env"}),
-	}, withToolLogging("create_internal_agent_python", createInternalAgentPython(t.AgentToolset)))
+	}, createInternalAgentPython(t.AgentToolset), rbac.AgentCreate)
 }
 
 func listAgents(handler AgentToolsetHandler) func(context.Context, *gomcp.CallToolRequest, listAgentsInput) (*gomcp.CallToolResult, any, error) {

@@ -19,6 +19,7 @@ package tools
 import (
 	"testing"
 
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 )
 
@@ -29,6 +30,7 @@ func projectToolSpecs() []toolTestSpec {
 		{
 			name:                "list_projects",
 			toolset:             "project",
+			permissions:         []rbac.Permission{rbac.ProjectRead},
 			descriptionKeywords: []string{"list", "project"},
 			descriptionMinLen:   20,
 			requiredParams:      nil,
@@ -44,6 +46,7 @@ func projectToolSpecs() []toolTestSpec {
 		{
 			name:                "create_project",
 			toolset:             "project",
+			permissions:         []rbac.Permission{rbac.ProjectCreate},
 			descriptionKeywords: []string{"create", "project"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "display_name"},
