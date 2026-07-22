@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
@@ -31,6 +32,13 @@ import (
 // methodCallTool is the MCP method name for tool invocations. The SDK's own
 // constant is unexported.
 const methodCallTool = "tools/call"
+
+// TokenInfoOUIDKey is the auth.TokenInfo.Extra key under which the MCP token
+// verifier (mcp/tokeninfo.go) records the organization of the token that made
+// the current request. authzMiddleware compares it against the session's
+// organization so a per-request token cannot drive a tool against a different
+// org than the one whose identity established the session.
+const TokenInfoOUIDKey = "amp:ou-id"
 
 // toolRegistry records the rbac permissions each registered tool requires.
 // authzMiddleware enforces it fail-closed: a tool with no entry — one
@@ -79,6 +87,19 @@ func (reg *toolRegistry) authzMiddleware() gomcp.Middleware {
 			if !registered {
 				return denyResult(fmt.Sprintf("tool %q has no registered permissions", call.Params.Name)), nil
 			}
+			// Organization-consistency guard: tool handlers resolve the org from
+			// the session/initialize context (resolveOUID) while scopes are taken
+			// from the per-request token. Reject when the per-request token targets
+			// a different org than the session, so scopes granted in one org cannot
+			// authorize actions against another. This is an identity-integrity check
+			// like the SDK's sub-based session-hijack guard, so it applies
+			// regardless of RBAC_ENABLED. Skipped when there is no per-request
+			// TokenInfo (in-memory transports have no HTTP layer).
+			if call.Extra != nil && call.Extra.TokenInfo != nil {
+				if !sessionOrgMatchesRequest(ctx, call.Extra.TokenInfo) {
+					return denyResult("organization mismatch: request token is not scoped to the session organization"), nil
+				}
+			}
 			if !config.GetConfig().RBACEnabled {
 				return next(ctx, method, req)
 			}
@@ -111,6 +132,19 @@ func scopeChecker(ctx context.Context, call *gomcp.CallToolRequest) func(scope s
 	return func(scope string) bool {
 		return jwtassertion.HasAllScopes(ctx, []string{scope})
 	}
+}
+
+// sessionOrgMatchesRequest reports whether the organization on the per-request
+// token (recorded under TokenInfoOUIDKey by claimsTokenVerifier) equals the
+// organization of the session's claims on ctx. A session with no claims yields
+// an empty org, which only matches a request that likewise carries no org.
+func sessionOrgMatchesRequest(ctx context.Context, info *auth.TokenInfo) bool {
+	var sessionOUID string
+	if claims := jwtassertion.GetTokenClaims(ctx); claims != nil {
+		sessionOUID = claims.OuId
+	}
+	requestOUID, _ := info.Extra[TokenInfoOUIDKey].(string)
+	return requestOUID == sessionOUID
 }
 
 func denyResult(message string) *gomcp.CallToolResult {

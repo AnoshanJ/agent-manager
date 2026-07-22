@@ -227,13 +227,89 @@ func TestAuthzMiddlewarePerRequestScopeTakesPrecedenceOverSession(t *testing.T) 
 		OuId:  testOrgName,
 		Scope: rbac.AgentBuild.Scope(),
 	})
-	// ...but the per-request TokenInfo does not.
-	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{Scopes: []string{rbac.AgentRead.Scope()}}}
+	// ...but the per-request TokenInfo does not (org matches so the scope is
+	// the only failing dimension).
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{
+		Scopes: []string{rbac.AgentRead.Scope()},
+		Extra:  map[string]any{"amp:ou-id": testOrgName},
+	}}
 	result, nextCalled := callToolViaMiddlewareWithExtra(t, reg, ctx, "some_tool", extra)
 	if nextCalled {
 		t.Fatal("next handler ran despite per-request TokenInfo lacking the required scope")
 	}
 	if got, want := denialText(t, result), "insufficient permissions: this tool requires the amp:agent:build scope"; got != want {
+		t.Fatalf("denial text = %q, want %q", got, want)
+	}
+}
+
+// TestAuthzMiddlewareDeniesOrgMismatch proves the per-request token must target
+// the same organization as the MCP session. Tool handlers resolve the org from
+// the session/initialize context (resolveOUID) while scopes are taken from the
+// per-request token, so a token for org A that carries the required scope must
+// not be allowed to drive a tool against org B's data. The request here has the
+// required scope but a different ouId than the session — it must be denied.
+func TestAuthzMiddlewareDeniesOrgMismatch(t *testing.T) {
+	setRBACEnabled(t, true)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	// Session established for org B, and it even carries the required scope.
+	ctx := jwtassertion.ContextWithTokenClaimsAndScope(context.Background(), &jwtassertion.TokenClaims{
+		OuId:  "org-b",
+		Scope: rbac.AgentBuild.Scope(),
+	})
+	// Per-request token is for org A but carries the required scope.
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{
+		Scopes: []string{rbac.AgentBuild.Scope()},
+		Extra:  map[string]any{"amp:ou-id": "org-a"},
+	}}
+	result, nextCalled := callToolViaMiddlewareWithExtra(t, reg, ctx, "some_tool", extra)
+	if nextCalled {
+		t.Fatal("next handler ran despite request/session organization mismatch")
+	}
+	if got, want := denialText(t, result), "organization mismatch: request token is not scoped to the session organization"; got != want {
+		t.Fatalf("denial text = %q, want %q", got, want)
+	}
+}
+
+// TestAuthzMiddlewareAllowsMatchingOrg is the happy path: a single-token client
+// whose per-request org equals the session org passes the consistency check.
+func TestAuthzMiddlewareAllowsMatchingOrg(t *testing.T) {
+	setRBACEnabled(t, true)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	ctx := jwtassertion.ContextWithTokenClaimsAndScope(context.Background(), &jwtassertion.TokenClaims{
+		OuId:  "org-a",
+		Scope: rbac.AgentBuild.Scope(),
+	})
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{
+		Scopes: []string{rbac.AgentBuild.Scope()},
+		Extra:  map[string]any{"amp:ou-id": "org-a"},
+	}}
+	_, nextCalled := callToolViaMiddlewareWithExtra(t, reg, ctx, "some_tool", extra)
+	if !nextCalled {
+		t.Fatal("next handler did not run despite matching organization")
+	}
+}
+
+// TestAuthzMiddlewareDeniesOrgMismatchEvenWhenRBACDisabled proves the org
+// consistency check is an identity-integrity guard, not scope authorization:
+// it holds even when RBAC_ENABLED is false (mirroring the SDK's sub-based
+// session-hijack guard, which is always active).
+func TestAuthzMiddlewareDeniesOrgMismatchEvenWhenRBACDisabled(t *testing.T) {
+	setRBACEnabled(t, false)
+	reg := newToolRegistry()
+	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
+	ctx := jwtassertion.ContextWithTokenClaimsAndScope(context.Background(), &jwtassertion.TokenClaims{
+		OuId: "org-b",
+	})
+	extra := &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{
+		Extra: map[string]any{"amp:ou-id": "org-a"},
+	}}
+	result, nextCalled := callToolViaMiddlewareWithExtra(t, reg, ctx, "some_tool", extra)
+	if nextCalled {
+		t.Fatal("next handler ran despite org mismatch with RBAC disabled")
+	}
+	if got, want := denialText(t, result), "organization mismatch: request token is not scoped to the session organization"; got != want {
 		t.Fatalf("denial text = %q, want %q", got, want)
 	}
 }

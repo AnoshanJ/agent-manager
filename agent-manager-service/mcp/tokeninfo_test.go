@@ -65,6 +65,30 @@ func TestClaimsTokenVerifierWithClaims(t *testing.T) {
 	}
 }
 
+// TestClaimsTokenVerifierRecordsOrg proves the verifier stamps the caller's
+// organization onto TokenInfo.Extra so authzMiddleware can confirm each
+// per-request token targets the same org as the session (see mcp/tools/authz.go
+// organization-consistency check).
+func TestClaimsTokenVerifierRecordsOrg(t *testing.T) {
+	claims := &jwtassertion.TokenClaims{
+		Sub:   "user-123",
+		Scope: "amp:agent:read",
+		OuId:  "org-abc",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	ctx := jwtassertion.ContextWithTokenClaims(context.Background(), claims)
+
+	info, err := claimsTokenVerifier(ctx, "ignored-raw-token", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, _ := info.Extra["amp:ou-id"].(string); got != "org-abc" {
+		t.Fatalf("TokenInfo.Extra[amp:ou-id] = %q, want %q", got, "org-abc")
+	}
+}
+
 func TestClaimsTokenVerifierNoClaimsOnContext(t *testing.T) {
 	_, err := claimsTokenVerifier(context.Background(), "any-token", nil)
 	if !errors.Is(err, auth.ErrInvalidToken) {

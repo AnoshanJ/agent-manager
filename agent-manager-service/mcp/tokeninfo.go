@@ -24,6 +24,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
+	"github.com/wso2/agent-manager/agent-manager-service/mcp/tools"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 )
 
@@ -59,5 +60,8 @@ func claimsTokenVerifier(ctx context.Context, _ string, _ *http.Request) (*auth.
 		Scopes:     strings.Fields(claims.Scope),
 		UserID:     claims.Sub,
 		Expiration: claims.ExpiresAt.Time,
+		// Record the caller's org so authzMiddleware can confirm each per-request
+		// token targets the same org as the session (see mcp/tools/authz.go).
+		Extra: map[string]any{tools.TokenInfoOUIDKey: claims.OuId},
 	}, nil
 }
