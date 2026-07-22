@@ -752,7 +752,7 @@ export function useNavigationItems(): Array<
                   ),
                 },
                 {
-                  label: "MCP Proxies",
+                  label: "MCP Servers",
                   type: "item" as const,
                   icon: <MCPLogo size={20} />,
                   href: generatePath(mcpProxiesOrgRoute.path, { orgId }),

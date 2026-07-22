@@ -169,7 +169,7 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
               minRows={3}
               value={proxyDescription}
               onChange={(event) => setProxyDescription(event.target.value)}
-              placeholder="Primary MCP Proxy"
+              placeholder="Primary MCP Server"
             />
           </FormControl>
 
@@ -188,8 +188,9 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
         <Form.Header>Endpoints</Form.Header>
         <Form.Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
-            Add a backend endpoint and assign it to one or more environments.
-            Environments without an endpoint are simply left unconfigured.
+            {environments.length > 1
+              ? "Add a backend endpoint and assign it to one or more environments. Environments without an endpoint are simply left unconfigured."
+              : "Add a backend endpoint for this MCP Server."}
           </Typography>
 
           <EndpointsEditorSection

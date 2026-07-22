@@ -207,7 +207,7 @@ export function ViewMCPProxy() {
     [orgId, proxy, selectedEndpointId, updateMCPProxy],
   );
 
-  const displayName = proxy?.name ?? proxy?.id ?? proxyId ?? "MCP Proxy";
+  const displayName = proxy?.name ?? proxy?.id ?? proxyId ?? "MCP Server";
   const hasEndpoints = endpoints.length > 0;
   // The proxy fetch's own isLoading flips to false as soon as `proxy` arrives,
   // but selecting the first endpoint (when the URL doesn't already name one)
@@ -229,7 +229,7 @@ export function ViewMCPProxy() {
       <PageLayout
         title={displayName}
         backHref={backHref}
-        backLabel="Back to MCP Proxies"
+        backLabel="Back to MCP Servers"
         isLoading={isLoading}
         titleTail={
           proxy?.version ? (
@@ -250,7 +250,7 @@ export function ViewMCPProxy() {
               startIcon={<Edit size={16} />}
               onClick={() => setEditDrawerOpen(true)}
             >
-              Edit MCP Proxy
+              Edit MCP Server
             </Button>
           ) : undefined
         }
@@ -266,7 +266,7 @@ export function ViewMCPProxy() {
           <Alert severity="error" icon={<AlertTriangle size={18} />}>
             {error instanceof Error
               ? error.message
-              : "Failed to load MCP proxy. Please try again."}
+              : "Failed to load MCP Server. Please try again."}
           </Alert>
         ) : null}
 
@@ -332,7 +332,7 @@ export function ViewMCPProxy() {
               </Grid>
             </Grid>
 
-            {hasEndpoints && (
+            {endpoints.length > 1 && (
               <Stack
                 direction="row"
                 spacing={1}
@@ -464,8 +464,8 @@ export function ViewMCPProxy() {
             ) : (
               <Card variant="outlined" sx={{ p: 3 }}>
                 <Alert severity="info">
-                  This MCP proxy has no endpoints configured. Use &quot;Edit MCP
-                  Proxy&quot; above to add one.
+                  This MCP Server has no endpoints configured. Use &quot;Edit MCP
+                  Server&quot; above to add one.
                 </Alert>
               </Card>
             )}

@@ -510,7 +510,7 @@ export function MCPProxySecurityTab({
                 No Tools Available
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                This MCP proxy has no tools. Scope bindings require at least one
+                This MCP Server has no tools. Scope bindings require at least one
                 tool.
               </Typography>
             </Stack>
