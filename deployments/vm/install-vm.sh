@@ -85,8 +85,8 @@ run_install() {
   mapfile -t CP_HELM_ARGS < <(build_cp_helm_args "$VM_IP")
   # Public agents base + gateway host for the default Environment (read by
   # build_platform_resources_helm_args via dynamic scope); mirrors
-  # render_dataplane_external_ingress. AMP_HOST_GATEWAY drives the agent OTEL
-  # endpoint override (deployed agents export traces to the public gateway).
+  # render_dataplane_external_ingress. Deployed agents export traces over the
+  # chart's default in-cluster runtime endpoint, not this public host.
   # shellcheck disable=SC2034
   local AMP_AGENTS_BASE="agents.${VM_IP}.sslip.io"
   # shellcheck disable=SC2034

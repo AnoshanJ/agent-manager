@@ -195,15 +195,26 @@ build_cp_helm_args() {
 #    externalURL: the invoke URL is empty and try-out falls back to a relative /chat
 #    (405) — the very symptom this override exists to fix. Both bind listenerName
 #    http (TLS terminates at Caddy) and differ only in advertised scheme.
-# shellcheck disable=SC2154  # AMP_AGENTS_BASE/AMP_HOST_GATEWAY come from the caller's scope by design.
+#
+# 2. apiPlatformGatewayVhost.otelEndpointOverride is deliberately NOT set. Deployed
+#    agents run inside this cluster, so they reach the gateway runtime directly on
+#    the chart's default in-cluster endpoint
+#    ("api-platform-<org>-<env>-gateway-gateway-runtime.<org>-<env>:22893/otel").
+#    Overriding it with the public gateway host makes every agent egress to
+#    <AMP_HOST_GATEWAY>:443 instead, which the sandbox NetworkPolicy refuses on a
+#    private-network VM: it allows :443 to 0.0.0.0/0 EXCEPT RFC-1918, and there the
+#    public hostname resolves to the VM's own private address. Trace export then
+#    fails with "Connection refused". On a public VM the same override happens to
+#    work only because the hostname resolves outside those ranges. The in-cluster
+#    endpoint is what the sandbox policy explicitly permits and works on both.
+# shellcheck disable=SC2154  # AMP_AGENTS_BASE comes from the caller's scope by design.
 build_platform_resources_helm_args() {
   printf '%s\n' \
     "--set" "global.oauth.tokenUrl=http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token" \
     "--set" "environment.gateway.http.host=${AMP_AGENTS_BASE}" \
     "--set" "environment.gateway.http.port=443" \
     "--set" "environment.gateway.https.host=${AMP_AGENTS_BASE}" \
-    "--set" "environment.gateway.https.port=443" \
-    "--set" "apiPlatformGatewayVhost.otelEndpointOverride=https://${AMP_HOST_GATEWAY}/otel"
+    "--set" "environment.gateway.https.port=443"
 }
 
 # build_thunder_helm_args <ip>

@@ -271,9 +271,12 @@ assert_eq "caddy cp no direct 9243" "" "$(grep -F '127.0.0.1:9243' <<<"$cf_cp")"
   AMP_AGENTS_BASE=agents.amp.example.com
   AMP_HOST_GATEWAY=gateway.amp.example.com
   pr="$(build_platform_resources_helm_args)"
-  assert_eq "platform-resources agent OTEL endpoint override (public gateway)" \
-    "apiPlatformGatewayVhost.otelEndpointOverride=https://gateway.amp.example.com/otel" \
-    "$(grep -F 'apiPlatformGatewayVhost.otelEndpointOverride' <<<"$pr")"
+  # Agents run in-cluster and must use the chart's default in-cluster runtime
+  # endpoint. Overriding it with the public gateway host breaks trace export on a
+  # private-network VM, where that hostname resolves into an RFC-1918 range the
+  # sandbox NetworkPolicy blocks on :443.
+  assert_eq "platform-resources leaves agent OTEL endpoint in-cluster" "no" \
+    "$(has "$pr" 'apiPlatformGatewayVhost.otelEndpointOverride')"
   assert_eq "platform-resources oauth tokenUrl (direct svc)" \
     "global.oauth.tokenUrl=http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token" \
     "$(grep -F 'global.oauth.tokenUrl' <<<"$pr")"
