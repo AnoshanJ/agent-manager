@@ -21,17 +21,16 @@ import { InternalAgentOverview } from "./InternalAgentOverview";
 import { useParams } from "react-router-dom";
 import { ExternalAgentOverview } from "./ExternalAgentOverview";
 import { useState } from "react";
-import { Box, Button, Chip, Skeleton, Stack, Typography } from "@wso2/oxygen-ui";
-import { Clock, Edit } from "@wso2/oxygen-ui-icons-react";
+import { Box, Button, Chip, Skeleton, Stack } from "@wso2/oxygen-ui";
+import { Edit } from "@wso2/oxygen-ui-icons-react";
 import { EditAgentDrawer } from "./EditAgentDrawer";
 import {
     PageLayout,
     displayProvisionTypes,
     DescriptionCard,
+    CreatedMetadata,
 } from "@agent-management-platform/views";
 import { LabelChips } from "@agent-management-platform/shared-component";
-import { formatDistanceToNow } from "date-fns";
-import type { AgentResponse } from "@agent-management-platform/types";
 
 function AgentOverviewSkeleton() {
     return (
@@ -40,30 +39,6 @@ function AgentOverviewSkeleton() {
         </Box>
     );
 }
-
-interface MetadataItemProps {
-    icon?: React.ReactNode;
-    label: string;
-    value: string;
-}
-
-const MetadataItem: React.FC<MetadataItemProps> = ({ icon, label, value }) => (
-    <Box display="flex" alignItems="center" gap={0.5}>
-        {icon}
-        <Typography variant="caption" color="text.secondary">{label}:</Typography>
-        <Typography variant="caption" fontWeight={500}>{value}</Typography>
-    </Box>
-);
-
-const AgentCreatedMetadata: React.FC<{ agent: AgentResponse }> = ({ agent }) => {
-    const createdAtText = agent.createdAt
-        ? formatDistanceToNow(new Date(agent.createdAt), { addSuffix: true })
-        : null;
-
-    if (!createdAtText) return null;
-
-    return <MetadataItem icon={<Clock size={12} />} label="Created" value={createdAtText} />;
-};
 
 export function AgentOverview() {
     const { orgId, agentId, projectId } = useParams();
@@ -78,7 +53,7 @@ export function AgentOverview() {
         <>
             <PageLayout
                 title={agent?.displayName ?? "Agent"}
-                description={agent ? <AgentCreatedMetadata agent={agent} /> : undefined}
+                description={agent ? <CreatedMetadata createdAt={agent.createdAt} /> : undefined}
                 isLoading={isAgentLoading}
                 titleTail={
                     <Stack direction="row" spacing={0.5} alignItems="center" sx={{ width: "100%", minWidth: 0 }}>

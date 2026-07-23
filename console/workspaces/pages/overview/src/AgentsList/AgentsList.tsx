@@ -48,6 +48,7 @@ import {
   FadeIn,
   displayProvisionTypes,
   DescriptionCard,
+  CreatedMetadata,
 } from "@agent-management-platform/views";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
 import {
@@ -301,7 +302,7 @@ export const AgentsList: React.FC = () => {
     <>
       <PageLayout
         title={project?.displayName ?? "Agents"}
-        description="Manage and monitor all your AI agents across environments"
+        description={project ? <CreatedMetadata createdAt={project.createdAt} /> : undefined}
         isLoading={isPageLoading}
         actions={
           <Button

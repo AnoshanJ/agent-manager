@@ -76,41 +76,24 @@ function BuildStatusIcon({ status }: { status?: BuildStatus }) {
     return <CheckCircle size={14} />;
 }
 
-export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
-    orgId,
-    projectId,
-    agentId,
-    repository,
-    latestBuild,
-    isBuildsLoading,
-    framework,
-    model,
-    build,
-}) => {
-    const buildpackLabel = (() => {
-        if (!build) return null;
-        if (build.type === "buildpack") {
-            const { language, languageVersion } = build.buildpack;
-            return languageVersion ? `${language} ${languageVersion}` : language;
-        }
-        return "Docker";
-    })();
+interface SourceInfoProps {
+    repoLabel: string | null;
+    appPath: string | null;
+    repoTreeUrl: string | null;
+    branch?: string;
+    buildpackLabel: string | null;
+    agentTypeLabel: string | null;
+}
 
-    const agentTypeLabel = [framework, model].filter(Boolean).join("/") || null;
-
-    const buildsPath = generatePath(
-        absoluteRouteMap.children.org.children.projects.children.agents.children.build.path,
-        { orgId, projectId, agentId },
-    );
-
-    const parsedRepo = repository?.url ? parseGitHubUrl(repository.url) : null;
-    const repoLabel = parsedRepo ? `${parsedRepo.owner}/${parsedRepo.repo}` : null;
-    const appPath = repository?.appPath && repository.appPath !== "/" ? repository.appPath : null;
-    const repoTreeUrl = repository?.url
-        ? buildRepoTreeUrl(repository.url, repository.branch, appPath)
-        : null;
-
-    const sourceContent = (
+function SourceInfo({
+    repoLabel,
+    appPath,
+    repoTreeUrl,
+    branch,
+    buildpackLabel,
+    agentTypeLabel,
+}: SourceInfoProps) {
+    return (
         <>
             <Typography
                 variant="caption"
@@ -149,8 +132,8 @@ export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
                 </IconButton>
             )}
 
-            {repository?.branch && (
-                <Chip label={repository.branch} size="small" variant="outlined" sx={{ flexShrink: 0 }} />
+            {branch && (
+                <Chip label={branch} size="small" variant="outlined" sx={{ flexShrink: 0 }} />
             )}
             {buildpackLabel && (
                 <Chip label={buildpackLabel} size="small" variant="outlined" sx={{ flexShrink: 0 }} />
@@ -160,10 +143,27 @@ export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
             )}
         </>
     );
+}
 
-    const buildStatusContent = isBuildsLoading ? (
-        <Skeleton variant="text" width={100} sx={{ flexShrink: 0 }} />
-    ) : latestBuild ? (
+interface BuildStatusInfoProps {
+    isBuildsLoading?: boolean;
+    latestBuild?: BuildResponse;
+}
+
+function BuildStatusInfo({ isBuildsLoading, latestBuild }: BuildStatusInfoProps) {
+    if (isBuildsLoading) {
+        return <Skeleton variant="text" width={100} sx={{ flexShrink: 0 }} />;
+    }
+
+    if (!latestBuild) {
+        return (
+            <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+                No builds yet
+            </Typography>
+        );
+    }
+
+    return (
         <Tooltip
             title={`Triggered ${formatDistanceToNow(new Date(latestBuild.startedAt), { addSuffix: true })}`}
         >
@@ -179,17 +179,55 @@ export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
                 </Typography>
             </Box>
         </Tooltip>
-    ) : (
-        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-            No builds yet
-        </Typography>
     );
+}
+
+export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
+    orgId,
+    projectId,
+    agentId,
+    repository,
+    latestBuild,
+    isBuildsLoading,
+    framework,
+    model,
+    build,
+}) => {
+    const buildpackLabel = (() => {
+        if (!build) return null;
+        if (build.type === "buildpack") {
+            const { language, languageVersion } = build.buildpack;
+            return languageVersion ? `${language} ${languageVersion}` : language;
+        }
+        return "Docker";
+    })();
+
+    const agentTypeLabel = [framework, model].filter(Boolean).join("/") || null;
+
+    const buildsPath = generatePath(
+        absoluteRouteMap.children.org.children.projects.children.agents.children.build.path,
+        { orgId, projectId, agentId },
+    );
+
+    const parsedRepo = repository?.url ? parseGitHubUrl(repository.url) : null;
+    const repoLabel = parsedRepo ? `${parsedRepo.owner}/${parsedRepo.repo}` : null;
+    const appPath = repository?.appPath && repository.appPath !== "/" ? repository.appPath : null;
+    const repoTreeUrl = repository?.url
+        ? buildRepoTreeUrl(repository.url, repository.branch, appPath)
+        : null;
 
     return (
         <Card variant="outlined">
             <Box display="flex" alignItems="center" gap={1.5} minWidth={0} sx={{ px: 2, py: 1.25 }}>
                 <Box display="flex" alignItems="center" gap={1.5} minWidth={0} flexGrow={1}>
-                    {sourceContent}
+                    <SourceInfo
+                        repoLabel={repoLabel}
+                        appPath={appPath}
+                        repoTreeUrl={repoTreeUrl}
+                        branch={repository?.branch}
+                        buildpackLabel={buildpackLabel}
+                        agentTypeLabel={agentTypeLabel}
+                    />
                 </Box>
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
@@ -211,7 +249,7 @@ export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
                         "&:hover": { bgcolor: "action.hover" },
                     }}
                 >
-                    {buildStatusContent}
+                    <BuildStatusInfo isBuildsLoading={isBuildsLoading} latestBuild={latestBuild} />
                 </Box>
             </Box>
         </Card>

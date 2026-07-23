@@ -32,6 +32,7 @@ export * from './SelectionIndicator';
 export * from './JSONView';
 export * from './MarkdownView';
 export * from './DescriptionCard';
+export * from './CreatedMetadata';
 export * from './Logo';
 export * from './LogsPanel';
 export * from './SnackBar';

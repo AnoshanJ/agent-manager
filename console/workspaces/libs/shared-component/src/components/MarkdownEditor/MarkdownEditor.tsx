@@ -20,71 +20,9 @@ import { useId, useRef, useState } from "react";
 import { Box, FormHelperText, FormLabel, IconButton, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Bold, Heading2, Italic, Link2, List, Quote } from "@wso2/oxygen-ui-icons-react";
 import { MarkdownView } from "@agent-management-platform/views";
+import { type EditResult, type Selection, insertLink, prefixLines, wrapSelection } from "./textEditActions";
 
 type MarkdownEditorTab = "write" | "preview";
-
-interface Selection {
-  text: string;
-  start: number;
-}
-
-interface EditResult {
-  text: string;
-  selectionStart: number;
-  selectionEnd: number;
-}
-
-/** Wraps the selection with `prefix`/`suffix` (bold, italic); falls back to `placeholder`. */
-function wrapSelection(
-  { text, start }: Selection,
-  end: number,
-  prefix: string,
-  suffix: string,
-  placeholder: string,
-): EditResult {
-  const selected = text.slice(start, end) || placeholder;
-  const before = text.slice(0, start);
-  const after = text.slice(end);
-  const selectionStart = before.length + prefix.length;
-  return {
-    text: `${before}${prefix}${selected}${suffix}${after}`,
-    selectionStart,
-    selectionEnd: selectionStart + selected.length,
-  };
-}
-
-/** Prefixes every line touched by the selection with `prefix` (heading, quote, list markers). */
-function prefixLines(
-  { text, start }: Selection,
-  end: number,
-  prefix: string,
-): EditResult {
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  const nextBreak = text.indexOf("\n", end);
-  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
-  const segment = text.slice(lineStart, lineEnd);
-  const prefixed = segment
-    .split("\n")
-    .map((line) => `${prefix}${line}`)
-    .join("\n");
-  return {
-    text: text.slice(0, lineStart) + prefixed + text.slice(lineEnd),
-    selectionStart: start + prefix.length,
-    selectionEnd: end + (prefixed.length - segment.length),
-  };
-}
-
-function insertLink({ text, start }: Selection, end: number): EditResult {
-  const linkText = text.slice(start, end) || "link text";
-  const before = text.slice(0, start);
-  const after = text.slice(end);
-  const selectionStart = before.length + linkText.length + 3; // "[" + linkText + "]("
-  return {
-    text: `${before}[${linkText}](url)${after}`,
-    selectionStart,
-    selectionEnd: selectionStart + "url".length,
-  };
-}
 
 const TOOLBAR_ACTIONS = [
   {
