@@ -64,10 +64,10 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
 
   const handleNameChange = useCallback(
     (value: string) => {
-      const previousContext = proxyName ? `/default/${proxyName}` : "";
+      const previousContext = proxyName ? `/default/${toHandle(proxyName)}` : "";
       setProxyName(value);
       if (!proxyContext || proxyContext === previousContext) {
-        setProxyContext(value ? `/default/${value}` : "");
+        setProxyContext(value ? `/default/${toHandle(value)}` : "");
       }
     },
     [proxyContext, proxyName],
@@ -79,7 +79,9 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
     (draft: Omit<EndpointDraft, "id">) => {
       if (!proxyName && draft.serverName) {
         setProxyName(draft.serverName);
-        if (!proxyContext) setProxyContext(`/default/${draft.serverName}`);
+        if (!proxyContext) {
+          setProxyContext(`/default/${toHandle(draft.serverName)}`);
+        }
       }
       if (!proxyVersion && draft.serverVersion) {
         setProxyVersion(draft.serverVersion);

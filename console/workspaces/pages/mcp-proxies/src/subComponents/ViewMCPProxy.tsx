@@ -59,7 +59,6 @@ import {
   normalizeVersion,
 } from "@agent-management-platform/shared-component";
 import { PageLayout } from "@agent-management-platform/views";
-import { MCPCapabilitiesView } from "../components/MCPCapabilitiesView";
 import { MCPProxyManageToolsTab } from "./MCPProxyManageToolsTab";
 import { MCPProxyConnectionTab } from "./MCPProxyConnectionTab";
 import { MCPProxyOverviewTab } from "./MCPProxyOverviewTab";
@@ -74,7 +73,6 @@ import { useCopyWithFeedback } from "./useCopyWithFeedback";
 // instead of resetting to Overview/first-environment.
 const TAB_DEFS = [
   { label: "Overview", slug: "overview" },
-  { label: "Capabilities", slug: "capabilities" },
   { label: "Connection", slug: "connection" },
   { label: "Manage Tools", slug: "manage-tools" },
   { label: "Security", slug: "security" },
@@ -91,6 +89,9 @@ export function ViewMCPProxy() {
   const tabIndex = tabSlug
     ? Math.max(0, TAB_DEFS.findIndex((tab) => tab.slug === tabSlug))
     : 0;
+  // Render blocks below key off the slug, not the raw index, so reordering or
+  // removing a tab in TAB_DEFS doesn't require manually renumbering every block.
+  const activeTabSlug = TAB_DEFS[tabIndex]?.slug;
   const selectedEndpointId = searchParams.get("endpoint") ?? "";
 
   const setSelectedEndpointId = useCallback(
@@ -394,7 +395,7 @@ export function ViewMCPProxy() {
                 </Stack>
                 <Divider />
                 <Box sx={{ p: 3 }}>
-                  {tabIndex === 0 && (
+                  {activeTabSlug === "overview" && (
                     <MCPProxyOverviewTab
                       proxy={proxy}
                       config={selectedConfig}
@@ -402,15 +403,7 @@ export function ViewMCPProxy() {
                       isLoading={isTabContentLoading}
                     />
                   )}
-                  {tabIndex === 1 && (
-                    <MCPCapabilitiesView
-                      tools={selectedConfig?.capabilities?.tools}
-                      resources={selectedConfig?.capabilities?.resources}
-                      prompts={selectedConfig?.capabilities?.prompts}
-                      sectionTitleVariant="h6"
-                    />
-                  )}
-                  {tabIndex === 2 && (
+                  {activeTabSlug === "connection" && (
                     <MCPProxyConnectionTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -419,7 +412,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 3 && (
+                  {activeTabSlug === "manage-tools" && (
                     <MCPProxyManageToolsTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -429,7 +422,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 4 && (
+                  {activeTabSlug === "security" && (
                     <MCPProxySecurityTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -440,7 +433,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 5 && (
+                  {activeTabSlug === "rewrite" && (
                     <MCPProxyRewriteTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -450,7 +443,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 6 && (
+                  {activeTabSlug === "policies" && (
                     <MCPProxyPoliciesTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
