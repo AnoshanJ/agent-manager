@@ -50,11 +50,16 @@ amObserver:
   # (in which case Thunder falls back to the client ID as the audience).
   # Publisher tokens (aud amp-publisher-*) are matched by a separate regex in
   # the observer's auth middleware and do not need to be listed here.
+  # MCP tokens minted for the observer MCP client (am-obs-mcp) carry the
+  # RFC 8707 resource identifier — this service's publicUrl WITH a trailing
+  # slash — as their audience, so that URL is listed. "am-obs-mcp" is listed
+  # as the same defensive client-ID fallback documented for amp-api-client.
+  # Keep the audience URL entry in sync with publicUrl below.
   auth:
     isLocalDevEnv: false
     jwksUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/jwks"
     issuer: "http://thunder.amp.localhost:8080"
-    audience: "amp,amp-api-client"
+    audience: "amp,amp-api-client,am-obs-mcp,http://traces.amp.localhost:11080/"
     # Enables scope-based authorization on the observer REST data routes.
     # Mirrors agent-manager-service's rbacEnabled. MUST stay a quoted string:
     # Helm's `default` treats boolean false as unset, which would make the
