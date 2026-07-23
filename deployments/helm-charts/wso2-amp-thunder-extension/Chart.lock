@@ -1,6 +1,6 @@
 dependencies:
 - name: thunderid
   repository: oci://ghcr.io/thunder-id/helm-charts
-  version: 0.45.0
-digest: sha256:e32ef35e79a7f32962e879f3f6166a56e1e926722e0cc275498eb6102c16c154
-generated: "2026-06-22T13:49:22.657983+05:30"
+  version: 1.0.0-alpha
+digest: sha256:e4f344158d332afca4794326fd765253fefa5c522c57823fd677b8f899fbb3aa
+generated: "2026-07-21T21:18:21.69991+05:30"
