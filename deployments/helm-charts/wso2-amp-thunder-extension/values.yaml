@@ -486,15 +486,35 @@ thunder:
     # must be the externally reachable base URL of the service (the same value
     # as agent-manager's serverPublicURL / the observability extension's
     # amObserver.publicUrl), slash included.
+    #
+    # Thunder additionally downscopes granted scopes to the permissions defined
+    # on the resource server named in `resource`, so each entry mirrors the
+    # slice of the amp permission tree its MCP client is allowed, selected by
+    # permissionSet:
+    #   - "amp-minus-observability": the full amp tree minus the four
+    #     amp:observability:*-read actions (matches the am-mcp client)
+    #   - "observability-only": only the amp:observability resource with its
+    #     four *-read actions (matches the am-obs-mcp client)
+    # The handle MUST stay empty: Thunder prefixes derived permissions with the
+    # resource-server handle, and the scope strings must come out identical to
+    # the amp resource server's (amp:project:read etc.). The bootstrap roots
+    # the tree under a top-level "amp" resource instead.
+    # NOTE: seeded by the pre-install bootstrap job only — on existing installs
+    # whose MCP resource servers were created by an older bootstrap (with a
+    # non-empty handle), delete those resource servers in Thunder and re-run
+    # the bootstrap job; helm upgrade alone will not fix them because the
+    # handle is immutable.
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
-        handle: "amp-am"
+        handle: ""
         identifier: "http://localhost:9000/"
         description: "Resource identifier for the agent-manager MCP endpoint"
+        permissionSet: "amp-minus-observability"
       - name: "AMP Observer MCP"
-        handle: "amp-obs"
+        handle: ""
         identifier: "http://traces.amp.localhost:11080/"
         description: "Resource identifier for the observer MCP endpoint"
+        permissionSet: "observability-only"
     # AMP Console Client configuration
     ampConsoleClient:
       clientId: "amp-console-client"
