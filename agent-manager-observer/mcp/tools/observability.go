@@ -33,7 +33,9 @@ import (
 // build logs or metrics on any transport. The per-request bearer token is
 // carried on req.Extra.Header (set by the streamable-HTTP transport for every
 // tool call); JWTAuth has already verified it, so this only re-reads the
-// audience claim.
+// audience claim. The handler ctx cannot be used instead: the transport derives
+// it from the session-initializing request, so middleware.GetTokenClaims(ctx)
+// would reflect the initialize token, not the current call's.
 func rejectPublisherToken(req *gomcp.CallToolRequest) error {
 	var authHeader string
 	if req != nil && req.Extra != nil && req.Extra.Header != nil {

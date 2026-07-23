@@ -27,25 +27,18 @@ import (
 // — callers must ensure it was already validated by JWTAuth — purely to read
 // the audience claim. A missing, non-Bearer, or unparseable token reports false
 // (JWTAuth is responsible for rejecting those). It lets the am-obs-mcp tool
-// handlers apply the publisher carve-out.
+// handlers apply the publisher carve-out: the MCP go-sdk streamable transport
+// hands tool handlers a context derived from the session-initializing request,
+// not the current tool-call POST, so the per-call Authorization header (via
+// req.Extra.Header) is the only trustworthy per-call token source there.
 func IsPublisherAudience(authHeader string) bool {
 	tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	if tokenString == "" || tokenString == authHeader {
 		return false
 	}
-	claims := jwt.MapClaims{}
-	parser := jwt.NewParser()
-	if _, _, err := parser.ParseUnverified(tokenString, claims); err != nil {
+	claims := &TokenClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, claims); err != nil {
 		return false
 	}
-	audiences, err := claims.GetAudience()
-	if err != nil {
-		return false
-	}
-	for _, aud := range audiences {
-		if validPublisherAudPattern.MatchString(strings.TrimSpace(aud)) {
-			return true
-		}
-	}
-	return false
+	return hasPublisherAudience(claims.Audience)
 }

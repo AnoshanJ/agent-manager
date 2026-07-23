@@ -18,6 +18,7 @@ package middleware
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/wso2/agent-manager/agent-manager-observer/rbac"
@@ -37,11 +38,12 @@ var publisherImplicitPermissions = []rbac.Permission{rbac.TraceRead}
 // publisher restrictions never regress while the kill-switch is off.
 // Must run inside JWTAuth: it reads claims from the request context.
 func RequirePermission(rbacEnabled bool, perm rbac.Permission) func(http.Handler) http.Handler {
+	requiredScope := perm.Scope()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetTokenClaims(r.Context())
-			if claims != nil && isPublisherClaims(claims) {
-				if !hasScope(publisherScopes(), perm.Scope()) {
+			if claims != nil && hasPublisherAudience(claims.Audience) {
+				if !slices.Contains(publisherImplicitPermissions, perm) {
 					writeAuthError(w, http.StatusForbidden, "insufficient permissions")
 					return
 				}
@@ -56,45 +58,11 @@ func RequirePermission(rbacEnabled bool, perm rbac.Permission) func(http.Handler
 				writeAuthError(w, http.StatusForbidden, "missing token claims")
 				return
 			}
-			if !hasScope(claimScopes(claims), perm.Scope()) {
+			if !slices.Contains(strings.Fields(claims.Scope), requiredScope) {
 				writeAuthError(w, http.StatusForbidden, "insufficient permissions")
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// isPublisherClaims reports whether the validated claims carry an
-// amp-publisher-* audience.
-func isPublisherClaims(claims *TokenClaims) bool {
-	for _, aud := range claims.Audience {
-		if validPublisherAudPattern.MatchString(strings.TrimSpace(aud)) {
-			return true
-		}
-	}
-	return false
-}
-
-// claimScopes returns the set of scopes in the token's space-delimited scope claim.
-func claimScopes(claims *TokenClaims) map[string]struct{} {
-	set := make(map[string]struct{})
-	for _, s := range strings.Fields(claims.Scope) {
-		set[s] = struct{}{}
-	}
-	return set
-}
-
-// publisherScopes returns the implicit scope set for publisher-audience tokens.
-func publisherScopes() map[string]struct{} {
-	set := make(map[string]struct{}, len(publisherImplicitPermissions))
-	for _, p := range publisherImplicitPermissions {
-		set[p.Scope()] = struct{}{}
-	}
-	return set
-}
-
-func hasScope(set map[string]struct{}, scope string) bool {
-	_, ok := set[scope]
-	return ok
 }

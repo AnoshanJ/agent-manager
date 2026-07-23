@@ -165,13 +165,22 @@ thunder:
         memory: 128Mi
   bootstrap:
     enabled: true
+    # The observability data-read scopes, single-sourced: 59-am-mcp-client.sh
+    # subtracts this list from am-mcp's allowance and 64-am-obs-mcp-client.sh
+    # appends it to am-obs-mcp's OIDC scopes (both at template render time).
+    # The same scopes also appear in ampScopes below as part of the full
+    # catalog for the other interactive clients.
+    observabilityScopes:
+      - "amp:observability:trace-read"
+      - "amp:observability:log-read"
+      - "amp:observability:build-log-read"
+      - "amp:observability:metric-read"
     # Full list of AMP OAuth2 scopes that interactive clients are allowed to request.
     # Thunder only grants scopes that appear in an app's registered scope list, so all
     # permission scopes must be declared here for role-based access to work.
-    # Exception: am-mcp's allowance is this catalog MINUS the four
-    # amp:observability:*-read scopes (filtered with Sprig `without` in
-    # 59-am-mcp-client.sh) — those scopes are owned exclusively by the
-    # observer MCP client (amObsMcpClient below).
+    # Exception: am-mcp's allowance is this catalog MINUS observabilityScopes
+    # (filtered in 59-am-mcp-client.sh) — those scopes are owned exclusively
+    # by the observer MCP client (amObsMcpClient below).
     ampScopes:
       - "openid"
       - "profile"
@@ -371,7 +380,8 @@ thunder:
     # In production, override amObserverClient.clientSecret via a Kubernetes
     # Secret or external secret manager. Deploying with this default value is
     # insecure.
-    # NOTE: seeded by the pre-install bootstrap job only — on existing installs, re-run the bootstrap job; helm upgrade alone will not create this client.
+    # NOTE: pre-install bootstrap job only — see the upgrade note on
+    # mcpResourceServers below / docs/reference/mcp-server.mdx.
     amObserverClient:
       clientId: "am-observer-client"
       clientSecret: "am-observer-client-secret"
@@ -442,7 +452,8 @@ thunder:
     # observer MCP server's interactive login). Allowed ONLY the OIDC scopes
     # plus the four observability data-read scopes; the am-service MCP client
     # (amMcpClient above) is allowed the rest of the catalog.
-    # NOTE: seeded by the pre-install bootstrap job only — on existing installs, re-run the bootstrap job; helm upgrade alone will not create this client.
+    # NOTE: pre-install bootstrap job only — see the upgrade note on
+    # mcpResourceServers below / docs/reference/mcp-server.mdx.
     amObsMcpClient:
       clientId: "am-obs-mcp"
       name: "AMP Observer MCP"
@@ -462,14 +473,13 @@ thunder:
       publicClient: true
       accessTokenValidityPeriod: 3600
       idTokenValidityPeriod: 3600
+      # OIDC scopes only — the four observability data-read scopes are
+      # appended from observabilityScopes at template render time
+      # (64-am-obs-mcp-client.sh).
       scopes:
         - "openid"
         - "profile"
         - "email"
-        - "amp:observability:trace-read"
-        - "amp:observability:log-read"
-        - "amp:observability:build-log-read"
-        - "amp:observability:metric-read"
       userAttributes:
         - "given_name"
         - "family_name"
@@ -499,11 +509,10 @@ thunder:
     # resource-server handle, and the scope strings must come out identical to
     # the amp resource server's (amp:project:read etc.). The bootstrap roots
     # the tree under a top-level "amp" resource instead.
-    # NOTE: seeded by the pre-install bootstrap job only — on existing installs
-    # whose MCP resource servers were created by an older bootstrap (with a
-    # non-empty handle), delete those resource servers in Thunder and re-run
-    # the bootstrap job; helm upgrade alone will not fix them because the
-    # handle is immutable.
+    # NOTE: seeded by the pre-install bootstrap job only — on existing installs,
+    # re-run the bootstrap job (it automatically replaces MCP resource servers
+    # created by an older bootstrap with a non-empty handle); a helm upgrade
+    # alone will not re-seed.
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
         handle: ""

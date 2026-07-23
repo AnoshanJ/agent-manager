@@ -78,7 +78,7 @@ The client is public (no secret), PKCE is required, and the callback port is pin
 
 The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
 
-*Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On installs seeded before these permissions existed, re-run the bootstrap job (a `helm upgrade` alone will not re-seed) — otherwise MCP tokens are issued with an empty scope list and every tool call returns 403.*
+*Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On existing installs, re-run the bootstrap job — it replaces legacy MCP resource servers automatically and seeds the permissions; a `helm upgrade` alone will not re-seed, and without the permissions MCP tokens are issued with an empty scope list and every tool call returns 403.*
 
 ## Configuring AI Assistants
 

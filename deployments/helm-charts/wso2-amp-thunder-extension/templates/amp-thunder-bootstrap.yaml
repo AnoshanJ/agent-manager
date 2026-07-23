@@ -1,6 +1,127 @@
 {{- $scheme := ternary "http" "https" .Values.thunder.configuration.server.httpOnly }}
 {{- $port := .Values.thunder.configuration.server.port }}
 {{- $thunderUrl := printf "%s://localhost:%d" $scheme (int $port) }}
+{{/*
+Shared registration script for the two public PKCE MCP clients (am-mcp and
+am-obs-mcp). Takes a dict with:
+  client — the client's values block (amMcpClient / amObsMcpClient)
+  scopes — the list of OAuth2 scopes the client may request
+*/}}
+{{- define "amp-thunder.mcpClientScript" -}}
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
+source "${SCRIPT_DIR}/common.sh"
+
+
+log_info "Checking if application '{{ .client.name }}' already exists..."
+
+# Get the default OU ID
+RESPONSE=$(api_call GET "/organization-units/tree/default")
+HTTP_CODE="${RESPONSE: -3}"
+BODY="${RESPONSE%???}"
+if [[ "$HTTP_CODE" != "200" ]]; then
+  log_error "Failed to fetch default organization unit (HTTP $HTTP_CODE)"
+  echo "Response: $BODY"
+  exit 1
+fi
+DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [[ -z "$DEFAULT_OU_ID" ]]; then
+  log_error "Could not extract default organization unit ID from response"
+  echo "Response: $BODY"
+  exit 1
+fi
+log_info "Using OU ID: $DEFAULT_OU_ID"
+
+# Look up the default auth flow ID
+RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
+HTTP_CODE="${RESPONSE: -3}"
+BODY="${RESPONSE%???}"
+if [[ "$HTTP_CODE" != "200" ]]; then
+  log_error "Failed to fetch authentication flows (HTTP $HTTP_CODE)"
+  echo "Response: $BODY"
+  exit 1
+fi
+AUTH_FLOW_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"default-basic-flow"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [[ -z "$AUTH_FLOW_ID" ]]; then
+  log_error "Could not find default-basic-flow authentication flow"
+  exit 1
+fi
+log_info "Using auth flow ID: $AUTH_FLOW_ID"
+
+# Check existing apps
+RESPONSE=$(api_call GET "/applications")
+HTTP_CODE="${RESPONSE: -3}"
+BODY="${RESPONSE%???}"
+if [[ "$HTTP_CODE" != "200" ]]; then
+  log_error "Failed to fetch applications (HTTP $HTTP_CODE)"
+  echo "Response: $BODY"
+  exit 1
+fi
+
+APP_PAYLOAD='{
+  "name": "{{ .client.name }}",
+  "description": "{{ .client.description }}",
+  "ouId": "'${DEFAULT_OU_ID}'",
+  "authFlowId": "'${AUTH_FLOW_ID}'",
+  "allowedUserTypes": {{ .client.allowedUserTypes | toJson }},
+  "inboundAuthConfig": [
+    {
+      "type": "oauth2",
+      "config": {
+        "clientId": "{{ .client.clientId }}",
+        "redirectUris": {{ .client.redirectUris | toJson }},
+        "grantTypes": {{ .client.grantTypes | toJson }},
+        "responseTypes": {{ .client.responseTypes | toJson }},
+        "tokenEndpointAuthMethod": "{{ .client.tokenEndpointAuthMethod }}",
+        "pkceRequired": {{ .client.pkceRequired }},
+        "publicClient": {{ .client.publicClient }},
+        "scopes": {{ .scopes | toJson }},
+        "token": {
+          "accessToken": {
+            "validityPeriod": {{ .client.accessTokenValidityPeriod }},
+            "userAttributes": {{ .client.userAttributes | toJson }}
+          },
+          "idToken": {
+            "validityPeriod": {{ .client.idTokenValidityPeriod }},
+            "userAttributes": {{ .client.userAttributes | toJson }}
+          }
+        }
+      }
+    }
+  ]
+}'
+
+if echo "$BODY" | grep -q '"clientId":"{{ .client.clientId }}"'; then
+  app_id=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"clientId":"{{ .client.clientId }}"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  log_info "Application '{{ .client.name }}' already exists (id: $app_id), updating..."
+  RESPONSE=$(api_call PUT "/applications/$app_id" "$APP_PAYLOAD")
+  HTTP_CODE="${RESPONSE: -3}"
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    log_info "Application '{{ .client.name }}' updated successfully"
+  else
+    log_error "Failed to update application (HTTP $HTTP_CODE)"
+    echo "Response: ${RESPONSE%???}"
+    exit 1
+  fi
+else
+  log_info "Application '{{ .client.name }}' does not exist, creating..."
+  RESPONSE=$(api_call POST "/applications" "$APP_PAYLOAD")
+  HTTP_CODE="${RESPONSE: -3}"
+  if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
+    log_info "Application '{{ .client.name }}' created successfully"
+  elif [[ "$HTTP_CODE" == "409" ]]; then
+    log_info "Application '{{ .client.name }}' already exists, skipping"
+  else
+    log_error "Failed to create application (HTTP $HTTP_CODE)"
+    echo "Response: ${RESPONSE%???}"
+    exit 1
+  fi
+fi
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -1052,120 +1173,17 @@ data:
       fi
     fi
 
+  {{- /* am-mcp may request every amp scope EXCEPT the observability data-read
+       scopes (thunder.bootstrap.observabilityScopes) — those belong to the
+       observer MCP client (64-am-obs-mcp-client.sh). */}}
+  {{- $amMcpScopes := list }}
+  {{- range .Values.thunder.bootstrap.ampScopes }}
+  {{- if not (has . $.Values.thunder.bootstrap.observabilityScopes) }}
+  {{- $amMcpScopes = append $amMcpScopes . }}
+  {{- end }}
+  {{- end }}
   59-am-mcp-client.sh: |
-    #!/bin/bash
-    set -e
-
-    SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
-    source "${SCRIPT_DIR}/common.sh"
-
-
-    log_info "Checking if application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' already exists..."
-
-    # Get the default OU ID
-    RESPONSE=$(api_call GET "/organization-units/tree/default")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch default organization unit (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [[ -z "$DEFAULT_OU_ID" ]]; then
-      log_error "Could not extract default organization unit ID from response"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    log_info "Using OU ID: $DEFAULT_OU_ID"
-
-    # Look up the default auth flow ID
-    RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch authentication flows (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    AUTH_FLOW_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"default-basic-flow"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [[ -z "$AUTH_FLOW_ID" ]]; then
-      log_error "Could not find default-basic-flow authentication flow"
-      exit 1
-    fi
-    log_info "Using auth flow ID: $AUTH_FLOW_ID"
-
-    # Check existing apps
-    RESPONSE=$(api_call GET "/applications")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch applications (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-
-    APP_PAYLOAD='{
-      "name": "{{  .Values.thunder.bootstrap.amMcpClient.name }}",
-      "description": "{{  .Values.thunder.bootstrap.amMcpClient.description }}",
-      "ouId": "'${DEFAULT_OU_ID}'",
-      "authFlowId": "'${AUTH_FLOW_ID}'",
-      "allowedUserTypes": {{  .Values.thunder.bootstrap.amMcpClient.allowedUserTypes | toJson }},
-      "inboundAuthConfig": [
-        {
-          "type": "oauth2",
-          "config": {
-            "clientId": "{{  .Values.thunder.bootstrap.amMcpClient.clientId }}",
-            "redirectUris": {{  .Values.thunder.bootstrap.amMcpClient.redirectUris | toJson }},
-            "grantTypes": {{  .Values.thunder.bootstrap.amMcpClient.grantTypes | toJson }},
-            "responseTypes": {{  .Values.thunder.bootstrap.amMcpClient.responseTypes | toJson }},
-            "tokenEndpointAuthMethod": "{{  .Values.thunder.bootstrap.amMcpClient.tokenEndpointAuthMethod }}",
-            "pkceRequired": {{  .Values.thunder.bootstrap.amMcpClient.pkceRequired }},
-            "publicClient": {{  .Values.thunder.bootstrap.amMcpClient.publicClient }},
-            "scopes": {{ without .Values.thunder.bootstrap.ampScopes "amp:observability:trace-read" "amp:observability:log-read" "amp:observability:build-log-read" "amp:observability:metric-read" | toJson }},
-            "token": {
-              "accessToken": {
-                "validityPeriod": {{  .Values.thunder.bootstrap.amMcpClient.accessTokenValidityPeriod }},
-                "userAttributes": {{  .Values.thunder.bootstrap.amMcpClient.userAttributes | toJson }}
-              },
-              "idToken": {
-                "validityPeriod": {{  .Values.thunder.bootstrap.amMcpClient.idTokenValidityPeriod }},
-                "userAttributes": {{  .Values.thunder.bootstrap.amMcpClient.userAttributes | toJson }}
-              }
-            }
-          }
-        }
-      ]
-    }'
-
-    if echo "$BODY" | grep -q '"clientId":"{{  .Values.thunder.bootstrap.amMcpClient.clientId }}"'; then
-      app_id=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"clientId":"{{  .Values.thunder.bootstrap.amMcpClient.clientId }}"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-      log_info "Application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' already exists (id: $app_id), updating..."
-      RESPONSE=$(api_call PUT "/applications/$app_id" "$APP_PAYLOAD")
-      HTTP_CODE="${RESPONSE: -3}"
-      if [[ "$HTTP_CODE" == "200" ]]; then
-        log_info "Application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' updated successfully"
-      else
-        log_error "Failed to update application (HTTP $HTTP_CODE)"
-        echo "Response: ${RESPONSE%???}"
-        exit 1
-      fi
-    else
-      log_info "Application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' does not exist, creating..."
-      RESPONSE=$(api_call POST "/applications" "$APP_PAYLOAD")
-      HTTP_CODE="${RESPONSE: -3}"
-      if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-        log_info "Application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' created successfully"
-      elif [[ "$HTTP_CODE" == "409" ]]; then
-        log_info "Application '{{  .Values.thunder.bootstrap.amMcpClient.name }}' already exists, skipping"
-      else
-        log_error "Failed to create application (HTTP $HTTP_CODE)"
-        echo "Response: ${RESPONSE%???}"
-        exit 1
-      fi
-    fi
+    {{- include "amp-thunder.mcpClientScript" (dict "client" .Values.thunder.bootstrap.amMcpClient "scopes" $amMcpScopes) | nindent 4 }}
 
   60-amp-resource-server.sh: |
     #!/bin/bash
@@ -1292,11 +1310,11 @@ data:
     # ---------------------------------------------------------------------------
     # Helper: register the amp permission tree under a resource server
     # Usage: register_amp_permissions <rs_id> <mode> [parent_res_id]
-    #   mode: full               — all resources and actions (104 permissions)
-    #         skip-observability — everything except the observability resource
-    #                              and its four actions (100 permissions)
-    #         observability-only — only the observability resource and its four
-    #                              actions (4 permissions)
+    #   mode: full                    — all resources and actions
+    #         amp-minus-observability — everything except the observability
+    #                                   resource and its actions
+    #         observability-only      — only the observability resource and
+    #                                   its actions
     # When parent_res_id is given, resources are created as children of it so
     # the derived permission strings start at that resource's permission (used
     # by the MCP resource servers, which carry no handle of their own).
@@ -1306,6 +1324,14 @@ data:
       local r_org r_project r_env r_gw r_dp r_pipe r_git r_llmt r_llm r_mcp \
             r_scope r_agentid r_proxy r_eval r_agent r_agent_kind r_mon r_obs \
             r_role r_group r_cat r_repo r_profile
+
+      case "$mode" in
+        full|amp-minus-observability|observability-only) ;;
+        *)
+          log_error "register_amp_permissions: unrecognized mode '${mode}' (expected full, amp-minus-observability, or observability-only)"
+          exit 1
+          ;;
+      esac
 
       if [[ "$mode" != "observability-only" ]]; then
         log_info "Creating resources..."
@@ -1480,7 +1506,7 @@ data:
         create_action "$rs_id" "$r_repo"         "Read"                   "read"                   "Browse repository branches and commits"
       fi
 
-      if [[ "$mode" != "skip-observability" ]]; then
+      if [[ "$mode" != "amp-minus-observability" ]]; then
         # observability resource and actions  → amp:observability:<action>
         r_obs=$(create_or_get_resource "$rs_id" "Observability" "observability" "Observability dashboards and metrics" "$parent_id")
 
@@ -1520,7 +1546,7 @@ data:
     # ===========================================================================
     register_amp_permissions "$RS_ID" full
 
-    log_info "Agent Manager resource server registration complete (104 permissions registered)."
+    log_info "Agent Manager resource server registration complete (all amp permissions registered)."
 
     # ===========================================================================
     # 3. MCP resource servers (RFC 8707 resource indicators)
@@ -1546,10 +1572,12 @@ data:
     MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ .identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
     log_info "MCP resource server '{{ .identifier }}' ready (id: $MCP_RS_ID)"
 
-    # Guard: a resource server seeded by an older bootstrap carries a non-empty
-    # handle. The handle is immutable and would prefix every derived permission
-    # (e.g. amp-am:amp:project:read), so skip permission registration rather
-    # than seeding scope strings agent-manager-service will never accept.
+    # Remediation: a resource server seeded by an older bootstrap carries a
+    # non-empty handle. The handle is immutable and would prefix every derived
+    # permission (e.g. amp-am:amp:project:read), producing scope strings
+    # agent-manager-service will never accept. The MCP resource servers are
+    # pure mirrors of the amp permission tree with no independent state, so
+    # delete the legacy resource server and recreate it with an empty handle.
     RESPONSE=$(api_call GET "/resource-servers/${MCP_RS_ID}")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
@@ -1559,17 +1587,20 @@ data:
     fi
     MCP_RS_HANDLE=$(echo "$BODY" | grep -o '"handle":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [[ -n "$MCP_RS_HANDLE" ]]; then
-      log_warning "Resource server '{{ .identifier }}' has legacy handle '$MCP_RS_HANDLE'; skipping permission registration. Delete this resource server in Thunder and re-run the bootstrap job to seed MCP scopes."
-    else
-      MCP_AMP_ROOT=$(create_or_get_resource "$MCP_RS_ID" "Agent Manager" "amp" "Root of the amp permission tree")
-    {{- if eq .permissionSet "observability-only" }}
-      register_amp_permissions "$MCP_RS_ID" observability-only "$MCP_AMP_ROOT"
-      log_info "MCP resource server '{{ .identifier }}': observability permissions registered (4 permissions)."
-    {{- else }}
-      register_amp_permissions "$MCP_RS_ID" skip-observability "$MCP_AMP_ROOT"
-      log_info "MCP resource server '{{ .identifier }}': amp permissions registered (100 permissions, observability excluded)."
-    {{- end }}
+      log_warning "Resource server '{{ .identifier }}' has legacy handle '$MCP_RS_HANDLE'; deleting and recreating it with an empty handle..."
+      RESPONSE=$(api_call DELETE "/resource-servers/${MCP_RS_ID}")
+      HTTP_CODE="${RESPONSE: -3}"
+      BODY="${RESPONSE%???}"
+      if [[ "$HTTP_CODE" != "200" ]] && [[ "$HTTP_CODE" != "204" ]]; then
+        log_error "Failed to delete legacy resource server ${MCP_RS_ID} (HTTP $HTTP_CODE): $BODY"
+        exit 1
+      fi
+      MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ .identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
+      log_info "MCP resource server '{{ .identifier }}' recreated (id: $MCP_RS_ID)"
     fi
+    MCP_AMP_ROOT=$(create_or_get_resource "$MCP_RS_ID" "Agent Manager" "amp" "Root of the amp permission tree")
+    register_amp_permissions "$MCP_RS_ID" "{{ .permissionSet }}" "$MCP_AMP_ROOT"
+    log_info "MCP resource server '{{ .identifier }}': '{{ .permissionSet }}' permission set registered."
     {{- end }}
     log_success "MCP resource servers registered."
 
@@ -1993,117 +2024,8 @@ data:
         exit 1
       fi
     fi
+  {{- /* am-obs-mcp gets its OIDC scopes (amObsMcpClient.scopes) plus the four
+       observability data-read scopes, single-sourced from
+       thunder.bootstrap.observabilityScopes. */}}
   64-am-obs-mcp-client.sh: |
-    #!/bin/bash
-    set -e
-
-    SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
-    source "${SCRIPT_DIR}/common.sh"
-
-
-    log_info "Checking if application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' already exists..."
-
-    # Get the default OU ID
-    RESPONSE=$(api_call GET "/organization-units/tree/default")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch default organization unit (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [[ -z "$DEFAULT_OU_ID" ]]; then
-      log_error "Could not extract default organization unit ID from response"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    log_info "Using OU ID: $DEFAULT_OU_ID"
-
-    # Look up the default auth flow ID
-    RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch authentication flows (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-    AUTH_FLOW_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"default-basic-flow"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [[ -z "$AUTH_FLOW_ID" ]]; then
-      log_error "Could not find default-basic-flow authentication flow"
-      exit 1
-    fi
-    log_info "Using auth flow ID: $AUTH_FLOW_ID"
-
-    # Check existing apps
-    RESPONSE=$(api_call GET "/applications")
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    if [[ "$HTTP_CODE" != "200" ]]; then
-      log_error "Failed to fetch applications (HTTP $HTTP_CODE)"
-      echo "Response: $BODY"
-      exit 1
-    fi
-
-    APP_PAYLOAD='{
-      "name": "{{ .Values.thunder.bootstrap.amObsMcpClient.name }}",
-      "description": "{{ .Values.thunder.bootstrap.amObsMcpClient.description }}",
-      "ouId": "'${DEFAULT_OU_ID}'",
-      "authFlowId": "'${AUTH_FLOW_ID}'",
-      "allowedUserTypes": {{ .Values.thunder.bootstrap.amObsMcpClient.allowedUserTypes | toJson }},
-      "inboundAuthConfig": [
-        {
-          "type": "oauth2",
-          "config": {
-            "clientId": "{{ .Values.thunder.bootstrap.amObsMcpClient.clientId }}",
-            "redirectUris": {{ .Values.thunder.bootstrap.amObsMcpClient.redirectUris | toJson }},
-            "grantTypes": {{ .Values.thunder.bootstrap.amObsMcpClient.grantTypes | toJson }},
-            "responseTypes": {{ .Values.thunder.bootstrap.amObsMcpClient.responseTypes | toJson }},
-            "tokenEndpointAuthMethod": "{{ .Values.thunder.bootstrap.amObsMcpClient.tokenEndpointAuthMethod }}",
-            "pkceRequired": {{ .Values.thunder.bootstrap.amObsMcpClient.pkceRequired }},
-            "publicClient": {{ .Values.thunder.bootstrap.amObsMcpClient.publicClient }},
-            "scopes": {{ .Values.thunder.bootstrap.amObsMcpClient.scopes | toJson }},
-            "token": {
-              "accessToken": {
-                "validityPeriod": {{ .Values.thunder.bootstrap.amObsMcpClient.accessTokenValidityPeriod }},
-                "userAttributes": {{ .Values.thunder.bootstrap.amObsMcpClient.userAttributes | toJson }}
-              },
-              "idToken": {
-                "validityPeriod": {{ .Values.thunder.bootstrap.amObsMcpClient.idTokenValidityPeriod }},
-                "userAttributes": {{ .Values.thunder.bootstrap.amObsMcpClient.userAttributes | toJson }}
-              }
-            }
-          }
-        }
-      ]
-    }'
-
-    if echo "$BODY" | grep -q '"clientId":"{{ .Values.thunder.bootstrap.amObsMcpClient.clientId }}"'; then
-      app_id=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"clientId":"{{ .Values.thunder.bootstrap.amObsMcpClient.clientId }}"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-      log_info "Application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' already exists (id: $app_id), updating..."
-      RESPONSE=$(api_call PUT "/applications/$app_id" "$APP_PAYLOAD")
-      HTTP_CODE="${RESPONSE: -3}"
-      if [[ "$HTTP_CODE" == "200" ]]; then
-        log_info "Application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' updated successfully"
-      else
-        log_error "Failed to update application (HTTP $HTTP_CODE)"
-        echo "Response: ${RESPONSE%???}"
-        exit 1
-      fi
-    else
-      log_info "Application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' does not exist, creating..."
-      RESPONSE=$(api_call POST "/applications" "$APP_PAYLOAD")
-      HTTP_CODE="${RESPONSE: -3}"
-      if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-        log_info "Application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' created successfully"
-      elif [[ "$HTTP_CODE" == "409" ]]; then
-        log_info "Application '{{ .Values.thunder.bootstrap.amObsMcpClient.name }}' already exists, skipping"
-      else
-        log_error "Failed to create application (HTTP $HTTP_CODE)"
-        echo "Response: ${RESPONSE%???}"
-        exit 1
-      fi
-    fi
+    {{- include "amp-thunder.mcpClientScript" (dict "client" .Values.thunder.bootstrap.amObsMcpClient "scopes" (concat .Values.thunder.bootstrap.amObsMcpClient.scopes .Values.thunder.bootstrap.observabilityScopes)) | nindent 4 }}

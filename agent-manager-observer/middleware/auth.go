@@ -37,6 +37,17 @@ import (
 
 var validPublisherAudPattern = regexp.MustCompile(`^amp-publisher-[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
+// hasPublisherAudience reports whether any of the token's audiences is an
+// amp-publisher-* audience.
+func hasPublisherAudience(audiences jwt.ClaimStrings) bool {
+	for _, aud := range audiences {
+		if validPublisherAudPattern.MatchString(strings.TrimSpace(aud)) {
+			return true
+		}
+	}
+	return false
+}
+
 // JWKS represents a JSON Web Key Set
 type JWKS struct {
 	Keys []JSONWebKey `json:"keys"`
@@ -166,7 +177,7 @@ func validateJWT(ctx context.Context, tokenString string, cfg config.AuthConfig)
 }
 
 func validateWithJWKS(ctx context.Context, tokenString string, cfg config.AuthConfig) (*TokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &TokenClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -249,13 +260,12 @@ func validateAudience(audiences jwt.ClaimStrings, allowed []string) error {
 	}
 
 	for _, aud := range audiences {
-		trimmed := strings.TrimSpace(aud)
-		if _, ok := allowedSet[trimmed]; ok {
+		if _, ok := allowedSet[strings.TrimSpace(aud)]; ok {
 			return nil
 		}
-		if validPublisherAudPattern.MatchString(trimmed) {
-			return nil
-		}
+	}
+	if hasPublisherAudience(audiences) {
+		return nil
 	}
 	return fmt.Errorf("invalid audience: got %v", audiences)
 }
