@@ -504,12 +504,6 @@ echo "7️⃣  Gateway Operator"
 if helm status gateway-operator -n openchoreo-data-plane &>/dev/null; then
     echo "⏭️  Gateway Operator already installed, skipping..."
 else
-    # gateway-operator 0.10.0+'s own embedded default probe path is
-    # /api/admin/v1/health, but gateway-controller ${GATEWAY_CHART_VERSION} only
-    # serves /api/admin/v0.9/health (plus the legacy unversioned /health) — a
-    # mismatch between the operator's default and its own pinned gateway chart
-    # version that would otherwise crash-loop the self-installed controller on
-    # every health check. Pin to the version-agnostic legacy route instead.
     helm install gateway-operator oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
         --version "${GATEWAY_OPERATOR_VERSION}" \
         --namespace openchoreo-data-plane \
@@ -517,8 +511,14 @@ else
         --set logging.level=debug \
         --set gatewayApi.installStandardCRDs=false \
         --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}" \
-        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/health \
-        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/health
+        --set "gateway.values.gateway.controller.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.controller.image.repository=ghcr.io/wso2/api-platform/gateway-controller \
+        --set "gateway.values.gateway.gatewayRuntime.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.gatewayRuntime.image.repository=ghcr.io/wso2/api-platform/gateway-runtime \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.port=admin \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.port=admin
     echo "✅ Gateway Operator installed successfully"
 fi
 echo ""
