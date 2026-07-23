@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -101,23 +102,39 @@ func TestListGroupMemberEntries_ReturnsTypedEntries(t *testing.T) {
 	assert.Equal(t, GroupMember{ID: "u1", Type: "user"}, members[1])
 }
 
-func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.T) {
-	rsCreated, actCreated := 0, 0
+// TestEnsureProxyResourceServer_CreatesRSWithAnchorResourceAndActions guards
+// against a regression where actions were registered directly at the resource
+// server root: ThunderID's derivePermission only prefixes an item's handle
+// with its resource *parent* chain, never with the resource server's own
+// handle, so a root action's stored permission ended up as the bare action
+// handle (e.g. "read") instead of "gh-proxy:read". Anchoring every action
+// under an explicit resource whose own handle equals the proxy handle is what
+// makes the composed permission match the "<proxy-handle>:<action>" scope
+// string.
+func TestEnsureProxyResourceServer_CreatesRSWithAnchorResourceAndActions(t *testing.T) {
+	rsCreated, resCreated, actCreated := 0, 0, 0
 	var createRSBody map[string]string
+	var createResBody map[string]string
 	var createActionBodies []map[string]string
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
-			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "total": 0})
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "totalResults": 0})
 		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
 			rsCreated++
 			_ = json.NewDecoder(r.Body).Decode(&createRSBody)
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1", "identifier": "gh-proxy"})
-		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources":
+			resCreated++
+			_ = json.NewDecoder(r.Body).Decode(&createResBody)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "res-1", "handle": createResBody["handle"], "permission": createResBody["handle"]})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
 			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
-		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/actions":
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
 			actCreated++
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -133,34 +150,44 @@ func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
 	assert.Equal(t, 1, rsCreated)
+	assert.Equal(t, 1, resCreated)
 	assert.Equal(t, 2, actCreated)
-	assert.Equal(t, "gh-proxy", createRSBody["handle"], "RS handle must be the proxy handle — it prefixes derived permissions")
+	assert.Equal(t, "gh-proxy", createRSBody["handle"], "RS handle must be the proxy handle")
 	assert.Equal(t, "gh-proxy", createRSBody["identifier"])
 	assert.Equal(t, ":", createRSBody["delimiter"])
 	assert.Equal(t, "MCP", createRSBody["type"])
 	assert.Equal(t, "ou-1", createRSBody["ouId"])
+	assert.Equal(t, "gh-proxy", createResBody["handle"], "anchor resource's handle must equal the proxy handle so its permission composes to the proxy handle")
 	assert.Len(t, createActionBodies, 2)
 }
 
 func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) {
-	rsCreated, actCreated := 0, 0
+	rsCreated, resCreated, actCreated := 0, 0, 0
 	var createActionBodies []map[string]string
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}},
-				"total":           1,
+				"totalResults":    1,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
 			rsCreated++
 			t.Fatalf("no RS create expected when the resource server already exists")
-		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resources":    []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}},
+				"totalResults": 1,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources":
+			resCreated++
+			t.Fatalf("no anchor resource create expected when it already exists")
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"actions":      []any{map[string]string{"id": "act-1", "handle": "read"}},
 				"totalResults": 1,
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/actions":
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
 			actCreated++
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -176,6 +203,7 @@ func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) 
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
 	assert.Equal(t, 0, rsCreated)
+	assert.Equal(t, 0, resCreated)
 	require.Len(t, createActionBodies, 1, "only the missing action must be created")
 	assert.Equal(t, "write", createActionBodies[0]["handle"])
 }
@@ -196,16 +224,189 @@ func TestEnsureProxyResourceServer_RejectsOverlongInputs(t *testing.T) {
 	assert.Contains(t, err.Error(), "100", "over-long action error should state the 100-character Thunder limit")
 }
 
-func TestDeleteProxyResourceServer_DeletesActionsThenRS(t *testing.T) {
+// TestEnsureProxyResourceServer_SelfHealsWhenRSExistsWithoutAnchorResource
+// covers the upgrade scenario: a resource server created by the pre-fix code
+// (root-level actions, no anchor resource) is edited again after the fix
+// ships. The RS already exists but has zero resources — the fix must create
+// the anchor and actions fresh, and must never call the old root-level
+// actions endpoint (/resource-servers/{id}/actions) since that's exactly the
+// path that produced unusable bare-handle permissions before.
+func TestEnsureProxyResourceServer_SelfHealsWhenRSExistsWithoutAnchorResource(t *testing.T) {
+	var createResBody, createActBody map[string]string
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewDecoder(r.Body).Decode(&createResBody)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "res-1", "handle": createResBody["handle"]})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewDecoder(r.Body).Decode(&createActBody)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "act-1", "handle": createActBody["handle"]})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+			t.Fatalf("must not query the old root-level actions endpoint after the fix")
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{"read"})
+	require.NoError(t, err)
+	assert.Equal(t, "rs-1", rsID)
+	assert.Equal(t, "gh-proxy", createResBody["handle"])
+	assert.Equal(t, "read", createActBody["handle"])
+}
+
+// TestEnsureProxyResourceServer_RecoversFromConcurrentAnchorCreationConflict
+// covers two AMS replicas (or a client re-created after its cache entry
+// expired) racing to create the same proxy's anchor resource at once.
+// ensureResourceServerMu only serializes calls within one process, so
+// Thunder's 409 RES-1014 on the loser must be treated as "already exists,
+// look it up" rather than failing the whole role write.
+func TestEnsureProxyResourceServer_RecoversFromConcurrentAnchorCreationConflict(t *testing.T) {
+	findCalls := 0
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			findCalls++
+			if findCalls == 1 {
+				// First lookup: not created yet.
+				_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+			} else {
+				// Second lookup (after the 409): the concurrent winner's write is now visible.
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"resources":    []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}},
+					"totalResults": 1,
+				})
+			}
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"RES-1014","message":"Handle conflict"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "act-1", "handle": "read"})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{"read"})
+	require.NoError(t, err, "a 409 on the anchor resource create must be recovered from, not surfaced as a failure")
+	assert.Equal(t, "rs-1", rsID)
+	assert.Equal(t, 2, findCalls, "must re-look-up the anchor after the conflict to get the winner's ID")
+}
+
+// TestEnsureProxyResourceServer_RecoversFromConcurrentActionCreationConflict
+// is the same race one level down: two callers add the same new action to an
+// already-existing anchor resource at once.
+func TestEnsureProxyResourceServer_RecoversFromConcurrentActionCreationConflict(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"RES-1014","message":"Handle conflict"}`))
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{"read"})
+	require.NoError(t, err, "a 409 on action create means a concurrent caller already created it — not a failure")
+	assert.Equal(t, "rs-1", rsID)
+}
+
+// TestEnsureProxyResourceServer_PaginatesExistingActionsBeyondFirstPage
+// proves the idempotency check scans every page of existing actions (page
+// size 20), not just the first — otherwise an action that exists but sits on
+// page 2 would look "missing" and get a duplicate create attempt.
+func TestEnsureProxyResourceServer_PaginatesExistingActionsBeyondFirstPage(t *testing.T) {
+	const existingCount = 25 // > one page (20)
+	var createdActions []string
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			var page []any
+			for i := offset; i < offset+limit && i < existingCount; i++ {
+				page = append(page, map[string]string{"id": fmt.Sprintf("act-%d", i), "handle": fmt.Sprintf("action-%d", i)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": page, "totalResults": existingCount})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			createdActions = append(createdActions, body["handle"])
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "act-new", "handle": body["handle"]})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	// "action-24" sits on page 2 of the existing listing; a "new-action" isn't there at all.
+	_, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{"action-24", "new-action"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new-action"}, createdActions, "action-24 already exists on page 2 and must not be recreated")
+}
+
+// TestEnsureProxyResourceServer_EmptyActionsListCreatesNoActions covers a
+// role scoped to a proxy with zero granted actions: the anchor resource is
+// still ensured (so the RS/resource shape stays consistent), but no action
+// create call is made.
+func TestEnsureProxyResourceServer_EmptyActionsListCreatesNoActions(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s, no action create expected for an empty actions list", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{})
+	require.NoError(t, err)
+	assert.Equal(t, "rs-1", rsID)
+}
+
+func TestDeleteProxyResourceServer_DeletesActionsThenResourceThenRS(t *testing.T) {
 	var calls []string
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.Path)
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
-			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "total": 1})
-		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
 			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{map[string]string{"id": "act-1", "handle": "read"}}, "totalResults": 1})
-		case r.Method == http.MethodDelete && r.URL.Path == "/resource-servers/rs-1/actions/act-1":
+		case r.Method == http.MethodDelete && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions/act-1":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodDelete && r.URL.Path == "/resource-servers/rs-1/resources/res-1":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodDelete && r.URL.Path == "/resource-servers/rs-1":
 			w.WriteHeader(http.StatusNoContent)
@@ -216,8 +417,291 @@ func TestDeleteProxyResourceServer_DeletesActionsThenRS(t *testing.T) {
 	defer srv.Close()
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
 	assert.NoError(t, client.DeleteProxyResourceServer(context.Background(), "gh-proxy"))
-	// action delete MUST precede RS delete (Thunder 400-blocks otherwise)
-	assert.Less(t, indexOf(calls, "DELETE /resource-servers/rs-1/actions/act-1"), indexOf(calls, "DELETE /resource-servers/rs-1"))
+	// deletion must go bottom-up (Thunder 400-blocks a delete while children exist)
+	actionIdx := indexOf(calls, "DELETE /resource-servers/rs-1/resources/res-1/actions/act-1")
+	resourceIdx := indexOf(calls, "DELETE /resource-servers/rs-1/resources/res-1")
+	rsIdx := indexOf(calls, "DELETE /resource-servers/rs-1")
+	assert.Less(t, actionIdx, resourceIdx)
+	assert.Less(t, resourceIdx, rsIdx)
+}
+
+// TestDeleteProxyResourceServerAction_DeletesFromAnchorResource guards against
+// a regression where action deletion targeted the resource-server root
+// (/resource-servers/{id}/actions/{actionId}) instead of the anchor resource's
+// nested action path, which is where EnsureProxyResourceServer now creates them.
+func TestDeleteProxyResourceServerAction_DeletesFromAnchorResource(t *testing.T) {
+	var deleted string
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{map[string]string{"id": "act-1", "handle": "read"}}, "totalResults": 1})
+		case r.Method == http.MethodDelete && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions/act-1":
+			deleted = r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.DeleteProxyResourceServerAction(context.Background(), "gh-proxy", "read")
+	assert.NoError(t, err)
+	assert.Equal(t, "rs-1", rsID)
+	assert.Equal(t, "/resource-servers/rs-1/resources/res-1/actions/act-1", deleted)
+}
+
+// TestDeleteProxyResourceServerAction_NoOpWhenActionAlreadyGone covers a
+// double-delete (e.g. a retried request): the anchor resource exists but the
+// target action handle is no longer in its actions list. No DELETE call
+// should be attempted and no error returned.
+func TestDeleteProxyResourceServerAction_NoOpWhenActionAlreadyGone(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "res-1", "handle": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s, no delete should be attempted for an already-gone action", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.DeleteProxyResourceServerAction(context.Background(), "gh-proxy", "read")
+	assert.NoError(t, err)
+	assert.Equal(t, "rs-1", rsID)
+}
+
+// TestDeleteProxyResourceServerAction_NoOpWhenAnchorResourceMissing covers a
+// resource server that exists (e.g. left over from a partial provisioning
+// run) but never got its anchor resource created. Deleting an action from it
+// must be a no-op, not an error.
+func TestDeleteProxyResourceServerAction_NoOpWhenAnchorResourceMissing(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.DeleteProxyResourceServerAction(context.Background(), "gh-proxy", "read")
+	assert.NoError(t, err)
+	assert.Equal(t, "rs-1", rsID)
+}
+
+// TestDeleteProxyResourceServerAction_NoOpWhenResourceServerMissing and
+// TestDeleteProxyResourceServer_NoOpWhenResourceServerMissing cover a proxy
+// that was never provisioned (or already fully torn down): both delete paths
+// must be silent no-ops, not errors — a caller cleaning up after a failed
+// partial create should not be blocked by "resource server not found".
+func TestDeleteProxyResourceServerAction_NoOpWhenResourceServerMissing(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.DeleteProxyResourceServerAction(context.Background(), "gh-proxy", "read")
+	assert.NoError(t, err)
+	assert.Equal(t, "", rsID)
+}
+
+func TestDeleteProxyResourceServer_NoOpWhenResourceServerMissing(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	assert.NoError(t, client.DeleteProxyResourceServer(context.Background(), "gh-proxy"))
+}
+
+// TestListAMPPermissions_DescendsIntoAnchorResourceChildren guards against a
+// regression where the amp resource server's permission tree came back empty.
+// GET /resource-servers/{id}/resources without parentId only returns
+// top-level resources — every real AMP permission resource (org, profile,
+// project, ...) lives one level below the "amp" anchor resource (see
+// amp-thunder-bootstrap.yaml), so ListAMPPermissions must also fetch each
+// top-level resource's children via parentId or the permission list is empty.
+func TestListAMPPermissions_DescendsIntoAnchorResourceChildren(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}},
+				"totalResults":    1,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resources":    []any{map[string]string{"id": "anchor-1", "handle": "amp", "name": "Agent Manager"}},
+				"totalResults": 1,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "anchor-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resources":    []any{map[string]string{"id": "child-1", "handle": "org", "name": "Organization"}},
+				"totalResults": 1,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources/anchor-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources/child-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"actions": []any{map[string]string{
+					"id": "act-1", "handle": "view", "name": "View", "permission": "amp:org:view",
+				}},
+				"totalResults": 1,
+			})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	perms, rsID, err := client.ListAMPPermissions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "amp-rs", rsID)
+	require.Len(t, perms, 1, "the anchor resource's own child permission must be included, not just the (action-less) anchor itself")
+	assert.Equal(t, "amp:org:view", perms[0].Name)
+	assert.Equal(t, "Organization", perms[0].ResourceName)
+	assert.Equal(t, "View", perms[0].ActionName)
+}
+
+// TestListAMPPermissions_PaginatesMoreThan20ChildrenUnderAnchor mirrors the
+// real amp resource server, which has more than one page (20) of children
+// (org, profile, project, agent, ...) — proving the fix walks every page via
+// parentId instead of only the first.
+func TestListAMPPermissions_PaginatesMoreThan20ChildrenUnderAnchor(t *testing.T) {
+	const childCount = 23 // matches the live amp resource server's actual child count
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "anchor-1", "handle": "amp"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "anchor-1":
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			var page []any
+			for i := offset; i < offset+limit && i < childCount; i++ {
+				page = append(page, map[string]string{"id": fmt.Sprintf("child-%d", i), "handle": fmt.Sprintf("res-%d", i), "name": fmt.Sprintf("Resource %d", i)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": page, "totalResults": childCount})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources/anchor-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/resource-servers/amp-rs/resources/child-"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/resource-servers/amp-rs/resources/"), "/actions")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"actions":      []any{map[string]string{"id": id + "-act", "handle": "view", "name": "View", "permission": "amp:res-x:view"}},
+				"totalResults": 1,
+			})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	perms, rsID, err := client.ListAMPPermissions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "amp-rs", rsID)
+	assert.Len(t, perms, childCount, "every child beyond the first page of 20 must still be walked for its actions")
+}
+
+// TestListAMPPermissions_ReturnsEmptySliceNotNilWhenAnchorHasNoChildren
+// guards against a nil slice reaching JSON encoding as "permissions": null
+// instead of "permissions": [] when the amp resource server exists but has no
+// children yet (e.g. a fresh or partially-bootstrapped install) — a null
+// where callers expect an array is a class of bug on its own.
+func TestListAMPPermissions_ReturnsEmptySliceNotNilWhenAnchorHasNoChildren(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}}, "totalResults": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	perms, rsID, err := client.ListAMPPermissions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "amp-rs", rsID)
+	require.NotNil(t, perms, `permissions must serialize as "[]", not "null"`)
+	assert.Empty(t, perms)
+}
+
+// TestListAMPPermissions_ResourceServerNotFound covers a deployment where the
+// amp resource server was never bootstrapped: the catalog must come back
+// empty (permissions can still be managed without it) rather than erroring.
+func TestListAMPPermissions_ResourceServerNotFound(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	perms, rsID, err := client.ListAMPPermissions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "", rsID)
+	assert.Empty(t, perms)
+}
+
+// TestFindResourceServerID_PaginatesBeyondFirstPage proves the "total" vs
+// "totalResults" JSON tag fix: before it, the pagination loop always read a
+// zero total (Thunder's field is "totalResults", not "total"), so it stopped
+// after the first page and any resource server sitting on page 2+ was
+// silently never found. This puts the target on page 2 of 2.
+func TestFindResourceServerID_PaginatesBeyondFirstPage(t *testing.T) {
+	const totalCount = 25 // > one page (20); "amp" is at index 22, on page 2
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			var page []any
+			for i := offset; i < offset+limit && i < totalCount; i++ {
+				identifier := fmt.Sprintf("proxy-%d", i)
+				if i == totalCount-3 {
+					identifier = "amp"
+				}
+				page = append(page, map[string]string{"id": fmt.Sprintf("rs-%d", i), "identifier": identifier})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": page, "totalResults": totalCount})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-22/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	perms, rsID, err := client.ListAMPPermissions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "rs-22", rsID, "amp sits on page 2 of the resource-server listing and must still be found")
+	assert.Empty(t, perms)
 }
 
 // TestGetAgentRoleAssignments_ReturnsAgentEntriesAndResolvedGroups proves the
