@@ -45,7 +45,7 @@ func TestNewThunderClientWithDialOverride_UsesOverrideAddress(t *testing.T) {
 	defer server.Close()
 
 	overrideHost := strings.TrimPrefix(server.URL, "http://")
-	client := newThunderClientWithDialOverride("http://unreachable.invalid:9999", "cid", "secret", overrideHost)
+	client := newThunderClientWithDialOverride("http://unreachable.invalid:9999", "cid", "secret", overrideHost, "http://unreachable.invalid:9999/mcp")
 
 	tc, ok := client.(*thunderClient)
 	require.True(t, ok)
@@ -68,7 +68,7 @@ func TestNewThunderClientWithDialOverride_EmptyOverrideDialsBaseURLDirectly(t *t
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	client := newThunderClientWithDialOverride(server.URL, "cid", "secret", "")
+	client := newThunderClientWithDialOverride(server.URL, "cid", "secret", "", server.URL+"/mcp")
 
 	tc, ok := client.(*thunderClient)
 	require.True(t, ok)

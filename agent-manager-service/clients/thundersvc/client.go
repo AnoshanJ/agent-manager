@@ -78,7 +78,15 @@ type thunderClient struct {
 	baseURL      string // Thunder API base URL (e.g. http://thunder:8090)
 	clientID     string // OAuth2 client ID of the system app (with Administrator role)
 	clientSecret string // OAuth2 client secret of the system app
-	httpClient   *http.Client
+	// systemResource is the resource indicator (RFC 8707) sent with the client_credentials
+	// token request so the issued token is scoped to Thunder's built-in System resource
+	// server (identifier "<issuer>/mcp"), which owns the "system" permission. Since
+	// ThunderID 1.0.0-alpha, admin APIs (/users, /applications, ...) require that permission,
+	// and it is only granted when the token is scoped to the System RS. Without this, the
+	// server-wide default resource server (amp-resource-server) resolves the request instead,
+	// the "system" scope is dropped, and every admin call fails with AUTH-4030 Forbidden.
+	systemResource string
+	httpClient     *http.Client
 
 	mu          sync.RWMutex
 	cachedToken string
@@ -90,15 +98,27 @@ type thunderClient struct {
 
 const httpClientTimeout = 30 * time.Second
 
+// systemResourceIdentifier returns the System resource server identifier ("<issuer>/mcp")
+// for a Thunder instance reachable at the given public/issuer URL. This mirrors the
+// identifier set by the bootstrap resource (deployments/.../70-fix-thunder-system-rs-identifier.yaml
+// and add-environment-thunder.sh's render_system_rs_identifier_fix), both of which use
+// "<publicUrl>/mcp".
+func systemResourceIdentifier(issuerURL string) string {
+	return strings.TrimRight(issuerURL, "/") + "/mcp"
+}
+
 // NewThunderClient creates a new Thunder API client.
 // clientID/clientSecret are the OAuth2 credentials for the system app
 // that has the Administrator role assigned (created at bootstrap).
+// baseURL is the platform Thunder public/issuer URL, so it also derives the System
+// resource indicator used to obtain system-scoped tokens.
 func NewThunderClient(baseURL, clientID, clientSecret string) ThunderClient {
 	return &thunderClient{
-		baseURL:      baseURL,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		httpClient:   &http.Client{Timeout: httpClientTimeout},
+		baseURL:        baseURL,
+		clientID:       clientID,
+		clientSecret:   clientSecret,
+		systemResource: systemResourceIdentifier(baseURL),
+		httpClient:     &http.Client{Timeout: httpClientTimeout},
 	}
 }
 
@@ -109,7 +129,12 @@ func NewThunderClient(baseURL, clientID, clientSecret string) ThunderClient {
 // direct base URL (cluster-internal DNS or the public ingress hostname) isn't
 // dialable from the caller's network, e.g. a docker-compose container that can't
 // resolve either. An empty resolveToHost behaves exactly like NewThunderClient.
-func newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost string) ThunderClient {
+//
+// systemResource is passed explicitly (rather than derived from baseURL) because the
+// selected baseURL may be the cluster-internal DNS name, which differs from the
+// instance's issuer. The System RS identifier is always "<issuer>/mcp", so callers
+// derive it from the env-Thunder issuer URL, not the dialable base URL.
+func newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource string) ThunderClient {
 	httpClient := &http.Client{Timeout: httpClientTimeout}
 	if resolveToHost != "" {
 		httpClient.Transport = &http.Transport{
@@ -120,10 +145,11 @@ func newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveTo
 		}
 	}
 	return &thunderClient{
-		baseURL:      baseURL,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		httpClient:   httpClient,
+		baseURL:        baseURL,
+		clientID:       clientID,
+		clientSecret:   clientSecret,
+		systemResource: systemResource,
+		httpClient:     httpClient,
 	}
 }
 
@@ -181,6 +207,12 @@ func (c *thunderClient) fetchSystemToken(ctx context.Context) (string, int, erro
 	data := url.Values{
 		"grant_type": {"client_credentials"},
 		"scope":      {"system"},
+	}
+	// Scope the token to Thunder's System resource server so the "system" permission is
+	// actually granted (see systemResource field). Omitting this drops the scope and the
+	// admin APIs reject the call with AUTH-4030.
+	if c.systemResource != "" {
+		data.Set("resource", c.systemResource)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/oauth2/token", strings.NewReader(data.Encode()))
