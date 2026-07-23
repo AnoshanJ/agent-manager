@@ -135,13 +135,14 @@ func main() {
 	mux.Handle("/api/v1/", authenticatedHandler)
 
 	// am-obs-mcp: streamable-HTTP MCP server on the root mux (not under
-	// /api/v1/). Behind the same JWTAuth middleware, but — unlike the REST
-	// logs/metrics/build-logs routes, which now require their respective
-	// RBAC scopes via RequirePermission — deliberately not scope-gated:
-	// publisher-audience tokens may call it.
+	// /api/v1/). Behind the same JWTAuth middleware, with per-tool guards
+	// applying the same scope policy as the REST routes: each tool requires
+	// its amp:observability:* scope when RBAC is enabled, and publisher-
+	// audience tokens are confined to their implicit trace-read permission.
 	mcp.RegisterRoute(mux, mcp.Dependencies{
 		Tracing:       controller,
 		Observability: obsController,
+		RBACEnabled:   cfg.Auth.RBACEnabled,
 	}, middleware.JWTAuth(cfg.Auth))
 	slog.Info("am-obs-mcp registered", "path", "/mcp")
 

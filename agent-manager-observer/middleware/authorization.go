@@ -17,6 +17,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -30,36 +31,46 @@ import (
 // carve-out previously enforced by RejectPublisherAudience.
 var publisherImplicitPermissions = []rbac.Permission{rbac.TraceRead}
 
-// RequirePermission returns middleware that checks the JWTAuth-validated token
-// carries the required amp scope. When rbacEnabled is false the scope check is
-// skipped for ordinary tokens (zero-downtime rollout, mirroring
-// agent-manager-service's RBAC_ENABLED flag) — but publisher-audience tokens
-// are always confined to their implicit permission set, so the pre-authz
-// publisher restrictions never regress while the kill-switch is off.
-// Must run inside JWTAuth: it reads claims from the request context.
+// ErrMissingClaims and ErrInsufficientPermissions are the two authorization
+// failure modes of AuthorizePermission.
+var (
+	ErrMissingClaims           = errors.New("missing token claims")
+	ErrInsufficientPermissions = errors.New("insufficient permissions")
+)
+
+// AuthorizePermission is the single scope policy shared by the REST routes
+// (via RequirePermission) and the am-obs-mcp per-tool guards: publisher-
+// audience tokens are confined to their implicit permission set regardless of
+// rbacEnabled, so pre-authz publisher restrictions never regress while the
+// kill-switch is off; ordinary tokens need the perm's amp scope only when
+// rbacEnabled. Claims must come from a JWTAuth-validated token.
+func AuthorizePermission(claims *TokenClaims, perm rbac.Permission, rbacEnabled bool) error {
+	if claims != nil && hasPublisherAudience(claims.Audience) {
+		if !slices.Contains(publisherImplicitPermissions, perm) {
+			return ErrInsufficientPermissions
+		}
+		return nil
+	}
+	if !rbacEnabled {
+		return nil
+	}
+	if claims == nil {
+		return ErrMissingClaims
+	}
+	if !slices.Contains(strings.Fields(claims.Scope), perm.Scope()) {
+		return ErrInsufficientPermissions
+	}
+	return nil
+}
+
+// RequirePermission returns middleware that applies AuthorizePermission to the
+// JWTAuth-validated token claims. Must run inside JWTAuth: it reads claims
+// from the request context.
 func RequirePermission(rbacEnabled bool, perm rbac.Permission) func(http.Handler) http.Handler {
-	requiredScope := perm.Scope()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims := GetTokenClaims(r.Context())
-			if claims != nil && hasPublisherAudience(claims.Audience) {
-				if !slices.Contains(publisherImplicitPermissions, perm) {
-					writeAuthError(w, http.StatusForbidden, "insufficient permissions")
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-			if !rbacEnabled {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if claims == nil {
-				writeAuthError(w, http.StatusForbidden, "missing token claims")
-				return
-			}
-			if !slices.Contains(strings.Fields(claims.Scope), requiredScope) {
-				writeAuthError(w, http.StatusForbidden, "insufficient permissions")
+			if err := AuthorizePermission(GetTokenClaims(r.Context()), perm, rbacEnabled); err != nil {
+				writeAuthError(w, http.StatusForbidden, err.Error())
 				return
 			}
 			next.ServeHTTP(w, r)

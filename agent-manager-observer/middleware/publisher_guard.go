@@ -22,23 +22,23 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// IsPublisherAudience reports whether the Bearer token in authHeader carries an
-// amp-publisher-* audience. The token is parsed without verifying its signature
-// — callers must ensure it was already validated by JWTAuth — purely to read
-// the audience claim. A missing, non-Bearer, or unparseable token reports false
-// (JWTAuth is responsible for rejecting those). It lets the am-obs-mcp tool
-// handlers apply the publisher carve-out: the MCP go-sdk streamable transport
-// hands tool handlers a context derived from the session-initializing request,
-// not the current tool-call POST, so the per-call Authorization header (via
-// req.Extra.Header) is the only trustworthy per-call token source there.
-func IsPublisherAudience(authHeader string) bool {
+// ParseUnverifiedClaims extracts the TokenClaims from the Bearer token in
+// authHeader without verifying its signature — callers must ensure it was
+// already validated by JWTAuth. A missing, non-Bearer, or unparseable token
+// returns nil. It lets the am-obs-mcp tool guards read the per-call token:
+// the MCP go-sdk streamable transport hands tool handlers a context derived
+// from the session-initializing request, so middleware.GetTokenClaims(ctx)
+// would reflect the initialize token, not the current call's — the per-call
+// Authorization header (via req.Extra.Header) is the only trustworthy
+// per-call token source there.
+func ParseUnverifiedClaims(authHeader string) *TokenClaims {
 	tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	if tokenString == "" || tokenString == authHeader {
-		return false
+		return nil
 	}
 	claims := &TokenClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, claims); err != nil {
-		return false
+		return nil
 	}
-	return hasPublisherAudience(claims.Audience)
+	return claims
 }
