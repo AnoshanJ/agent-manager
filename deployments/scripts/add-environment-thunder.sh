@@ -39,7 +39,7 @@ set -euo pipefail
 #   - ORG_NAME (default: default)
 #   - THUNDER_CHART: override the chart ref (default: oci://ghcr.io/thunder-id/helm-charts/thunderid —
 #     the upstream ThunderID release chart, pulled directly, NOT the agent-manager chart)
-#   - CHART_VERSION: pin the chart version (default: 0.45.0; OCI charts only)
+#   - CHART_VERSION: pin the chart version (default: 1.0.0-alpha; OCI charts only)
 #   - SYSTEM_CLIENT_SECRET (default: generated; reused if one already exists)
 #   - THUNDER_ADMIN_PASSWORD (default: generated 10-char password w/ letters, digits,
 #     and symbols; reused if one already exists) — native ThunderID superadmin password
@@ -274,10 +274,26 @@ store_via_ams() {
   return 1
 }
 
-# render_system_client_bootstrap_script SECRET -> prints a plain (non-Helm-templated)
-# bootstrap script that registers the amp-system-client OAuth2 app and assigns it to
-# ThunderID's own native "Administrator" role (created automatically by every
-# ThunderID install — no AMP-specific role/resource-server bootstrap needed).
+# render_system_client_bootstrap_resource SECRET -> prints a declarative ThunderID
+# resource document (resource_type: application) registering the amp-system-client
+# OAuth2 app with the "system" OAuth scope.
+#
+# Was previously a bash+curl script (ThunderID <1.0.0 style) that registered the app
+# then assigned it to ThunderID's own native "Administrator" role via
+# /roles/{id}/assignments/add. ThunderID 1.0.0-alpha removed the mechanism that
+# executed custom bootstrap scripts at all (setup.sh no longer scans $BOOTSTRAP_DIR
+# for *.sh/*.bash — see agent-manager/deployments/helm-charts/wso2-amp-thunder-extension,
+# converted the same way), so this is now a plain YAML document instead, imported by
+# ThunderID's own `thunderid bootstrap` subcommand.
+#
+# Also switched the actual admin-API grant mechanism from role-assignment to the
+# "system" OAuth scope: ThunderID 1.0.0-alpha's admin API is gated by
+# security.HasSystemPermission, which reads the "system" scope directly off the
+# token's OAuth scope claim (backend/internal/system/security/jwt_authenticator.go +
+# permissions.go) — NOT by a live role-assignment lookup. A client_credentials
+# request that includes any explicit scope also requires a resolvable resource
+# indicator, so render_default_resource_server_config below pairs with this to point
+# at ThunderID's own built-in "System" resource server.
 #
 # This is the ONLY bootstrap env-Thunder needs: agent-manager-service uses this one
 # client_credentials app (see agent-manager-service/clients/thundersvc/naming.go) to
@@ -285,143 +301,138 @@ store_via_ams() {
 # console/CLI/MCP/workload-publisher/observer-reader clients and the AMP-specific
 # roles/groups bootstrapped for platform Thunder are human-console concerns that
 # env-Thunder (agent identities only) does not need.
-render_system_client_bootstrap_script() {
-  local secret="$1" script
-  script="$(cat <<'BOOTSTRAP_SCRIPT'
-#!/bin/bash
-set -e
-
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
-source "${SCRIPT_DIR}/common.sh"
-
-CLIENT_ID="amp-system-client"
-CLIENT_NAME="AMP System Client"
-CLIENT_DESC="System client for agent-manager to provision per-org OAuth apps"
-CLIENT_SECRET="__SYSTEM_CLIENT_SECRET__"
-
-log_info "Checking if application '${CLIENT_NAME}' already exists..."
-
-RESPONSE=$(api_call GET "/organization-units/tree/default")
-HTTP_CODE="${RESPONSE: -3}"
-BODY="${RESPONSE%???}"
-if [[ "$HTTP_CODE" != "200" ]]; then
-  log_error "Failed to fetch default organization unit (HTTP $HTTP_CODE)"
-  echo "Response: $BODY"
-  exit 1
-fi
-DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [[ -z "$DEFAULT_OU_ID" ]]; then
-  log_error "Could not extract default organization unit ID from response"
-  exit 1
-fi
-
-RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
-HTTP_CODE="${RESPONSE: -3}"
-BODY="${RESPONSE%???}"
-if [[ "$HTTP_CODE" != "200" ]]; then
-  log_error "Failed to fetch authentication flows (HTTP $HTTP_CODE)"
-  exit 1
-fi
-AUTH_FLOW_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"default-basic-flow"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [[ -z "$AUTH_FLOW_ID" ]]; then
-  log_error "Could not find default-basic-flow authentication flow"
-  exit 1
-fi
-
-RESPONSE=$(api_call GET "/applications")
-HTTP_CODE="${RESPONSE: -3}"
-BODY="${RESPONSE%???}"
-if [[ "$HTTP_CODE" != "200" ]]; then
-  log_error "Failed to fetch applications (HTTP $HTTP_CODE)"
-  exit 1
-fi
-
-APP_PAYLOAD='{
-  "name": "'"${CLIENT_NAME}"'",
-  "description": "'"${CLIENT_DESC}"'",
-  "ouId": "'${DEFAULT_OU_ID}'",
-  "authFlowId": "'${AUTH_FLOW_ID}'",
-  "inboundAuthConfig": [
-    {
-      "type": "oauth2",
-      "config": {
-        "clientId": "'"${CLIENT_ID}"'",
-        "clientSecret": "'"${CLIENT_SECRET}"'",
-        "grantTypes": ["client_credentials"],
-        "tokenEndpointAuthMethod": "client_secret_basic",
-        "pkceRequired": false,
-        "publicClient": false,
-        "token": {
-          "accessToken": {
-            "validityPeriod": 3600
-          }
-        }
-      }
-    }
-  ]
-}'
-
-SYSTEM_APP_ID=""
-if echo "$BODY" | grep -q "\"clientId\":\"${CLIENT_ID}\""; then
-  SYSTEM_APP_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep "\"clientId\":\"${CLIENT_ID}\"" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-  log_info "Application '${CLIENT_NAME}' already exists (id: $SYSTEM_APP_ID), updating..."
-  RESPONSE=$(api_call PUT "/applications/$SYSTEM_APP_ID" "$APP_PAYLOAD")
-  HTTP_CODE="${RESPONSE: -3}"
-  if [[ "$HTTP_CODE" != "200" ]]; then
-    log_error "Failed to update application (HTTP $HTTP_CODE)"
-    exit 1
-  fi
-else
-  log_info "Application '${CLIENT_NAME}' does not exist, creating..."
-  RESPONSE=$(api_call POST "/applications" "$APP_PAYLOAD")
-  HTTP_CODE="${RESPONSE: -3}"
-  BODY="${RESPONSE%???}"
-  if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-    SYSTEM_APP_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-    log_info "Application '${CLIENT_NAME}' created successfully (id: $SYSTEM_APP_ID)"
-  elif [[ "$HTTP_CODE" == "409" ]]; then
-    RESPONSE=$(api_call GET "/applications")
-    BODY="${RESPONSE%???}"
-    SYSTEM_APP_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep "\"clientId\":\"${CLIENT_ID}\"" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-  else
-    log_error "Failed to create application (HTTP $HTTP_CODE)"
-    echo "Response: $BODY"
-    exit 1
-  fi
-fi
-
-if [[ -z "$SYSTEM_APP_ID" ]]; then
-  log_error "Could not determine system app ID"
-  exit 1
-fi
-
-log_info "Looking up native Administrator role..."
-RESPONSE=$(api_call GET "/roles")
-HTTP_CODE="${RESPONSE: -3}"
-BODY="${RESPONSE%???}"
-if [[ "$HTTP_CODE" != "200" ]]; then
-  log_error "Failed to fetch roles (HTTP $HTTP_CODE)"
-  exit 1
-fi
-ADMIN_ROLE_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"name":"Administrator"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [[ -z "$ADMIN_ROLE_ID" ]]; then
-  log_error "Could not find native Administrator role"
-  exit 1
-fi
-
-log_info "Assigning system app to Administrator role..."
-ASSIGN_PAYLOAD='{"assignments":[{"id":"'${SYSTEM_APP_ID}'","type":"app"}]}'
-RESPONSE=$(api_call POST "/roles/$ADMIN_ROLE_ID/assignments/add" "$ASSIGN_PAYLOAD")
-HTTP_CODE="${RESPONSE: -3}"
-if [[ "$HTTP_CODE" == "200" ]] || [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "204" ]] || [[ "$HTTP_CODE" == "409" ]]; then
-  log_success "System app assigned to Administrator role"
-else
-  log_error "Failed to assign system app to Administrator role (HTTP $HTTP_CODE)"
-  exit 1
-fi
-BOOTSTRAP_SCRIPT
+render_system_client_bootstrap_resource() {
+  local secret="$1" doc
+  doc="$(cat <<'BOOTSTRAP_RESOURCE'
+resource_type: application
+id: amp-system-client
+name: AMP System Client
+description: System client for agent-manager to provision per-org OAuth apps
+ouHandle: default
+inboundAuthConfig:
+  - type: oauth2
+    config:
+      clientId: amp-system-client
+      clientSecret: "__SYSTEM_CLIENT_SECRET__"
+      grantTypes: [client_credentials]
+      tokenEndpointAuthMethod: client_secret_basic
+      pkceRequired: false
+      publicClient: false
+      scopes: [system]
+      token:
+        accessToken:
+          clientConfig:
+            validityPeriod: 3600
+BOOTSTRAP_RESOURCE
 )"
-  printf '%s' "${script//__SYSTEM_CLIENT_SECRET__/$secret}"
+  printf '%s' "${doc//__SYSTEM_CLIENT_SECRET__/$secret}"
+}
+
+# render_default_resource_server_config -> prints a declarative server_config
+# document setting ThunderID's own built-in "System" resource server (id fixed by
+# ThunderID's own default bootstrap, backend/cmd/server/bootstrap/01-default-resources.yaml)
+# as the default resource indicator. Required so amp-system-client's scoped token
+# request (see render_system_client_bootstrap_resource above) resolves without an
+# explicit "resource" parameter — see resourceindicators.go's defaultResourceServer
+# fallback. env-Thunder has no AMP-specific resource server of its own (unlike
+# platform Thunder's amp-resource-server), so this points at ThunderID's native one.
+render_default_resource_server_config() {
+  cat <<'BOOTSTRAP_RESOURCE'
+resource_type: server_config
+name: defaultResourceServer
+value:
+  resourceServerId: "01900000-0000-7000-8000-000000000020"
+BOOTSTRAP_RESOURCE
+}
+
+# render_system_client_role -> prints a declarative role granting amp-system-client
+# the "system" permission on ThunderID's built-in System resource server, via a
+# DIRECT app assignment (not a group). Registering "system" as a scope on the app
+# (render_system_client_bootstrap_resource) only makes the client eligible to
+# request it — granthandlers/client_credentials.go's client-credentials flow still
+# runs every requested scope through an AuthZEN-style entitlement evaluation
+# (EvaluateAccessBatch, keyed off the app's own ID and its group memberships) before
+# including it in the issued token, so eligibility alone isn't enough. Deliberately a
+# new role, not a direct edit to ThunderID's own native "Administrator" role: role
+# assignments are additive (roleAssignmentService.AddAssignments), so it would be
+# safe to extend that role too, but keeping our grant in a role we own is clearer to
+# audit and reason about later.
+render_system_client_role() {
+  cat <<'BOOTSTRAP_RESOURCE'
+resource_type: role
+id: amp-system-client-thunder-admin
+name: "AMP System Client Thunder Admin"
+description: "Grants the env-Thunder system client access to ThunderID's admin API"
+ouHandle: default
+permissions:
+  - resourceServerId: "01900000-0000-7000-8000-000000000020"
+    permissions:
+      - system
+assignments:
+  - id: amp-system-client
+    type: app
+BOOTSTRAP_RESOURCE
+}
+
+# render_system_rs_identifier_fix ISSUER -> prints a declarative resource_server document
+# that re-declares ThunderID's own built-in "System" resource server (same id, so this
+# updates rather than duplicates it) with its identifier corrected to this env-Thunder
+# instance's actual issuer. ThunderID's own default bootstrap
+# (backend/cmd/server/bootstrap/01-default-resources.yaml) hardcodes
+# identifier: https://localhost:8090/mcp, not templated to the deployment's real public
+# URL, so the native /console app's own OAuth resource_identifier (correctly derived from
+# configuration.server.publicUrl) never matches it — every native-console login redirects
+# back with "invalid_target: The resource parameter does not match any registered
+# resource server", and the console silently renders nothing (confirmed live: empty
+# <div id="root">, no console errors, only visible in the network trace's redirect).
+# Preserves the full resources/actions tree verbatim so nothing ThunderID's own native
+# Administrator role depends on gets dropped.
+render_system_rs_identifier_fix() {
+  local issuer="$1"
+  cat <<BOOTSTRAP_RESOURCE
+resource_type: resource_server
+id: "01900000-0000-7000-8000-000000000020"
+name: System
+description: System resource server
+identifier: "${issuer}/mcp"
+ouHandle: default
+resources:
+  - name: System
+    handle: system
+    description: System resource
+  - name: Organization Unit
+    handle: ou
+    description: Organization unit resource
+    parent: system
+    actions:
+      - name: View
+        handle: view
+        description: Read-only access to organization units
+  - name: User
+    handle: user
+    description: User resource
+    parent: system
+    actions:
+      - name: View
+        handle: view
+        description: Read-only access to users
+  - name: Group
+    handle: group
+    description: Group resource
+    parent: system
+    actions:
+      - name: View
+        handle: view
+        description: Read-only access to groups
+  - name: User Type
+    handle: usertype
+    description: User type resource
+    parent: system
+    actions:
+      - name: View
+        handle: view
+        description: Read-only access to user types
+BOOTSTRAP_RESOURCE
 }
 
 # apply_httproute RELEASE NAMESPACE HOST PORT — routes ${HOST}:8080 to the env-Thunder
@@ -587,7 +598,7 @@ main() {
   # whatever version platform Thunder happens to run.
   local version_args=()
   if printf '%s' "$chart" | grep -q '^oci://'; then
-    local chart_version="${CHART_VERSION:-0.45.0}"
+    local chart_version="${CHART_VERSION:-1.0.0-alpha}"
     echo "📌 Using Thunder chart version: ${chart_version}"
     version_args=(--version "$chart_version")
   fi
@@ -608,7 +619,7 @@ main() {
     echo "🔐 Stored new system-client secret (${secret_name})"
   fi
   # Deliver the secret to AMS (see store_via_ams). client_id here must match
-  # CLIENT_ID in render_system_client_bootstrap_script below (both "amp-system-client").
+  # clientId in render_system_client_bootstrap_resource below (both "amp-system-client").
   if ! store_via_ams "$org" "$ENV_NAME" "amp-system-client" "$system_secret"; then
     exit 1
   fi
@@ -628,13 +639,17 @@ main() {
     echo "🔐 Stored new admin password (${admin_secret_name})"
   fi
 
-  # Bootstrap ConfigMap: the ONLY custom bootstrap env-Thunder needs is the
-  # amp-system-client OAuth2 app (see render_system_client_bootstrap_script above).
-  # Pattern 2 (configMap.name + files) preserves ThunderID's own default bootstrap
-  # scripts (org unit, default user schema, native Administrator role, etc.).
+  # Bootstrap ConfigMap: the amp-system-client OAuth2 app plus the default-resource-
+  # server config it needs (see render_system_client_bootstrap_resource and
+  # render_default_resource_server_config above). Pattern 2 (configMap.name + files)
+  # preserves ThunderID's own default bootstrap resources (org unit, default user
+  # schema, native Administrator role, etc.).
   local bootstrap_cm_name="${release}-bootstrap"
   kubectl create configmap "$bootstrap_cm_name" -n "$ns" \
-    --from-literal="10-amp-system-client.sh=$(render_system_client_bootstrap_script "$system_secret")" \
+    --from-literal="10-amp-system-client.yaml=$(render_system_client_bootstrap_resource "$system_secret")" \
+    --from-literal="11-default-resource-server-config.yaml=$(render_default_resource_server_config)" \
+    --from-literal="12-amp-system-client-thunder-admin-role.yaml=$(render_system_client_role)" \
+    --from-literal="13-fix-thunder-system-rs-identifier.yaml=$(render_system_rs_identifier_fix "$issuer")" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   echo "🔐 Bootstrap ConfigMap (${bootstrap_cm_name}) prepared"
 
@@ -645,7 +660,7 @@ main() {
     # AMP component assumes, e.g. agent-manager-service/clients/thundersvc/naming.go's
     # "<release>-service" convention) instead of the chart's default fullname suffix.
     --set-string "fullnameOverride=${release}"
-    --set-string "deployment.image.tag=${CHART_VERSION:-0.45.0}"
+    --set-string "deployment.image.tag=${CHART_VERSION:-1.0.0-alpha}"
     # Single replica + writable root FS: required for SQLite (single-pod, local file DB).
     --set "deployment.replicaCount=1"
     --set "deployment.securityContext.readOnlyRootFilesystem=false"
@@ -658,8 +673,9 @@ main() {
     --set "configuration.gateClient.port=8080"
     --set-string "configuration.gateClient.scheme=http"
     --set "configuration.database.config.type=sqlite"
-    --set "configuration.database.runtime.type=sqlite"
-    --set "configuration.database.user.type=sqlite"
+    --set "configuration.database.runtime_transient.type=sqlite"
+    --set "configuration.database.entity.type=sqlite"
+    --set "configuration.database.runtime_persistent.type=sqlite"
     --set "configuration.consent.database.type=sqlite"
     --set "configuration.cache.disabled=false"
     # CORS: allow the platform Thunder origin so its console can reach env-Thunder APIs.
@@ -672,7 +688,7 @@ main() {
     --set-string "setup.admin.username=admin"
     --set-string "setup.admin.password=${admin_password}"
     --set-string "bootstrap.configMap.name=${bootstrap_cm_name}"
-    --set-json 'bootstrap.configMap.files=["10-amp-system-client.sh"]'
+    --set-json 'bootstrap.configMap.files=["10-amp-system-client.yaml","11-default-resource-server-config.yaml","12-amp-system-client-thunder-admin-role.yaml","13-fix-thunder-system-rs-identifier.yaml"]'
   )
   if [ -n "$storage_class" ]; then
     set_args+=(--set-string "persistence.storageClass=${storage_class}")
@@ -863,7 +879,7 @@ ${ca_pem}"
   echo "  Environment:     ${ENV_NAME}"
   echo "  Namespace:       ${ns}"
   echo "  Release:         ${release}"
-  echo "  Chart:           ${chart} (${CHART_VERSION:-0.45.0})"
+  echo "  Chart:           ${chart} (${CHART_VERSION:-1.0.0-alpha})"
   echo "  Issuer:          ${issuer}"
   echo "  JWKS:            ${issuer}/oauth2/jwks"
   echo "  Trusted issuer:  ${pt_issuer}"
