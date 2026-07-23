@@ -19,6 +19,7 @@ package tools
 import (
 	"testing"
 
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 )
 
@@ -29,6 +30,7 @@ func agentToolSpecs() []toolTestSpec {
 		{
 			name:                "list_agents",
 			toolset:             "agent",
+			permissions:         []rbac.Permission{rbac.AgentRead},
 			descriptionKeywords: []string{"list", "agent"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name"},
@@ -50,6 +52,7 @@ func agentToolSpecs() []toolTestSpec {
 		{
 			name:                "list_project_agent_pairs",
 			toolset:             "agent",
+			permissions:         []rbac.Permission{rbac.AgentRead, rbac.ProjectRead},
 			descriptionKeywords: []string{"project", "agent"},
 			descriptionMinLen:   20,
 			requiredParams:      nil,
@@ -69,6 +72,7 @@ func agentToolSpecs() []toolTestSpec {
 		{
 			name:                "create_external_agent",
 			toolset:             "agent",
+			permissions:         []rbac.Permission{rbac.AgentCreate, rbac.AgentTokenManage},
 			descriptionKeywords: []string{"external", "agent"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name", "display_name", "language"},
@@ -103,6 +107,7 @@ func agentToolSpecs() []toolTestSpec {
 		{
 			name:                "create_internal_agent_python",
 			toolset:             "agent",
+			permissions:         []rbac.Permission{rbac.AgentCreate},
 			descriptionKeywords: []string{"internal", "python", "agent"},
 			descriptionMinLen:   20,
 			requiredParams: []string{

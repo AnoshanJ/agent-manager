@@ -16,7 +16,11 @@
 
 package tools
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
+)
 
 // Returns the test specs for tools registered by registerDeploymentTools.
 // New tools added to deployments.go must have a spec here — registration_test.go fails the build otherwise.
@@ -25,6 +29,7 @@ func deploymentToolSpecs() []toolTestSpec {
 		{
 			name:                "list_deployments",
 			toolset:             "deployment",
+			permissions:         []rbac.Permission{rbac.AgentRead},
 			descriptionKeywords: []string{"deployment"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
@@ -50,6 +55,7 @@ func deploymentToolSpecs() []toolTestSpec {
 		{
 			name:                "deploy_agent",
 			toolset:             "deployment",
+			permissions:         []rbac.Permission{rbac.AgentDeployNonProduction},
 			descriptionKeywords: []string{"deploy"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name", "image_id"},
@@ -80,6 +86,7 @@ func deploymentToolSpecs() []toolTestSpec {
 		{
 			name:                "update_deployment_state",
 			toolset:             "deployment",
+			permissions:         []rbac.Permission{rbac.AgentSuspend},
 			descriptionKeywords: []string{"deployment", "state"},
 			descriptionMinLen:   20,
 			requiredParams: []string{
