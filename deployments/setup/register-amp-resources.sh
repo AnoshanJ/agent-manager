@@ -309,10 +309,10 @@ create_action "$RS_ID" "$R_MON"          "Execute"  "execute"  "Start, stop, and
 create_action "$RS_ID" "$R_MON_SCORE"    "Read"     "read"     "View scores, breakdowns, and timeseries"
 create_action "$RS_ID" "$R_MON_SCORE"    "Publish"  "publish"  "Publish monitor scores (internal/system use)"
 
-create_action "$RS_ID" "$R_OBS"          "Org Dashboard"     "org-dashboard"     "Access the organization-level observability dashboard"
-create_action "$RS_ID" "$R_OBS"          "Project Dashboard" "project-dashboard" "Access the project-level observability dashboard"
-create_action "$RS_ID" "$R_OBS"          "Guardrail Metric"  "guardrail-metric"  "View guardrail metrics"
-create_action "$RS_ID" "$R_OBS"          "Infra Metric"      "infra-metric"      "View CPU, memory, and infrastructure metrics"
+create_action "$RS_ID" "$R_OBS"          "Trace Read"        "trace-read"        "Read traces and spans"
+create_action "$RS_ID" "$R_OBS"          "Log Read"          "log-read"          "Read runtime logs"
+create_action "$RS_ID" "$R_OBS"          "Build Log Read"    "build-log-read"    "Read build logs"
+create_action "$RS_ID" "$R_OBS"          "Metric Read"       "metric-read"       "Read runtime and infrastructure metrics"
 
 create_action "$RS_ID" "$R_ROLE"         "Create"  "create"  "Create a custom role"
 create_action "$RS_ID" "$R_ROLE"         "Read"    "read"    "View roles and their permissions"

@@ -35,7 +35,7 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	cfg := config.AuthConfig{
 		ServerPublicURL:      "https://traces.amp.example.com",
 		AuthorizationServers: []string{"https://thunder.example.com"},
-		ScopesSupported:      []string{"amp:observability:project-dashboard", "amp:observability:org-dashboard"},
+		ScopesSupported:      []string{"amp:observability:log-read", "amp:observability:trace-read"},
 	}
 
 	mux := setupWellKnownMux(cfg)
