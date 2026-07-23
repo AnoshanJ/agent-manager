@@ -53,7 +53,7 @@ interface BuildPanelProps {
  * - https://github.com/owner/repo.git
  * - git@github.com:owner/repo.git
  */
-function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   if (!url) return null;
 
   // Handle HTTPS URLs: https://github.com/owner/repo or https://github.com/owner/repo.git

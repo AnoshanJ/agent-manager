@@ -1,0 +1,258 @@
+/**
+ * Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+ *
+ * WSO2 LLC. licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { useId, useRef, useState } from "react";
+import { Box, FormHelperText, FormLabel, IconButton, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Bold, Heading2, Italic, Link2, List, Quote } from "@wso2/oxygen-ui-icons-react";
+import { MarkdownView } from "@agent-management-platform/views";
+
+type MarkdownEditorTab = "write" | "preview";
+
+interface Selection {
+  text: string;
+  start: number;
+}
+
+interface EditResult {
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+/** Wraps the selection with `prefix`/`suffix` (bold, italic); falls back to `placeholder`. */
+function wrapSelection(
+  { text, start }: Selection,
+  end: number,
+  prefix: string,
+  suffix: string,
+  placeholder: string,
+): EditResult {
+  const selected = text.slice(start, end) || placeholder;
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const selectionStart = before.length + prefix.length;
+  return {
+    text: `${before}${prefix}${selected}${suffix}${after}`,
+    selectionStart,
+    selectionEnd: selectionStart + selected.length,
+  };
+}
+
+/** Prefixes every line touched by the selection with `prefix` (heading, quote, list markers). */
+function prefixLines(
+  { text, start }: Selection,
+  end: number,
+  prefix: string,
+): EditResult {
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  const nextBreak = text.indexOf("\n", end);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  const segment = text.slice(lineStart, lineEnd);
+  const prefixed = segment
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
+  return {
+    text: text.slice(0, lineStart) + prefixed + text.slice(lineEnd),
+    selectionStart: start + prefix.length,
+    selectionEnd: end + (prefixed.length - segment.length),
+  };
+}
+
+function insertLink({ text, start }: Selection, end: number): EditResult {
+  const linkText = text.slice(start, end) || "link text";
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const selectionStart = before.length + linkText.length + 3; // "[" + linkText + "]("
+  return {
+    text: `${before}[${linkText}](url)${after}`,
+    selectionStart,
+    selectionEnd: selectionStart + "url".length,
+  };
+}
+
+const TOOLBAR_ACTIONS = [
+  {
+    key: "heading",
+    label: "Heading",
+    Icon: Heading2,
+    apply: (sel: Selection, end: number) => prefixLines(sel, end, "### "),
+  },
+  {
+    key: "bold",
+    label: "Bold",
+    Icon: Bold,
+    apply: (sel: Selection, end: number) => wrapSelection(sel, end, "**", "**", "bold text"),
+  },
+  {
+    key: "italic",
+    label: "Italic",
+    Icon: Italic,
+    apply: (sel: Selection, end: number) => wrapSelection(sel, end, "*", "*", "italic text"),
+  },
+  {
+    key: "quote",
+    label: "Quote",
+    Icon: Quote,
+    apply: (sel: Selection, end: number) => prefixLines(sel, end, "> "),
+  },
+  {
+    key: "list",
+    label: "Bulleted list",
+    Icon: List,
+    apply: (sel: Selection, end: number) => prefixLines(sel, end, "- "),
+  },
+  {
+    key: "link",
+    label: "Link",
+    Icon: Link2,
+    apply: insertLink,
+  },
+] as const;
+
+export interface MarkdownEditorProps {
+  id?: string;
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  error?: boolean;
+  helperText?: React.ReactNode;
+  disabled?: boolean;
+  minRows?: number;
+  maxRows?: number;
+}
+
+/**
+ * A GitHub-style markdown input: a formatting toolbar (heading, bold, italic,
+ * quote, list, link) and a "Write" tab with a plain textarea, plus a
+ * "Preview" tab that renders the same content through MarkdownView.
+ */
+export const MarkdownEditor = ({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  error = false,
+  helperText,
+  disabled = false,
+  minRows = 3,
+  maxRows = 10,
+}: MarkdownEditorProps) => {
+  const [tab, setTab] = useState<MarkdownEditorTab>("write");
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const handleToolbarAction = (apply: (sel: Selection, end: number) => EditResult) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? value.length;
+    const end = textarea.selectionEnd ?? value.length;
+    const result = apply({ text: value, start }, end);
+    onChange(result.text);
+    // The textarea re-renders with the new `value` on the next tick, so the
+    // selection can only be restored once that render lands.
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+    });
+  };
+
+  return (
+    <Box sx={{ width: "100%" }}>
+      {label && <FormLabel htmlFor={inputId}>{label}</FormLabel>}
+      <Box
+        sx={{
+          border: 1,
+          borderColor: error ? "error.main" : "divider",
+          borderRadius: 1,
+          overflow: "hidden",
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: 1,
+            borderColor: "divider",
+            bgcolor: "action.hover",
+          }}
+        >
+          <Tabs
+            value={tab}
+            onChange={(_, next: MarkdownEditorTab) => setTab(next)}
+            sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0.5 } }}
+          >
+            <Tab value="write" label="Write" />
+            <Tab value="preview" label="Preview" />
+          </Tabs>
+          {tab === "write" && (
+            <Stack direction="row" spacing={0.25} sx={{ pr: 0.75 }}>
+              {TOOLBAR_ACTIONS.map(({ key, label: actionLabel, Icon, apply }) => (
+                <Tooltip key={key} title={actionLabel}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={disabled}
+                      onClick={() => handleToolbarAction(apply)}
+                      tabIndex={-1}
+                    >
+                      <Icon size={15} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              ))}
+            </Stack>
+          )}
+        </Box>
+        <Box sx={{ p: tab === "preview" ? 1.5 : 0, minHeight: 96 }}>
+          {tab === "write" ? (
+            <TextField
+              id={inputId}
+              inputRef={textareaRef}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              multiline
+              minRows={minRows}
+              maxRows={maxRows}
+              disabled={disabled}
+              fullWidth
+              variant="standard"
+              slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1 } } }}
+            />
+          ) : value.trim() ? (
+            <MarkdownView content={value} />
+          ) : (
+            <Typography variant="body2" color="text.disabled">
+              Nothing to preview
+            </Typography>
+          )}
+        </Box>
+      </Box>
+      {(helperText || error) && (
+        <FormHelperText error={error} sx={{ mx: 1.75 }}>
+          {helperText}
+        </FormHelperText>
+      )}
+    </Box>
+  );
+};

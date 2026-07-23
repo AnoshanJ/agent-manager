@@ -21,12 +21,13 @@ import { InternalAgentOverview } from "./InternalAgentOverview";
 import { useParams } from "react-router-dom";
 import { ExternalAgentOverview } from "./ExternalAgentOverview";
 import { useState } from "react";
-import { Box, Button, Chip, Skeleton, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Box, Button, Chip, Skeleton, Stack, Typography } from "@wso2/oxygen-ui";
 import { Clock, Edit } from "@wso2/oxygen-ui-icons-react";
 import { EditAgentDrawer } from "./EditAgentDrawer";
 import {
     PageLayout,
     displayProvisionTypes,
+    DescriptionCard,
 } from "@agent-management-platform/views";
 import { LabelChips } from "@agent-management-platform/shared-component";
 import { formatDistanceToNow } from "date-fns";
@@ -54,32 +55,14 @@ const MetadataItem: React.FC<MetadataItemProps> = ({ icon, label, value }) => (
     </Box>
 );
 
-const AgentDescription: React.FC<{ agent: AgentResponse }> = ({ agent }) => {
+const AgentCreatedMetadata: React.FC<{ agent: AgentResponse }> = ({ agent }) => {
     const createdAtText = agent.createdAt
         ? formatDistanceToNow(new Date(agent.createdAt), { addSuffix: true })
         : null;
 
-    return (
-        <Stack spacing={0.75}>
-            {agent.description && (
-                <Tooltip title={agent.description} placement="bottom-start">
-                    <Typography variant="body2" color="text.secondary"
-                        sx={{
-                            overflow: "hidden",
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            maxWidth: "50%",
-                        }}>
-                        {agent.description}
-                    </Typography>
-                </Tooltip>
-            )}
-            {createdAtText && (
-                <MetadataItem icon={<Clock size={12} />} label="Created" value={createdAtText} />
-            )}
-        </Stack>
-    );
+    if (!createdAtText) return null;
+
+    return <MetadataItem icon={<Clock size={12} />} label="Created" value={createdAtText} />;
 };
 
 export function AgentOverview() {
@@ -95,7 +78,7 @@ export function AgentOverview() {
         <>
             <PageLayout
                 title={agent?.displayName ?? "Agent"}
-                description={agent ? <AgentDescription agent={agent} /> : undefined}
+                description={agent ? <AgentCreatedMetadata agent={agent} /> : undefined}
                 isLoading={isAgentLoading}
                 titleTail={
                     <Stack direction="row" spacing={0.5} alignItems="center" sx={{ width: "100%", minWidth: 0 }}>
@@ -124,7 +107,10 @@ export function AgentOverview() {
                 {isAgentLoading ? (
                     <AgentOverviewSkeleton />
                 ) : (
-                    <Box display="flex" flexDirection="column" gap={4}>
+                    <Box display="flex" flexDirection="column" gap={2}>
+                        {agent?.description && (
+                            <DescriptionCard title="Agent Description" content={agent.description} />
+                        )}
                         {agent?.provisioning?.type === "internal" && <InternalAgentOverview />}
                         {agent?.provisioning?.type === "external" && <ExternalAgentOverview />}
                     </Box>

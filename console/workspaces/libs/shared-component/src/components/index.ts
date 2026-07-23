@@ -23,6 +23,7 @@ export * from "./CodeBlock";
 export * from "./DeploymentConfig";
 export * from "./EnvironmentVariable";
 export * from "./LabelsEditor";
+export * from "./MarkdownEditor";
 export * from "./LabelChips";
 export * from "./FileMountSection";
 export * from "./ResourceMetricChip";
