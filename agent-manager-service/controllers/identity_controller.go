@@ -237,8 +237,14 @@ func (c *identityController) UpdateUser(w http.ResponseWriter, r *http.Request) 
 	if body.Attributes != nil {
 		attrs = *body.Attributes
 	}
+	// This endpoint only updates attributes (spec.UpdateUserRequest has no type/ouId field), so
+	// Type and OuID are carried over from the existing user record fetched above. Thunder's PUT
+	// /users/{id} is a full-replace operation that requires a valid type on every call; leaving
+	// it empty here fails with "user type not found" rather than preserving the existing type.
 	req := thundersvc.UpdateUserRequest{
 		Attributes: attrs,
+		Type:       user.Type,
+		OuID:       user.OuID,
 	}
 
 	updatedUser, err := c.client.UpdateUser(ctx, userID, req)
@@ -1367,8 +1373,11 @@ func (c *identityController) UpdateCurrentUserProfile(w http.ResponseWriter, r *
 		return
 	}
 
-	// Only include known schema fields
-	knownFields := map[string]bool{"username": true, "given_name": true, "family_name": true, "email": true, "password": true}
+	// password is deliberately excluded from knownFields here: Thunder's regular update
+	// endpoint rejects a password field with USR-1028 "Credential update not allowed" —
+	// credential changes are only accepted through the dedicated update-credentials
+	// endpoint (see the newPassword handling below).
+	knownFields := map[string]bool{"username": true, "given_name": true, "family_name": true, "email": true}
 
 	// Start with existing attributes from current user
 	attrs := make(map[string]string)
@@ -1382,11 +1391,13 @@ func (c *identityController) UpdateCurrentUserProfile(w http.ResponseWriter, r *
 		}
 	}
 
-	// Override with new attributes from request
+	var newPassword string
 	if body.Attributes != nil {
 		for k, v := range *body.Attributes {
 			if knownFields[k] {
 				attrs[k] = v
+			} else if k == "password" {
+				newPassword = v
 			}
 		}
 	}
@@ -1408,6 +1419,14 @@ func (c *identityController) UpdateCurrentUserProfile(w http.ResponseWriter, r *
 		log.Error("UpdateCurrentUserProfile failed", "userID", userID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to update user profile")
 		return
+	}
+
+	if newPassword != "" {
+		if err := c.client.UpdateUserCredentials(ctx, userID, newPassword); err != nil {
+			log.Error("UpdateCurrentUserProfile: password update failed", "userID", userID, "error", err)
+			utils.WriteErrorResponse(w, http.StatusInternalServerError, "Profile updated, but password change failed")
+			return
+		}
 	}
 
 	sanitizedResponse := sanitizeAttributesForLogging(updatedUser.Attributes)
