@@ -323,6 +323,7 @@ func TestAgentTokenManager_GenerateToken_HappyPath(t *testing.T) {
 	assert.Equal(t, "acme-namespace", claims.Namespace, "namespace claim must come from GetOrganization, not the raw OU id")
 	assert.Equal(t, "my-agent", claims.Subject)
 	assert.Equal(t, "agent-manager-test", claims.Issuer)
+	assert.NotEmpty(t, claims.ID, "jti claim must be set for forward-compatible revocation")
 	assert.Equal(t, "key-1", parsed.Header["kid"])
 	assert.Equal(t, "RS256", parsed.Method.Alg())
 }
