@@ -207,7 +207,7 @@ Agent Manager can drive external WSO2 AI gateways. The control-plane endpoint `h
 
 The advanced installer (`install-advanced.sh`) is config-file driven and runs **on the VM** with `sudo`. Use it when you have your own domain. It issues **publicly-trusted certificates** via cert-manager's ACME **DNS-01** challenge and terminates TLS on `:443` at a single in-cluster gateway. Because DNS-01 validates by writing a DNS TXT record rather than by connecting to the VM, the same flow works whether the VM is **public** or reachable only from a **private network** — issuance needs outbound access only.
 
-Setup is the same for both up to and including the install; only how clients reach the VM differs. Work through [Prerequisites](#adv-prerequisites), [Configure](#adv-configure), and [Install](#adv-install), then follow either [Public network](#adv-public) or [Private network](#adv-private).
+Setup is the same for both up to and including the install; only how clients reach the VM differs. Work through [Prerequisites](#adv-prerequisites), [Configure](#adv-configure), and [Install](#adv-install), then switch the **Public network / Private network** selector below to the one matching your VM. Everything after that selector applies to both again.
 
 If you just want a quick IP-based demo with automatic TLS, prefer the **Simple** tab.
 
@@ -370,9 +370,14 @@ curl -fsSL "https://github.com/wso2/agent-manager/releases/download/amp/v${VER}/
 
 Note that `bootstrap.sh` cannot emit the template — it needs a version before it can download the bundle, so use the `--init` flow above to create the config.
 
-## Public network {#adv-public}
+## How clients reach the VM {#adv-reachability}
 
-Use this path when the VM has a public IP and clients reach it directly over the internet.
+The install is identical either way; what differs is DNS and how you get a browser to the console. Pick the one that matches your VM — the sections after this apply to both.
+
+<Tabs groupId="vm-network">
+<TabItem value="public" label="Public network" default>
+
+Use this when the VM has a public IP and clients reach it directly over the internet.
 
 Open inbound **`443/tcp` only** in your cloud security group or firewall. Nothing else needs to be reachable: certificate issuance is egress-only, and every service is multiplexed behind the single `:443` listener by `Host` header.
 
@@ -400,15 +405,16 @@ done
 ```
 :::
 
-## Private network {#adv-private}
+</TabItem>
+<TabItem value="private" label="Private network">
 
-Use this path when the VM has **no public IP** and is reachable only from inside your network. The advanced installer supports this unchanged, because DNS-01 validation never requires an inbound connection — the ACME CA reads a TXT record from your DNS provider instead of calling the VM. The result is a **publicly-trusted certificate on a private host**, with no private CA to distribute.
+Use this when the VM has **no public IP** and is reachable only from inside your network. The advanced installer supports this unchanged, because DNS-01 validation never requires an inbound connection — the ACME CA reads a TXT record from your DNS provider instead of calling the VM. The result is a **publicly-trusted certificate on a private host**, with no private CA to distribute.
 
 The VM still needs **outbound** internet access to pull images and charts and to reach the ACME and DNS-provider APIs. On Google Cloud that means a **Cloud NAT** gateway attached to the VM's subnet; the equivalent is a NAT gateway on AWS or Azure.
 
 ### Reaching the console
 
-You have two options. If your network has private DNS and routing to the VM, add the same records as the [public path](#adv-dns-records) but pointing at the VM's **private** IP, and connect normally — a public zone may hold private A records, and split-horizon DNS is fine too.
+You have two options. If your network has private DNS and routing to the VM, add the same four records listed under **Public network** but pointing at the VM's **private** IP, and connect normally — a public zone may hold private A records, and split-horizon DNS is fine too.
 
 Be aware that publishing private addresses in a **public** zone often does not survive the trip to the client. Many resolvers — home routers, corporate DNS, and public resolvers alike — drop RFC-1918 answers for public domains as DNS-rebinding protection, returning an empty result even though the record is correct. The symptom is a name that resolves from the authoritative nameserver but not from the client, and the browser reports `ERR_NAME_NOT_RESOLVED`. Compare the two before assuming the record is wrong:
 
@@ -468,6 +474,9 @@ If agent invocation fails with a DNS error while the console works, this is almo
 
 TLS still validates normally through the tunnel: the certificate is publicly trusted and the `Host` header is preserved, so the browser sees the real hostname and the gateway routes on it.
 
+</TabItem>
+</Tabs>
+
 ## Persistence and teardown {#adv-persistence}
 
 Application data (PostgreSQL), the issued certificate (a Kubernetes Secret, auto-renewed by cert-manager), and the k3d cluster persist across restarts. To tear down completely, delete the cluster — everything the installer created lives inside it, including the certificate and the gateway resources:
@@ -503,9 +512,9 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
 - **Config rejected before install.** The installer names the missing/invalid key (e.g. an unsupported `DNS_PROVIDER`, or a missing provider credential). Fix `amp-config.env` and re-run.
 - **Certificate never becomes Ready.** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit — re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
 - **Cert issued but a host is unreachable.** Confirm the service host's A record points at the VM (public or private IP) and that clients can reach `:443` on it. Issuance does not need this, but client access does.
-- **Login fails but every other host works.** `thunder.<DOMAIN_BASE>` is probably not resolving because the deeper `*.thunder` wildcard shadows it. Check with `dig +short thunder.<DOMAIN_BASE> A` and add the explicit A record (see [DNS records](#adv-dns-records)).
+- **Login fails but every other host works.** `thunder.<DOMAIN_BASE>` is probably not resolving because the deeper `*.thunder` wildcard shadows it. Check with `dig +short thunder.<DOMAIN_BASE> A` and add the explicit A record (see **DNS records** under [How clients reach the VM](#adv-reachability)).
 - **A host returns a connection failure rather than an HTTP status.** The front-proxy route for that plane is not bound. List them with `kubectl get httproute -n openchoreo-control-plane` and check that each `amp-frontproxy-*` route reports `Accepted=True` and `ResolvedRefs=True`; a failed `ResolvedRefs` on the observability or data-plane route usually means its ReferenceGrant is missing. Note that a gateway-level `404` is a *healthy* response from an unrouted path — it proves TLS terminated and the request reached the gateway.
-- **Deployed agent unreachable while the console works.** On a public VM, confirm the `*.agents.<DOMAIN_BASE>` A record exists; on a private VM, add the agent's exact hostname to `/etc/hosts` (see [Private network](#adv-private)), since `/etc/hosts` cannot match wildcards.
+- **Deployed agent unreachable while the console works.** On a public VM, confirm the `*.agents.<DOMAIN_BASE>` A record exists; on a private VM, add the agent's exact hostname to `/etc/hosts` (see the **Private network** tab under [How clients reach the VM](#adv-reachability)), since `/etc/hosts` cannot match wildcards.
 - **Certificate is untrusted after switching to production.** cert-manager will not re-issue into a Secret that still holds a valid staging certificate. Delete the Certificate and its Secret so it re-issues (see [Persistence and teardown](#adv-persistence)).
 - **Changed the domain but the console still shows the old hostnames.** Re-running with a new `DOMAIN_BASE` does not reconfigure existing releases. Delete the cluster and reinstall (see [Persistence and teardown](#adv-persistence)).
 
