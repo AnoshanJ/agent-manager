@@ -180,6 +180,7 @@ func TestLoadRBACEnabled(t *testing.T) {
 
 func TestLoadRBACEnabledDefaultsFalse(t *testing.T) {
 	setRequiredEnv(t)
+	t.Setenv("RBAC_ENABLED", "")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)

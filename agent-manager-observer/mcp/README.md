@@ -74,8 +74,9 @@ OAUTH_AUTHORIZATION_SERVERS=http://thunder.amp.localhost:8080
 OAUTH_SCOPES_SUPPORTED=amp:observability:trace-read,amp:observability:log-read,amp:observability:build-log-read,amp:observability:metric-read
 ```
 
-When `SERVER_PUBLIC_URL` is unset, `GET /.well-known/oauth-protected-resource`
-returns 503 and MCP clients cannot complete OAuth discovery.
+When either `SERVER_PUBLIC_URL` or `OAUTH_AUTHORIZATION_SERVERS` is unset,
+`GET /.well-known/oauth-protected-resource` returns 503 and MCP clients cannot
+complete OAuth discovery.
 
 In the Helm deployment these come from
 `wso2-amp-observability-extension/values.yaml` under `amObserver.publicUrl`

@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/wso2/agent-manager/agent-manager-observer/config"
+	"github.com/wso2/agent-manager/agent-manager-observer/middleware/logger"
 )
 
 var validPublisherAudPattern = regexp.MustCompile(`^amp-publisher-[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -155,7 +155,7 @@ func JWTAuth(cfg config.AuthConfig) func(http.Handler) http.Handler {
 
 			claims, err := validateJWT(r.Context(), tokenString, cfg)
 			if err != nil {
-				slog.Error("JWT validation failed", "error", err)
+				logger.GetLogger(r.Context()).Error("JWT validation failed", "error", err)
 				w.Header().Set("WWW-Authenticate", buildBearerChallenge(resourceMetadataURL, "invalid_token"))
 				writeAuthError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
@@ -207,22 +207,22 @@ func validateWithJWKS(ctx context.Context, tokenString string, cfg config.AuthCo
 		jwt.WithIssuedAt(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("middleware.validateWithJWKS: failed to parse token: %w", err)
 	}
 	if !token.Valid {
-		return nil, fmt.Errorf("token is not valid")
+		return nil, fmt.Errorf("middleware.validateWithJWKS: token is not valid")
 	}
 
 	c, ok := token.Claims.(*TokenClaims)
 	if !ok {
-		return nil, fmt.Errorf("failed to extract claims")
+		return nil, fmt.Errorf("middleware.validateWithJWKS: failed to extract claims")
 	}
 
 	if err := validateIssuer(c.Issuer, cfg.Issuer); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("middleware.validateWithJWKS: %w", err)
 	}
 	if err := validateAudience(c.Audience, cfg.Audience); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("middleware.validateWithJWKS: %w", err)
 	}
 	return c, nil
 }
