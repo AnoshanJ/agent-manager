@@ -6,7 +6,7 @@ CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
 # WSO2 API Platform / Gateway Operator versions
 GATEWAY_OPERATOR_VERSION="0.10.0"
 #injects the gateway-controller and gateway-runtime images into the operator's Deployment
-GATEWAY_CHART_VERSION="1.2.0-alpha"
+GATEWAY_CHART_VERSION="1.2.0-alpha2"
 GATEWAY_IMAGE_VERSION="1.2.0-alpha2"
 
 # OpenChoreo community module versions compatible with OpenChoreo 1.1.1
