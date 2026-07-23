@@ -51,9 +51,9 @@ import {
   Tag,
 } from "@wso2/oxygen-ui-icons-react";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
-import { formatDistanceToNow } from "date-fns";
 import { generatePath, Link } from "react-router-dom";
-import { IsolationTierBadge } from "../IsolationTierIndicator";
+import { formatRelativeTime } from "../../utils/format";
+import { IsolationTierChip } from "../IsolationTierIndicator";
 
 export enum DeploymentStatus {
   ACTIVE = "active",
@@ -78,9 +78,19 @@ export interface EnvironmentCardProps {
    * callers without pipeline context keep the deploy-oriented wording.
    */
   isFirstEnvironment?: boolean;
+  /** Replaces the environment name heading, e.g. a tab strip switching between sibling envs. */
+  tabsHeader?: React.ReactNode;
+  /** Shows the sandbox/isolation tier chip next to the status, alongside tabsHeader. */
+  showIsolationTier?: boolean;
 }
 
-export const EnvStatus = ({ status }: { status?: DeploymentStatus, }) => {
+export const EnvStatus = ({
+  status,
+  suffix,
+}: {
+  status?: DeploymentStatus;
+  suffix?: string;
+}) => {
   const theme = useTheme();
   if (!status) {
     return null;
@@ -93,7 +103,7 @@ export const EnvStatus = ({ status }: { status?: DeploymentStatus, }) => {
         }
         variant="outlined"
         size="small"
-        label="Deployed"
+        label={suffix ? `Deployed · ${suffix}` : "Deployed"}
         color="success"
       />
     );
@@ -139,18 +149,6 @@ export const EnvStatus = ({ status }: { status?: DeploymentStatus, }) => {
   }
 };
 
-const formatRelativeTime = (value?: string | number | Date) => {
-  if (!value) {
-    return "—";
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : formatDistanceToNow(date, { addSuffix: true });
-};
-
 export const EnvironmentCard = (props: EnvironmentCardProps) => {
   const {
     environment,
@@ -160,6 +158,8 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
     actions,
     bottomContent,
     isFirstEnvironment = true,
+    tabsHeader,
+    showIsolationTier,
   } = props;
   const theme = useTheme();
   const { data: agent, isLoading: isAgentLoading } = useGetAgent({
@@ -226,7 +226,8 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
         <CardContent>
           <Box display="flex" flexDirection="row" gap={1} justifyContent="space-between" alignItems="center">
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-              <Typography variant="h6">{envTitle}</Typography>
+              {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
+              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
               <Chip
                 icon={
                   <LinkOutlined size={16} color={theme.vars?.palette?.success?.main} />
@@ -262,8 +263,8 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
       <Card variant="outlined" sx={{ "&.MuiCard-root": { backgroundColor: "background.paper" } }}>
         <CardContent>
           <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-            <IsolationTierBadge tier={environment?.isolationTier} size={16} />
-            <Typography variant="h6">{envTitle}</Typography>
+            {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
+            {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
             <EnvStatus status={DeploymentStatus.INACTIVE} />
           </Box>
         </CardContent>
@@ -288,15 +289,16 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
           display="flex"
           flexDirection="row"
           gap={1}
-          pb={1}
           justifyContent="space-between"
           alignItems="center"
         >
           <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-            <IsolationTierBadge tier={environment?.isolationTier} size={16} />
-            <Typography variant="h6">
-              {environment?.displayName} Environment
-            </Typography>
+            {tabsHeader ?? (
+              <Typography variant="h6">
+                {environment?.displayName} Environment
+              </Typography>
+            )}
+            {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
             {currentDeployment?.status === DeploymentStatus.ACTIVE && (
               <>
                 <EnvStatus status={DeploymentStatus.ACTIVE} />

@@ -16,26 +16,29 @@
  * under the License.
  */
 
-import { globalConfig, type Environment } from '@agent-management-platform/types';
-import { Box, Button, Skeleton, Stack } from "@wso2/oxygen-ui";
+import { globalConfig } from '@agent-management-platform/types';
+import { Box, Button, Skeleton } from "@wso2/oxygen-ui";
 import { Settings } from "@wso2/oxygen-ui-icons-react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useState } from "react";
 import {
   useGetAgent,
   useListGateways,
 } from "@agent-management-platform/api-client";
-import { EnvironmentCard, usePipelineEnvironmentsState } from "@agent-management-platform/shared-component";
+import {
+  EnvironmentCard,
+  usePipelineEnvironmentsState,
+} from "@agent-management-platform/shared-component";
 import { InstrumentationDrawer } from "./InstrumentationDrawer";
 import { NoDataFound } from "@agent-management-platform/views";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
+import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
+import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
 export const ExternalAgentOverview = () => {
   const { agentId, orgId, projectId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>("");
 
   const { data: agent } = useGetAgent({
     orgName: orgId,
@@ -47,6 +50,9 @@ export const ExternalAgentOverview = () => {
   // ordered by the promotion chain. isLoading covers environments + project + pipelines.
   const { environments: sortedEnvironmentList, isLoading: isEnvironmentsLoading } =
     usePipelineEnvironmentsState(orgId, projectId);
+  const { selectedEnvironment, selectEnvironment } =
+    useSelectedEnvironmentParam(sortedEnvironmentList);
+  const selectedEnvironmentId = selectedEnvironment?.id ?? "";
 
   // Per-env OTEL endpoint. The gateway mapped to the selected environment carries
   // the externally-reachable vhost; the OTEL RestApi is published at `<vhost>/otel`.
@@ -61,16 +67,28 @@ export const ExternalAgentOverview = () => {
     ? `${envGatewayVhost.replace(/\/$/, "")}/otel`
     : (globalConfig.instrumentationUrl || "http://default-default.gateway.localhost:19080/otel");
 
-  const handleSetupAgent = (environmentId: string) => {
-    setSelectedEnvironmentId(environmentId);
-    setSearchParams({ setup: "true" });
+  const handleSetupAgent = (environmentName: string) => {
+    selectEnvironment(environmentName);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("setup", "true");
+        return next;
+      },
+      { replace: true },
+    );
   };
 
-  useEffect(() => {
-    if (!isEnvironmentsLoading && !selectedEnvironmentId) {
-      setSelectedEnvironmentId(sortedEnvironmentList.length > 0 ? (sortedEnvironmentList[0].id ?? "") : "");
-    }
-  }, [sortedEnvironmentList, isEnvironmentsLoading, selectedEnvironmentId]);
+  const closeSetupDrawer = () => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("setup");
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   return (
     <>
@@ -86,66 +104,71 @@ export const ExternalAgentOverview = () => {
             subtitle="Environments will appear here once they are created"
           />
         ) : (
-          <Stack spacing={2}>
-            {sortedEnvironmentList.map(
-              (environment: Environment) =>
-                environment && orgId && projectId && agentId && (
-                  <EnvironmentCard
-                    key={environment.name}
+          selectedEnvironment &&
+          orgId &&
+          projectId &&
+          agentId && (
+            <EnvironmentCard
+              key={selectedEnvironment.name}
+              orgId={orgId}
+              projectId={projectId}
+              agentId={agentId}
+              environment={selectedEnvironment}
+              showIsolationTier={sortedEnvironmentList.length > 1}
+              tabsHeader={
+                <EnvironmentTabsBar
+                  environments={sortedEnvironmentList}
+                  selectedName={selectedEnvironment.name}
+                  onSelect={selectEnvironment}
+                  dotColor={() => "success.main"}
+                />
+              }
+              actions={
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<Settings size={16} />}
+                  onClick={() => handleSetupAgent(selectedEnvironment.name)}
+                >
+                  Setup Agent
+                </Button>
+              }
+              bottomContent={
+                <>
+                  <EnvAgentRolesGroupsSection
                     orgId={orgId}
                     projectId={projectId}
                     agentId={agentId}
-                    environment={environment}
-                    actions={
-                      <Button
-                        variant="text"
-                        size="small"
-                        startIcon={<Settings size={16} />}
-                        onClick={() => handleSetupAgent(environment.id ?? "")}
-                      >
-                        Setup Agent
-                      </Button>
-                    }
-                    bottomContent={
-                      <>
-                        <EnvAgentRolesGroupsSection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                        />
-                        <EnvMonitorsSection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                        />
-                        <EnvObservabilitySection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                          hideMetrics
-                          external
-                        />
-                      </>
-                    }
+                    envId={selectedEnvironment.name}
                   />
-                )
-            )}
-          </Stack>
+                  <EnvMonitorsSection
+                    orgId={orgId}
+                    projectId={projectId}
+                    agentId={agentId}
+                    envId={selectedEnvironment.name}
+                  />
+                  <EnvObservabilitySection
+                    orgId={orgId}
+                    projectId={projectId}
+                    agentId={agentId}
+                    envId={selectedEnvironment.name}
+                    hideMetrics
+                    external
+                  />
+                </>
+              }
+            />
+          )
         )}
       </Box>
       <InstrumentationDrawer
         open={searchParams.get("setup") === "true" && selectedEnvironmentId !== ""}
-        onClose={() => setSearchParams({})}
+        onClose={closeSetupDrawer}
         agentId={agentId ?? ""}
         orgName={orgId ?? "default"}
         projName={projectId ?? "default"}
         agentName={agentId ?? ""}
-        environment={
-          sortedEnvironmentList?.find((env: Environment) => env.id === selectedEnvironmentId)?.name
-        }
+        environment={selectedEnvironment?.name}
         instrumentationUrl={agentInstrumentationUrl}
         componentUid={agent?.uuid}
         environmentUid={selectedEnvironmentId}

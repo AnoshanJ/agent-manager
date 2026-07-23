@@ -19,19 +19,40 @@
 import {
     useGetAgent,
     useGetAgentBuilds,
+    useListAgentDeployments,
 } from "@agent-management-platform/api-client";
 import {
     Box,
-    Stack,
 } from "@wso2/oxygen-ui";
 import { useParams } from "react-router-dom";
 
-import { EnvironmentCard, usePipelineEnvironments } from "@agent-management-platform/shared-component";
+import {
+    DeploymentStatus,
+    EnvironmentCard,
+    usePipelineEnvironments,
+} from "@agent-management-platform/shared-component";
 import { KindInfoCard } from "./KindInfoCard";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 import { AgentInfoCard } from "./AgentInfoCard";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
+import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
+import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
+
+const DOT_COLOR_BY_STATUS: Record<DeploymentStatus, string> = {
+    [DeploymentStatus.ACTIVE]: "success.main",
+    [DeploymentStatus.INACTIVE]: "text.disabled",
+    [DeploymentStatus.DEPLOYING]: "warning.main",
+    [DeploymentStatus.ERROR]: "error.main",
+    [DeploymentStatus.FAILED]: "error.main",
+    [DeploymentStatus.SUSPENDED]: "text.disabled",
+};
+
+type DeploymentMap = Record<string, { status: string; lastDeployed: string }>;
+
+function statusOf(deployments: DeploymentMap | undefined, envName: string): DeploymentStatus {
+    return (deployments?.[envName]?.status as DeploymentStatus) ?? DeploymentStatus.INACTIVE;
+}
 
 export const InternalAgentOverview = () => {
     const { orgId, agentId, projectId } = useParams();
@@ -48,6 +69,12 @@ export const InternalAgentOverview = () => {
     // Show only the environments in the current project's deployment pipeline,
     // ordered by the promotion chain.
     const sortedEnvironmentList = usePipelineEnvironments(orgId, projectId);
+    const { data: deployments } = useListAgentDeployments(
+        { orgName: orgId, projName: projectId, agentName: agentId },
+        { enabled: !!orgId && !!projectId && !!agentId },
+    );
+    const { selectedEnvironment, selectEnvironment } =
+        useSelectedEnvironmentParam(sortedEnvironmentList);
 
     const isKindAgent = !!agent?.kindName;
 
@@ -76,43 +103,47 @@ export const InternalAgentOverview = () => {
                 )
             )}
 
-            <Stack spacing={2}>
-                {sortedEnvironmentList.map(
-                    (environment, index) =>
-                        environment && orgId && projectId && agentId && (
-                            <EnvironmentCard
-                                key={environment.name}
+            {selectedEnvironment && orgId && projectId && agentId && (
+                <EnvironmentCard
+                    key={selectedEnvironment.name}
+                    orgId={orgId}
+                    projectId={projectId}
+                    agentId={agentId}
+                    environment={selectedEnvironment}
+                    isFirstEnvironment={sortedEnvironmentList[0]?.name === selectedEnvironment.name}
+                    showIsolationTier={sortedEnvironmentList.length > 1}
+                    tabsHeader={
+                        <EnvironmentTabsBar
+                            environments={sortedEnvironmentList}
+                            selectedName={selectedEnvironment.name}
+                            onSelect={selectEnvironment}
+                            dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
+                        />
+                    }
+                    bottomContent={
+                        <>
+                            <EnvAgentRolesGroupsSection
                                 orgId={orgId}
                                 projectId={projectId}
                                 agentId={agentId}
-                                environment={environment}
-                                isFirstEnvironment={index === 0}
-                                bottomContent={
-                                    <>
-                                        <EnvAgentRolesGroupsSection
-                                            orgId={orgId}
-                                            projectId={projectId}
-                                            agentId={agentId}
-                                            envId={environment.name}
-                                        />
-                                        <EnvMonitorsSection
-                                            orgId={orgId}
-                                            projectId={projectId}
-                                            agentId={agentId}
-                                            envId={environment.name}
-                                        />
-                                        <EnvObservabilitySection
-                                            orgId={orgId}
-                                            projectId={projectId}
-                                            agentId={agentId}
-                                            envId={environment.name}
-                                        />
-                                    </>
-                                }
+                                envId={selectedEnvironment.name}
                             />
-                        ),
-                )}
-            </Stack>
+                            <EnvMonitorsSection
+                                orgId={orgId}
+                                projectId={projectId}
+                                agentId={agentId}
+                                envId={selectedEnvironment.name}
+                            />
+                            <EnvObservabilitySection
+                                orgId={orgId}
+                                projectId={projectId}
+                                agentId={agentId}
+                                envId={selectedEnvironment.name}
+                            />
+                        </>
+                    }
+                />
+            )}
         </Box>
     );
 };
