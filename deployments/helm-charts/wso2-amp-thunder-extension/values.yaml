@@ -410,6 +410,23 @@ thunder:
         - "groups"
         - "ouId"
         - "ouHandle"
+    # MCP resource servers — RFC 8707 resource indicators for the platform's
+    # MCP endpoints. Thunder (v0.45+) rejects an authorize request with
+    # invalid_target unless its `resource` parameter exactly matches a
+    # registered resource-server identifier. MCP clients send the canonical
+    # origin of the MCP endpoint WITH a trailing slash, so each identifier
+    # must be the externally reachable base URL of the service (the same value
+    # as agent-manager's serverPublicURL / the observability extension's
+    # amObserver.publicUrl), slash included.
+    mcpResourceServers:
+      - name: "AMP Agent Manager MCP"
+        handle: "amp-am"
+        identifier: "http://localhost:9000/"
+        description: "Resource identifier for the agent-manager MCP endpoint"
+      - name: "AMP Observer MCP"
+        handle: "amp-obs"
+        identifier: "http://traces.amp.localhost:11080/"
+        description: "Resource identifier for the observer MCP endpoint"
     # AMP Console Client configuration
     ampConsoleClient:
       clientId: "amp-console-client"

@@ -330,3 +330,21 @@ create_action "$RS_ID" "$R_PROFILE"      "Read"              "read"             
 create_action "$RS_ID" "$R_PROFILE"      "Update Attributes" "update-attributes" "Update user attributes"
 
 log_success "Agent Manager resource server registration complete (104 permissions registered)."
+
+# ===========================================================================
+# MCP resource servers (RFC 8707 resource indicators)
+# ===========================================================================
+# MCP clients (Claude Code etc.) send the service's public base URL, with a
+# trailing slash, as the OAuth `resource` parameter. Thunder rejects the
+# authorize request with invalid_target unless that value exactly matches a
+# registered resource-server identifier, so each MCP endpoint's public URL is
+# registered here as its own resource server.
+AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://localhost:9000/}"
+OBSERVER_MCP_RESOURCE="${OBSERVER_MCP_RESOURCE:-http://traces.amp.localhost:11080/}"
+
+log_info "Registering MCP resource servers..."
+AM_MCP_RS_ID=$(create_or_get_rs "AMP Agent Manager MCP" "amp-am" "$AM_MCP_RESOURCE" "Resource identifier for the agent-manager MCP endpoint" "$DEFAULT_OU_ID")
+log_info "MCP resource server '$AM_MCP_RESOURCE' ready (id: $AM_MCP_RS_ID)"
+OBS_MCP_RS_ID=$(create_or_get_rs "AMP Observer MCP" "amp-obs" "$OBSERVER_MCP_RESOURCE" "Resource identifier for the observer MCP endpoint" "$DEFAULT_OU_ID")
+log_info "MCP resource server '$OBSERVER_MCP_RESOURCE' ready (id: $OBS_MCP_RS_ID)"
+log_success "MCP resource servers registered."
