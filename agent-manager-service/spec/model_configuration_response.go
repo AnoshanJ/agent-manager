@@ -24,8 +24,12 @@ type ConfigurationResponse struct {
 	// Name of the agent
 	AgentName string `json:"agentName"`
 	// Environment name
-	Environment    string                              `json:"environment"`
-	Configurations ConfigurationResponseConfigurations `json:"configurations"`
+	Environment string `json:"environment"`
+	// Whether auto-instrumentation (tracing) is enabled for this environment
+	EnableAutoInstrumentation *bool `json:"enableAutoInstrumentation,omitempty"`
+	// AMP instrumentation version pinned for this environment, if any
+	InstrumentationVersion *string                             `json:"instrumentationVersion,omitempty"`
+	Configurations         ConfigurationResponseConfigurations `json:"configurations"`
 }
 
 // NewConfigurationResponse instantiates a new ConfigurationResponse object
@@ -121,6 +125,70 @@ func (o *ConfigurationResponse) SetEnvironment(v string) {
 	o.Environment = v
 }
 
+// GetEnableAutoInstrumentation returns the EnableAutoInstrumentation field value if set, zero value otherwise.
+func (o *ConfigurationResponse) GetEnableAutoInstrumentation() bool {
+	if o == nil || IsNil(o.EnableAutoInstrumentation) {
+		var ret bool
+		return ret
+	}
+	return *o.EnableAutoInstrumentation
+}
+
+// GetEnableAutoInstrumentationOk returns a tuple with the EnableAutoInstrumentation field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ConfigurationResponse) GetEnableAutoInstrumentationOk() (*bool, bool) {
+	if o == nil || IsNil(o.EnableAutoInstrumentation) {
+		return nil, false
+	}
+	return o.EnableAutoInstrumentation, true
+}
+
+// HasEnableAutoInstrumentation returns a boolean if a field has been set.
+func (o *ConfigurationResponse) HasEnableAutoInstrumentation() bool {
+	if o != nil && !IsNil(o.EnableAutoInstrumentation) {
+		return true
+	}
+
+	return false
+}
+
+// SetEnableAutoInstrumentation gets a reference to the given bool and assigns it to the EnableAutoInstrumentation field.
+func (o *ConfigurationResponse) SetEnableAutoInstrumentation(v bool) {
+	o.EnableAutoInstrumentation = &v
+}
+
+// GetInstrumentationVersion returns the InstrumentationVersion field value if set, zero value otherwise.
+func (o *ConfigurationResponse) GetInstrumentationVersion() string {
+	if o == nil || IsNil(o.InstrumentationVersion) {
+		var ret string
+		return ret
+	}
+	return *o.InstrumentationVersion
+}
+
+// GetInstrumentationVersionOk returns a tuple with the InstrumentationVersion field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ConfigurationResponse) GetInstrumentationVersionOk() (*string, bool) {
+	if o == nil || IsNil(o.InstrumentationVersion) {
+		return nil, false
+	}
+	return o.InstrumentationVersion, true
+}
+
+// HasInstrumentationVersion returns a boolean if a field has been set.
+func (o *ConfigurationResponse) HasInstrumentationVersion() bool {
+	if o != nil && !IsNil(o.InstrumentationVersion) {
+		return true
+	}
+
+	return false
+}
+
+// SetInstrumentationVersion gets a reference to the given string and assigns it to the InstrumentationVersion field.
+func (o *ConfigurationResponse) SetInstrumentationVersion(v string) {
+	o.InstrumentationVersion = &v
+}
+
 // GetConfigurations returns the Configurations field value
 func (o *ConfigurationResponse) GetConfigurations() ConfigurationResponseConfigurations {
 	if o == nil {
@@ -158,6 +226,12 @@ func (o ConfigurationResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["projectName"] = o.ProjectName
 	toSerialize["agentName"] = o.AgentName
 	toSerialize["environment"] = o.Environment
+	if !IsNil(o.EnableAutoInstrumentation) {
+		toSerialize["enableAutoInstrumentation"] = o.EnableAutoInstrumentation
+	}
+	if !IsNil(o.InstrumentationVersion) {
+		toSerialize["instrumentationVersion"] = o.InstrumentationVersion
+	}
 	toSerialize["configurations"] = o.Configurations
 	return toSerialize, nil
 }
