@@ -1864,6 +1864,7 @@ data:
       echo "Response: $BODY"
       exit 1
     fi
+    log_info "Using OU ID: $DEFAULT_OU_ID"
 
     # Check existing apps
     RESPONSE=$(api_call GET "/applications")

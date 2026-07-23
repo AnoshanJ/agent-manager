@@ -371,6 +371,7 @@ thunder:
     # In production, override amObserverClient.clientSecret via a Kubernetes
     # Secret or external secret manager. Deploying with this default value is
     # insecure.
+    # NOTE: seeded by the pre-install bootstrap job only — on existing installs, re-run the bootstrap job; helm upgrade alone will not create this client.
     amObserverClient:
       clientId: "am-observer-client"
       clientSecret: "am-observer-client-secret"
@@ -441,6 +442,7 @@ thunder:
     # observer MCP server's interactive login). Allowed ONLY the OIDC scopes
     # plus the four observability data-read scopes; the am-service MCP client
     # (amMcpClient above) is allowed the rest of the catalog.
+    # NOTE: seeded by the pre-install bootstrap job only — on existing installs, re-run the bootstrap job; helm upgrade alone will not create this client.
     amObsMcpClient:
       clientId: "am-obs-mcp"
       name: "AMP Observer MCP"

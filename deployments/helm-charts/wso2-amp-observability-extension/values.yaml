@@ -36,6 +36,7 @@ amObserver:
     # wso2-amp-platform-resources-extension. No amp:* scopes.
     # Override idpClientSecret in production (the default is a local-dev
     # placeholder).
+    # NOTE: the Thunder bootstrap job is a pre-install-only hook — on an existing install, helm upgrade does NOT create this client; re-run the bootstrap job (or reinstall the thunder extension) before rolling out this value.
     idpClientId: "am-observer-client"
     idpClientSecret: "am-observer-client-secret"
     defaultNamespace: "default"
@@ -53,7 +54,10 @@ amObserver:
   # MCP tokens minted for the observer MCP client (am-obs-mcp) carry the
   # RFC 8707 resource identifier — this service's publicUrl WITH a trailing
   # slash — as their audience, so that URL is listed. "am-obs-mcp" is listed
-  # as the same defensive client-ID fallback documented for amp-api-client.
+  # defensively; MCP logins normally carry the resource URL above as the
+  # audience, not the client ID (unlike amp-api-client's client-credentials
+  # fallback, this can't occur for am-obs-mcp, a public client restricted to
+  # authorization_code).
   # Keep the audience URL entry in sync with publicUrl below.
   auth:
     isLocalDevEnv: false
