@@ -137,12 +137,12 @@ If you have changed the observer's public URL from the default, substitute that 
 
 ## Configuring AI Assistants
 
-The observer MCP server is authenticated the same way as the [main MCP server](./mcp-server.mdx#default-oauth-client) — the same pre-registered `am-mcp` OAuth client and pinned callback port `33418` apply, since both servers accept the same bearer token. Follow the [Configuring AI Assistants](./mcp-server.mdx#configuring-ai-assistants) instructions there, substituting the observer MCP server URL for the `agent-manager-service` one, for example:
+The observer MCP server has its own dedicated pre-registered OAuth client — `am-obs-mcp`, with pinned callback port `33419` — distinct from the [main MCP server](./mcp-server.mdx#default-oauth-client)'s `am-mcp`/`33418`. The `am-obs-mcp` client is allowed only the OIDC scopes plus the four `amp:observability:*-read` scopes, so a token obtained for the main MCP server cannot be reused here (and vice versa). Follow the [Configuring AI Assistants](./mcp-server.mdx#configuring-ai-assistants) instructions there, substituting the observer MCP server URL, client ID, and callback port, for example:
 
 ```bash
 claude mcp add --transport http agent-manager-observer http://traces.amp.localhost:11080/mcp \
-  --client-id am-mcp \
-  --callback-port 33418
+  --client-id am-obs-mcp \
+  --callback-port 33419
 ```
 
 ## Next Steps

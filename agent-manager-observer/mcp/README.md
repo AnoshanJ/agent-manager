@@ -18,8 +18,8 @@ JWT middleware, which means every tool call goes through the standard OAuth
 
    ```bash
    claude mcp add --transport http agent-manager-obs http://traces.amp.localhost:11080/mcp \
-     --client-id am-mcp \
-     --callback-port 33418
+     --client-id am-obs-mcp \
+     --callback-port 33419
    ```
 
    - The URL **must** be the ingress URL, not a direct port like
@@ -30,11 +30,14 @@ JWT middleware, which means every tool call goes through the standard OAuth
      configured with; a mismatch fails with
      `Protected resource ... does not match expected ...` before login
      even starts.
-   - `--client-id am-mcp` matches the public PKCE OAuth client registered
-     in Thunder (provisioned automatically by the
-     `wso2-amp-thunder-extension` chart).
-   - `--callback-port 33418` pins Claude Code's local OAuth listener to a
-     fixed port that matches the redirect URI registered in Thunder.
+   - `--client-id am-obs-mcp` matches the observer's dedicated public PKCE
+     OAuth client registered in Thunder (provisioned automatically by the
+     `wso2-amp-thunder-extension` chart). It is allowed only the OIDC
+     scopes plus the four `amp:observability:*-read` scopes — the
+     am-service MCP client (`am-mcp`) cannot be used here.
+   - `--callback-port 33419` pins Claude Code's local OAuth listener to a
+     fixed port that matches the redirect URI registered in Thunder
+     (`am-mcp` uses 33418; this client uses 33419).
 
 3. **Trigger a tool call** in any Claude Code session, e.g.
    *"List recent traces for agent X"*. The first tool call opens a browser
@@ -76,8 +79,9 @@ returns 503 and MCP clients cannot complete OAuth discovery.
 
 In the Helm deployment these come from
 `wso2-amp-observability-extension/values.yaml` under `amObserver.publicUrl`
-and `amObserver.oauth.*`. The `am-mcp` OAuth client itself is registered by
-`wso2-amp-thunder-extension` (see `amMcpClient` in its `values.yaml`).
+and `amObserver.oauth.*`. The `am-obs-mcp` OAuth client itself is registered
+by `wso2-amp-thunder-extension` (script `64-am-obs-mcp-client.sh`; see
+`amObsMcpClient` in its `values.yaml`).
 
 ## Adding a new tool
 
