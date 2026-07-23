@@ -143,7 +143,7 @@ agentManagerService:
     # sandboxed agents' OTEL and managed LLM/MCP traffic.
     gatewayRuntime:
       namePrefix: "api-platform-"
-      serviceSuffix: "-gateway-gateway-runtime"
+      serviceSuffix: "-gw-gateway-gateway-runtime"
       port: 22893
 
 

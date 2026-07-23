@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	apiVersionLLMProxy = "gateway.api-platform.wso2.com/v1alpha1"
+	apiVersionLLMProxy = "gateway.api-platform.wso2.com/v1"
 	kindLLMProxy       = "LlmProxy"
 )
 

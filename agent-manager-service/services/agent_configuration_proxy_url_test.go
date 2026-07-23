@@ -28,7 +28,7 @@ import (
 func gatewayRuntimeTestConfig() config.GatewayRuntimeConfig {
 	return config.GatewayRuntimeConfig{
 		NamePrefix:    "api-platform-",
-		ServiceSuffix: "-gateway-gateway-runtime",
+		ServiceSuffix: "-gw-gateway-gateway-runtime",
 		Port:          22893,
 	}
 }
@@ -44,14 +44,14 @@ func TestGatewayRuntimeInClusterURL(t *testing.T) {
 			gateway: &models.Gateway{
 				Name: "api-platform-acme-dev",
 			},
-			expected: "http://api-platform-acme-dev-gateway-gateway-runtime.acme-dev:22893",
+			expected: "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893",
 		},
 		{
 			name: "trims gateway name",
 			gateway: &models.Gateway{
 				Name: " api-platform-acme-prod ",
 			},
-			expected: "http://api-platform-acme-prod-gateway-gateway-runtime.acme-prod:22893",
+			expected: "http://api-platform-acme-prod-gw-gateway-gateway-runtime.acme-prod:22893",
 		},
 		{
 			name: "custom name falls back to vhost",
@@ -96,7 +96,7 @@ func TestBuildProxyURLSelectsReachableGateway(t *testing.T) {
 
 	require.Equal(
 		t,
-		"http://api-platform-acme-dev-gateway-gateway-runtime.acme-dev:22893/llm/proxy",
+		"http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy",
 		buildProxyURL(gateway, &contextPath, true, gatewayRuntimeTestConfig()),
 	)
 	require.Equal(
@@ -115,7 +115,7 @@ func TestBuildMCPProxyURLSelectsReachableGateway(t *testing.T) {
 
 	require.Equal(
 		t,
-		"http://api-platform-acme-dev-gateway-gateway-runtime.acme-dev:22893/tools/mcp",
+		"http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/tools/mcp",
 		buildMCPProxyURL(gateway, &contextPath, true, gatewayRuntimeTestConfig()),
 	)
 	require.Equal(
