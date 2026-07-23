@@ -1838,3 +1838,94 @@ data:
     fi
 
     log_info "Default group provisioning complete (1 group created/updated)."
+  63-am-observer-client.sh: |
+    #!/bin/bash
+    set -e
+
+    SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
+    source "${SCRIPT_DIR}/common.sh"
+
+
+    log_info "Checking if application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' already exists..."
+
+    # Get the default OU ID
+    RESPONSE=$(api_call GET "/organization-units/tree/default")
+    HTTP_CODE="${RESPONSE: -3}"
+    BODY="${RESPONSE%???}"
+    if [[ "$HTTP_CODE" != "200" ]]; then
+      log_error "Failed to fetch default organization unit (HTTP $HTTP_CODE)"
+      echo "Response: $BODY"
+      exit 1
+    fi
+    DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [[ -z "$DEFAULT_OU_ID" ]]; then
+      log_error "Could not extract default organization unit ID from response"
+      echo "Response: $BODY"
+      exit 1
+    fi
+
+    # Check existing apps
+    RESPONSE=$(api_call GET "/applications")
+    HTTP_CODE="${RESPONSE: -3}"
+    BODY="${RESPONSE%???}"
+    if [[ "$HTTP_CODE" != "200" ]]; then
+      log_error "Failed to fetch applications (HTTP $HTTP_CODE)"
+      echo "Response: $BODY"
+      exit 1
+    fi
+
+    # No "scopes" key on purpose: this client's authority comes from its
+    # OpenChoreo ClusterAuthzRoleBinding (amp-observer-reader-binding), not
+    # from AMP scopes. Scope-less client_credentials tokens fall back to the
+    # client ID as audience.
+    APP_PAYLOAD='{
+      "name": "{{ .Values.thunder.bootstrap.amObserverClient.name }}",
+      "description": "{{ .Values.thunder.bootstrap.amObserverClient.description }}",
+      "ouId": "'${DEFAULT_OU_ID}'",
+      "inboundAuthConfig": [
+        {
+          "type": "oauth2",
+          "config": {
+            "clientId": "{{ .Values.thunder.bootstrap.amObserverClient.clientId }}",
+            "clientSecret": "{{ .Values.thunder.bootstrap.amObserverClient.clientSecret }}",
+            "grantTypes": {{ .Values.thunder.bootstrap.amObserverClient.grantTypes | toJson }},
+            "tokenEndpointAuthMethod": "{{ .Values.thunder.bootstrap.amObserverClient.tokenEndpointAuthMethod }}",
+            "pkceRequired": {{ .Values.thunder.bootstrap.amObserverClient.pkceRequired }},
+            "publicClient": {{ .Values.thunder.bootstrap.amObserverClient.publicClient }},
+            "token": {
+              "accessToken": {
+                "validityPeriod": {{ .Values.thunder.bootstrap.amObserverClient.accessTokenValidityPeriod }}
+              }
+            }
+          }
+        }
+      ]
+    }'
+
+    if echo "$BODY" | grep -q '"clientId":"{{ .Values.thunder.bootstrap.amObserverClient.clientId }}"'; then
+      app_id=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"clientId":"{{ .Values.thunder.bootstrap.amObserverClient.clientId }}"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+      log_info "Application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' already exists (id: $app_id), updating..."
+      RESPONSE=$(api_call PUT "/applications/$app_id" "$APP_PAYLOAD")
+      HTTP_CODE="${RESPONSE: -3}"
+      if [[ "$HTTP_CODE" == "200" ]]; then
+        log_info "Application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' updated successfully"
+      else
+        log_error "Failed to update application (HTTP $HTTP_CODE)"
+        echo "Response: ${RESPONSE%???}"
+        exit 1
+      fi
+    else
+      log_info "Application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' does not exist, creating..."
+      RESPONSE=$(api_call POST "/applications" "$APP_PAYLOAD")
+      HTTP_CODE="${RESPONSE: -3}"
+      if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
+        log_info "Application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' created successfully"
+      elif [[ "$HTTP_CODE" == "409" ]]; then
+        log_info "Application '{{ .Values.thunder.bootstrap.amObserverClient.name }}' already exists, skipping"
+      else
+        log_error "Failed to create application (HTTP $HTTP_CODE)"
+        echo "Response: ${RESPONSE%???}"
+        exit 1
+      fi
+    fi

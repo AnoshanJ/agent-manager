@@ -292,6 +292,7 @@ thunder:
         - 60-amp-resource-server.sh
         - 61-amp-default-roles.sh
         - 62-amp-default-groups.sh
+        - 63-am-observer-client.sh
     # Observer Resource Reader Client configuration (for observability plane to read resources)
     observerResourceReaderClient:
       clientId: "openchoreo-observer-resource-reader-client" # clusterauthzrolebinding is already created with this clientId by openchoreo, so it should not be changed unless the corresponding ClusterAuthzRoleBinding is also updated
@@ -349,6 +350,27 @@ thunder:
       clientSecret: "amp-publisher-client-secret"  # Override in production; must match the value stored in OpenBao at secret/amp-publisher-client-secret (used by ExternalSecret at workflow runtime)
       name: "AMP Publisher Client"
       description: "Client application for evaluation job to publish scores"
+      grantTypes:
+        - "client_credentials"
+      tokenEndpointAuthMethod: "client_secret_basic"
+      pkceRequired: false
+      publicClient: false
+      accessTokenValidityPeriod: 3600
+    # AM Observer Client configuration (dedicated outbound identity for
+    # agent-manager-observer's calls to the OpenChoreo observer backend).
+    # Its authority comes from the OpenChoreo ClusterAuthzRoleBinding
+    # (amp-observer-reader-binding in wso2-amp-platform-resources-extension),
+    # NOT from AMP scopes — it has no scope allowance at all, so its tokens
+    # fail agent-manager-service's scope checks by construction.
+    # WARNING: clientSecret below is a LOCAL-DEVELOPMENT-ONLY placeholder.
+    # In production, override amObserverClient.clientSecret via a Kubernetes
+    # Secret or external secret manager. Deploying with this default value is
+    # insecure.
+    amObserverClient:
+      clientId: "am-observer-client"
+      clientSecret: "am-observer-client-secret"
+      name: "AM Observer Client"
+      description: "Dedicated client for agent-manager-observer to read observability data from the OpenChoreo observer"
       grantTypes:
         - "client_credentials"
       tokenEndpointAuthMethod: "client_secret_basic"
