@@ -142,6 +142,9 @@ import (
 //			UpdateUserFunc: func(ctx context.Context, userID string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error) {
 //				panic("mock out the UpdateUser method")
 //			},
+//			UpdateUserCredentialsFunc: func(ctx context.Context, userID string, password string) error {
+//				panic("mock out the UpdateUserCredentials method")
+//			},
 //		}
 //
 //		// use mockedEnvIdentityClient in code that requires thundersvc.EnvIdentityClient
@@ -274,6 +277,9 @@ type EnvIdentityClientMock struct {
 
 	// UpdateUserFunc mocks the UpdateUser method.
 	UpdateUserFunc func(ctx context.Context, userID string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error)
+
+	// UpdateUserCredentialsFunc mocks the UpdateUserCredentials method.
+	UpdateUserCredentialsFunc func(ctx context.Context, userID string, password string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -629,6 +635,15 @@ type EnvIdentityClientMock struct {
 			// Req is the req argument value.
 			Req thundersvc.UpdateUserRequest
 		}
+		// UpdateUserCredentials holds details about calls to the UpdateUserCredentials method.
+		UpdateUserCredentials []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// UserID is the userID argument value.
+			UserID string
+			// Password is the password argument value.
+			Password string
+		}
 	}
 	lockAddGroupMemberEntries           sync.RWMutex
 	lockAddGroupMembers                 sync.RWMutex
@@ -672,6 +687,7 @@ type EnvIdentityClientMock struct {
 	lockUpdateGroup                     sync.RWMutex
 	lockUpdateRole                      sync.RWMutex
 	lockUpdateUser                      sync.RWMutex
+	lockUpdateUserCredentials           sync.RWMutex
 }
 
 // AddGroupMemberEntries calls AddGroupMemberEntriesFunc.
@@ -2299,5 +2315,45 @@ func (mock *EnvIdentityClientMock) UpdateUserCalls() []struct {
 	mock.lockUpdateUser.RLock()
 	calls = mock.calls.UpdateUser
 	mock.lockUpdateUser.RUnlock()
+	return calls
+}
+
+// UpdateUserCredentials calls UpdateUserCredentialsFunc.
+func (mock *EnvIdentityClientMock) UpdateUserCredentials(ctx context.Context, userID string, password string) error {
+	if mock.UpdateUserCredentialsFunc == nil {
+		panic("EnvIdentityClientMock.UpdateUserCredentialsFunc: method is nil but EnvIdentityClient.UpdateUserCredentials was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		UserID   string
+		Password string
+	}{
+		Ctx:      ctx,
+		UserID:   userID,
+		Password: password,
+	}
+	mock.lockUpdateUserCredentials.Lock()
+	mock.calls.UpdateUserCredentials = append(mock.calls.UpdateUserCredentials, callInfo)
+	mock.lockUpdateUserCredentials.Unlock()
+	return mock.UpdateUserCredentialsFunc(ctx, userID, password)
+}
+
+// UpdateUserCredentialsCalls gets all the calls that were made to UpdateUserCredentials.
+// Check the length with:
+//
+//	len(mockedEnvIdentityClient.UpdateUserCredentialsCalls())
+func (mock *EnvIdentityClientMock) UpdateUserCredentialsCalls() []struct {
+	Ctx      context.Context
+	UserID   string
+	Password string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		UserID   string
+		Password string
+	}
+	mock.lockUpdateUserCredentials.RLock()
+	calls = mock.calls.UpdateUserCredentials
+	mock.lockUpdateUserCredentials.RUnlock()
 	return calls
 }
