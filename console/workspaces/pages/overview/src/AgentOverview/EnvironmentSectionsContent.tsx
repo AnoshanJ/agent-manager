@@ -16,7 +16,9 @@
  * under the License.
  */
 
+import type { Configurations } from "@agent-management-platform/types";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
+import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 
@@ -25,20 +27,29 @@ interface EnvironmentSectionsContentProps {
     projectId: string;
     agentId: string;
     envId: string;
+    configurations?: Configurations;
     hideMetrics?: boolean;
     external?: boolean;
 }
 
 /**
- * Agent Identity / Agent Performance / Recent Traces + System Metrics
- * sections rendered as an EnvironmentCard's bottomContent, shared by
+ * Capabilities / Agent Identity / Agent Performance / Recent Traces + System
+ * Metrics sections rendered as an EnvironmentCard's bottomContent, shared by
  * InternalAgentOverview and ExternalAgentOverview.
  */
 export function EnvironmentSectionsContent({
-    orgId, projectId, agentId, envId, hideMetrics, external,
+    orgId, projectId, agentId, envId, configurations, hideMetrics, external,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
+            <EnvCapabilitiesSection
+                orgId={orgId}
+                projectId={projectId}
+                agentId={agentId}
+                envId={envId}
+                configurations={configurations}
+                external={external}
+            />
             <EnvAgentRolesGroupsSection
                 orgId={orgId}
                 projectId={projectId}

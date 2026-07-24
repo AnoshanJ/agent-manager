@@ -39,20 +39,26 @@ export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ ch
 interface SectionHeaderProps {
   title: string;
   viewAllHref: string;
+  viewAllLabel?: string;
   mb?: number;
   mt?: number;
+  hideDivider?: boolean;
 }
 
 /**
  * Divider + uppercase caption + "View all" link, marking the boundary before
- * every EnvironmentCard section (Agent Identity, Agent Performance, Recent
- * Traces, System Metrics) that links out to its own full listing page.
+ * every EnvironmentCard section (Capabilities, Agent Identity, Agent
+ * Performance, Recent Traces, System Metrics) that links out to its own full
+ * listing page. Whichever section renders first draws this divider right
+ * after EnvironmentCard's own header divider — EnvironmentCard.tsx hides that
+ * redundant leading `hr` via a CSS rule; look there if this divider ever
+ * seems to double up or vanish unexpectedly.
  */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
-  title, viewAllHref, mb = 0.5, mt = 2,
+  title, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2, hideDivider = false,
 }) => (
   <>
-    <Divider sx={{ mt, mb: 1 }} />
+    {!hideDivider && <Divider sx={{ mt, mb: 1 }} />}
     <Box display="flex" justifyContent="space-between" alignItems="center" mb={mb}>
       <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
       <Button
@@ -63,7 +69,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
         to={viewAllHref}
         sx={{ minWidth: 0, fontSize: "0.75rem" }}
       >
-        View all
+        {viewAllLabel}
       </Button>
     </Box>
   </>

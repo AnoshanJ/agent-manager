@@ -45,13 +45,12 @@ import {
   Circle as CircleOutlined,
   Clock,
   Rocket as RocketLaunchOutlined,
-  FlaskConical as TryOutlined,
   Link as LinkOutlined,
   PauseCircle,
   Play,
   Tag,
 } from "@wso2/oxygen-ui-icons-react";
-import { NoDataFound, TextInput } from "@agent-management-platform/views";
+import { NoDataFound } from "@agent-management-platform/views";
 import { generatePath, Link } from "react-router-dom";
 import { formatRelativeTime } from "../../utils/format";
 import { IsolationTierChip } from "../IsolationTierIndicator";
@@ -71,6 +70,12 @@ export interface EnvironmentCardProps {
   projectId: string;
   agentId: string;
   actions?: React.ReactNode;
+  /**
+   * Rendered below the deployment status area. This card no longer lists
+   * `currentDeployment.endpoints` itself (see EnvironmentCard.tsx history) —
+   * a caller that wants endpoint/invoke-URL visibility must render it here,
+   * as pages/overview's EnvCapabilitiesSection does.
+   */
   bottomContent?: React.ReactNode;
   /**
    * Whether this is the first (root) environment of the deployment pipeline.
@@ -333,30 +338,7 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
                 variant="outlined"
               />
             )}
-            {currentDeployment?.status === DeploymentStatus.ACTIVE && (
-              <>
-                {actions}
-                <Button
-                  startIcon={<TryOutlined size={16} />}
-                  variant="text"
-                  component={Link}
-                  to={generatePath(
-                    absoluteRouteMap.children.org.children.projects.children
-                      .agents.children.environment.children.tryOut.path,
-                    {
-                      orgId,
-                      projectId,
-                      agentId,
-                      envId: environment?.name ?? "",
-                    }
-                  )}
-                  color="primary"
-                  size="small"
-                >
-                  Try It
-                </Button>
-              </>
-            )}
+            {currentDeployment?.status === DeploymentStatus.ACTIVE && actions}
           </Box>
         </Box>
         <Divider />
@@ -368,6 +350,20 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
           gap={1}
           pt={2}
           alignItems="center"
+          sx={{
+            // The Divider above already closes off the header/tabs row. Every
+            // section in bottomContent is built on pages/overview's
+            // SectionHeader, which unconditionally draws its own leading
+            // <Divider> (an intentional boundary marker when a section isn't
+            // first — see SectionHeader.tsx). Whichever section ends up
+            // rendering first — usually Capabilities, but any section can be
+            // first if earlier ones render null — would otherwise double up
+            // with the Divider above. Hiding the first `hr` descendant here,
+            // rather than each section knowing whether it's first, sidesteps
+            // needing to lift each section's null/non-null render decision
+            // back up to this component.
+            "& > hr:first-of-type": { display: "none" },
+          }}
         >
           {currentDeployment.status === DeploymentStatus.INACTIVE && (
             <NoDataFound
@@ -449,24 +445,11 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
               }
             />
           )}
-          {currentDeployment.status === DeploymentStatus.ACTIVE && (
-            <Box display="flex" flexGrow={1} flexDirection="column" width="100%" gap={isKindOutdated ? 2 : 4} alignItems="flex-start">
-              {isKindOutdated && (
-                <Alert severity="warning" sx={{ width: "100%" }}>
-                  A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
-                  Currently deployed: <strong>v{deployedVersion}</strong>.
-                </Alert>
-              )}
-              {currentDeployment.endpoints?.map((endpoint) => (
-                <TextInput
-                  slotProps={{ input: { readOnly: true } }}
-                  key={endpoint.url}
-                  label="URL"
-                  value={endpoint.url}
-                  fullWidth
-                />
-              ))}
-            </Box>
+          {currentDeployment.status === DeploymentStatus.ACTIVE && isKindOutdated && (
+            <Alert severity="warning" sx={{ width: "100%" }}>
+              A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
+              Currently deployed: <strong>v{deployedVersion}</strong>.
+            </Alert>
           )}
         </Box>
         {showObservability && bottomContent}

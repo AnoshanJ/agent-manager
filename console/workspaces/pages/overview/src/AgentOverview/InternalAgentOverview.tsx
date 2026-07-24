@@ -124,6 +124,7 @@ export const InternalAgentOverview = () => {
                             projectId={projectId}
                             agentId={agentId}
                             envId={selectedEnvironment.name}
+                            configurations={agent?.configurations}
                         />
                     }
                 />
