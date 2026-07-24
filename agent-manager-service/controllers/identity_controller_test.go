@@ -116,7 +116,7 @@ func TestUpdateCurrentUserProfile_RejectsUpdatingAnotherUser(t *testing.T) {
 	client := &clientmocks.IdentityClientMock{
 		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
 			t.Fatalf("must not even fetch the target user once the self-check fails")
-			return nil, nil
+			return nil, nil //nolint:nilnil // unreachable: t.Fatalf halts the goroutine before this returns
 		},
 	}
 	ctrl := NewIdentityController(client)
