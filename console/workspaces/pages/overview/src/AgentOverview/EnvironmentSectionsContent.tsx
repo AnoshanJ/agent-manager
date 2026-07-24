@@ -29,17 +29,16 @@ interface EnvironmentSectionsContentProps {
     agentId: string;
     envId: string;
     configurations?: Configurations;
-    hideMetrics?: boolean;
     external?: boolean;
 }
 
 /**
- * Capabilities / Agent Identity / Agent Performance / Recent Traces + System
- * Metrics sections rendered as an EnvironmentCard's bottomContent, shared by
+ * Capabilities / Agent Identity / Agent Performance / Recent Traces sections
+ * rendered as an EnvironmentCard's bottomContent, shared by
  * InternalAgentOverview and ExternalAgentOverview.
  */
 export function EnvironmentSectionsContent({
-    orgId, projectId, agentId, envId, configurations, hideMetrics, external,
+    orgId, projectId, agentId, envId, configurations, external,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
@@ -74,7 +73,6 @@ export function EnvironmentSectionsContent({
                 projectId={projectId}
                 agentId={agentId}
                 envId={envId}
-                hideMetrics={hideMetrics}
                 external={external}
             />
         </>

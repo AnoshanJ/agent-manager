@@ -140,7 +140,6 @@ export const ExternalAgentOverview = () => {
                   agentId={agentId}
                   envId={selectedEnvironment.name}
                   configurations={agent?.configurations}
-                  hideMetrics
                   external
                 />
               }
