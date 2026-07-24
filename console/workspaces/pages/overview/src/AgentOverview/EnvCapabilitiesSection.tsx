@@ -17,10 +17,11 @@
  */
 
 import { useMemo } from "react";
-import { Box, Chip, Divider, Skeleton, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
+import { Box, Chip, Divider, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
 import { generatePath } from "react-router-dom";
 import { useGetAgentEndpoints } from "@agent-management-platform/api-client";
 import {
+    CollapsibleSection,
     extractOpenApiResources,
     parseOpenApiSpecContent,
     type OpenApiResource,
@@ -150,15 +151,12 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
         ? corsAllOrigins ? "Any origin may call this endpoint" : corsOrigins.join(", ")
         : "Cross-origin browser requests are blocked";
 
+    // Not applicable to external agents at all: they aren't deployed through
+    // this platform, so there's nothing to fetch, and the disabled query never
+    // settles isLoading. Static per instance, so bailing out here (rather than
+    // routing through CollapsibleSection like the loading/empty cases below)
+    // skips building the JSX for a section that can never show.
     if (external) {
-        return null;
-    }
-
-    if (isLoading) {
-        return <Skeleton variant="rounded" height={56} sx={{ mt: 2 }} />;
-    }
-
-    if (resources.length === 0) {
         return null;
     }
 
@@ -172,8 +170,10 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
         { orgId, projectId, agentId, envId },
     );
 
+    const show = !isLoading && resources.length > 0;
+
     return (
-        <>
+        <CollapsibleSection show={show}>
             <SectionHeader title="Capabilities" viewAllHref={tryItHref} viewAllLabel="Try It" hideDivider />
             <Box display="flex" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
                 {resources.map((resource) => (
@@ -232,6 +232,6 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                     </Box>
                 </Box>
             )}
-        </>
+        </CollapsibleSection>
     );
 };

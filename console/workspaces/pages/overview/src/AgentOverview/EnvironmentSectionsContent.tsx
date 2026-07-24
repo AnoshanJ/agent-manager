@@ -62,6 +62,11 @@ export function EnvironmentSectionsContent({
                 agentId={agentId}
                 envId={envId}
             />
+            {/* Monitors/Observability below still use a plain loading Skeleton
+                rather than CollapsibleSection, deliberately — their skeletons
+                are already sized close to the real content (metric tiles,
+                per-card skeletons), so there's no mismatched-height jump to
+                fix for them. */}
             <EnvMonitorsSection
                 orgId={orgId}
                 projectId={projectId}

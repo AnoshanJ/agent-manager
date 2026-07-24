@@ -37,18 +37,19 @@ import {
   CircularProgress,
   Divider,
   Skeleton,
+  Tooltip,
   Typography,
   useTheme,
 } from "@wso2/oxygen-ui";
 import {
   CheckCircle as CheckCircleRounded,
   Circle as CircleOutlined,
-  Clock,
   Rocket as RocketLaunchOutlined,
   Link as LinkOutlined,
   PauseCircle,
   Play,
   Tag,
+  XCircle,
 } from "@wso2/oxygen-ui-icons-react";
 import { NoDataFound } from "@agent-management-platform/views";
 import { generatePath, Link } from "react-router-dom";
@@ -155,6 +156,48 @@ export const EnvStatus = ({
   }
 };
 
+interface DeploymentStatusLinkProps {
+  icon: React.ReactNode;
+  label: string;
+  color?: string;
+  to: string;
+  tooltip?: string;
+}
+
+/**
+ * Icon + label, styled and linked like AgentInfoCard's "Last Build" status
+ * (plain text over a Chip, hover:action.hover, links out) — used for the
+ * deployment statuses here so clicking any of them jumps to the Deploy page.
+ */
+const DeploymentStatusLink = ({ icon, label, color, to, tooltip }: DeploymentStatusLinkProps) => {
+  const content = (
+    <Box display="flex" alignItems="center" gap={0.5} sx={{ color }}>
+      {icon}
+      <Typography variant="body2" fontWeight={600} color="inherit">
+        {label}
+      </Typography>
+    </Box>
+  );
+  return (
+    <Box
+      component={Link}
+      to={to}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        textDecoration: "none",
+        color: "inherit",
+        px: 1,
+        py: 0.5,
+        borderRadius: 1,
+        "&:hover": { bgcolor: "action.hover" },
+      }}
+    >
+      {tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content}
+    </Box>
+  );
+};
+
 export const EnvironmentCard = (props: EnvironmentCardProps) => {
   const {
     environment,
@@ -235,27 +278,20 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
           <Box display="flex" flexDirection="row" gap={1} justifyContent="space-between" alignItems="center">
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
               {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
-              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
-              <Chip
-                icon={
-                  <LinkOutlined size={16} color={theme.vars?.palette?.success?.main} />
-                }
-                variant="outlined"
-                size="small"
-                label="Registered"
-                color="success"
-              />
-              <Box
-                display="flex"
-                flexDirection="row"
-                gap={1}
-                alignItems="center"
-              >
-                <Clock size={16} color={theme.vars?.palette?.text?.secondary} />
-                {formatRelativeTime(agent?.createdAt)}
-              </Box>
             </Box>
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
+              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
+              <Tooltip title={formatRelativeTime(agent?.createdAt)}>
+                <Chip
+                  icon={
+                    <LinkOutlined size={16} color={theme.vars?.palette?.success?.main} />
+                  }
+                  variant="outlined"
+                  size="small"
+                  label="Registered"
+                  color="success"
+                />
+              </Tooltip>
               {actions}
             </Box>
           </Box>
@@ -270,10 +306,14 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
     return (
       <Card variant="outlined" sx={{ "&.MuiCard-root": { backgroundColor: "background.paper" } }}>
         <CardContent>
-          <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-            {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
-            {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
-            <EnvStatus status={DeploymentStatus.INACTIVE} />
+          <Box display="flex" flexDirection="row" gap={1} justifyContent="space-between" alignItems="center">
+            <Box display="flex" flexDirection="row" gap={1} alignItems="center">
+              {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
+            </Box>
+            <Box display="flex" flexDirection="row" gap={1} alignItems="center">
+              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
+              <EnvStatus status={DeploymentStatus.INACTIVE} />
+            </Box>
           </Box>
         </CardContent>
       </Card>
@@ -282,6 +322,12 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
 
   // ── Internal agent — deployment exists ────────────────────────────────────
   const deploymentStatus = currentDeployment.status as DeploymentStatus;
+  const deploymentPath = generatePath(
+    absoluteRouteMap.children.org.children.projects.children.agents
+      .children.deployment.path,
+    { orgId, projectId, agentId }
+  );
+  const deployedTimeTooltip = formatRelativeTime(currentDeployment?.lastDeployed);
   // Metrics/traces and monitor sections only carry meaningful data while the
   // deployment is serving traffic (active) or has failed while running (error).
   // For idle/transitional states (deploying, suspended) there is nothing live
@@ -306,30 +352,37 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
                 {environment?.displayName} Environment
               </Typography>
             )}
+          </Box>
+          <Box display="flex" flexDirection="row" gap={1} alignItems="center">
             {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
             {currentDeployment?.status === DeploymentStatus.ACTIVE && (
-              <>
-                <EnvStatus status={DeploymentStatus.ACTIVE} />
-                <Box
-                  display="flex"
-                  flexDirection="row"
-                  gap={1}
-                  alignItems="center"
-                >
-                  <Clock size={16} color={theme.vars?.palette?.text?.secondary} />
-                  {formatRelativeTime(currentDeployment?.lastDeployed)}
-                </Box>
-              </>
+              <DeploymentStatusLink
+                icon={<CheckCircleRounded size={16} />}
+                label="Deployed"
+                color={theme.vars?.palette?.success?.main}
+                to={deploymentPath}
+                tooltip={deployedTimeTooltip}
+              />
             )}
             {(currentDeployment?.status === DeploymentStatus.ERROR ||
               currentDeployment?.status === DeploymentStatus.FAILED) && (
-                <EnvStatus status={currentDeployment.status as DeploymentStatus} />
+                <DeploymentStatusLink
+                  icon={<XCircle size={16} />}
+                  label="Error"
+                  color={theme.vars?.palette?.error?.main}
+                  to={deploymentPath}
+                  tooltip={deployedTimeTooltip}
+                />
               )}
             {currentDeployment?.status === DeploymentStatus.SUSPENDED && (
-              <EnvStatus status={DeploymentStatus.SUSPENDED} />
+              <DeploymentStatusLink
+                icon={<PauseCircle size={16} />}
+                label="Suspended"
+                color={theme.vars?.palette?.text?.secondary}
+                to={deploymentPath}
+                tooltip={deployedTimeTooltip}
+              />
             )}
-          </Box>
-          <Box display="flex" flexDirection="row" gap={1} alignItems="center">
             {deployedVersionLabel && (
               <Chip
                 icon={<Tag size={14} />}

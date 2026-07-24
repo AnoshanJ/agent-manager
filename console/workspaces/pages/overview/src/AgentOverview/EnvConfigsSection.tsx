@@ -16,16 +16,14 @@
  * under the License.
  */
 
-import { Box, Skeleton } from "@wso2/oxygen-ui";
 import {
     useListAgentMCPConfigs,
     useListAgentModelConfigs,
 } from "@agent-management-platform/api-client";
 import { buildConfigureTabHref } from "./configureTabLink";
+import { EnvConfigGroup } from "./EnvConfigGroup";
 import { LLMProviderConfigCard } from "./LLMProviderConfigCard";
 import { MCPProxyConfigCard } from "./MCPProxyConfigCard";
-import { SectionHeader } from "./SectionHeader";
-import { useEnvFilteredConfigs } from "./useEnvFilteredConfigs";
 
 interface EnvConfigsSectionProps {
     orgId: string;
@@ -46,111 +44,48 @@ const CANDIDATE_LIMIT = 10;
  * right below the Invoke URL in EnvCapabilitiesSection — just enough to show
  * what's configured for this environment specifically, with a "View all"
  * link to the full list on the Configure Agent page.
+ *
+ * Each group collapses itself independently (see EnvConfigGroup) while its
+ * own list is loading or empty, so LLM Providers can appear before MCP
+ * Proxies (or vice versa) instead of both waiting on whichever list is
+ * slower.
  */
 export const EnvConfigsSection: React.FC<EnvConfigsSectionProps> = ({
     orgId, projectId, agentId, envId,
 }) => {
-    const { data: modelData, isLoading: isLoadingModels } = useListAgentModelConfigs(
+    const { data: modelData } = useListAgentModelConfigs(
         { orgName: orgId, projName: projectId, agentName: agentId },
         { limit: CANDIDATE_LIMIT, offset: 0 },
     );
-    const { data: mcpData, isLoading: isLoadingMCP } = useListAgentMCPConfigs(
+    const { data: mcpData } = useListAgentMCPConfigs(
         { orgName: orgId, projName: projectId, agentName: agentId },
         { limit: CANDIDATE_LIMIT, offset: 0 },
     );
-
-    const modelConfigs = modelData?.configs ?? [];
-    const mcpConfigs = mcpData?.configs ?? [];
-
-    const {
-        visible: visibleModelConfigs,
-        reportResolved: reportModelResolved,
-        isSettled: isModelSettled,
-    } = useEnvFilteredConfigs(modelConfigs, PREVIEW_LIMIT);
-    const {
-        visible: visibleMcpConfigs,
-        reportResolved: reportMcpResolved,
-        isSettled: isMcpSettled,
-    } = useEnvFilteredConfigs(mcpConfigs, PREVIEW_LIMIT);
-
-    if (isLoadingModels || isLoadingMCP) {
-        return <Skeleton variant="rounded" height={56} sx={{ mt: 2 }} />;
-    }
-
-    // Nothing to probe at all — not "none apply to this environment yet",
-    // which is only knowable once the candidate cards below have resolved.
-    if (modelConfigs.length === 0 && mcpConfigs.length === 0) {
-        return null;
-    }
 
     return (
         <>
-            {modelConfigs.length > 0 && (
-                <>
-                    {isModelSettled ? (
-                        visibleModelConfigs.length > 0 && (
-                            <SectionHeader
-                                title="LLM Providers"
-                                viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "llm")}
-                            />
-                        )
-                    ) : (
-                        <Skeleton variant="rounded" height={56} sx={{ mt: 2 }} />
-                    )}
-                    <Box
-                        display={isModelSettled ? "flex" : "none"}
-                        flexDirection="column"
-                        gap={1}
-                        sx={{ mb: visibleModelConfigs.length > 0 ? 1.5 : 0 }}
-                    >
-                        {modelConfigs.map((config) => (
-                            <LLMProviderConfigCard
-                                key={config.uuid}
-                                orgId={orgId}
-                                projectId={projectId}
-                                agentId={agentId}
-                                envId={envId}
-                                config={config}
-                                visible={visibleModelConfigs.some((c) => c.uuid === config.uuid)}
-                                onResolved={reportModelResolved}
-                            />
-                        ))}
-                    </Box>
-                </>
-            )}
-            {mcpConfigs.length > 0 && (
-                <>
-                    {isMcpSettled ? (
-                        visibleMcpConfigs.length > 0 && (
-                            <SectionHeader
-                                title="MCP Proxies"
-                                viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "tools")}
-                            />
-                        )
-                    ) : (
-                        <Skeleton variant="rounded" height={56} sx={{ mt: 2 }} />
-                    )}
-                    <Box
-                        display={isMcpSettled ? "flex" : "none"}
-                        flexDirection="column"
-                        gap={1}
-                        sx={{ mb: visibleMcpConfigs.length > 0 ? 1.5 : 0 }}
-                    >
-                        {mcpConfigs.map((config) => (
-                            <MCPProxyConfigCard
-                                key={config.uuid}
-                                orgId={orgId}
-                                projectId={projectId}
-                                agentId={agentId}
-                                envId={envId}
-                                config={config}
-                                visible={visibleMcpConfigs.some((c) => c.uuid === config.uuid)}
-                                onResolved={reportMcpResolved}
-                            />
-                        ))}
-                    </Box>
-                </>
-            )}
+            <EnvConfigGroup
+                orgId={orgId}
+                projectId={projectId}
+                agentId={agentId}
+                envId={envId}
+                configs={modelData?.configs ?? []}
+                title="LLM Providers"
+                viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "llm")}
+                previewLimit={PREVIEW_LIMIT}
+                CardComponent={LLMProviderConfigCard}
+            />
+            <EnvConfigGroup
+                orgId={orgId}
+                projectId={projectId}
+                agentId={agentId}
+                envId={envId}
+                configs={mcpData?.configs ?? []}
+                title="MCP Proxies"
+                viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "tools")}
+                previewLimit={PREVIEW_LIMIT}
+                CardComponent={MCPProxyConfigCard}
+            />
         </>
     );
 };

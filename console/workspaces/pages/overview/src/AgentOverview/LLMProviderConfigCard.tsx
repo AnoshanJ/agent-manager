@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import {
     useGetAgentModelConfig,
     useLLMPoliciesCatalog,
@@ -26,6 +26,7 @@ import {
 import type { AgentModelConfigListItem } from "@agent-management-platform/types";
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
+import { useConfigEnvMapping } from "./useConfigEnvMapping";
 
 interface LLMProviderConfigCardProps {
     orgId: string;
@@ -77,14 +78,9 @@ export const LLMProviderConfigCard: React.FC<LLMProviderConfigCardProps> = ({
         return map;
     }, [catalog]);
 
-    const envMapping = fullConfig?.envMappings?.[envId];
-    const isApplicable = !!envMapping;
-
-    useEffect(() => {
-        if (!isLoadingConfig) {
-            onResolved(config.uuid, isApplicable);
-        }
-    }, [isLoadingConfig, isApplicable, config.uuid, onResolved]);
+    const envMapping = useConfigEnvMapping(
+        fullConfig?.envMappings, isLoadingConfig, envId, config.uuid, onResolved,
+    );
 
     const guardrailNames = useMemo(() => {
         const policies = envMapping?.configuration?.policies ?? [];

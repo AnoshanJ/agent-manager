@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import {
     useGetAgentMCPConfig,
     useGetMCPProxy,
@@ -28,6 +28,7 @@ import type {
 } from "@agent-management-platform/types";
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
+import { useConfigEnvMapping } from "./useConfigEnvMapping";
 
 interface MCPProxyConfigCardProps {
     orgId: string;
@@ -79,15 +80,10 @@ export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
         configId: config.uuid,
     });
 
-    const envMapping = fullConfig?.envMappings?.[envId];
-    const isApplicable = !!envMapping;
+    const envMapping = useConfigEnvMapping(
+        fullConfig?.envMappings, isLoadingConfig, envId, config.uuid, onResolved,
+    );
     const proxyName = getMCPProxyName(envMapping?.configuration);
-
-    useEffect(() => {
-        if (!isLoadingConfig) {
-            onResolved(config.uuid, isApplicable);
-        }
-    }, [isLoadingConfig, isApplicable, config.uuid, onResolved]);
 
     const { data: environments } = useListEnvironments({ orgName: orgId });
     const { data: proxy, isLoading: isLoadingProxy } = useGetMCPProxy({

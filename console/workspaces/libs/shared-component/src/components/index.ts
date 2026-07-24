@@ -20,6 +20,7 @@ export * from "./BuildLogs";
 export * from "./BuildPanel";
 export * from "./BuildSteps";
 export * from "./CodeBlock";
+export * from "./CollapsibleSection";
 export * from "./DeploymentConfig";
 export * from "./EnvironmentVariable";
 export * from "./LabelsEditor";

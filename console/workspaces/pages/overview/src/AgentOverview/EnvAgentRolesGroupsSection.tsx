@@ -15,9 +15,10 @@
  * under the License.
  */
 
-import { Box, Skeleton } from "@wso2/oxygen-ui";
+import { Box } from "@wso2/oxygen-ui";
 import { useAgentIdentityBinding } from "@agent-management-platform/api-client";
 import {
+  CollapsibleSection,
   RolesGroupsChips,
   useAgentRolesAndGroups,
 } from "@agent-management-platform/shared-component";
@@ -49,16 +50,10 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
 
-  if (isLoadingIdentity) {
-    return <Skeleton variant="rounded" height={56} sx={{ mt: 2 }} />;
-  }
-
-  if (!provisioned) {
-    return null;
-  }
+  const show = !isLoadingIdentity && provisioned;
 
   return (
-    <>
+    <CollapsibleSection show={show}>
       <SectionHeader
         title="Agent Identity"
         viewAllHref={buildManageIdentityHref(orgId, projectId, agentId, envId)}
@@ -67,6 +62,6 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
       <Box sx={{ mt: 1 }}>
         <RolesGroupsChips roles={roles} groups={groups} isLoading={isLoading} />
       </Box>
-    </>
+    </CollapsibleSection>
   );
 };
