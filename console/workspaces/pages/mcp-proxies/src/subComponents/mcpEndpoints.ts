@@ -358,7 +358,13 @@ export function deriveEndpointHandle(
   let handle = base;
   let suffix = 2;
   while (usedHandles.has(handle)) {
-    handle = `${base}-${suffix}`;
+    // Reserve room for the suffix so the collision-resolved handle still honours
+    // MAX_DERIVED_ENDPOINT_HANDLE_LENGTH (a bare `${base}-${suffix}` would overrun it).
+    const suffixStr = `-${suffix}`;
+    const truncatedBase =
+      boundHandle(base, MAX_DERIVED_ENDPOINT_HANDLE_LENGTH - suffixStr.length) ||
+      positional;
+    handle = `${truncatedBase}${suffixStr}`;
     suffix += 1;
   }
   usedHandles.add(handle);
@@ -418,11 +424,16 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// Truncates an already-slugified handle to the max length, stripping any hyphen the cut
-// leaves dangling so the result stays a clean `[a-z0-9-]` handle.
-function boundHandle(handle: string): string {
-  if (handle.length <= MAX_DERIVED_ENDPOINT_HANDLE_LENGTH) return handle;
-  return handle.slice(0, MAX_DERIVED_ENDPOINT_HANDLE_LENGTH).replace(/-+$/g, "");
+// Truncates an already-slugified handle to `max` (default MAX_DERIVED_ENDPOINT_HANDLE_LENGTH),
+// stripping any hyphen the cut leaves dangling so the result stays a clean `[a-z0-9-]` handle.
+// Callers reserving room for a de-dup suffix pass a smaller `max` so the suffixed handle still
+// honours MAX_DERIVED_ENDPOINT_HANDLE_LENGTH.
+function boundHandle(
+  handle: string,
+  max: number = MAX_DERIVED_ENDPOINT_HANDLE_LENGTH,
+): string {
+  if (handle.length <= max) return handle;
+  return handle.slice(0, max).replace(/-+$/g, "");
 }
 
 function hostFromUrl(url: string): string {
