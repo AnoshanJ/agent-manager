@@ -18,6 +18,7 @@
 
 import { useGetAgentKind } from "@agent-management-platform/api-client";
 import { absoluteRouteMap } from "@agent-management-platform/types";
+import { MarkdownView } from "@agent-management-platform/views";
 import {
     Box,
     Card,
@@ -56,8 +57,24 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
     return (
         <Card variant="outlined">
             <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Box pb={1}>
-                    <Typography variant="h6">Kind Details</Typography>
+                <Box display="flex" alignItems="center" gap={0.5} pb={1} minWidth={0}>
+                    {isLoading ? (
+                        <Skeleton variant="text" width={160} />
+                    ) : (
+                        <>
+                            <Typography variant="h6" noWrap>
+                                {kind?.displayName ?? kindName}
+                            </Typography>
+                            <IconButton
+                                size="small"
+                                component={Link}
+                                to={kindHref}
+                                sx={{ p: 0.25, flexShrink: 0 }}
+                            >
+                                <ExternalLink size={12} />
+                            </IconButton>
+                        </>
+                    )}
                 </Box>
                 <Divider sx={{ mb: 1.5 }} />
                 <Box display="flex" gap={2} minWidth={0}>
@@ -65,42 +82,26 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                     <Box flex={1} minWidth={0}>
                         <Typography variant="caption" color="text.secondary" fontWeight={600}
                             sx={{ textTransform: "uppercase", letterSpacing: "0.05em", display: "block", mb: 0.75 }}>
-                            Agent Kind
+                            Description
                         </Typography>
                         {isLoading ? (
-                            <>
-                                <Skeleton variant="text" width={160} />
-                                <Skeleton variant="text" width={200} sx={{ mt: 0.25 }} />
-                            </>
-                        ) : (
-                            <>
-                                <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
-                                    <Typography variant="body2" noWrap>
-                                        {kind?.displayName ?? kindName}
-                                    </Typography>
-                                    <IconButton
-                                        size="small"
-                                        component={Link}
-                                        to={kindHref}
-                                        sx={{ p: 0.25, flexShrink: 0 }}
-                                    >
-                                        <ExternalLink size={12} />
-                                    </IconButton>
+                            <Skeleton variant="text" width={200} />
+                        ) : kind?.description ? (
+                            <Tooltip title={kind.description} placement="bottom-start">
+                                <Box
+                                    sx={{
+                                        overflow: "hidden",
+                                        display: "-webkit-box",
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: "vertical",
+                                    }}>
+                                    <MarkdownView content={kind.description} />
                                 </Box>
-                                {kind?.description && (
-                                    <Tooltip title={kind.description} placement="bottom-start">
-                                        <Typography variant="caption" color="text.secondary" mt={0.25}
-                                            sx={{
-                                                overflow: "hidden",
-                                                display: "-webkit-box",
-                                                WebkitLineClamp: 2,
-                                                WebkitBoxOrient: "vertical",
-                                            }}>
-                                            {kind.description}
-                                        </Typography>
-                                    </Tooltip>
-                                )}
-                            </>
+                            </Tooltip>
+                        ) : (
+                            <Typography variant="body2" color="text.secondary">
+                                No description provided.
+                            </Typography>
                         )}
                     </Box>
 
