@@ -84,6 +84,7 @@ const sidebars: SidebarsConfig = {
       label: 'Reference',
       collapsed: false,
       items: [
+        'reference/authorization',
         'reference/mcp-server',
         'reference/observer-mcp-server',
         {
@@ -118,7 +119,8 @@ const sidebars: SidebarsConfig = {
         'tutorials/secure-agent-endpoints-with-oauth',
         'tutorials/configure-cors-for-agent-endpoints',
         'tutorials/configure-agent-llm-configuration',
-        'tutorials/configure-agent-mcp-proxies'
+        'tutorials/configure-agent-mcp-proxies',
+        'tutorials/authorize-agent-access-to-mcp-tools'
       ],
     },
     {
