@@ -3237,6 +3237,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /orgs/{orgName}/projects/{projName}/agents/{agentName}/tracing-token/regenerate:
+    post:
+      summary: Regenerate the tracing API key for a deployed agent
+      description: |
+        Rotates the tracing (OTel exporter) API key for an internal agent in a specific environment.
+        A new signed JWT is minted and upserted into the agent's secret store using a stable secret
+        reference. The running workload is NOT restarted here — the new key takes effect on the next
+        rollout, which the caller triggers via the standard configuration Apply. The raw key is
+        never returned in the response — it is only delivered to the agent via the secret store.
+        Previously issued keys remain valid until their own expiry.
+      operationId: regenerateAgentTracingToken
+      parameters:
+        - name: orgName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Organization name
+        - name: projName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Project name
+        - name: agentName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TracingTokenRegenerateRequest"
+      responses:
+        "200":
+          description: API key regenerated and stored; apply configuration to roll it out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TracingTokenRegenerateResponse"
+        "400":
+          description: Invalid request (e.g., missing environment or invalid expiry duration)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent, project, organization, or environment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities:
     parameters:
       - name: orgName
@@ -12160,6 +12222,26 @@ components:
         environment:
           type: string
           description: Environment name
+        enableAutoInstrumentation:
+          type: boolean
+          description: Whether auto-instrumentation (tracing) is enabled for this environment
+        instrumentationVersion:
+          type: string
+          description: AMP instrumentation version pinned for this environment, if any
+        enableApiKeySecurity:
+          type: boolean
+          description: Whether API key security is enabled for this environment's agent endpoint
+        enableOAuthSecurity:
+          type: boolean
+          description: Whether OAuth security is enabled for this environment's agent endpoint
+        corsConfig:
+          $ref: "#/components/schemas/CORSConfig"
+          nullable: true
+          description: CORS configuration for this environment's agent endpoint
+        oauthConfig:
+          $ref: "#/components/schemas/OAuthConfig"
+          nullable: true
+          description: OAuth configuration for this environment's agent endpoint
         configurations:
           type: object
           description: Configuration data containing env vars and file mounts
@@ -13454,6 +13536,44 @@ components:
           type: string
           description: Type of token (always "Bearer")
           example: "Bearer"
+
+    TracingTokenRegenerateRequest:
+      type: object
+      required:
+        - environmentName
+      properties:
+        environmentName:
+          type: string
+          description: Environment in which to rotate the agent's tracing token
+          example: "development"
+        expiresIn:
+          type: string
+          description: |
+            Optional token expiry duration in Go duration format (e.g., "2160h" for 90 days).
+            If not provided, the default expiry from configuration is used.
+          example: "2160h"
+
+    TracingTokenRegenerateResponse:
+      type: object
+      required:
+        - environmentName
+        - expiresAt
+        - rotatedAt
+      properties:
+        environmentName:
+          type: string
+          description: Environment in which the tracing API key was rotated
+          example: "development"
+        expiresAt:
+          type: integer
+          format: int64
+          description: Unix timestamp when the new API key expires
+          example: 1743465600
+        rotatedAt:
+          type: integer
+          format: int64
+          description: Unix timestamp when the API key was rotated
+          example: 1735689600
 
     JWKS:
       type: object

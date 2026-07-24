@@ -149,6 +149,7 @@ export const ExternalAgentOverview = () => {
         instrumentationUrl={agentInstrumentationUrl}
         componentUid={agent?.uuid}
         environmentUid={selectedEnvironmentId}
+        autoGenerate
       />
     </>
   );

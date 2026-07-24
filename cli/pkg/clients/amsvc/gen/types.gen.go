@@ -2018,9 +2018,25 @@ type ConfigurationResponse struct {
 		// Files List of file mount configurations
 		Files []FileMount `json:"files"`
 	} `json:"configurations"`
+	CorsConfig *CORSConfig `json:"corsConfig,omitempty"`
+
+	// EnableApiKeySecurity Whether API key security is enabled for this environment's agent endpoint
+	EnableApiKeySecurity *bool `json:"enableApiKeySecurity,omitempty"`
+
+	// EnableAutoInstrumentation Whether auto-instrumentation (tracing) is enabled for this environment
+	EnableAutoInstrumentation *bool `json:"enableAutoInstrumentation,omitempty"`
+
+	// EnableOAuthSecurity Whether OAuth security is enabled for this environment's agent endpoint
+	EnableOAuthSecurity *bool `json:"enableOAuthSecurity,omitempty"`
 
 	// Environment Environment name
 	Environment string `json:"environment"`
+
+	// InstrumentationVersion AMP instrumentation version pinned for this environment, if any
+	InstrumentationVersion *string `json:"instrumentationVersion,omitempty"`
+
+	// OauthConfig OAuth security configuration for the agent endpoint. Callers authenticate with a standard Authorization Bearer token validated by the gateway.
+	OauthConfig *OAuthConfig `json:"oauthConfig,omitempty"`
 
 	// ProjectName Name of the project
 	ProjectName string `json:"projectName"`
@@ -4845,6 +4861,28 @@ type TraceSpanGroup struct {
 	SpanLabel *string `json:"spanLabel,omitempty"`
 }
 
+// TracingTokenRegenerateRequest defines model for TracingTokenRegenerateRequest.
+type TracingTokenRegenerateRequest struct {
+	// EnvironmentName Environment in which to rotate the agent's tracing token
+	EnvironmentName string `json:"environmentName"`
+
+	// ExpiresIn Optional token expiry duration in Go duration format (e.g., "2160h" for 90 days).
+	// If not provided, the default expiry from configuration is used.
+	ExpiresIn *string `json:"expiresIn,omitempty"`
+}
+
+// TracingTokenRegenerateResponse defines model for TracingTokenRegenerateResponse.
+type TracingTokenRegenerateResponse struct {
+	// EnvironmentName Environment in which the tracing API key was rotated
+	EnvironmentName string `json:"environmentName"`
+
+	// ExpiresAt Unix timestamp when the new API key expires
+	ExpiresAt int64 `json:"expiresAt"`
+
+	// RotatedAt Unix timestamp when the API key was rotated
+	RotatedAt int64 `json:"rotatedAt"`
+}
+
 // UpdateAgentBasicInfoRequest defines model for UpdateAgentBasicInfoRequest.
 type UpdateAgentBasicInfoRequest struct {
 	// Description Description of the agent
@@ -5898,6 +5936,9 @@ type UpdateAgentResourceConfigsJSONRequestBody = UpdateAgentResourceConfigsReque
 
 // GenerateAgentTokenJSONRequestBody defines body for GenerateAgentToken for application/json ContentType.
 type GenerateAgentTokenJSONRequestBody = TokenRequest
+
+// RegenerateAgentTracingTokenJSONRequestBody defines body for RegenerateAgentTracingToken for application/json ContentType.
+type RegenerateAgentTracingTokenJSONRequestBody = TracingTokenRegenerateRequest
 
 // CreateLLMProxyJSONRequestBody defines body for CreateLLMProxy for application/json ContentType.
 type CreateLLMProxyJSONRequestBody = CreateLLMProxyRequest

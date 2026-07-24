@@ -55,6 +55,7 @@ type AgentController interface {
 	PromoteAgent(w http.ResponseWriter, r *http.Request)
 	UpdateAgentDeploySettings(w http.ResponseWriter, r *http.Request)
 	UpdateAgentConfigurations(w http.ResponseWriter, r *http.Request)
+	RegenerateTracingToken(w http.ResponseWriter, r *http.Request)
 	GetAgentIdentity(w http.ResponseWriter, r *http.Request)
 	RegenerateAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	RevokeAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
@@ -618,6 +619,44 @@ func (c *agentController) UpdateAgentConfigurations(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (c *agentController) RegenerateTracingToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	ouID := middleware.OUIDFromRequest(r)
+	projName := r.PathValue(utils.PathParamProjName)
+	agentName := r.PathValue(utils.PathParamAgentName)
+
+	var payload spec.TracingTokenRegenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Error("RegenerateTracingToken: failed to decode request body", "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if payload.EnvironmentName == "" {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "environmentName is required")
+		return
+	}
+
+	expiresIn := ""
+	if payload.ExpiresIn != nil {
+		expiresIn = *payload.ExpiresIn
+	}
+
+	result, err := c.agentService.RegenerateAgentTracingToken(ctx, ouID, projName, agentName, payload.EnvironmentName, expiresIn)
+	if err != nil {
+		log.Error("RegenerateTracingToken: failed to regenerate tracing token", "error", err)
+		handleCommonErrors(w, err, "Failed to regenerate tracing token")
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusOK, spec.TracingTokenRegenerateResponse{
+		EnvironmentName: result.EnvironmentName,
+		ExpiresAt:       result.ExpiresAt,
+		RotatedAt:       result.RotatedAt,
+	})
+}
+
 func (c *agentController) ListAgentBuilds(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
@@ -901,6 +940,17 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 			Files: fileMountItems,
 		},
 	}
+
+	// Per-environment config: seeds the console's Auto-Instrumentation, CORS, and Endpoint
+	// Authentication controls for THIS environment, rather than the lowest-environment values
+	// GetAgent returns. nil (no config persisted yet) leaves the fields unset.
+	envCfg, err := c.agentService.GetAgentEnvConfig(ctx, ouID, projName, agentName, environment)
+	if err != nil {
+		log.Error("GetAgentConfigurations: failed to read per-env config", "error", err)
+		handleCommonErrors(w, err, "Failed to get configurations")
+		return
+	}
+	utils.PopulateConfigurationResponseFromAgentConfig(&configurationsResponse, envCfg)
 
 	utils.WriteSuccessResponse(w, http.StatusOK, configurationsResponse)
 }

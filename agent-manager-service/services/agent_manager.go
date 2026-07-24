@@ -55,12 +55,14 @@ type AgentManagerService interface {
 	GetAgentEndpoints(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error)
 	GetAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.EnvVars, error)
 	GetAgentFileMounts(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error)
+	GetAgentEnvConfig(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*models.AgentConfig, error)
 	GenerateName(ctx context.Context, ouID string, payload spec.ResourceNameRequest) (string, error)
 	GetAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error)
 	UpdateAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error)
 	PromoteAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.PromoteAgentRequest) error
 	UpdateAgentDeploySettings(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentDeploySettingsRequest) error
 	UpdateAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentConfigurationsRequest) error
+	RegenerateAgentTracingToken(ctx context.Context, ouID string, projectName string, agentName string, environmentName string, expiresIn string) (*TracingTokenRotationResult, error)
 	GetAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string) ([]models.AgentIdentityEnvironmentView, error)
 	RegenerateAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error)
 	RevokeAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error)
@@ -762,13 +764,14 @@ func (s *agentManagerService) generateAgentAPIKey(ctx context.Context, ouID, pro
 		s.logger.Error("GenerateToken: missing organization identity in caller token")
 		return "", utils.ErrForbidden
 	}
-	// Generate agent API key using token manager service with 1 year expiry
+	// Generate agent API key using the token manager service. Leaving ExpiresIn empty
+	// routes through the configured default (JWT_SIGNING_DEFAULT_EXPIRY) rather than a
+	// hardcoded value, so the deploy/create/promote expiry stays in sync with config.
 	tokenReq := GenerateTokenRequest{
 		OrgName:     ouID,
 		ProjectName: projectName,
 		AgentName:   agentName,
 		Environment: envName,
-		ExpiresIn:   "8760h", // 1 year (365 days * 24 hours)
 		OrgId:       callerClaims.OuId,
 	}
 	tokenResp, err := s.tokenManagerService.GenerateToken(ctx, tokenReq)
@@ -816,18 +819,118 @@ func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projec
 		return "", "", fmt.Errorf("failed to store agent API key in secret store: %w", err)
 	}
 
+	key, property, err = s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		return "", "", err
+	}
+	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
+		"secretRefName", secretRefName, "remoteKey", key)
+	return key, property, nil
+}
+
+// resolveAgentAPIKeySecretRef returns the remote KV key/property of an environment's agent API key
+// WITHOUT minting or storing anything — it derives the deterministic SecretReference name from the
+// location and reads the existing reference. Used by the deploy-settings rebuild to re-attach the
+// per-env secret ref that would otherwise be dropped when trait configs are replaced.
+func (s *agentManagerService) resolveAgentAPIKeySecretRef(ctx context.Context, ouID, projectName, agentName, envName string) (key string, property string, err error) {
+	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
+	secretRefName := location.SecretRefName()
 	secretRef, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to resolve agent API key secret reference %q: %w", secretRefName, err)
 	}
 	for _, ds := range secretRef.Data {
 		if ds.SecretKey == secretmanagersvc.SecretKeyAPIKey {
-			s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
-				"secretRefName", secretRefName, "remoteKey", ds.RemoteRef.Key)
 			return ds.RemoteRef.Key, ds.RemoteRef.Property, nil
 		}
 	}
 	return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+}
+
+// injectAgentAPIKeySecretRef adds the env-injection trait's per-environment agentApiKeySecretRef
+// (and property) into a traitEnvConfigs map, preserving any config already set for that trait
+// instance. buildTraitEnvConfigs omits this field, and UpdateReleaseBindingTraitConfigs REPLACES
+// the binding's trait configs wholesale — so without re-injecting here, a promoted environment
+// loses its per-env key ref and the env-injection trait falls back to the base (lowest env's) ref.
+func injectAgentAPIKeySecretRef(traitEnvConfigs map[string]interface{}, agentName, secretRef, secretProperty string) {
+	if secretRef == "" {
+		return
+	}
+	envInjKey := agentName + "-" + string(client.TraitEnvInjection)
+	envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
+	if envInjCfg == nil {
+		envInjCfg = map[string]interface{}{}
+	}
+	envInjCfg["agentApiKeySecretRef"] = secretRef
+	if secretProperty != "" {
+		envInjCfg["agentApiKeySecretProperty"] = secretProperty
+	}
+	traitEnvConfigs[envInjKey] = envInjCfg
+}
+
+// TracingTokenRotationResult is the outcome of a tracing-token regeneration. The raw JWT is never
+// returned — it reaches the agent only through the secret store.
+type TracingTokenRotationResult struct {
+	EnvironmentName string
+	ExpiresAt       int64
+	RotatedAt       int64
+}
+
+// RegenerateAgentTracingToken mints a fresh tracing API key and upserts it into the secret store
+// under the agent's stable secret reference. It does NOT restart the workload: the running pod
+// picks up the new key on the next rollout, which the caller triggers via the standard Apply
+// (UpdateAgentConfigurations) path — the same ExternalSecret + restartedAt mechanism used for every
+// other secret. Rotating the key never invalidates previously issued ones; they remain valid until
+// their own expiry.
+func (s *agentManagerService) RegenerateAgentTracingToken(ctx context.Context, ouID, projectName, agentName, environmentName, expiresIn string) (*TracingTokenRotationResult, error) {
+	s.logger.Info("Regenerating agent tracing token", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environmentName)
+
+	if environmentName == "" {
+		return nil, fmt.Errorf("%w: environmentName is required", utils.ErrInvalidInput)
+	}
+
+	// Org identity comes from the caller's JWT claims, same as generateAgentAPIKey.
+	callerClaims := jwtassertion.GetTokenClaims(ctx)
+	if callerClaims == nil || callerClaims.OuId == "" {
+		s.logger.Error("RegenerateAgentTracingToken: missing organization identity in caller token")
+		return nil, utils.ErrForbidden
+	}
+
+	// Validate org/agent/env exist. GetComponent resolves the OpenChoreo namespace from the OU id,
+	// so pass ouID (matching GenerateToken's GenerateTokenRequest{OrgName: ouID}), not org.Name.
+	if _, err := s.ocClient.GetOrganization(ctx, ouID); err != nil {
+		return nil, translateOrgError(err)
+	}
+	if _, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
+		return nil, translateAgentError(err)
+	}
+	if _, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName); err != nil {
+		return nil, translateEnvironmentError(err)
+	}
+
+	tokenResp, err := s.tokenManagerService.GenerateToken(ctx, GenerateTokenRequest{
+		OrgName:     ouID,
+		ProjectName: projectName,
+		AgentName:   agentName,
+		Environment: environmentName,
+		ExpiresIn:   expiresIn, // empty → configured default
+		OrgId:       callerClaims.OuId,
+	})
+	if err != nil {
+		s.logger.Error("Failed to generate agent tracing token", "agentName", agentName, "environment", environmentName, "error", err)
+		return nil, fmt.Errorf("failed to generate agent tracing token: %w", err)
+	}
+
+	if _, _, err := s.storeAgentAPIKey(ctx, ouID, projectName, agentName, environmentName, tokenResp.Token); err != nil {
+		s.logger.Error("Failed to store rotated agent tracing token", "agentName", agentName, "environment", environmentName, "error", err)
+		return nil, fmt.Errorf("failed to store agent tracing token: %w", err)
+	}
+
+	return &TracingTokenRotationResult{
+		EnvironmentName: environmentName,
+		ExpiresAt:       tokenResp.ExpiresAt,
+		RotatedAt:       time.Now().Unix(),
+	}, nil
 }
 
 func (s *agentManagerService) GetAgent(ctx context.Context, ouID string, projectName string, agentName string) (*models.AgentResponse, error) {
@@ -3619,18 +3722,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		} else if apiKeySecretRef, apiKeySecretProperty, storeErr := s.storeAgentAPIKey(ctx, ouID, projectName, agentName, req.TargetEnvironment, apiKey); storeErr != nil {
 			s.logger.Warn("Failed to store agent API key for promotion", "agentName", agentName, "environment", req.TargetEnvironment, "error", storeErr)
 		} else {
-			envInjKey := agentName + "-" + string(client.TraitEnvInjection)
-			// Preserve any env config buildTraitEnvConfigs already set (e.g.
-			// envInjectionEnabled for Ballerina) instead of overwriting it.
-			envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
-			if envInjCfg == nil {
-				envInjCfg = map[string]interface{}{}
-			}
-			envInjCfg["agentApiKeySecretRef"] = apiKeySecretRef
-			if apiKeySecretProperty != "" {
-				envInjCfg["agentApiKeySecretProperty"] = apiKeySecretProperty
-			}
-			traitEnvConfigs[envInjKey] = envInjCfg
+			injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
 		}
 
 		// Persist config for the target environment
@@ -3849,6 +3941,17 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 		return resolveErr
 	}
 	traitEnvConfigs := buildTraitEnvConfigs(agentName, policies, artifact.UUID.String(), isPythonBuildpack, isBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, instrumentationImage)
+
+	// Re-attach the per-env agent API key secret ref. buildTraitEnvConfigs omits it and the update
+	// below REPLACES the binding's trait configs, so without this a non-lowest env falls back to the
+	// base (lowest env's) ref and never sees its own key — including after a regenerate. Resolving is
+	// read-only (no new key minted); it heals bindings whose ref was previously dropped.
+	if apiKeySecretRef, apiKeySecretProperty, resolveErr := s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, req.EnvironmentName); resolveErr != nil {
+		s.logger.Warn("Failed to resolve agent API key secret ref for deploy settings; env-injection trait will fall back to the base ref",
+			"agentName", agentName, "environment", req.EnvironmentName, "error", resolveErr)
+	} else {
+		injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
+	}
 
 	// Apply to the release binding (atomic: trait configs + component-type configs + restartedAt in a single update).
 	settingsCTConfigs := buildComponentTypeEnvConfigs(targetEnv)
@@ -4648,6 +4751,21 @@ func (s *agentManagerService) GetAgentFileMounts(ctx context.Context, ouID strin
 
 	s.logger.Info("Fetched file mounts successfully", "agentName", agentName, "count", len(fileMounts))
 	return fileMounts, nil
+}
+
+// GetAgentEnvConfig returns the full per-environment agent_configs row for (agent, environment)
+// — tracing/instrumentation plus CORS and endpoint-authentication settings — or nil when none is
+// persisted yet. Unlike GetAgent (which reads only the lowest environment's config), this is scoped
+// to the requested environment so the console seeds the correct per-env values.
+func (s *agentManagerService) GetAgentEnvConfig(_ context.Context, ouID, projectName, agentName, environment string) (*models.AgentConfig, error) {
+	cfg, err := s.agentConfigRepo.Get(ouID, projectName, agentName, environment)
+	if errors.Is(err, repositories.ErrAgentConfigNotFound) {
+		return nil, nil //nolint:nilnil // "no config yet" is a valid, expected state distinct from an error
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent env config: %w", err)
+	}
+	return cfg, nil
 }
 
 // modelBuildToSpecBuild converts a models.Build (from GetComponent) into a spec.Build for CreateAgent enrichment.
