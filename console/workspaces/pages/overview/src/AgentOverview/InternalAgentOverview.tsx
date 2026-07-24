@@ -31,6 +31,7 @@ import { KindInfoCard } from "./KindInfoCard";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 import { AgentInfoCard } from "./AgentInfoCard";
+import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
 
 export const InternalAgentOverview = () => {
     const { orgId, agentId, projectId } = useParams();
@@ -88,13 +89,19 @@ export const InternalAgentOverview = () => {
                                 isFirstEnvironment={index === 0}
                                 bottomContent={
                                     <>
-                                        <EnvObservabilitySection
+                                        <EnvAgentRolesGroupsSection
                                             orgId={orgId}
                                             projectId={projectId}
                                             agentId={agentId}
                                             envId={environment.name}
                                         />
                                         <EnvMonitorsSection
+                                            orgId={orgId}
+                                            projectId={projectId}
+                                            agentId={agentId}
+                                            envId={environment.name}
+                                        />
+                                        <EnvObservabilitySection
                                             orgId={orgId}
                                             projectId={projectId}
                                             agentId={agentId}

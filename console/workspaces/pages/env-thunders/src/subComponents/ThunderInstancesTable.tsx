@@ -16,47 +16,149 @@
  * under the License.
  */
 
-import { type MouseEvent } from "react";
+import { type ChangeEvent, type MouseEvent, useMemo, useState } from "react";
 import {
   Alert,
   Avatar,
-  Box,
   IconButton,
   ListingTable,
+  SearchBar,
   Skeleton,
   Stack,
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { AlertTriangle, ChevronRight, Copy, KeyRound } from "@wso2/oxygen-ui-icons-react";
+import {
+  AlertTriangle,
+  Copy,
+  KeyRound,
+  Search,
+} from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
-import { useListThunderInstances } from "@agent-management-platform/api-client";
-import { absoluteRouteMap, type ThunderInstanceResponse } from "@agent-management-platform/types";
+import {
+  useListEnvironments,
+  useListThunderInstances,
+} from "@agent-management-platform/api-client";
+import {
+  absoluteRouteMap,
+  type ThunderInstanceResponse,
+} from "@agent-management-platform/types";
+import { copyToClipboard } from "@agent-management-platform/shared-component";
 import { useSnackBar } from "@agent-management-platform/views";
+
+interface EnvironmentSection {
+  title: string;
+  instance: ThunderInstanceResponse;
+}
+
+const PROVIDER_NAME = "ThunderID";
+
+const monoEllipsisSx = {
+  fontFamily: "monospace",
+  color: "text.secondary",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  display: "block",
+} as const;
+
+const matchesQuery = (section: EnvironmentSection, query: string) =>
+  [
+    PROVIDER_NAME,
+    section.title,
+    section.instance.envName,
+    section.instance.issuerUrl,
+    section.instance.tokenUrl,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 
 export function ThunderInstancesTable() {
   const navigate = useNavigate();
   const { orgId } = useParams<{ orgId: string }>();
   const { pushSnackBar } = useSnackBar();
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const { data, isLoading, error } = useListThunderInstances({ orgName: orgId });
-  const instances = data?.thunderInstances ?? [];
+  const {
+    data,
+    isLoading: instancesLoading,
+    error: instancesError,
+  } = useListThunderInstances({ orgName: orgId });
+  const { data: environments, isLoading: environmentsLoading } = useListEnvironments({
+    orgName: orgId,
+  });
+
+  const isLoading = instancesLoading || environmentsLoading;
+  // Only block the table on a failure to load instances themselves — the
+  // environments query only enriches titles/grouping, and `environments ?? []`
+  // already degrades gracefully if it fails.
+  const error = instancesError;
+
+  const instances = useMemo(() => data?.thunderInstances ?? [], [data]);
+
+  // Group providers per environment, ordered by the environment list, with
+  // instances whose environment is missing from that list appended so nothing
+  // silently disappears. Environments without a provider are omitted.
+  const sections = useMemo<EnvironmentSection[]>(() => {
+    const instancesByEnv = new Map(instances.map((i) => [i.envName, i]));
+    const grouped: EnvironmentSection[] = [];
+    const knownEnvs = new Set<string>();
+    for (const env of environments ?? []) {
+      knownEnvs.add(env.name);
+      const instance = instancesByEnv.get(env.name);
+      if (instance) {
+        grouped.push({
+          title: env.displayName || env.name,
+          instance,
+        });
+      }
+    }
+    for (const instance of instances) {
+      if (!knownEnvs.has(instance.envName)) {
+        grouped.push({
+          title: instance.displayName || instance.envName,
+          instance,
+        });
+      }
+    }
+    const query = searchQuery.trim().toLowerCase();
+    return query ? grouped.filter((section) => matchesQuery(section, query)) : grouped;
+  }, [environments, instances, searchQuery]);
 
   const handleCopy = (e: MouseEvent<HTMLButtonElement>, value: string) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(value).then(() => {
-      pushSnackBar({ message: "Token endpoint copied to clipboard", type: "success" });
-    }).catch(() => {});
+    void copyToClipboard(value).then((succeeded) => {
+      pushSnackBar(
+        succeeded
+          ? { message: "Token endpoint copied to clipboard", type: "success" }
+          : { message: "Failed to copy token endpoint", type: "error" },
+      );
+    });
   };
 
   const handleRowClick = (instance: ThunderInstanceResponse) => {
     navigate(
       generatePath(
-        absoluteRouteMap.children.org.children.thunderInstances.children.view.path,
+        absoluteRouteMap.children.org.children.thunderInstances.children.view
+          .path,
         { orgId: orgId ?? "", envName: instance.envName },
       ),
     );
   };
+
+  const toolbar = (
+    <SearchBar
+      placeholder="Search identity providers..."
+      size="small"
+      fullWidth
+      value={searchQuery}
+      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+        setSearchQuery(e.target.value)
+      }
+      disabled={isLoading}
+    />
+  );
 
   if (isLoading) {
     return (
@@ -78,7 +180,12 @@ export function ThunderInstancesTable() {
               }}
             >
               <Skeleton variant="circular" width={36} height={36} />
-              <Skeleton variant="text" width={160} height={20} sx={{ flex: 1 }} />
+              <Skeleton
+                variant="text"
+                width={160}
+                height={20}
+                sx={{ flex: 1 }}
+              />
               <Skeleton variant="rounded" width={96} height={24} />
               <Skeleton variant="rounded" width={24} height={24} />
             </Stack>
@@ -108,87 +215,93 @@ export function ThunderInstancesTable() {
     );
   }
 
+  // The toolbar stays mounted at a stable tree position across the states
+  // below — swapping its parent structure between renders would remount the
+  // search input and drop its focus.
   return (
-    <>
-    <ListingTable.Container disablePaper>
-      <ListingTable variant="card">
-        <ListingTable.Head>
-          <ListingTable.Row>
-            <ListingTable.Cell>Environment</ListingTable.Cell>
-            <ListingTable.Cell>Token Endpoint</ListingTable.Cell>
-            <ListingTable.Cell width="48px" />
-          </ListingTable.Row>
-        </ListingTable.Head>
-        <ListingTable.Body>
-          {instances.map((instance: ThunderInstanceResponse) => (
-            <ListingTable.Row
-              key={instance.envName}
-              variant="card"
-              hover
-              clickable
-              onClick={() => handleRowClick(instance)}
-            >
-              <ListingTable.Cell>
-                <Stack direction="row" alignItems="center" spacing={2}>
-                  <Avatar
-                    sx={{
-                      bgcolor: "primary.main",
-                      color: "primary.contrastText",
-                      fontSize: 15,
-                      width: 36,
-                      height: 36,
-                      flexShrink: 0,
-                    }}
+    <Stack spacing={1}>
+      {toolbar}
+      {sections.length === 0 ? (
+        <ListingTable.Container>
+          <ListingTable.EmptyState
+            illustration={<Search size={64} />}
+            title="No identity providers found"
+            description="Try a different keyword or clear the search filter."
+          />
+        </ListingTable.Container>
+      ) : (
+        <Stack pt={3}>
+          <ListingTable.Container disablePaper>
+            <ListingTable variant="card">
+              <ListingTable.Head>
+                <ListingTable.Row>
+                  <ListingTable.Cell width="240px">Environment</ListingTable.Cell>
+                  <ListingTable.Cell>Issuer</ListingTable.Cell>
+                  <ListingTable.Cell>Token Endpoint</ListingTable.Cell>
+                </ListingTable.Row>
+              </ListingTable.Head>
+              <ListingTable.Body>
+                {sections.map(({ title, instance }) => (
+                  <ListingTable.Row
+                    key={instance.envName}
+                    variant="card"
+                    hover
+                    clickable
+                    onClick={() => handleRowClick(instance)}
                   >
-                    {(instance.displayName || instance.envName).charAt(0).toUpperCase()}
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" fontWeight={500}>
-                      {instance.displayName || instance.envName}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-                      {instance.envName}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </ListingTable.Cell>
+                    <ListingTable.Cell>
+                      <ListingTable.CellIcon
+                        icon={
+                          <Avatar
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              bgcolor: "primary.main",
+                              color: "primary.contrastText",
+                            }}
+                          >
+                            <KeyRound size={16} />
+                          </Avatar>
+                        }
+                        primary={title}
+                        secondary={PROVIDER_NAME}
+                      />
+                    </ListingTable.Cell>
 
-              <ListingTable.Cell>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontFamily: "monospace",
-                      color: "text.secondary",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      maxWidth: 320,
-                      display: "block",
-                    }}
-                  >
-                    {instance.tokenUrl}
-                  </Typography>
-                  <Tooltip title="Copy token endpoint">
-                    <IconButton size="small" onClick={(e) => handleCopy(e, instance.tokenUrl)}>
-                      <Copy size={14} />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </ListingTable.Cell>
+                    <ListingTable.Cell>
+                      <Typography
+                        variant="caption"
+                        sx={{ ...monoEllipsisSx, maxWidth: 280 }}
+                      >
+                        {instance.issuerUrl}
+                      </Typography>
+                    </ListingTable.Cell>
 
-              <ListingTable.Cell align="right">
-                <Tooltip title="View details">
-                  <IconButton size="small">
-                    <ChevronRight size={16} />
-                  </IconButton>
-                </Tooltip>
-              </ListingTable.Cell>
-            </ListingTable.Row>
-          ))}
-        </ListingTable.Body>
-      </ListingTable>
-    </ListingTable.Container>
-    </>
+                    <ListingTable.Cell>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Typography
+                          variant="caption"
+                          sx={{ ...monoEllipsisSx, maxWidth: 320 }}
+                        >
+                          {instance.tokenUrl}
+                        </Typography>
+                        <Tooltip title="Copy token endpoint">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleCopy(e, instance.tokenUrl)}
+                          >
+                            <Copy size={14} />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </ListingTable.Cell>
+                  </ListingTable.Row>
+                ))}
+              </ListingTable.Body>
+            </ListingTable>
+          </ListingTable.Container>
+        </Stack>
+      )}
+    </Stack>
   );
 }

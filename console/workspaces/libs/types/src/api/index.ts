@@ -17,6 +17,7 @@
  */
 
 export * from './common';
+export * from './config';
 export * from './instrumentation';
 export * from './agent-model-configs';
 export * from './agent-mcp-configs';
@@ -42,3 +43,5 @@ export * from './git-secrets';
 export * from './identities';
 export * from './agent-kinds';
 export * from './thunder-instances';
+export * from './mcp-proxy-scopes';
+export * from './agent-identity';

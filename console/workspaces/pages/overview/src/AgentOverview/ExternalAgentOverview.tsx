@@ -30,6 +30,7 @@ import { InstrumentationDrawer } from "./InstrumentationDrawer";
 import { NoDataFound } from "@agent-management-platform/views";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
+import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
 
 export const ExternalAgentOverview = () => {
   const { agentId, orgId, projectId } = useParams();
@@ -58,7 +59,7 @@ export const ExternalAgentOverview = () => {
   const envGatewayVhost = envGatewayList?.gateways?.[0]?.vhost;
   const agentInstrumentationUrl = envGatewayVhost
     ? `${envGatewayVhost.replace(/\/$/, "")}/otel`
-    : (globalConfig.instrumentationUrl || "http://localhost:22893/otel");
+    : (globalConfig.instrumentationUrl || "http://default-default.gateway.localhost:19080/otel");
 
   const handleSetupAgent = (environmentId: string) => {
     setSelectedEnvironmentId(environmentId);
@@ -107,6 +108,18 @@ export const ExternalAgentOverview = () => {
                     }
                     bottomContent={
                       <>
+                        <EnvAgentRolesGroupsSection
+                          orgId={orgId}
+                          projectId={projectId}
+                          agentId={agentId}
+                          envId={environment.name}
+                        />
+                        <EnvMonitorsSection
+                          orgId={orgId}
+                          projectId={projectId}
+                          agentId={agentId}
+                          envId={environment.name}
+                        />
                         <EnvObservabilitySection
                           orgId={orgId}
                           projectId={projectId}
@@ -114,12 +127,6 @@ export const ExternalAgentOverview = () => {
                           envId={environment.name}
                           hideMetrics
                           external
-                        />
-                        <EnvMonitorsSection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
                         />
                       </>
                     }
@@ -142,6 +149,7 @@ export const ExternalAgentOverview = () => {
         instrumentationUrl={agentInstrumentationUrl}
         componentUid={agent?.uuid}
         environmentUid={selectedEnvironmentId}
+        autoGenerate
       />
     </>
   );

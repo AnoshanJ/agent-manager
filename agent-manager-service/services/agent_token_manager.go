@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
@@ -246,7 +247,7 @@ func (s *agentTokenManagerService) GenerateToken(ctx context.Context, req Genera
 	s.logger.Info(
 		"Generating token for agent",
 		"agentName", req.AgentName,
-		"orgName", req.OrgName,
+		"ouID", req.OrgName,
 		"projectName", req.ProjectName,
 	)
 
@@ -281,6 +282,16 @@ func (s *agentTokenManagerService) GenerateToken(ctx context.Context, req Genera
 		return nil, fmt.Errorf("failed to get project: %w", err)
 	}
 
+	// Resolve the OpenChoreo namespace for the org. Traces are stamped with this
+	// namespace at ingest (via the gateway -> collector), so the token's namespace
+	// claim must carry the OpenChoreo namespace rather than the raw OU id for the
+	// observability read path (which scopes queries by organization) to match.
+	namespace, err := ResolveNamespace(ctx, s.ocClient)
+	if err != nil {
+		s.logger.Error("Failed to resolve namespace", "ouID", req.OrgName, "error", err)
+		return nil, err
+	}
+
 	// Determine expiry duration
 	expiryDuration, err := s.parseExpiryDuration(req.ExpiresIn)
 	if err != nil {
@@ -295,6 +306,7 @@ func (s *agentTokenManagerService) GenerateToken(ctx context.Context, req Genera
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.config.Issuer,
 			Subject:   req.AgentName,
+			ID:        uuid.NewString(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			NotBefore: jwt.NewNumericDate(now),
@@ -303,7 +315,7 @@ func (s *agentTokenManagerService) GenerateToken(ctx context.Context, req Genera
 		EnvironmentUid: environment.UUID,
 		ProjectUid:     project.UUID,
 		OrgId:          req.OrgId,
-		Namespace:      req.OrgName,
+		Namespace:      namespace,
 	}
 
 	// Get the active signing key

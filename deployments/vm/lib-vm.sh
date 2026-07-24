@@ -37,7 +37,8 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.tlsEnabled=true"
+      "--set" "${k}.config.tlsEnabled=true" \
+      "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}"
   done
 
   printf '%s\n' \
@@ -45,12 +46,22 @@ amp_helm_args() {
     "--set" "console.config.auth.signInRedirectURL=https://${AMP_HOST_CONSOLE}/login" \
     "--set" "console.config.auth.signOutRedirectURL=https://${AMP_HOST_CONSOLE}/login" \
     "--set" "console.config.apiBaseUrl=https://${AMP_HOST_API}" \
-    "--set" "console.config.obsApiBaseUrl=https://${AMP_HOST_OBSERVER}" \
+    "--set" "agentManagerService.config.amObserverPublicURL=https://${AMP_HOST_OBSERVER}" \
     "--set" "console.config.instrumentationUrl=https://${AMP_HOST_GATEWAY}/otel"
+
+  # Console and API are ClusterIP behind the OC control-plane kgateway; their
+  # HTTPRoutes must match the public hosts Caddy forwards (Host is preserved).
+  # Older charts (agentManager key era) predate ocIngress and ignore these.
+  printf '%s\n' \
+    "--set" "console.ocIngress.hostname=${AMP_HOST_CONSOLE}" \
+    "--set" "agentManagerService.ocIngress.hostname=${AMP_HOST_API}"
 
   if [[ -n "$AMP_HOST_CP" ]]; then
     # Full URL: the console parses it with new URL() to build gateway setup commands.
     printf '%s\n' "--set" "console.config.gatewayControlPlaneUrl=https://${AMP_HOST_CP}"
+    # External gateways ride the OC control-plane kgateway like everything
+    # else; the gateway-mgmt HTTPRoute must match the public cp host.
+    printf '%s\n' "--set" "agentManagerService.ocIngress.gatewayMgmt.hostnames={${AMP_HOST_CP}}"
   fi
 }
 
@@ -109,21 +120,26 @@ build_gateway_helm_args() {
 }
 
 # build_observability_helm_args <ip>
-# Prints OBSERVABILITY_HELM_ARGS tokens. The traces observer validates the same
+# Prints OBSERVABILITY_HELM_ARGS tokens. The observer validates the same
 # user token (its `iss` must match), so the console's traces page 401s until its
 # issuer is the public Thunder URL too. jwksUrl stays on the in-cluster service.
-# observability_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER.
-# shellcheck disable=SC2154  # AMP_HOST_THUNDER comes from the caller's scope by design.
+# observability_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER and
+# AMP_HOST_OBSERVER.
+# shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
-    "--set" "tracesObserver.auth.issuer=https://${AMP_HOST_THUNDER}"
+    "--set" "amObserver.auth.issuer=https://${AMP_HOST_THUNDER}" \
+    "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
+    "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
+    "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.
 build_observability_helm_args() {
   local ip="$1"
-  local AMP_HOST_THUNDER
+  local AMP_HOST_THUNDER AMP_HOST_OBSERVER
   AMP_HOST_THUNDER="$(vm_host thunder "$ip")"
+  AMP_HOST_OBSERVER="$(vm_host observer "$ip")"
   observability_helm_args
 }
 
@@ -179,6 +195,18 @@ build_cp_helm_args() {
 #    externalURL: the invoke URL is empty and try-out falls back to a relative /chat
 #    (405) — the very symptom this override exists to fix. Both bind listenerName
 #    http (TLS terminates at Caddy) and differ only in advertised scheme.
+#
+# 2. apiPlatformGatewayVhost.otelEndpointOverride is deliberately NOT set. Deployed
+#    agents run inside this cluster, so they reach the gateway runtime directly on
+#    the chart's default in-cluster endpoint
+#    ("api-platform-<org>-<env>-gateway-gateway-runtime.<org>-<env>:22893/otel").
+#    Overriding it with the public gateway host makes every agent egress to
+#    <AMP_HOST_GATEWAY>:443 instead, which the sandbox NetworkPolicy refuses on a
+#    private-network VM: it allows :443 to 0.0.0.0/0 EXCEPT RFC-1918, and there the
+#    public hostname resolves to the VM's own private address. Trace export then
+#    fails with "Connection refused". On a public VM the same override happens to
+#    work only because the hostname resolves outside those ranges. The in-cluster
+#    endpoint is what the sandbox policy explicitly permits and works on both.
 # shellcheck disable=SC2154  # AMP_AGENTS_BASE comes from the caller's scope by design.
 build_platform_resources_helm_args() {
   printf '%s\n' \
@@ -239,6 +267,20 @@ render_k3d_vm_config() {
   sed -E \
     -e 's/^([[:space:]]*- port: )([0-9]+:[0-9]+)/\1127.0.0.1:\2/' \
     -e "s#^([[:space:]]*- )http://host\\.k3d\\.internal:10082#\\1http://${node_host}:10082#"
+}
+
+# render_k3d_advanced_config [node_host]  (reads k3d config on stdin, writes on stdout)
+# Like render_k3d_vm_config (loopback-binds every plane port + rewrites the registry
+# mirror endpoint), but ALSO publishes :443 to the host so the consolidated kgateway
+# Gateway is reachable from the network. The advanced install has no Caddy: kgateway
+# terminates TLS on :443 directly, and only :443 faces the network (every other plane
+# port stays loopback-bound). Injected right after the `ports:` key so k3d's serverlb
+# forwards host :443 to the node, where klipper binds it for the gateway's LoadBalancer.
+render_k3d_advanced_config() {
+  render_k3d_vm_config "$@" | awk '
+    { print }
+    /^ports:/ { print "  - port: 443:443"; print "    nodeFilters:"; print "      - loadbalancer" }
+  '
 }
 
 # render_coredns_vm_config <node_host>
@@ -362,8 +404,11 @@ caddyfile() {
       "$([[ "$scheme" == http ]] && printf 'http://')" "$1$addr_suffix" "$tls_block" "$2"
   }
 
-  _site "$AMP_HOST_CONSOLE"  3000   # console UI
-  _site "$AMP_HOST_API"      9000   # agent-manager REST API
+  # Console and API are ClusterIP behind the OC control-plane kgateway (8080),
+  # which discriminates by Host header via their HTTPRoutes (amp_helm_args sets
+  # the route hostnames to these public hosts; Caddy preserves Host).
+  _site "$AMP_HOST_CONSOLE"  8080   # console UI (OC kgateway, host-routed)
+  _site "$AMP_HOST_API"      8080   # agent-manager REST API (OC kgateway, host-routed)
   _site "$AMP_HOST_THUNDER"  8080   # Thunder OAuth (OC kgateway, host-routed)
 
   # Env-Thunder instances: one per org/environment, created dynamically after
@@ -377,7 +422,10 @@ caddyfile() {
   printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
     "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_THUNDER" "$addr_suffix" "$agent_tls"
 
-  _site "$AMP_HOST_OBSERVER" 9098   # traces observer
+  # Observer is ClusterIP behind the OC observability-plane kgateway
+  # (11080), host-routed the same way (observability_helm_args sets the route
+  # hostname).
+  _site "$AMP_HOST_OBSERVER" 11080  # observer (OC kgateway, host-routed)
   # The api-platform gateway runtime is a ClusterIP service (ports 22893/22894 are
   # not node-published), so it is reached through the kgateway data plane on 19080 —
   # which has a catch-all HTTPRoute for AMP_HOST_GATEWAY that forwards to the runtime
@@ -388,10 +436,10 @@ caddyfile() {
   _site "$AMP_HOST_GATEWAY"  19080  # api-platform gateway via kgateway (LLM proxy)
 
   if [[ -n "$AMP_HOST_CP" ]]; then
-    # 9243 is HTTPS with a self-signed cert -> proxy over TLS, skip verification.
+    # Gateway control plane rides the OC control-plane kgateway (host-routed;
+    # the kgateway re-encrypts to the TLS backend via BackendTLSPolicy).
     # reverse_proxy upgrades the gateway control WebSocket transparently.
-    printf '%s%s {\n%s\treverse_proxy 127.0.0.1:9243 {\n\t\ttransport http {\n\t\t\ttls\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n}\n\n' \
-      "$([[ "$scheme" == http ]] && printf 'http://')" "${AMP_HOST_CP}$addr_suffix" "$tls_block"
+    _site "$AMP_HOST_CP" 8080
   fi
 
   # On-demand TLS ask endpoint exists only in letsencrypt mode (always-allow; Caddy

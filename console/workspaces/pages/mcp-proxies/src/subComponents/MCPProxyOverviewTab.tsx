@@ -15,139 +15,56 @@
  * under the License.
  */
 
-import { useCallback, useMemo, useState } from "react";
-import {
-  useCreateMCPProxyAPIKey,
-  useListGateways,
-  useRotateMCPProxyAPIKey,
-} from "@agent-management-platform/api-client";
-import type { MCPProxy } from "@agent-management-platform/types";
+import type {
+  MCPEndpointConfig,
+  MCPProxy,
+} from "@agent-management-platform/types";
 import {
   Card,
   Chip,
-  Divider,
+  FormControl,
+  FormLabel,
   Grid,
+  IconButton,
+  InputAdornment,
   Skeleton,
   Stack,
+  TextField,
+  Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
+import { Copy } from "@wso2/oxygen-ui-icons-react";
 import {
-  InvokeEndpoints,
-  type InvokeEndpoint,
-} from "@agent-management-platform/shared-component";
-import { ACL_POLICY_NAME } from "../constants";
+  getAuthenticationTypeLabel,
+  getCapabilityId,
+  isToolBlockedByAcl,
+  resolveAuthenticationType,
+} from "./mcpEndpoints";
+import { useCopyWithFeedback } from "./useCopyWithFeedback";
+
+// One chip per environment the selected endpoint is bound to, with its deployment
+// status — the same shape ViewMCPProxy already derives for the chips shown next to
+// the endpoint selector, reused here instead of re-deriving a separate summary.
+export type MCPProxyEnvironmentChip = {
+  id: string;
+  label: string;
+  status?: "Deployed" | "Undeployed";
+};
 
 export type MCPProxyOverviewTabProps = {
   proxy: MCPProxy | null | undefined;
-  orgName: string | undefined;
+  config: MCPEndpointConfig | undefined;
+  envChips?: MCPProxyEnvironmentChip[];
   isLoading?: boolean;
 };
 
-// Mirrors the gateway-side buildMCPProxyURL: {vhost}{context}/mcp.
-function buildMCPInvokeUrl(vhost: string, context?: string): string {
-  const base = vhost.startsWith("http") ? vhost : `https://${vhost}`;
-  const trimmedBase = base.replace(/\/$/, "");
-  const trimmedContext = context?.trim().replace(/^\/+|\/+$/g, "") ?? "";
-  const path = trimmedContext ? `/${trimmedContext}/mcp` : "/mcp";
-  return `${trimmedBase}${path}`;
-}
-
 export function MCPProxyOverviewTab({
   proxy,
-  orgName,
+  config,
+  envChips = [],
   isLoading = false,
 }: MCPProxyOverviewTabProps) {
-  const { data: gatewaysData } = useListGateways(
-    { orgName: orgName ?? "" },
-    { limit: 500 },
-  );
-
-  const endpoints = useMemo<InvokeEndpoint[]>(() => {
-    const deployedGatewayIds = new Set(proxy?.gateways ?? []);
-    const gateways = gatewaysData?.gateways ?? [];
-    return gateways
-      .filter((gateway) => deployedGatewayIds.has(gateway.uuid))
-      .map((gateway) => ({
-        gatewayId: gateway.uuid,
-        url: buildMCPInvokeUrl(gateway.vhost, proxy?.context),
-        displayName: gateway.displayName,
-        name: gateway.name,
-        environment: gateway.environments?.[0],
-      }));
-  }, [proxy?.gateways, proxy?.context, gatewaysData]);
-
-  const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null);
-  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-
-  const createApiKey = useCreateMCPProxyAPIKey();
-  const rotateApiKey = useRotateMCPProxyAPIKey();
-
-  const isApiKeyConflictError = useCallback((err: unknown): boolean => {
-    if (err && typeof err === "object") {
-      const status =
-        (err as { status?: number }).status ??
-        (err as { statusCode?: number }).statusCode;
-      if (status === 409) return true;
-      const msg = String(
-        (err as { message?: string }).message ??
-          (err as { error?: string }).error ??
-          "",
-      ).toLowerCase();
-      return (
-        msg.includes("already exists") ||
-        msg.includes("key exists") ||
-        msg.includes("conflict")
-      );
-    }
-    return false;
-  }, []);
-
-  const handleGenerateApiKey = useCallback(async () => {
-    if (!orgName || !proxy?.id || endpoints.length === 0) return;
-    setApiKeyError(null);
-    setGeneratedApiKey(null);
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    const keyName = `mcp-${proxy.id}-${randomSuffix}`;
-    try {
-      const res = await createApiKey.mutateAsync({
-        params: { orgName, proxyId: proxy.id },
-        body: {
-          name: keyName,
-          displayName: keyName,
-        },
-      });
-      if (res.apiKey) setGeneratedApiKey(res.apiKey);
-    } catch (createErr) {
-      if (isApiKeyConflictError(createErr)) {
-        try {
-          const res = await rotateApiKey.mutateAsync({
-            params: { orgName, proxyId: proxy.id, keyName },
-            body: {},
-          });
-          if (res.apiKey) setGeneratedApiKey(res.apiKey);
-        } catch (rotateErr) {
-          setApiKeyError(
-            rotateErr instanceof Error
-              ? rotateErr.message
-              : "Failed to rotate API key",
-          );
-        }
-      } else {
-        setApiKeyError(
-          createErr instanceof Error
-            ? createErr.message
-            : "Failed to generate API key",
-        );
-      }
-    }
-  }, [
-    createApiKey,
-    isApiKeyConflictError,
-    orgName,
-    proxy?.id,
-    rotateApiKey,
-    endpoints.length,
-  ]);
+  const handleCopy = useCopyWithFeedback();
 
   if (isLoading) {
     return (
@@ -172,66 +89,26 @@ export function MCPProxyOverviewTab({
     return null;
   }
 
+  const toolCapabilities = config?.capabilities?.tools ?? [];
+  const totalToolsCount = toolCapabilities.length;
+  const disabledToolsCount = toolCapabilities.filter((raw) => {
+    const id = getCapabilityId("tool", raw);
+    return id ? isToolBlockedByAcl(config, id) : false;
+  }).length;
+  const allowedToolsCount = totalToolsCount - disabledToolsCount;
+
+  // Auth Type reflects the proxy's inbound security (the Security tab) — which
+  // method clients must authenticate with — not the upstream auth used to reach
+  // the backend.
+  const authTypeLabel = getAuthenticationTypeLabel(
+    resolveAuthenticationType(config),
+  );
+
+  const upstreamUrl = config?.upstream?.main?.url;
+
   return (
     <Stack spacing={3}>
       <Grid container spacing={2}>
-        {proxy.context && (
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
-              <Stack spacing={0.5}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontWeight: 500 }}
-                >
-                  Context
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                  {proxy.context}
-                </Typography>
-              </Stack>
-            </Card>
-          </Grid>
-        )}
-        {proxy.upstream?.main?.url && (
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
-              <Stack spacing={0.5}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontWeight: 500 }}
-                >
-                  Upstream URL
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ fontFamily: "monospace", wordBreak: "break-all" }}
-                >
-                  {proxy.upstream.main.url}
-                </Typography>
-              </Stack>
-            </Card>
-          </Grid>
-        )}
-        {proxy.upstream?.main?.auth?.type && (
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
-              <Stack spacing={0.5}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontWeight: 500 }}
-                >
-                  Auth Type
-                </Typography>
-                <Typography variant="body2">
-                  {proxy.upstream.main.auth.type}
-                </Typography>
-              </Stack>
-            </Card>
-          </Grid>
-        )}
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
             <Stack spacing={0.5}>
@@ -240,23 +117,9 @@ export function MCPProxyOverviewTab({
                 color="text.secondary"
                 sx={{ fontWeight: 500 }}
               >
-                Access Control
+                Auth Type
               </Typography>
-              <Chip
-                label={
-                  proxy.policies?.some((p) => p.name === ACL_POLICY_NAME)
-                    ? "Configured"
-                    : "Allow all"
-                }
-                size="small"
-                variant="outlined"
-                color={
-                  proxy.policies?.some((p) => p.name === ACL_POLICY_NAME)
-                    ? "success"
-                    : "default"
-                }
-                sx={{ width: "fit-content" }}
-              />
+              <Typography variant="body2">{authTypeLabel}</Typography>
             </Stack>
           </Card>
         </Grid>
@@ -268,33 +131,82 @@ export function MCPProxyOverviewTab({
                 color="text.secondary"
                 sx={{ fontWeight: 500 }}
               >
-                In Catalog
+                Manage Tools
               </Typography>
-              <Chip
-                label={proxy.inCatalog ? "Yes" : "No"}
-                size="small"
-                color={proxy.inCatalog ? "success" : "default"}
-                variant="outlined"
-                sx={{ width: "fit-content" }}
-              />
+              {totalToolsCount > 0 ? (
+                <Typography variant="body2">
+                  {allowedToolsCount} allowed · {disabledToolsCount} disabled
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No tools
+                </Typography>
+              )}
+            </Stack>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Stack spacing={0.5}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: 500 }}
+              >
+                Deployment
+              </Typography>
+              {envChips.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No environments
+                </Typography>
+              ) : (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {envChips.map((chip) => (
+                    <Chip
+                      key={chip.id}
+                      label={chip.status ? `${chip.label} · ${chip.status}` : chip.label}
+                      size="small"
+                      variant="outlined"
+                      color={chip.status === "Deployed" ? "success" : "default"}
+                    />
+                  ))}
+                </Stack>
+              )}
             </Stack>
           </Card>
         </Grid>
       </Grid>
-
-      <Divider />
-
-      <InvokeEndpoints
-        endpoints={endpoints}
-        onGenerateApiKey={handleGenerateApiKey}
-        isGeneratingApiKey={createApiKey.isPending || rotateApiKey.isPending}
-        apiKeyError={apiKeyError}
-        generatedApiKey={generatedApiKey}
-        onClearApiKeyError={() => setApiKeyError(null)}
-        emptyMessage="No invoke URLs available. Deploy this MCP proxy to an AI gateway to see invoke URLs and generate API keys."
-      />
+      {upstreamUrl && (
+        <FormControl fullWidth>
+          <FormLabel sx={{ fontSize: "0.75rem", fontWeight: 500, mb: 0.5 }}>
+            Upstream URL
+          </FormLabel>
+          <TextField
+            value={upstreamUrl}
+            size="small"
+            fullWidth
+            slotProps={{
+              input: {
+                readOnly: true,
+                sx: { fontFamily: "monospace", fontSize: "0.8125rem" },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Copy Upstream URL">
+                      <IconButton
+                        size="small"
+                        aria-label="Copy Upstream URL"
+                        onClick={() => handleCopy(upstreamUrl, "Upstream URL")}
+                      >
+                        <Copy size={14} />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        </FormControl>
+      )}
     </Stack>
   );
 }
-
-export default MCPProxyOverviewTab;

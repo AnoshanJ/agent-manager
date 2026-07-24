@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
@@ -47,22 +48,20 @@ type AgentController interface {
 	GetAgentEndpoints(w http.ResponseWriter, r *http.Request)
 	GetBuild(w http.ResponseWriter, r *http.Request)
 	GetAgentConfigurations(w http.ResponseWriter, r *http.Request)
-	GetBuildLogs(w http.ResponseWriter, r *http.Request)
 	GenerateName(w http.ResponseWriter, r *http.Request)
-	GetAgentMetrics(w http.ResponseWriter, r *http.Request)
-	GetAgentRuntimeLogs(w http.ResponseWriter, r *http.Request)
 	GetAgentResourceConfigs(w http.ResponseWriter, r *http.Request)
 	UpdateAgentResourceConfigs(w http.ResponseWriter, r *http.Request)
 	PublishKind(w http.ResponseWriter, r *http.Request)
 	PromoteAgent(w http.ResponseWriter, r *http.Request)
 	UpdateAgentDeploySettings(w http.ResponseWriter, r *http.Request)
 	UpdateAgentConfigurations(w http.ResponseWriter, r *http.Request)
+	RegenerateTracingToken(w http.ResponseWriter, r *http.Request)
 	GetAgentIdentity(w http.ResponseWriter, r *http.Request)
-	ClaimAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	RegenerateAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	RevokeAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	ProvisionAgentIdentity(w http.ResponseWriter, r *http.Request)
-	GetAgentCredentials(w http.ResponseWriter, r *http.Request)
+	GetAgentRoles(w http.ResponseWriter, r *http.Request)
+	GetAgentGroups(w http.ResponseWriter, r *http.Request)
 }
 
 type agentController struct {
@@ -207,11 +206,11 @@ func (c *agentController) GetAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
-	agent, err := c.agentService.GetAgent(ctx, orgName, projName, agentName)
+	agent, err := c.agentService.GetAgent(ctx, ouID, projName, agentName)
 	if err != nil {
 		log.Error("GetAgent: failed to get agent", "error", err)
 		handleCommonErrors(w, err, "Failed to get agent")
@@ -226,7 +225,7 @@ func (c *agentController) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 
 	// Parse query parameters
@@ -254,7 +253,14 @@ func (c *agentController) ListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agents, total, err := c.agentService.ListAgents(ctx, orgName, projName, int32(limit), int32(offset))
+	labelFilter, err := utils.ParseLabelSelectors(r.URL.Query()["label"])
+	if err != nil {
+		log.Debug("ListAgents: invalid label parameter", "error", err)
+		utils.WriteValidationErrorResponse(w, err)
+		return
+	}
+
+	agents, total, err := c.agentService.ListAgents(ctx, ouID, projName, labelFilter, int32(limit), int32(offset))
 	if err != nil {
 		log.Error("ListAgents: failed to list agents", "error", err)
 		handleCommonErrors(w, err, "Failed to list agents")
@@ -277,7 +283,7 @@ func (c *agentController) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 
 	// Parse and validate request body
@@ -294,7 +300,7 @@ func (c *agentController) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := c.agentService.CreateAgent(ctx, orgName, projName, &payload)
+	err := c.agentService.CreateAgent(ctx, ouID, projName, &payload)
 	if err != nil {
 		log.Error("CreateAgent: failed to create agent", "error", err)
 		handleCommonErrors(w, err, "Failed to create agent")
@@ -324,7 +330,7 @@ func (c *agentController) UpdateAgentBasicInfo(w http.ResponseWriter, r *http.Re
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -340,7 +346,7 @@ func (c *agentController) UpdateAgentBasicInfo(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	agent, err := c.agentService.UpdateAgentBasicInfo(ctx, orgName, projName, agentName, &payload)
+	agent, err := c.agentService.UpdateAgentBasicInfo(ctx, ouID, projName, agentName, &payload)
 	if err != nil {
 		log.Error("UpdateAgent: failed to update agent", "error", err)
 		handleCommonErrors(w, err, "Failed to update agent")
@@ -356,7 +362,7 @@ func (c *agentController) UpdateAgentBuildParameters(w http.ResponseWriter, r *h
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -372,7 +378,7 @@ func (c *agentController) UpdateAgentBuildParameters(w http.ResponseWriter, r *h
 		return
 	}
 
-	agent, err := c.agentService.UpdateAgentBuildParameters(ctx, orgName, projName, agentName, &payload)
+	agent, err := c.agentService.UpdateAgentBuildParameters(ctx, ouID, projName, agentName, &payload)
 	if err != nil {
 		log.Error("UpdateAgentBuildParameters: failed to update agent build parameters", "error", err)
 		handleCommonErrors(w, err, "Failed to update agent build parameters")
@@ -388,7 +394,7 @@ func (c *agentController) GetAgentResourceConfigs(w http.ResponseWriter, r *http
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	environment := r.URL.Query().Get("environment")
@@ -398,7 +404,7 @@ func (c *agentController) GetAgentResourceConfigs(w http.ResponseWriter, r *http
 		return
 	}
 
-	configs, err := c.agentService.GetAgentResourceConfigs(ctx, orgName, projName, agentName, environment)
+	configs, err := c.agentService.GetAgentResourceConfigs(ctx, ouID, projName, agentName, environment)
 	if err != nil {
 		log.Error("GetAgentResourceConfigs: failed to get agent resource configurations", "error", err)
 		handleCommonErrors(w, err, "Failed to get agent resource configurations")
@@ -413,7 +419,7 @@ func (c *agentController) UpdateAgentResourceConfigs(w http.ResponseWriter, r *h
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	environment := r.URL.Query().Get("environment")
@@ -435,7 +441,7 @@ func (c *agentController) UpdateAgentResourceConfigs(w http.ResponseWriter, r *h
 		return
 	}
 
-	resourceConfigs, err := c.agentService.UpdateAgentResourceConfigs(ctx, orgName, projName, agentName, environment, &payload)
+	resourceConfigs, err := c.agentService.UpdateAgentResourceConfigs(ctx, ouID, projName, agentName, environment, &payload)
 	if err != nil {
 		log.Error("UpdateAgentResourceConfigs: failed to update agent resource configurations", "error", err)
 		handleCommonErrors(w, err, "Failed to update agent resource configurations")
@@ -449,11 +455,11 @@ func (c *agentController) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
-	err := c.agentService.DeleteAgent(ctx, orgName, projName, agentName)
+	err := c.agentService.DeleteAgent(ctx, ouID, projName, agentName)
 	if err != nil {
 		log.Error("DeleteAgent: failed to delete agent", "error", err)
 		handleCommonErrors(w, err, "Failed to delete agent")
@@ -467,7 +473,7 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -476,7 +482,7 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 	if commitId == "" {
 		log.Debug("BuildAgent: commitId not provided, using latest commit")
 	}
-	build, err := c.agentService.BuildAgent(ctx, orgName, projName, agentName, commitId)
+	build, err := c.agentService.BuildAgent(ctx, ouID, projName, agentName, commitId)
 	if err != nil {
 		log.Error("BuildAgent: failed to build agent", "error", err)
 		handleCommonErrors(w, err, "Failed to build agent")
@@ -485,97 +491,12 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 	utils.WriteSuccessResponse(w, http.StatusAccepted, build)
 }
 
-func (c *agentController) GetBuildLogs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.GetLogger(ctx)
-
-	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
-	projName := r.PathValue(utils.PathParamProjName)
-	agentName := r.PathValue(utils.PathParamAgentName)
-	buildName := r.PathValue(utils.PathParamBuildName)
-
-	buildLogs, err := c.agentService.GetBuildLogs(ctx, orgName, projName, agentName, buildName)
-	if err != nil {
-		log.Error("GetBuildLogs: failed to get build logs", "error", err)
-		handleCommonErrors(w, err, "Failed to get build logs")
-		return
-	}
-	buildLogsResponse := utils.ConvertToLogsResponse(*buildLogs)
-	utils.WriteSuccessResponse(w, http.StatusOK, buildLogsResponse)
-}
-
-func (c *agentController) GetAgentRuntimeLogs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.GetLogger(ctx)
-
-	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
-	projName := r.PathValue(utils.PathParamProjName)
-	agentName := r.PathValue(utils.PathParamAgentName)
-
-	// Parse and validate request body
-	var payload spec.LogFilterRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Error("GetAgentRuntimeLogs: failed to decode request body", "error", err)
-		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := utils.ValidateLogFilterRequest(payload); err != nil {
-		log.Error("GetAgentRuntimeLogs: invalid request payload", "error", err)
-		utils.WriteValidationErrorResponse(w, err)
-		return
-	}
-
-	applicationLogs, err := c.agentService.GetAgentRuntimeLogs(ctx, orgName, projName, agentName, payload)
-	if err != nil {
-		log.Error("GetAgentRuntimeLogs: failed to get run-time logs", "error", err)
-		handleCommonErrors(w, err, "Failed to get run-time logs")
-		return
-	}
-	buildLogsResponse := utils.ConvertToLogsResponse(*applicationLogs)
-	utils.WriteSuccessResponse(w, http.StatusOK, buildLogsResponse)
-}
-
-func (c *agentController) GetAgentMetrics(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.GetLogger(ctx)
-
-	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
-	projName := r.PathValue(utils.PathParamProjName)
-	agentName := r.PathValue(utils.PathParamAgentName)
-
-	// Parse and validate request body
-	var payload spec.MetricsFilterRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Error("GetAgentMetrics: failed to decode request body", "error", err)
-		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := utils.ValidateMetricsFilterRequest(payload); err != nil {
-		log.Error("GetAgentMetrics: invalid request payload", "error", err)
-		utils.WriteValidationErrorResponse(w, err)
-		return
-	}
-
-	metricsResponse, err := c.agentService.GetAgentMetrics(ctx, orgName, projName, agentName, payload)
-	if err != nil {
-		log.Error("GetAgentMetrics: failed to get agent metrics", "error", err)
-		handleCommonErrors(w, err, "Failed to get agent metrics")
-		return
-	}
-	utils.WriteSuccessResponse(w, http.StatusOK, metricsResponse)
-}
-
 func (c *agentController) DeployAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -593,7 +514,7 @@ func (c *agentController) DeployAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployedEnv, err := c.agentService.DeployAgent(ctx, orgName, projName, agentName, &payload)
+	deployedEnv, err := c.agentService.DeployAgent(ctx, ouID, projName, agentName, &payload)
 	if err != nil {
 		log.Error("DeployAgent: failed to deploy agent", "error", err)
 		handleCommonErrors(w, err, "Failed to deploy agent")
@@ -613,7 +534,7 @@ func (c *agentController) PromoteAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -629,7 +550,7 @@ func (c *agentController) PromoteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.agentService.PromoteAgent(ctx, orgName, projName, agentName, &payload); err != nil {
+	if err := c.agentService.PromoteAgent(ctx, ouID, projName, agentName, &payload); err != nil {
 		log.Error("PromoteAgent: failed to promote agent", "error", err)
 		handleCommonErrors(w, err, "Failed to promote agent")
 		return
@@ -648,7 +569,7 @@ func (c *agentController) UpdateAgentDeploySettings(w http.ResponseWriter, r *ht
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -663,7 +584,7 @@ func (c *agentController) UpdateAgentDeploySettings(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if err := c.agentService.UpdateAgentDeploySettings(ctx, orgName, projName, agentName, &payload); err != nil {
+	if err := c.agentService.UpdateAgentDeploySettings(ctx, ouID, projName, agentName, &payload); err != nil {
 		log.Error("UpdateAgentDeploySettings: failed to update deploy settings", "error", err)
 		handleCommonErrors(w, err, "Failed to update deploy settings")
 		return
@@ -675,7 +596,7 @@ func (c *agentController) UpdateAgentConfigurations(w http.ResponseWriter, r *ht
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -690,7 +611,7 @@ func (c *agentController) UpdateAgentConfigurations(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if err := c.agentService.UpdateAgentConfigurations(ctx, orgName, projName, agentName, &payload); err != nil {
+	if err := c.agentService.UpdateAgentConfigurations(ctx, ouID, projName, agentName, &payload); err != nil {
 		log.Error("UpdateAgentConfigurations: failed to update configurations", "error", err)
 		handleCommonErrors(w, err, "Failed to update agent configurations")
 		return
@@ -698,12 +619,50 @@ func (c *agentController) UpdateAgentConfigurations(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (c *agentController) RegenerateTracingToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	ouID := middleware.OUIDFromRequest(r)
+	projName := r.PathValue(utils.PathParamProjName)
+	agentName := r.PathValue(utils.PathParamAgentName)
+
+	var payload spec.TracingTokenRegenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Error("RegenerateTracingToken: failed to decode request body", "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if payload.EnvironmentName == "" {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "environmentName is required")
+		return
+	}
+
+	expiresIn := ""
+	if payload.ExpiresIn != nil {
+		expiresIn = *payload.ExpiresIn
+	}
+
+	result, err := c.agentService.RegenerateAgentTracingToken(ctx, ouID, projName, agentName, payload.EnvironmentName, expiresIn)
+	if err != nil {
+		log.Error("RegenerateTracingToken: failed to regenerate tracing token", "error", err)
+		handleCommonErrors(w, err, "Failed to regenerate tracing token")
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusOK, spec.TracingTokenRegenerateResponse{
+		EnvironmentName: result.EnvironmentName,
+		ExpiresAt:       result.ExpiresAt,
+		RotatedAt:       result.RotatedAt,
+	})
+}
+
 func (c *agentController) ListAgentBuilds(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -732,7 +691,7 @@ func (c *agentController) ListAgentBuilds(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	builds, total, err := c.agentService.ListAgentBuilds(ctx, orgName, projName, agentName, int32(limit), int32(offset))
+	builds, total, err := c.agentService.ListAgentBuilds(ctx, ouID, projName, agentName, int32(limit), int32(offset))
 	if err != nil {
 		log.Error("ListAgentBuilds: failed to list agent builds", "error", err)
 		handleCommonErrors(w, err, "Failed to list agent builds")
@@ -755,7 +714,7 @@ func (c *agentController) GenerateName(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	// Parse and validate request body
 	var payload spec.ResourceNameRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -771,7 +730,7 @@ func (c *agentController) GenerateName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	candidateName, err := c.agentService.GenerateName(ctx, orgName, payload)
+	candidateName, err := c.agentService.GenerateName(ctx, ouID, payload)
 	if err != nil {
 		log.Error("GenerateAgentName: failed to generate agent name", "error", err)
 		handleCommonErrors(w, err, "Failed to check agent name availability")
@@ -791,12 +750,12 @@ func (c *agentController) GetBuild(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	buildName := r.PathValue(utils.PathParamBuildName)
 
-	build, err := c.agentService.GetBuild(ctx, orgName, projName, agentName, buildName)
+	build, err := c.agentService.GetBuild(ctx, ouID, projName, agentName, buildName)
 	if err != nil {
 		log.Error("GetBuild: failed to get build", "error", err)
 		handleCommonErrors(w, err, "Failed to get build")
@@ -812,11 +771,11 @@ func (c *agentController) GetAgentDeployments(w http.ResponseWriter, r *http.Req
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
-	deployments, err := c.agentService.GetAgentDeployments(ctx, orgName, projName, agentName)
+	deployments, err := c.agentService.GetAgentDeployments(ctx, ouID, projName, agentName)
 	if err != nil {
 		log.Error("GetAgentDeployments: failed to get deployments", "error", err)
 		handleCommonErrors(w, err, "Failed to get deployments")
@@ -832,7 +791,7 @@ func (c *agentController) UpdateDeploymentState(w http.ResponseWriter, r *http.R
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -863,7 +822,7 @@ func (c *agentController) UpdateDeploymentState(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err := c.agentService.UpdateAgentDeploymentState(ctx, orgName, projName, agentName, payload.Environment, payload.State)
+	err := c.agentService.UpdateAgentDeploymentState(ctx, ouID, projName, agentName, payload.Environment, payload.State)
 	if err != nil {
 		log.Error("UpdateDeploymentState: failed to update deployment state", "error", err)
 		handleCommonErrors(w, err, "Failed to update deployment state")
@@ -883,7 +842,7 @@ func (c *agentController) GetAgentEndpoints(w http.ResponseWriter, r *http.Reque
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	environment := r.URL.Query().Get("environment")
@@ -893,7 +852,7 @@ func (c *agentController) GetAgentEndpoints(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	endpoints, err := c.agentService.GetAgentEndpoints(ctx, orgName, projName, agentName, environment)
+	endpoints, err := c.agentService.GetAgentEndpoints(ctx, ouID, projName, agentName, environment)
 	if err != nil {
 		log.Error("GetAgentEndpoints: failed to get agent endpoints", "error", err)
 		handleCommonErrors(w, err, "Failed to get agent endpoints")
@@ -909,7 +868,7 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 	log := logger.GetLogger(ctx)
 
 	// Extract path parameters
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -920,7 +879,7 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 		return
 	}
 
-	configurations, err := c.agentService.GetAgentConfigurations(ctx, orgName, projName, agentName, environment)
+	configurations, err := c.agentService.GetAgentConfigurations(ctx, ouID, projName, agentName, environment)
 	if err != nil {
 		log.Error("GetAgentConfigurations: failed to get configurations", "error", err)
 		handleCommonErrors(w, err, "Failed to get configurations")
@@ -946,7 +905,7 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 	}
 
 	// Fetch file mounts
-	fileMounts, err := c.agentService.GetAgentFileMounts(ctx, orgName, projName, agentName, environment)
+	fileMounts, err := c.agentService.GetAgentFileMounts(ctx, ouID, projName, agentName, environment)
 	if err != nil {
 		log.Error("GetAgentConfigurations: failed to get file mounts", "error", err)
 		handleCommonErrors(w, err, "Failed to get file mounts")
@@ -982,6 +941,17 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 		},
 	}
 
+	// Per-environment config: seeds the console's Auto-Instrumentation, CORS, and Endpoint
+	// Authentication controls for THIS environment, rather than the lowest-environment values
+	// GetAgent returns. nil (no config persisted yet) leaves the fields unset.
+	envCfg, err := c.agentService.GetAgentEnvConfig(ctx, ouID, projName, agentName, environment)
+	if err != nil {
+		log.Error("GetAgentConfigurations: failed to read per-env config", "error", err)
+		handleCommonErrors(w, err, "Failed to get configurations")
+		return
+	}
+	utils.PopulateConfigurationResponseFromAgentConfig(&configurationsResponse, envCfg)
+
 	utils.WriteSuccessResponse(w, http.StatusOK, configurationsResponse)
 }
 
@@ -989,7 +959,7 @@ func (c *agentController) PublishKind(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -1004,7 +974,15 @@ func (c *agentController) PublishKind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := c.agentKindService.PublishKind(ctx, orgName, projName, agentName, &payload)
+	if payload.KindLabels != nil {
+		if err := utils.ValidateLabels(*payload.KindLabels); err != nil {
+			log.Debug("PublishKind: invalid kind labels", "error", err)
+			utils.WriteValidationErrorResponse(w, err)
+			return
+		}
+	}
+
+	result, err := c.agentKindService.PublishKind(ctx, ouID, projName, agentName, &payload)
 	if err != nil {
 		log.Error("Failed to publish agent kind", "error", err)
 		handleCommonErrors(w, err, "Failed to publish agent kind")
@@ -1018,8 +996,8 @@ func (c *agentController) PublishKind(w http.ResponseWriter, r *http.Request) {
 //
 // Returns the agent's AgentID binding for every environment in this project's
 // deployment pipeline. A safe, side-effect-free read: it never returns or
-// destroys a secret. Each view's hasUnclaimedSecret flag reports whether an
-// External agent has one waiting; use ClaimAgentIdentitySecret to retrieve it.
+// destroys a secret; use RegenerateAgentIdentitySecret to obtain a secret for
+// an External agent.
 //
 // An optional ?environment= query parameter filters the result down to that
 // one binding — still returned as an array (0 or 1 elements), so the response
@@ -1029,11 +1007,12 @@ func (c *agentController) GetAgentIdentity(w http.ResponseWriter, r *http.Reques
 	log := logger.GetLogger(ctx)
 
 	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	environment := r.URL.Query().Get("environment")
 
-	views, err := c.agentService.GetAgentIdentity(ctx, orgName, projName, agentName)
+	views, err := c.agentService.GetAgentIdentity(ctx, ouID, projName, agentName)
 	if err != nil {
 		log.Error("GetAgentIdentity: failed to get agent identity", "orgName", orgName, "agentName", agentName, "error", err)
 		handleCommonErrors(w, err, "Failed to get agent identity")
@@ -1056,49 +1035,6 @@ func (c *agentController) GetAgentIdentity(w http.ResponseWriter, r *http.Reques
 	utils.WriteSuccessResponse(w, http.StatusOK, views)
 }
 
-// ClaimAgentIdentitySecret handles
-// DELETE /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/secrets?environment={envID}
-//
-// Performs the one-time claim of an External agent's secret for one
-// environment. Calling this IS the claim — the first successful call returns
-// and permanently destroys the stored secret; every call after that is a 404.
-// Rejects Internal agents with a 400 pointing them at GetAgentCredentials.
-func (c *agentController) ClaimAgentIdentitySecret(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.GetLogger(ctx)
-
-	orgName := r.PathValue(utils.PathParamOrgName)
-	projName := r.PathValue(utils.PathParamProjName)
-	agentName := r.PathValue(utils.PathParamAgentName)
-	envID := r.URL.Query().Get("environment")
-	if envID == "" {
-		utils.WriteErrorResponse(w, http.StatusBadRequest, "environment query parameter is required")
-		return
-	}
-
-	log.Info("ClaimAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
-
-	resp, err := c.agentService.ClaimAgentIdentitySecret(ctx, orgName, projName, agentName, envID)
-	if err != nil {
-		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
-			log.Warn("ClaimAgentIdentitySecret: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
-			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
-			return
-		}
-		if errors.Is(err, utils.ErrAgentCredentialNotAvailable) {
-			log.Warn("ClaimAgentIdentitySecret: no unclaimed secret available", "orgName", orgName, "agentName", agentName, "envID", envID)
-			utils.WriteErrorResponse(w, http.StatusNotFound, "No unclaimed secret currently available for this agent/environment — call regenerate to obtain a new one")
-			return
-		}
-		log.Error("ClaimAgentIdentitySecret: failed to claim secret", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
-		handleCommonErrors(w, err, "Failed to claim agent identity secret")
-		return
-	}
-
-	log.Info("ClaimAgentIdentitySecret: secret claimed successfully", "orgName", orgName, "agentName", agentName, "envID", envID)
-	utils.WriteSuccessResponse(w, http.StatusOK, resp)
-}
-
 // RegenerateAgentIdentitySecret handles
 // POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities
 //
@@ -1112,6 +1048,7 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 	log := logger.GetLogger(ctx)
 
 	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 
@@ -1129,7 +1066,7 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 
 	log.Info("RegenerateAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	resp, err := c.agentService.RegenerateAgentIdentitySecret(ctx, orgName, projName, agentName, envID)
+	resp, err := c.agentService.RegenerateAgentIdentitySecret(ctx, ouID, projName, agentName, envID)
 	if err != nil {
 		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
 			log.Warn("RegenerateAgentIdentitySecret: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
@@ -1155,6 +1092,7 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 	log := logger.GetLogger(ctx)
 
 	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	envID := r.URL.Query().Get("environment")
@@ -1165,7 +1103,7 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 
 	log.Info("RevokeAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	resp, err := c.agentService.RevokeAgentIdentitySecret(ctx, orgName, projName, agentName, envID)
+	resp, err := c.agentService.RevokeAgentIdentitySecret(ctx, ouID, projName, agentName, envID)
 	if err != nil {
 		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
 			log.Warn("RevokeAgentIdentitySecret: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
@@ -1195,6 +1133,7 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	log := logger.GetLogger(ctx)
 
 	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	envID := r.URL.Query().Get("environment")
@@ -1205,7 +1144,7 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 
 	log.Info("ProvisionAgentIdentity: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	view, alreadyExisted, err := c.agentService.ProvisionAgentIdentity(ctx, orgName, projName, agentName, envID)
+	view, alreadyExisted, err := c.agentService.ProvisionAgentIdentity(ctx, ouID, projName, agentName, envID)
 	if err != nil {
 		log.Error("ProvisionAgentIdentity: failed to provision agent identity", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
 		handleCommonErrors(w, err, "Failed to provision agent identity")
@@ -1220,18 +1159,19 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	utils.WriteSuccessResponse(w, status, view)
 }
 
-// GetAgentCredentials handles
-// GET /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/secrets?environment={envID}
+// GetAgentRoles handles
+// GET /orgs/{orgName}/projects/{projName}/agents/{agentName}/roles?environment={envID}
 //
-// Returns the current client ID and secret for an Internal agent in one
-// environment. Repeatable — unlike ClaimAgentIdentitySecret's one-time External
-// claim, calling this again returns the same, still-valid credential. Rejects
-// External agents with a 400 pointing them at their own retrieval path.
-func (c *agentController) GetAgentCredentials(w http.ResponseWriter, r *http.Request) {
+// Returns the Thunder roles assigned to the agent's AgentID in one
+// environment. An agent's AgentID (and its role assignments) is per
+// environment, so `environment` is required — there is no single answer
+// across every environment the agent is deployed to.
+func (c *agentController) GetAgentRoles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
 	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
 	envID := r.URL.Query().Get("environment")
@@ -1240,25 +1180,59 @@ func (c *agentController) GetAgentCredentials(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	log.Info("GetAgentCredentials: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
+	log.Info("GetAgentRoles: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	resp, err := c.agentService.GetAgentCredentials(ctx, orgName, projName, agentName, envID)
+	roles, err := c.agentService.GetAgentRoles(ctx, ouID, projName, agentName, envID)
 	if err != nil {
 		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
-			log.Warn("GetAgentCredentials: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
+			log.Warn("GetAgentRoles: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
 			return
 		}
-		if errors.Is(err, utils.ErrAgentCredentialNotAvailable) {
-			log.Warn("GetAgentCredentials: no credential currently stored", "orgName", orgName, "agentName", agentName, "envID", envID)
-			utils.WriteErrorResponse(w, http.StatusNotFound, "No credential currently stored for this agent/environment — call regenerate to obtain a new one")
-			return
-		}
-		log.Error("GetAgentCredentials: failed to get agent credentials", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
-		handleCommonErrors(w, err, "Failed to get agent credentials")
+		log.Error("GetAgentRoles: failed to get agent roles", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
+		handleCommonErrors(w, err, "Failed to get agent roles")
 		return
 	}
 
-	log.Info("GetAgentCredentials: completed", "orgName", orgName, "agentName", agentName, "envID", envID)
-	utils.WriteSuccessResponse(w, http.StatusOK, resp)
+	log.Info("GetAgentRoles: completed", "orgName", orgName, "agentName", agentName, "envID", envID)
+	utils.WriteSuccessResponse(w, http.StatusOK, map[string]any{"roles": roles})
+}
+
+// GetAgentGroups handles
+// GET /orgs/{orgName}/projects/{projName}/agents/{agentName}/groups?environment={envID}
+//
+// Returns the Thunder groups the agent's AgentID belongs to in one
+// environment. An agent's AgentID (and its group memberships) is per
+// environment, so `environment` is required — there is no single answer
+// across every environment the agent is deployed to.
+func (c *agentController) GetAgentGroups(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	orgName := r.PathValue(utils.PathParamOrgName)
+	ouID := middleware.OUIDFromRequest(r)
+	projName := r.PathValue(utils.PathParamProjName)
+	agentName := r.PathValue(utils.PathParamAgentName)
+	envID := r.URL.Query().Get("environment")
+	if envID == "" {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "environment query parameter is required")
+		return
+	}
+
+	log.Info("GetAgentGroups: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
+
+	groups, err := c.agentService.GetAgentGroups(ctx, ouID, projName, agentName, envID)
+	if err != nil {
+		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
+			log.Warn("GetAgentGroups: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
+			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
+			return
+		}
+		log.Error("GetAgentGroups: failed to get agent groups", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
+		handleCommonErrors(w, err, "Failed to get agent groups")
+		return
+	}
+
+	log.Info("GetAgentGroups: completed", "orgName", orgName, "agentName", agentName, "envID", envID)
+	utils.WriteSuccessResponse(w, http.StatusOK, map[string]any{"groups": groups})
 }

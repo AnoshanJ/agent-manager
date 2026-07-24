@@ -32,9 +32,10 @@ type AgentKind struct {
 	Name        string             `gorm:"column:name"`
 	DisplayName string             `gorm:"column:display_name"`
 	Description string             `gorm:"column:description"`
-	OrgName     string             `gorm:"column:org_name"`
+	OUID        string             `gorm:"column:ou_id"`
 	ProjectName string             `gorm:"column:project_name"`
 	AgentName   string             `gorm:"column:agent_name"`
+	Labels      map[string]string  `gorm:"column:labels;type:jsonb;serializer:json"`
 	CreatedAt   time.Time          `gorm:"column:created_at"`
 	UpdatedAt   time.Time          `gorm:"column:updated_at"`
 	Versions    []AgentKindVersion `gorm:"foreignKey:AgentKindID"`
@@ -86,10 +87,10 @@ type AgentKindResponse struct {
 	Kind          string                     `json:"kind"`
 	DisplayName   string                     `json:"displayName"`
 	Description   string                     `json:"description,omitempty"`
-	OrgName       string                     `json:"orgName"`
 	ProjectName   string                     `json:"projectName"`
 	AgentName     string                     `json:"agentName"`
 	LatestVersion string                     `json:"latestVersion,omitempty"`
+	Labels        map[string]string          `json:"labels"`
 	Versions      []AgentKindVersionResponse `json:"versions"`
 	CreatedAt     time.Time                  `json:"createdAt"`
 	UpdatedAt     time.Time                  `json:"updatedAt"`

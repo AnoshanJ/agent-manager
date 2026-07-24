@@ -36,8 +36,8 @@ import {
 } from "@wso2/oxygen-ui";
 import { PageLayout } from "@agent-management-platform/views";
 import { absoluteRouteMap } from "@agent-management-platform/types";
-import { SwaggerSpecViewer } from "@agent-management-platform/shared-component";
-import { useGetAgentKind, useGetAgentEndpoints, useListKindAgents, useListProjects, useGetAgentKindVersion } from "@agent-management-platform/api-client";
+import { LabelChips, SwaggerSpecViewer, parseOpenApiSpecContent } from "@agent-management-platform/shared-component";
+import { useGetAgentKind, useGetBuild, useListKindAgents, useListProjects, useGetAgentKindVersion } from "@agent-management-platform/api-client";
 import { ExternalLink, Plus } from "@wso2/oxygen-ui-icons-react";
 
 export const CatalogKindDetails: React.FC = () => {
@@ -66,14 +66,12 @@ export const CatalogKindDetails: React.FC = () => {
     versionTag: selectedVersionTag,
   });
 
-  const { data: endpointsData, isFetching: isEndpointsLoading } = useGetAgentEndpoints(
-    {
-      orgName: orgId ?? "",
-      projName: kindVersion?.sourceProjectName,
-      agentName: kindVersion?.sourceAgentName,
-    },
-    { environment: "default" },
-  );
+  const { data: build, isLoading: isBuildLoading } = useGetBuild({
+    orgName: orgId ?? "",
+    projName: kindVersion?.sourceProjectName,
+    agentName: kindVersion?.sourceAgentName,
+    buildName: kindVersion?.buildName,
+  });
 
   const { data: kindAgents, isLoading: isKindAgentsLoading } = useListKindAgents({
     orgName: orgId ?? "",
@@ -86,10 +84,9 @@ export const CatalogKindDetails: React.FC = () => {
 
   const [addInstanceAnchorEl, setAddInstanceAnchorEl] = useState<null | HTMLElement>(null);
 
-  const endpointKey = useMemo(() => Object.keys(endpointsData ?? {})[0] ?? "", [endpointsData]);
   const apiSpec = useMemo(
-    () => endpointsData?.[endpointKey]?.schema?.content as Record<string, unknown> | undefined,
-    [endpointsData, endpointKey],
+    () => parseOpenApiSpecContent(build?.inputInterface?.schema?.content),
+    [build],
   );
 
   const backHref = generatePath(absoluteRouteMap.children.org.children.catalog.path, {
@@ -184,26 +181,30 @@ export const CatalogKindDetails: React.FC = () => {
       backHref={backHref}
       backLabel="Back to Agent Catalog"
       titleTail={
-        kindVersion?.sourceProjectName && kindVersion?.sourceAgentName ? (
-          <Button
-            size="small"
-            startIcon={<ExternalLink size={14} />}
-            variant="outlined"
-            component={Link}
-            to={generatePath(
-              absoluteRouteMap.children.org.children.projects.children.agents.path,
-              {
-                orgId,
-                projectId: kindVersion.sourceProjectName,
-                agentId: kindVersion.sourceAgentName,
-              },
-            )}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View Source Agent
-          </Button>
-        ) : undefined
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%", minWidth: 0 }}>
+          {kindVersion?.sourceProjectName && kindVersion?.sourceAgentName && (
+            <Button
+              size="small"
+              startIcon={<ExternalLink size={14} />}
+              variant="outlined"
+              component={Link}
+              to={generatePath(
+                absoluteRouteMap.children.org.children.projects.children.agents.path,
+                {
+                  orgId,
+                  projectId: kindVersion.sourceProjectName,
+                  agentId: kindVersion.sourceAgentName,
+                },
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ flexShrink: 0 }}
+            >
+              View Source Agent
+            </Button>
+          )}
+          <LabelChips labels={kind.labels} />
+        </Stack>
       }
       actions={[
         versionSelector || undefined,
@@ -388,7 +389,7 @@ export const CatalogKindDetails: React.FC = () => {
           <Typography variant="overline" color="text.secondary">
             API Specification
           </Typography>
-          {isVersionLoading || isEndpointsLoading ? (
+          {isVersionLoading || isBuildLoading ? (
             <Skeleton variant="rounded" height={300} />
           ) : (apiSpec ? (
             <SwaggerSpecViewer

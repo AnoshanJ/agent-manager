@@ -23,6 +23,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -78,8 +79,8 @@ type updateDeploymentStateOutput struct {
 	State       string `json:"state"`
 }
 
-func (t *Toolsets) registerDeploymentTools(server *gomcp.Server) {
-	gomcp.AddTool(server, &gomcp.Tool{
+func (t *Toolsets) registerDeploymentTools(server *gomcp.Server, reg *toolRegistry) {
+	addTool(reg, server, &gomcp.Tool{
 		Name: "list_deployments",
 		Description: "List an agent's deployments across environments. " +
 			"A deployment is a released agent image running in a specific environment, and each deployment includes its current state such as active, in-progress, failed, not-deployed, or suspended.",
@@ -88,9 +89,9 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server) {
 			"project_name": stringProperty("Required. Project name where the agent exists."),
 			"agent_name":   stringProperty("Required. Name of the agent to check deployments for."),
 		}, []string{"project_name", "agent_name"}),
-	}, withToolLogging("list_deployments", listDeployments(t.DeploymentToolset)))
+	}, listDeployments(t.DeploymentToolset), rbac.AgentRead)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "deploy_agent",
 		Description: "Deploy an existing agent image. " +
 			"A deployment releases a built agent image to the lowest environment in the deployment pipeline. " +
@@ -108,9 +109,9 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server) {
 				"secret_ref":   stringProperty("Optional. Reference to existing secret."),
 			}, []string{"key"})),
 		}, []string{"project_name", "agent_name", "image_id"}),
-	}, withToolLogging("deploy_agent", deployAgent(t.DeploymentToolset)))
+	}, deployAgent(t.DeploymentToolset), rbac.AgentDeployNonProduction)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "update_deployment_state",
 		Description: "Change the state of an agent deployment in a specific environment. " +
 			"`redeploy` requests a fresh rollout of the current deployment, and `undeploy` removes the deployment from that environment.",
@@ -121,7 +122,7 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server) {
 			"environment":  stringProperty("Required. Environment name."),
 			"state":        enumProperty("Required. Desired deployment action for the selected environment.", []string{"redeploy", "undeploy"}),
 		}, []string{"project_name", "agent_name", "environment", "state"}),
-	}, withToolLogging("update_deployment_state", updateDeploymentState(t.DeploymentToolset)))
+	}, updateDeploymentState(t.DeploymentToolset), rbac.AgentSuspend)
 }
 
 func listDeployments(handler DeploymentToolsetHandler) func(context.Context, *gomcp.CallToolRequest, listDeploymentsInput) (*gomcp.CallToolResult, any, error) {
@@ -133,15 +134,15 @@ func listDeployments(handler DeploymentToolsetHandler) func(context.Context, *go
 			return nil, nil, fmt.Errorf("agent_name is required")
 		}
 
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
-		deployments, err := handler.GetAgentDeployments(ctx, orgName, input.ProjectName, input.AgentName)
+		deployments, err := handler.GetAgentDeployments(ctx, ouID, input.ProjectName, input.AgentName)
 		if err != nil {
 			return nil, nil, wrapToolError("list_deployments", err)
 		}
 
 		response := listDeploymentsOutput{
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Deployments: utils.ConvertToDeploymentDetailsResponse(deployments),
@@ -163,7 +164,7 @@ func deployAgent(handler DeploymentToolsetHandler) func(context.Context, *gomcp.
 			return nil, nil, fmt.Errorf("image_id is required")
 		}
 
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
 		env := make([]spec.EnvironmentVariable, 0, len(input.Env))
 		for _, item := range input.Env {
@@ -181,13 +182,13 @@ func deployAgent(handler DeploymentToolsetHandler) func(context.Context, *gomcp.
 			EnableAutoInstrumentation: input.EnableAutoInstrumentation,
 		}
 
-		environment, err := handler.DeployAgent(ctx, orgName, input.ProjectName, input.AgentName, req)
+		environment, err := handler.DeployAgent(ctx, ouID, input.ProjectName, input.AgentName, req)
 		if err != nil {
 			return nil, nil, wrapToolError("deploy_agent", err)
 		}
 
 		response := deployAgentOutput{
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Environment: environment,
@@ -222,15 +223,15 @@ func updateDeploymentState(handler DeploymentToolsetHandler) func(context.Contex
 			return nil, nil, fmt.Errorf("state must be redeploy or undeploy")
 		}
 
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
-		if err := handler.UpdateDeploymentState(ctx, orgName, input.ProjectName, input.AgentName, input.Environment, state); err != nil {
+		if err := handler.UpdateDeploymentState(ctx, ouID, input.ProjectName, input.AgentName, input.Environment, state); err != nil {
 			return nil, nil, wrapToolError("update_deployment_state", err)
 		}
 
 		response := updateDeploymentStateOutput{
 			Message:     fmt.Sprintf("Deployment state transition request accepted. %s'.", actionMessage),
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Environment: input.Environment,

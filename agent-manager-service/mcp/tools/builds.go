@@ -25,6 +25,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -48,12 +49,6 @@ type buildAgentInput struct {
 	ProjectName string  `json:"project_name"`
 	AgentName   string  `json:"agent_name"`
 	CommitID    *string `json:"commit_id,omitempty"`
-}
-type getBuildLogsInput struct {
-	OrgName     string `json:"org_name"`
-	ProjectName string `json:"project_name"`
-	AgentName   string `json:"agent_name"`
-	BuildName   string `json:"build_name"`
 }
 
 // output structs
@@ -91,16 +86,9 @@ type buildAgentOutput struct {
 	Build       spec.BuildResponse `json:"build"`
 	Note        string             `json:"note,omitempty"`
 }
-type getBuildLogsOutput struct {
-	OrgName     string `json:"org_name"`
-	ProjectName string `json:"project_name"`
-	AgentName   string `json:"agent_name"`
-	BuildName   string `json:"build_name"`
-	Logs        any    `json:"logs"`
-}
 
-func (t *Toolsets) registerBuildTools(server *gomcp.Server) {
-	gomcp.AddTool(server, &gomcp.Tool{
+func (t *Toolsets) registerBuildTools(server *gomcp.Server, reg *toolRegistry) {
+	addTool(reg, server, &gomcp.Tool{
 		Name: "list_builds",
 		Description: "List builds for an agent. " +
 			"A build is a versioned packaging job that turns agent source into a runnable image using a specific commit and build parameters. " +
@@ -112,9 +100,9 @@ func (t *Toolsets) registerBuildTools(server *gomcp.Server) {
 			"limit":        intProperty(fmt.Sprintf("Optional. Max builds to return (default %d, min %d, max %d).", utils.DefaultLimit, utils.MinLimit, utils.MaxLimit)),
 			"offset":       intProperty(fmt.Sprintf("Optional. Pagination offset (default %d, min %d).", utils.DefaultOffset, utils.MinOffset)),
 		}, []string{"project_name", "agent_name"}),
-	}, withToolLogging("list_builds", listBuilds(t.BuildToolset)))
+	}, listBuilds(t.BuildToolset), rbac.AgentRead)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "get_build_details",
 		Description: "Return detailed information for a specific build, including status, steps, duration, commit, and build parameters. " +
 			"If the build is still running, completion may take a few minutes.",
@@ -124,9 +112,9 @@ func (t *Toolsets) registerBuildTools(server *gomcp.Server) {
 			"agent_name":   stringProperty("Required. Agent name that owns the build."),
 			"build_name":   stringProperty("Required. Build name to fetch details for."),
 		}, []string{"project_name", "agent_name", "build_name"}),
-	}, withToolLogging("get_build_details", getBuildDetails(t.BuildToolset)))
+	}, getBuildDetails(t.BuildToolset), rbac.AgentRead)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "build_agent",
 		Description: "Start a new build for an existing agent. " +
 			"A build packages the agent source into a runnable image from a specific commit and build parameters. " +
@@ -137,19 +125,7 @@ func (t *Toolsets) registerBuildTools(server *gomcp.Server) {
 			"agent_name":   stringProperty("Required. Agent name to trigger build for."),
 			"commit_id":    stringProperty("Optional. Commit ID to build. Defaults to latest."),
 		}, []string{"project_name", "agent_name"}),
-	}, withToolLogging("build_agent", buildAgent(t.BuildToolset)))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name: "get_build_logs",
-		Description: "Return logs for a specific build of an internal agent. " +
-			"Build logs are the step-by-step output produced while packaging the agent source into a runnable image.",
-		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
-			"project_name": stringProperty("Required. Project name where the agent exists."),
-			"agent_name":   stringProperty("Required. Agent name that owns the build."),
-			"build_name":   stringProperty("Required. Build name to fetch logs for."),
-		}, []string{"project_name", "agent_name", "build_name"}),
-	}, withToolLogging("get_build_logs", getBuildLogs(t.BuildToolset)))
+	}, buildAgent(t.BuildToolset), rbac.AgentBuild)
 }
 
 func listBuilds(handler BuildToolsetHandler) func(context.Context, *gomcp.CallToolRequest, listBuildsInput) (*gomcp.CallToolResult, any, error) {
@@ -162,7 +138,7 @@ func listBuilds(handler BuildToolsetHandler) func(context.Context, *gomcp.CallTo
 		if agentName == "" {
 			return nil, nil, fmt.Errorf("agent_name is required")
 		}
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
 		limit := utils.DefaultLimit
 		if input.Limit != nil {
@@ -180,13 +156,13 @@ func listBuilds(handler BuildToolsetHandler) func(context.Context, *gomcp.CallTo
 			return nil, nil, fmt.Errorf("offset must be >= %d", utils.MinOffset)
 		}
 
-		builds, total, err := handler.ListAgentBuilds(ctx, orgName, projectName, agentName, int32(limit), int32(offset))
+		builds, total, err := handler.ListAgentBuilds(ctx, ouID, projectName, agentName, int32(limit), int32(offset))
 		if err != nil {
 			return nil, nil, wrapToolError("list_builds", err)
 		}
 
 		response := listBuildsOutput{
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: projectName,
 			AgentName:   agentName,
 			Builds:      reduceBuildListResponse(builds),
@@ -215,15 +191,15 @@ func getBuildDetails(handler BuildToolsetHandler) func(context.Context, *gomcp.C
 			return nil, nil, fmt.Errorf("build_name is required")
 		}
 
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
-		result, err := handler.GetBuild(ctx, orgName, projectName, agentName, buildName)
+		result, err := handler.GetBuild(ctx, ouID, projectName, agentName, buildName)
 		if err != nil {
 			return nil, nil, wrapToolError("get_build_details", err)
 		}
 
 		response := getBuildDetailsOutput{
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: projectName,
 			AgentName:   agentName,
 			Build:       utils.ConvertToBuildDetailsResponse(result),
@@ -247,53 +223,21 @@ func buildAgent(handler BuildToolsetHandler) func(context.Context, *gomcp.CallTo
 		if agentName == "" {
 			return nil, nil, fmt.Errorf("agent_name is required")
 		}
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 		commitID := ""
 		if input.CommitID != nil {
 			commitID = strings.TrimSpace(*input.CommitID)
 		}
-		build, err := handler.BuildAgent(ctx, orgName, projectName, agentName, commitID)
+		build, err := handler.BuildAgent(ctx, ouID, projectName, agentName, commitID)
 		if err != nil {
 			return nil, nil, wrapToolError("build_agent", err)
 		}
 		response := buildAgentOutput{
-			OrgName:     orgName,
+			OrgName:     ouID,
 			ProjectName: projectName,
 			AgentName:   agentName,
 			Build:       utils.ConvertToBuildResponse(build),
 			Note:        "Build started. Check the build details and build logs to track and verify progress.",
-		}
-		return handleToolResult(response, nil)
-	}
-}
-
-func getBuildLogs(handler BuildToolsetHandler) func(context.Context, *gomcp.CallToolRequest, getBuildLogsInput) (*gomcp.CallToolResult, any, error) {
-	return func(ctx context.Context, _ *gomcp.CallToolRequest, input getBuildLogsInput) (*gomcp.CallToolResult, any, error) {
-		projectName := strings.TrimSpace(input.ProjectName)
-		agentName := strings.TrimSpace(input.AgentName)
-		buildName := strings.TrimSpace(input.BuildName)
-		if projectName == "" {
-			return nil, nil, fmt.Errorf("project_name is required")
-		}
-		if agentName == "" {
-			return nil, nil, fmt.Errorf("agent_name is required")
-		}
-		if buildName == "" {
-			return nil, nil, fmt.Errorf("build_name is required")
-		}
-		orgName := resolveOrgName(input.OrgName)
-
-		result, err := handler.GetBuildLogs(ctx, orgName, projectName, agentName, buildName)
-		if err != nil {
-			return nil, nil, wrapToolError("get_build_logs", err)
-		}
-
-		response := getBuildLogsOutput{
-			OrgName:     orgName,
-			ProjectName: projectName,
-			AgentName:   agentName,
-			BuildName:   buildName,
-			Logs:        reduceLogsResponse(result),
 		}
 		return handleToolResult(response, nil)
 	}

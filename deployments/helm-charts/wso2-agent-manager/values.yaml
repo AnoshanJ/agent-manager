@@ -31,6 +31,14 @@ postgresql:
         memory: 512Mi
         cpu: 500m
 
+# OpenChoreo ingress configuration — routes the Console and Agent Manager API
+# through the OpenChoreo control-plane kgateway (gateway-default) so they do
+# not need their own LoadBalancer services.
+ocIngress:
+  enabled: true
+  gatewayName: gateway-default
+  gatewayNamespace: openchoreo-control-plane
+
 # Agent Manager Service Configuration
 agentManagerService:
   enabled: true
@@ -41,26 +49,49 @@ agentManagerService:
     tag: "0.0.0-dev"
     pullPolicy: IfNotPresent
 
+  # Reachable externally via the control-plane gateway (see ocIngress);
+  # set type to LoadBalancer to restore a dedicated external endpoint.
   service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 9000
     targetPort: 8080
     annotations: {}
 
+  # Internal gateway-management (xDS) endpoint. In-cluster AI gateways reach
+  # it via cluster DNS; set type to LoadBalancer only when external gateways
+  # must connect from outside the cluster.
   gatewayMgtService:
-    type: LoadBalancer
+    type: ClusterIP
     port: 9243
     targetPort: 9243
+
+  # Hostname the API is served on via the OpenChoreo control-plane gateway
+  # (see the top-level ocIngress block)
+  ocIngress:
+    hostname: api.amp.localhost
+    # Gateway request timeout for API routes; /mcp streams are exempt (no timeout)
+    requestTimeout: 60s
+    # Exposes the gateway-management (xDS/WebSocket) endpoint through the
+    # control-plane gateway so external AI gateways connect without a
+    # dedicated LoadBalancer. The WebSocket stays healthy behind the gateway
+    # because the server pings every connection every 20s.
+    gatewayMgmt:
+      enabled: true
+      # Hostnames external gateways use. host.docker.internal serves gateways
+      # started via the console's Docker quick start on the same machine.
+      hostnames:
+        - cp.amp.localhost
+        - host.docker.internal
+      # ConfigMap holding the CA (key ca.crt) that validates the endpoint's
+      # TLS certificate on the gateway->service hop. Published automatically
+      # by the tls-certs job; set this when certificates.certificatesSecret
+      # supplies your own certificate.
+      caConfigMapName: ""
 
   # Internal server configuration
   internalServer:
     # Enable TLS for the internal server. When false, serves plain HTTP.
     tlsEnabled: true
-
-  observer:
-    url: "http://observer.openchoreo-observability-plane.svc.cluster.local:8080"
-    username: "admin"
-    password: "admin"
 
   resources:
     requests:
@@ -101,13 +132,19 @@ agentManagerService:
     corsAllowedOrigin: "*"
     # Enable RBAC enforcement on all routes
     rbacEnabled: "true"
-    observerURL: "http://observer.openchoreo-observability-plane.svc.cluster.local:8080"
     # In-cluster URL the agent-manager-service uses to query trace data server-side.
-    traceObserverURL: "http://amp-traces-observer.openchoreo-observability-plane.svc.cluster.local:9098"
-    # Externally reachable trace observer URL returned to out-of-cluster clients
-    # (e.g. the CLI) via /v1/config. Leave empty to inherit the console's URL
-    # (console.config.obsApiBaseUrl) so the CLI and console use the same endpoint.
-    traceObserverPublicURL: ""
+    amObserverURL: "http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098"
+    # Externally reachable observer URL returned to out-of-cluster clients
+    # (e.g. the CLI) via /api/v1/config. No internal fallback: unset means
+    # clients surface "observer not configured".
+    amObserverPublicURL: ""
+
+    # In-cluster API Platform gateway runtime Service URL convention used for
+    # sandboxed agents' OTEL and managed LLM/MCP traffic.
+    gatewayRuntime:
+      namePrefix: "api-platform-"
+      serviceSuffix: "-gw-gateway-gateway-runtime"
+      port: 22893
 
 
     # TLS Configuration
@@ -133,7 +170,9 @@ agentManagerService:
     # OpenTelemetry configuration
     otel:
       traceContent: "true"
-      exporterEndpoint: "http://api-platform-default-default-gateway-gateway-runtime.openchoreo-data-plane.svc.cluster.local:22893/otel"
+      # kgateway-routed vhost ("<env>-<org>.gateway.localhost") — independent of
+      # the namespace the api-platform gateway runtime is deployed in.
+      exporterEndpoint: "http://default-default.gateway.localhost:19080/otel"
       # Platform default AMP instrumentation version. Must exist in the
       # effective catalog (embedded baseline ∪ additionalInstrumentationVersions);
       # otherwise the server fails to start.
@@ -156,7 +195,8 @@ agentManagerService:
 
     # Externally reachable base URL of this service.
     # Used as the `resource` identifier in RFC 9728 protected resource metadata.
-    serverPublicURL: "http://localhost:9000"
+    # Routed through the OpenChoreo control-plane gateway (see ocIngress).
+    serverPublicURL: "http://api.amp.localhost:8080"
 
     # Comma-separated list of OAuth 2.0 authorization server URLs advertised
     # in RFC 9728 protected resource metadata. Each entry must be an absolute
@@ -164,9 +204,15 @@ agentManagerService:
     # endpoint to serve.
     oauthAuthorizationServers: "http://thunder.amp.localhost:8080"
 
+    # Domain suffix env-Thunder developer-facing hostnames are built from:
+    # "<org>-<env>.thunder.<thunderHostBaseDomain>". Override on custom-domain /
+    # sslip.io installs so the reported identity-provider endpoints match the
+    # actual env-Thunder hosts.
+    thunderHostBaseDomain: "amp.localhost"
+
     # Comma-separated list of OAuth 2.0 scopes supported by this resource,
     # advertised in RFC 9728 protected resource metadata.
-    oauthScopesSupported: "amp:llm-proxy:deploy,amp:mcp-server:create,amp:org:invite-member,amp:role:delete,amp:monitor:read,amp:agent:deploy-production,amp:git-secret:delete,amp:llm-provider:delete,amp:mcp-server:configure-guardrail,amp:agent:promote,amp:deployment-pipeline:create,amp:deployment-pipeline:read,amp:deployment-pipeline:update,amp:deployment-pipeline:delete,amp:gateway:delete,amp:group:delete,amp:llm-proxy:update,amp:monitor:score-read,amp:llm-provider-template:update,amp:agent:build,amp:agent:rollback,amp:agent:token-manage,amp:evaluator:read,amp:llm-provider-template:read,amp:monitor:create,amp:agent:suspend,amp:gateway:token-manage,amp:git-secret:read,amp:mcp-server:connect,amp:mcp-server:api-key-manage,amp:mcp-server:read,amp:observability:project-dashboard,amp:group:create,amp:observability:org-dashboard,amp:org:remove-member,amp:agent:deploy-non-production,amp:group:read,amp:llm-provider-template:create,amp:project:delete,amp:agent:create,amp:evaluator:create,amp:llm-provider:read,amp:org:modify-settings,amp:catalog:read,amp:environment:update,amp:group:update,amp:llm-proxy:delete,amp:project:read,amp:data-plane:read,amp:agent:read,amp:environment:read,amp:llm-provider:configure-guardrail,amp:observability:guardrail-metric,amp:org:assign-role,amp:project:update,amp:mcp-server:delete,amp:environment:delete,amp:evaluator:update,amp:git-secret:create,amp:monitor:execute,amp:llm-provider:api-key-manage,amp:gateway:read,amp:agent:update,amp:llm-provider-template:delete,amp:monitor:delete,amp:org:view,amp:llm-provider:create,amp:mcp-server:update,amp:org:manage-idp,amp:role:read,amp:role:update,amp:agent:delete,amp:gateway:create,amp:llm-provider:deploy,amp:llm-proxy:api-key-manage,amp:monitor:update,amp:org:manage-service-account,amp:role:create,amp:evaluator:delete,amp:llm-provider:connect,amp:llm-provider:update,amp:llm-proxy:read,amp:monitor:score-publish,amp:observability:infra-metric,amp:project:create,amp:repository:read,amp:gateway:update,amp:environment:create,amp:llm-proxy:create,amp:agent:api-key-manage,amp:agent-kind:read,amp:agent-kind:create,amp:agent-kind:update,amp:agent-kind:delete,amp:profile:read,amp:profile:update-attributes"
+    oauthScopesSupported: "amp:llm-proxy:deploy,amp:mcp-server:create,amp:org:invite-member,amp:role:delete,amp:monitor:read,amp:agent:deploy-production,amp:git-secret:delete,amp:llm-provider:delete,amp:mcp-server:configure-guardrail,amp:agent:promote,amp:deployment-pipeline:create,amp:deployment-pipeline:read,amp:deployment-pipeline:update,amp:deployment-pipeline:delete,amp:gateway:delete,amp:group:delete,amp:llm-proxy:update,amp:monitor:score-read,amp:llm-provider-template:update,amp:agent:build,amp:agent:rollback,amp:agent:token-manage,amp:evaluator:read,amp:llm-provider-template:read,amp:monitor:create,amp:agent:suspend,amp:gateway:token-manage,amp:git-secret:read,amp:mcp-server:connect,amp:mcp-server:api-key-manage,amp:mcp-server:read,amp:observability:log-read,amp:group:create,amp:observability:trace-read,amp:org:remove-member,amp:agent:deploy-non-production,amp:group:read,amp:llm-provider-template:create,amp:project:delete,amp:agent:create,amp:evaluator:create,amp:llm-provider:read,amp:org:modify-settings,amp:catalog:read,amp:environment:update,amp:group:update,amp:llm-proxy:delete,amp:project:read,amp:data-plane:read,amp:agent:read,amp:environment:read,amp:llm-provider:configure-guardrail,amp:observability:build-log-read,amp:org:assign-role,amp:project:update,amp:mcp-server:delete,amp:environment:delete,amp:evaluator:update,amp:git-secret:create,amp:monitor:execute,amp:llm-provider:api-key-manage,amp:gateway:read,amp:agent:update,amp:llm-provider-template:delete,amp:monitor:delete,amp:org:view,amp:llm-provider:create,amp:mcp-server:update,amp:org:manage-idp,amp:role:read,amp:role:update,amp:agent:delete,amp:gateway:create,amp:llm-provider:deploy,amp:llm-proxy:api-key-manage,amp:monitor:update,amp:org:manage-service-account,amp:role:create,amp:evaluator:delete,amp:llm-provider:connect,amp:llm-provider:update,amp:llm-proxy:read,amp:monitor:score-publish,amp:observability:metric-read,amp:project:create,amp:repository:read,amp:gateway:update,amp:environment:create,amp:llm-proxy:create,amp:agent:api-key-manage,amp:agent-kind:read,amp:agent-kind:create,amp:agent-kind:update,amp:agent-kind:delete,amp:profile:read,amp:profile:update-attributes,amp:scope:create,amp:scope:read,amp:scope:update,amp:scope:delete,amp:agent-identity:read,amp:agent-identity:create,amp:agent-identity:update,amp:agent-identity:delete"
 
     # On-premise deployment flag
     isOnPremDeployment: "true"
@@ -206,10 +252,15 @@ agentManagerService:
       # KV secrets engine path
       path: "secret"
       version: "v2"
-      # OpenBao token (for dev mode, use "root")
-      # For production, use existingSecret to reference a secret containing the token
+      # OpenBao token (for dev mode, use "root"). When set, it is stored in the
+      # chart-managed Secret and injected via secretKeyRef — never as a plaintext
+      # env var in the pod spec.
+      # For production, use existingSecret to reference an externally-managed
+      # Secret containing the token instead.
       token: "root"
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+      # the chart-managed Secret always uses the fixed key "openbao-token".
       existingSecretKey: "openbao-token"
 
     # Workflow Plane OpenBao configuration (for Git Secrets)
@@ -217,9 +268,14 @@ agentManagerService:
     workflowPlaneOpenbao:
       # Workflow plane OpenBao URL
       url: "http://openbao.openbao.svc.cluster.local:8200"
-      # OpenBao token
+      # OpenBao token. When set, it is stored in the chart-managed Secret and
+      # injected via secretKeyRef — never as a plaintext env var in the pod spec.
+      # For production, use existingSecret instead.
       token: "root"
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set.
+      # The chart-managed Secret packs both OpenBao tokens into one Secret, so this
+      # token is stored there under the distinct key "workflow-plane-openbao-token".
       existingSecretKey: "openbao-token"
 
     # Agent resource limits — operator-configured upper bounds enforced on PUT /resource-configs
@@ -284,10 +340,17 @@ console:
     tag: "0.0.0-dev"
     pullPolicy: Always
 
+  # Reachable externally via the control-plane gateway (see ocIngress);
+  # set type to LoadBalancer to restore a dedicated external endpoint.
   service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 3000
     targetPort: 3000
+
+  # Hostname the Console is served on via the OpenChoreo control-plane gateway
+  # (see the top-level ocIngress block)
+  ocIngress:
+    hostname: console.amp.localhost
 
   resources:
     requests:
@@ -314,9 +377,9 @@ console:
     auth:
       clientId: "amp-console-client"
       baseUrl: "http://thunder.amp.localhost:8080"
-      scopes: "openid profile email amp:llm-proxy:deploy amp:mcp-server:create amp:org:invite-member amp:role:delete amp:monitor:read amp:agent:deploy-production amp:git-secret:delete amp:llm-provider:delete amp:mcp-server:configure-guardrail amp:agent:promote amp:deployment-pipeline:create amp:deployment-pipeline:read amp:deployment-pipeline:update amp:deployment-pipeline:delete amp:gateway:delete amp:group:delete amp:llm-proxy:update amp:monitor:score-read amp:llm-provider-template:update amp:agent:build amp:agent:rollback amp:agent:token-manage amp:evaluator:read amp:llm-provider-template:read amp:monitor:create amp:agent:suspend amp:gateway:token-manage amp:git-secret:read amp:mcp-server:connect amp:mcp-server:api-key-manage amp:mcp-server:read amp:observability:project-dashboard amp:group:create amp:observability:org-dashboard amp:org:remove-member amp:agent:deploy-non-production amp:group:read amp:llm-provider-template:create amp:project:delete amp:agent:create amp:evaluator:create amp:llm-provider:read amp:org:modify-settings amp:catalog:read amp:environment:update amp:group:update amp:llm-proxy:delete amp:project:read amp:data-plane:read amp:agent:read amp:environment:read amp:llm-provider:configure-guardrail amp:observability:guardrail-metric amp:org:assign-role amp:project:update amp:mcp-server:delete amp:environment:delete amp:evaluator:update amp:git-secret:create amp:monitor:execute amp:llm-provider:api-key-manage amp:gateway:read amp:agent:update amp:llm-provider-template:delete amp:monitor:delete amp:org:view amp:llm-provider:create amp:mcp-server:update amp:org:manage-idp amp:role:read amp:role:update amp:agent:delete amp:gateway:create amp:llm-provider:deploy amp:llm-proxy:api-key-manage amp:monitor:update amp:org:manage-service-account amp:role:create amp:evaluator:delete amp:llm-provider:connect amp:llm-provider:update amp:llm-proxy:read amp:monitor:score-publish amp:observability:infra-metric amp:project:create amp:repository:read amp:gateway:update amp:environment:create amp:llm-proxy:create amp:agent:api-key-manage amp:agent-kind:read amp:agent-kind:create amp:agent-kind:update amp:agent-kind:delete amp:profile:read amp:profile:update-attributes"
-      signInRedirectURL: "http://localhost:3000/login"
-      signOutRedirectURL: "http://localhost:3000/login"
+      scopes: "openid profile email amp:llm-proxy:deploy amp:mcp-server:create amp:org:invite-member amp:role:delete amp:monitor:read amp:agent:deploy-production amp:git-secret:delete amp:llm-provider:delete amp:mcp-server:configure-guardrail amp:agent:promote amp:deployment-pipeline:create amp:deployment-pipeline:read amp:deployment-pipeline:update amp:deployment-pipeline:delete amp:gateway:delete amp:group:delete amp:llm-proxy:update amp:monitor:score-read amp:llm-provider-template:update amp:agent:build amp:agent:rollback amp:agent:token-manage amp:evaluator:read amp:llm-provider-template:read amp:monitor:create amp:agent:suspend amp:gateway:token-manage amp:git-secret:read amp:mcp-server:connect amp:mcp-server:api-key-manage amp:mcp-server:read amp:observability:log-read amp:group:create amp:observability:trace-read amp:org:remove-member amp:agent:deploy-non-production amp:group:read amp:llm-provider-template:create amp:project:delete amp:agent:create amp:evaluator:create amp:llm-provider:read amp:org:modify-settings amp:catalog:read amp:environment:update amp:group:update amp:llm-proxy:delete amp:project:read amp:data-plane:read amp:agent:read amp:environment:read amp:llm-provider:configure-guardrail amp:observability:build-log-read amp:org:assign-role amp:project:update amp:mcp-server:delete amp:environment:delete amp:evaluator:update amp:git-secret:create amp:monitor:execute amp:llm-provider:api-key-manage amp:gateway:read amp:agent:update amp:llm-provider-template:delete amp:monitor:delete amp:org:view amp:llm-provider:create amp:mcp-server:update amp:org:manage-idp amp:role:read amp:role:update amp:agent:delete amp:gateway:create amp:llm-provider:deploy amp:llm-proxy:api-key-manage amp:monitor:update amp:org:manage-service-account amp:role:create amp:evaluator:delete amp:llm-provider:connect amp:llm-provider:update amp:llm-proxy:read amp:monitor:score-publish amp:observability:metric-read amp:project:create amp:repository:read amp:gateway:update amp:environment:create amp:llm-proxy:create amp:agent:api-key-manage amp:agent-kind:read amp:agent-kind:create amp:agent-kind:update amp:agent-kind:delete amp:profile:read amp:profile:update-attributes amp:scope:create amp:scope:read amp:scope:update amp:scope:delete amp:agent-identity:read amp:agent-identity:create amp:agent-identity:update amp:agent-identity:delete"
+      signInRedirectURL: "http://console.amp.localhost:8080/login"
+      signOutRedirectURL: "http://console.amp.localhost:8080/login"
       existingSecret: ""
       validateIDToken: "false"
       clockTolerance: 300
@@ -327,19 +390,22 @@ console:
     rbacEnabled: "true"
 
     # Backend API URLs (will be auto-configured if empty)
-    apiBaseUrl: "http://localhost:9000"
-    # Traces Observer Service URL — browser calls this directly for trace data.
-    # Should point to the amp-traces-observer LoadBalancer or ingress URL.
-    obsApiBaseUrl: "http://localhost:9098"
-    # Gateway control plane URL for gateway setup commands (default: http://localhost:9243)
-    gatewayControlPlaneUrl: "host.docker.internal:9243"
+    # Routed through the OpenChoreo control-plane gateway (see ocIngress).
+    apiBaseUrl: "http://api.amp.localhost:8080"
+    # Gateway control plane URL rendered into external-gateway setup commands.
+    # Routed through the OpenChoreo control-plane gateway (see
+    # agentManagerService.ocIngress.gatewayMgmt); host.docker.internal lets a
+    # gateway container on the same machine reach it.
+    gatewayControlPlaneUrl: "http://host.docker.internal:8080"
     # Gateway version for setup commands (default: v1.0.0)
     gatewayVersion: "v1.0.0"
     # Agent Manager release version — pins the deployment-script git tag (amp/vX.Y.Z).
     # Placeholder is substituted with the real release version by the release
     # pipeline (.github/scripts/update-helm-charts.sh); dev builds fall back to main.
     ampVersion: "0.0.0-dev"
-    instrumentationUrl: "https://localhost:22894/otel"
+    # Trace-export URL shown to external agent developers. kgateway-routed
+    # vhost — independent of the gateway runtime's namespace; no port-forward.
+    instrumentationUrl: "http://default-default.gateway.localhost:19080/otel"
     # Cluster-internal URLs the API Platform Gateway uses to reach Agent
     # Manager when add-environment.sh installs a new gateway. The Create
     # Environment drawer pipes these into the rendered curl|bash command so
@@ -358,6 +424,19 @@ console:
       graniteGuardian: false     # Unlocks: granite-guardian-prompt-injection
       nemoGuard: false           # Unlocks: nvidia-nemoguard-content-safety
       semanticGuardrails: false  # Unlocks: semantic-prompt-guard, semantic-cache
+    # Feature flags.
+    featureFlags:
+      # Shows the private Git repository option when building agents from source.
+      enablePrivateRepoSupport: true
+      # When true, identity provider management calls the REST API directly instead
+      # of rendering the self-hosted manage-identity-provider.sh script snippet.
+      enableIdentityProviderManagedMode: false
+      # When false, the Profile Settings text fields and Save Changes button are
+      # hidden/disabled, and the Change Password tab is disabled.
+      enableProfileManagement: true
+      # When false, the Add User, Invite User, Create Role, and Create Group
+      # buttons on the Settings page are disabled.
+      enableUserManagement: true
 
   # Pod-level configurations
   podAnnotations: {}
@@ -456,68 +535,39 @@ jwtSigning:
   existingSecret: ""
 
 # Ingress Configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-  hosts:
-  - host: amp.local
-    http:
-      paths:
-      - path: /v1/traces
-        pathType: Prefix
-        backend:
-          service:
-            name: data-prepper-external
-            port:
-              number: 21893
-
-      - path: /api/trace
-        pathType: Prefix
-        backend:
-          service:
-            name: amp-traces-observer-external
-            port:
-              number: 9098
-
-      - path: /api/v1
-        pathType: Prefix
-        backend:
-          service:
-            name: amp-api
-            port:
-              number: 8080
-
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: amp-console
-            port:
-              number: 3000
-  tls: []
-
 # ServiceAccount Configuration
 serviceAccount:
   create: true
   name: "agent-management-platform"
   annotations: {}
-  automount: true
+  automount: false
 
 # RBAC Configuration
+# Scoped to exactly what the pre-install/pre-upgrade hook Jobs (TLS certs,
+# JWT keys) do: read/create/patch Secrets in the release namespace. The
+# amp-api service itself makes no Kubernetes API calls.
 rbac:
   create: true
-  # Rules for managing agents and k8s resources
-  # Full permissions for agent management operations
   rules:
-    - apiGroups: ["*"]
-      resources: ["*"]
-      verbs: ["*"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["get", "create", "patch"]
+    # The tls-certs hook also publishes the gateway-management CA as a ConfigMap
+    # (amp-api-gateway-mgmt-ca) for the control-plane gateway's BackendTLSPolicy;
+    # kubectl apply needs get + create/patch on configmaps.
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "create", "patch"]
+
+# ServiceAccount used only by the pre-install/pre-upgrade hook Jobs.
+# This is the sole subject of the scoped RBAC Role. The SA and the
+# Role/RoleBinding are only rendered when at least one hook Job is enabled,
+# so no unused grant is left standing. With create: false, name must point
+# at an existing ServiceAccount (rendering fails fast otherwise).
+hookServiceAccount:
+  create: true
+  name: ""   # defaults to "<fullname>-hooks" (e.g. amp-hooks)
+  annotations: {}
 
 # Global volume mounts and volumes (optional)
 volumeMounts: []

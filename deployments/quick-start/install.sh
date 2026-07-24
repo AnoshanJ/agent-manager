@@ -21,9 +21,32 @@ OPENCHOREO_VERSION="1.1.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K3D_CONFIG="${K3D_CONFIG:-${SCRIPT_DIR}/k3d-config.yaml}"
 
+# Directory holding the deployment resources this installer applies
+# (single-cluster/, values/, k8s/, scripts/). These used to be fetched from
+# raw.githubusercontent.com at install time, but GitHub rate-limits
+# unauthenticated requests per client IP and returns HTTP 429 once the
+# per-IP budget is spent (common behind shared/corporate NAT). helm --values
+# <url> and kubectl apply -f <url> do not retry on 429, so a single throttled
+# response aborts the install. Resolve the bundled copies on disk instead:
+# in a repo checkout they live one level up from quick-start/; the dev-container
+# image bundles the same tree flat alongside the scripts.
+if [[ -d "${SCRIPT_DIR}/../single-cluster" ]]; then
+    DEPLOYMENTS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+else
+    DEPLOYMENTS_DIR="${SCRIPT_DIR}"
+fi
+
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.7.0"
-GATEWAY_CHART_VERSION="1.1.0"
+GATEWAY_OPERATOR_VERSION="0.10.0"
+# gateway-controller/gateway-runtime 1.1.x reject every RestApi/LlmProvider
+# deployment with a bare 404 despite correctly-configured basic auth (confirmed
+# via a live tcpdump of the operator's request — same 404 across 1.1.0 and
+# 1.1.5). 1.2.0-alpha2 does not have this bug (verified end-to-end: RestApi
+# reaches Programmed=True). Chart *version* and container *image tag* are
+# pinned separately below — setting chartVersion alone still runs an older
+# default image, so GATEWAY_IMAGE_VERSION must also be threaded through.
+GATEWAY_CHART_VERSION="1.2.0-alpha"
+GATEWAY_IMAGE_VERSION="1.2.0-alpha2"
 
 # OpenChoreo community module versions compatible with OpenChoreo ${OPENCHOREO_VERSION}
 OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.4.1"
@@ -102,23 +125,20 @@ check_port_available() {
 
 # Check all required ports are available
 check_required_ports() {
-    # Required ports for k3d cluster (host:container mapping)
-    # 3000  - AMP Console UI
-    # 8080  - kgateway HTTP (Thunder auth + OpenChoreo API routing)
-    # 8443  - kgateway HTTPS
-    # 9000  - AMP API service
-    # 9098  - AMP Traces Observer
-    # 9243  - AMP Internal API endpoint
+    # Required ports for k3d cluster (host:container mapping).
+    # AMP Console/API ride the control-plane gateway (8080) and the Traces
+    # Observer rides the observability-plane gateway (11080); OTLP ingest
+    # rides the data-plane gateway (19080) — none need their own host port.
+    # 8080  - Control Plane Gateway HTTP (Console, API, Thunder auth, OpenChoreo API,
+    #         external AI gateway control plane)
+    # 8443  - Control Plane Gateway HTTPS
     # 10082 - Container Registry (Workflow Plane)
-    # 11080 - Observer API (Observability Plane)
+    # 11080 - Observability Plane Gateway HTTP (Agent Manager Observer, Observer API)
     # 11082 - OpenSearch API
     # 11085 - OpenSearch HTTPS
-    # 19080 - Data Plane Gateway HTTP (agent workloads)
+    # 19080 - Data Plane Gateway HTTP (agent workloads, OTLP /otel)
     # 19443 - Data Plane Gateway HTTPS
-    # 21893 - OTel Collector
-    # 22893 - API Platform Gateway HTTP
-    # 22894 - API Platform Gateway HTTPS
-    local required_ports=(3000 8080 8443 9000 9098 9243 10082 11080 11082 11085 19080 19443 21893 22893 22894)
+    local required_ports=(8080 8443 10082 11080 11082 11085 19080 19443)
     local ports_in_use=()
 
     for port in "${required_ports[@]}"; do
@@ -673,7 +693,7 @@ log_info "Applying CoreDNS custom configuration for OpenChoreo and AMP..."
 # that rewrites the in-cluster names to the k3d server node instead of
 # host.k3d.internal — required once host ports are loopback-bound. See
 # deployments/vm/lib-vm.sh:render_coredns_vm_config.
-COREDNS_FILE="${COREDNS_FILE:-https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/k8s/coredns-amp-custom.yaml}"
+COREDNS_FILE="${COREDNS_FILE:-${DEPLOYMENTS_DIR}/k8s/coredns-amp-custom.yaml}"
 if kubectl apply -f "${COREDNS_FILE}"; then
     log_success "CoreDNS custom configuration applied successfully"
 else
@@ -809,7 +829,7 @@ if helm upgrade --install openbao oci://ghcr.io/openbao/charts/openbao \
     --namespace openbao \
     --create-namespace \
     --version 0.25.6 \
-    --values "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-openbao.yaml" \
+    --values "${DEPLOYMENTS_DIR}/single-cluster/values-openbao.yaml" \
     --timeout 180s &>/dev/null; then
     log_success "OpenBao installed successfully"
 else
@@ -877,7 +897,7 @@ else
         --create-namespace \
         --timeout "${TIMEOUT_CONTROL_PLANE}s" \
         --version "${OPENCHOREO_VERSION}" \
-        --values "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-cp.yaml" \
+        --values "${DEPLOYMENTS_DIR}/single-cluster/values-cp.yaml" \
         "${CP_HELM_ARGS[@]}" 2>&1); then
         echo "$CP_INSTALL_OUTPUT"
         if echo "$CP_INSTALL_OUTPUT" | grep -q "no endpoints available for service \"controller-manager-webhook-service\""; then
@@ -889,7 +909,7 @@ else
                 --create-namespace \
                 --timeout "${TIMEOUT_CONTROL_PLANE}s" \
                 --version "${OPENCHOREO_VERSION}" \
-                --values "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-cp.yaml" \
+                --values "${DEPLOYMENTS_DIR}/single-cluster/values-cp.yaml" \
                 "${CP_HELM_ARGS[@]}" || { log_error "Failed to install openchoreo-control-plane after retry"; exit 1; }
         else
             log_error "Failed to install openchoreo-control-plane"
@@ -957,7 +977,7 @@ helm_install_idempotent \
     "${DATA_PLANE_NS}" \
     "${TIMEOUT_DATA_PLANE}" \
     --version "${OPENCHOREO_VERSION}" \
-    --values "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-dp.yaml"
+    --values "${DEPLOYMENTS_DIR}/single-cluster/values-dp.yaml"
 
 # Register Data Plane with Control Plane
 log_info "Registering Data Plane with Control Plane..."
@@ -1004,8 +1024,8 @@ $(echo "$CA_CERT" | sed 's/^/        /')
   gateway:
     ingress:
       external:
-        name: gateway-default
-        namespace: openchoreo-data-plane
+        name: ${DP_EXTERNAL_GATEWAY_NAME:-gateway-default}
+        namespace: ${DP_EXTERNAL_GATEWAY_NAMESPACE:-openchoreo-data-plane}
 ${DP_EXTERNAL_INGRESS}
   secretStoreRef:
     name: default
@@ -1040,14 +1060,28 @@ log_info "Installing Docker Registry for Workflow Plane..."
 if helm status registry -n openchoreo-workflow-plane &>/dev/null; then
     log_info "Docker Registry already installed, skipping..."
 else
+    # The registry values live in the upstream OpenChoreo repo, not ours, so we
+    # can't bundle them alongside the installer. helm --values <url> does not
+    # retry on GitHub's per-IP 429, so pre-download the file with backoff and
+    # hand helm the local path instead of letting helm fetch it.
+    registry_values="$(mktemp)"
+    registry_values_url="https://raw.githubusercontent.com/openchoreo/openchoreo/v${OPENCHOREO_VERSION}/install/k3d/single-cluster/values-registry.yaml"
+    if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 30 \
+        "${registry_values_url}" -o "${registry_values}"; then
+        rm -f "${registry_values}"
+        log_error "Failed to download registry values from ${registry_values_url}"
+        exit 1
+    fi
     if helm upgrade --install registry docker-registry \
         --repo https://twuni.github.io/docker-registry.helm \
         --namespace openchoreo-workflow-plane \
         --create-namespace \
-        --values https://raw.githubusercontent.com/openchoreo/openchoreo/v${OPENCHOREO_VERSION}/install/k3d/single-cluster/values-registry.yaml \
+        --values "${registry_values}" \
         --timeout 120s; then
+        rm -f "${registry_values}"
         log_success "Docker Registry installed successfully"
     else
+        rm -f "${registry_values}"
         log_error "Failed to install Docker Registry"
         exit 1
     fi
@@ -1159,7 +1193,7 @@ fi
 
 # Apply OpenTelemetry Collector ConfigMap (idempotent)
 log_info "Applying Custom OpenTelemetry Collector configuration..."
-CONFIGMAP_FILE="https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/values/oc-collector-configmap.yaml"
+CONFIGMAP_FILE="${DEPLOYMENTS_DIR}/values/oc-collector-configmap.yaml"
 
 if kubectl apply -f "${CONFIGMAP_FILE}" -n "${OBSERVABILITY_NS}" &>/dev/null; then
     log_success "OpenTelemetry Collector configuration applied successfully"
@@ -1182,7 +1216,7 @@ helm_install_idempotent \
     "${TIMEOUT_OBSERVABILITY_PLANE}" \
     --version "${OPENCHOREO_VERSION}" \
     --set observer.extraEnv.AUTH_SERVER_BASE_URL=http://thunder-service.openchoreo-control-plane.svc.cluster.local:8090 \
-    --values "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-op.yaml"
+    --values "${DEPLOYMENTS_DIR}/single-cluster/values-op.yaml"
 
 # Install Observability Modules
 log_info "Installing Observability Modules..."
@@ -1398,6 +1432,15 @@ fi
 
 log_step "Step 11/13: Installing Gateway Operator"
 log_info "Installing Gateway Operator..."
+# Pinning gateway.helm.chartVersion alone is NOT enough: the chart's own
+# default values.yaml can still reference an older gateway-controller/
+# gateway-runtime image tag independent of the chart version, so the image
+# tag/repo must be set explicitly here too (confirmed by inspecting the
+# actual running pod images — chartVersion=1.2.0-alpha alone still ran an
+# older image until these were added).
+# Admin API on this image is served under /api/admin/v1 on the "admin" named
+# port — GET /health on the "rest" port goes through Gin + basic auth and
+# returns 401 for kube-probe (see gateway-controller admin OpenAPI spec).
 helm_install_idempotent \
     "gateway-operator" \
     "oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator" \
@@ -1406,7 +1449,15 @@ helm_install_idempotent \
     --version "${GATEWAY_OPERATOR_VERSION}" \
     --set "logging.level=debug" \
     --set gatewayApi.installStandardCRDs=false \
-    --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}"
+    --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}" \
+    --set "gateway.values.gateway.controller.image.tag=${GATEWAY_IMAGE_VERSION}" \
+    --set gateway.values.gateway.controller.image.repository=ghcr.io/wso2/api-platform/gateway-controller \
+    --set "gateway.values.gateway.gatewayRuntime.image.tag=${GATEWAY_IMAGE_VERSION}" \
+    --set gateway.values.gateway.gatewayRuntime.image.repository=ghcr.io/wso2/api-platform/gateway-runtime \
+    --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/api/admin/v1/health \
+    --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.port=admin \
+    --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/api/admin/v1/health \
+    --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.port=admin
 
 log_success "Gateway Operator installed"
 
@@ -1496,6 +1547,22 @@ fi
 log_success "Agent Management Platform installed successfully"
 echo ""
 
+# Install agent sandbox module (required: agents run as sandboxed pods)
+log_info "Installing Agent Sandbox Module (sandboxed agent runtime)..."
+if ! install_agent_sandbox_module; then
+    log_error "Failed to install Agent Sandbox Module"
+    echo ""
+    echo "Agent deployments cannot work without the Agent Sandbox module."
+    echo ""
+    echo "Troubleshooting steps:"
+    echo "  1. Check Helm release: helm list -n ${DATA_PLANE_NS}"
+    echo "  2. Check controller: kubectl get pods -n agent-sandbox-system"
+    echo "  3. Check CRDs: kubectl get crd | grep agents.x-k8s.io"
+    exit 1
+fi
+log_success "Agent Sandbox Module installed successfully"
+echo ""
+
 # Install platform resources extension
 log_info "Installing Platform Resources Extension (Default Organization, Project, Environment, DeploymentPipeline)..."
 if ! install_platform_resources_extension; then
@@ -1513,19 +1580,39 @@ echo ""
 
 log_info "Provisioning Thunder identity provider for the default environment..."
 ENV_THUNDER_PROVISIONED=false
+# Fatal: without env-Thunder the gateway extension silently skips its
+# ThunderKeyManager identity provider (install_gateway_extension only sets
+# bootstrap.identityProviders when this release exists), so the gateway keeps a
+# keymanager that Agent Manager has no mirror row for. That drift surfaces much
+# later as an empty Identity Providers page, long after the installer claimed
+# success — fail here instead, while the cause is still on screen.
 if ! install_default_env_thunder; then
-    log_warning "Default environment Thunder provisioning failed (non-fatal)"
+    log_error "Default environment Thunder provisioning failed"
     echo "Re-run manually once the platform is ready:"
     echo "  ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"
-    echo "  bash <(curl -fsSL https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/scripts/add-environment-thunder.sh)"
-else
-    log_success "Default environment Thunder identity provider provisioned"
-    ENV_THUNDER_PROVISIONED=true
+    echo "  AMP_API_URL=${AMP_API_URL:-http://api.amp.localhost:8080/api/v1} \\"
+    echo "  IDP_TOKEN_URL=${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token} \\"
+    # install_default_env_thunder() prefers the bundled script and falls back to
+    # downloading it; a standalone (curl-piped) install has no scripts/ directory,
+    # so pointing at the bundled path there would send the operator to a file that
+    # does not exist. Name the release copy instead, and pass SCRIPT_BASE_URL so
+    # the script fetches its own siblings from that same release rather than main.
+    env_thunder_script="${DEPLOYMENTS_DIR}/scripts/add-environment-thunder.sh"
+    if [[ -f "${env_thunder_script}" ]]; then
+        echo "  bash ${env_thunder_script}"
+    else
+        env_thunder_base="https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/scripts"
+        echo "  SCRIPT_BASE_URL=${env_thunder_base} \\"
+        echo "  bash <(curl -fsSL ${env_thunder_base}/add-environment-thunder.sh)"
+    fi
+    exit 1
 fi
+log_success "Default environment Thunder identity provider provisioned"
+ENV_THUNDER_PROVISIONED=true
 echo ""
 
 # Install observability extension
-log_info "Installing Observability Extension (Traces Observer)..."
+log_info "Installing Observability Extension (Agent Manager Observer)..."
 if ! install_observability_extension; then
     log_warning "Observability Extension installation failed (non-fatal)"
     echo "The platform is installed but observability features may not work."
@@ -1561,32 +1648,15 @@ if ! install_gateway_extension; then
     log_warning "Gateway Extension installation failed (non-fatal)"
     echo "The platform is installed but the API Platform Gateway may not be registered."
     echo ""
-    echo "Troubleshooting steps:"
-    echo "  1. Check bootstrap job: kubectl get jobs -n ${DATA_PLANE_NS}"
-    echo "  2. Check bootstrap logs: kubectl logs -n ${DATA_PLANE_NS} -l app.kubernetes.io/component=gateway-bootstrap"
-    echo "  3. Check APIGateway CR: kubectl get apigateway api-platform-default-default -n ${DATA_PLANE_NS}"
-    echo "  4. Check Helm release: helm list -n ${DATA_PLANE_NS}"
+    echo "Troubleshooting steps (the gateway stack lives in its per-org-env namespace):"
+    echo "  1. Check bootstrap job: kubectl get jobs -n default-default"
+    echo "  2. Check bootstrap logs: kubectl logs -n default-default -l app.kubernetes.io/component=gateway-bootstrap"
+    echo "  3. Check APIGateway CR: kubectl get apigateway api-platform-default-default -n default-default"
+    echo "  4. Check Helm release: helm list -n default-default"
 else
     log_success "Gateway Extension installed successfully"
 fi
 echo ""
-
-# Apply RestApi for OTEL trace collection
-RESTAPI_FILE="https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/values/otel-collector-rest-api.yaml"
-log_info "Applying OTEL RestApi resource..."
-if kubectl apply -f "${RESTAPI_FILE}" &>/dev/null; then
-    log_info "Waiting for RestApi to be programmed..."
-    if kubectl wait --for=condition=Programmed restapi/amp-otel-collector-tracing-rest-api \
-            -n openchoreo-data-plane --timeout=120s &>/dev/null; then
-        log_success "RestApi resource applied and programmed"
-    else
-        log_warning "RestApi applied but did not reach Programmed condition within 120s"
-    fi
-else
-    log_warning "Failed to apply RestApi resource (non-fatal)"
-fi
-echo ""
-
 
 # ============================================================================
 # VERIFICATION
@@ -1612,8 +1682,8 @@ log_info "Cluster: ${CLUSTER_CONTEXT}"
 # with a reverse proxy (e.g. the VM installer) set SHOW_LOCALHOST_URLS=false and
 # print their own reachable URLs instead.
 if [[ "${SHOW_LOCALHOST_URLS:-true}" == "true" ]]; then
-  log_info "Agent Management Platform Console: http://localhost:3000"
-  log_info "Observability Gateway (for traces): http://localhost:22893/otel"
+  log_info "Agent Management Platform Console: http://console.amp.localhost:8080"
+  log_info "Observability Gateway (for traces): http://default-default.gateway.localhost:19080/otel"
 fi
 
 # Print the default environment's Thunder ID console + admin credentials — the
@@ -1650,4 +1720,3 @@ log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
 log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
 log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
 echo ""
-

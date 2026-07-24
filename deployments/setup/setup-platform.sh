@@ -73,10 +73,32 @@ fi
 # ============================================================================
 echo ""
 echo "2️⃣  Start platform services"
-echo "🚀 Starting Agent Manager platform services..."
 # Export console host path so docker-compose can align WORKDIR with the host,
 # preventing Rush temp-file / node_modules path mismatches.
 export CONSOLE_HOST_PATH="$(cd "$SCRIPT_DIR/../../console" && pwd)"
+
+# Must migrate before agent-manager-service starts: it crashes on a fresh volume
+# (missing tables), and Air never auto-restarts a crash — only rebuilds on file changes.
+echo "🐘 Starting Postgres and waiting for it to be healthy..."
+docker compose -f "$COMPOSE_FILE" up -d --wait postgres
+
+# The migration run loads agent-manager-service/.env via ENV_FILE_PATH and
+# panics if it is missing. That file is gitignored, so a fresh checkout (e.g.
+# CI) won't have it; seed it from the tracked example, whose DB creds match the
+# compose-exposed Postgres on localhost:5432.
+if [ ! -f "$PROJECT_ROOT/agent-manager-service/.env" ]; then
+    echo "🌱 Seeding agent-manager-service/.env from .env.example..."
+    cp "$PROJECT_ROOT/agent-manager-service/.env.example" "$PROJECT_ROOT/agent-manager-service/.env"
+fi
+
+echo "🗄️  Running database migrations..."
+if ! (cd "$PROJECT_ROOT/agent-manager-service" && ENV_FILE_PATH=.env go run -mod=readonly . -migrate -server=false); then
+    echo "❌ Database migrations failed. Aborting platform setup."
+    exit 1
+fi
+echo "✅ Migrations completed"
+
+echo "🚀 Starting Agent Manager platform services..."
 # COMPOSE_SERVICES optionally restricts the bring-up to a subset of services
 # (e.g. CI heavy tier skips the console). Unset = all services (local default).
 # Split on whitespace into an array so multiple services work without exposing

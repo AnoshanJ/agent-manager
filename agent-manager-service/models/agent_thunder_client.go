@@ -50,16 +50,15 @@ const (
 // binding record for one agent's AgentID in one environment.
 type AgentThunderClient struct {
 	ID               uuid.UUID             `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	OrgName          string                `gorm:"column:org_name;not null"`
+	OUID             string                `gorm:"column:ou_id;not null"`
 	ProjectName      string                `gorm:"column:project_name;not null"`
 	AgentName        string                `gorm:"column:agent_name;not null"`
 	EnvironmentName  string                `gorm:"column:environment_name;not null"`
 	ProvisioningType AgentProvisioningType `gorm:"column:provisioning_type;not null"`
 	ThunderAgentID   string                `gorm:"column:thunder_agent_id;not null;default:''"`
 	ThunderClientID  string                `gorm:"column:thunder_client_id;not null;default:''"`
-	// SecretRefPath is the OpenBao KV path holding the credential. Populated for both
-	// ownership types, but with different retention: permanent for internal, transient
-	// (deleted on claim) for external.
+	// SecretRefPath is the OpenBao KV path holding the credential (internal agents only).
+	// Read directly by services.AgentIdentityInjectionService.
 	SecretRefPath string             `gorm:"column:secret_ref_path;not null;default:''"`
 	Status        AgentThunderStatus `gorm:"column:status;not null;default:'pending'"`
 	// RequestedBy is the calling user's own subject (from AMS's existing
@@ -74,20 +73,16 @@ type AgentThunderClient struct {
 	LastError       string     `gorm:"column:last_error;not null;default:''"`
 	LastAttemptedAt *time.Time `gorm:"column:last_attempted_at"`
 	NextRetryAt     *time.Time `gorm:"column:next_retry_at"`
-	// ClaimedAt marks when an external agent's transient secret was retrieved.
-	// Nil until claimed; a claimed secret cannot be re-served.
-	ClaimedAt *time.Time `gorm:"column:claimed_at"`
-	CreatedAt time.Time  `gorm:"column:created_at;not null;default:NOW()"`
-	UpdatedAt time.Time  `gorm:"column:updated_at;not null;default:NOW()"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null;default:NOW()"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at;not null;default:NOW()"`
 }
 
 func (AgentThunderClient) TableName() string { return "agent_thunder_clients" }
 
 // AgentIdentityEnvironmentView is one environment's AgentID binding, shaped for
 // display to a caller. This is a safe, side-effect-free read: it never carries
-// a secret, even for an unclaimed External binding — HasUnclaimedSecret only
-// reports whether one is available. ClaimSecret (via the dedicated claim
-// endpoint) is the only way to actually retrieve and consume it.
+// a secret — external agents never have one stored to begin with, and
+// RegenerateSecret is the only way to obtain one.
 type AgentIdentityEnvironmentView struct {
 	EnvironmentName  string                `json:"environmentName"`
 	ProvisioningType AgentProvisioningType `json:"provisioningType"`
@@ -98,10 +93,6 @@ type AgentIdentityEnvironmentView struct {
 	AgentID   string `json:"agentId,omitempty"`
 	ClientID  string `json:"clientId,omitempty"`
 	LastError string `json:"lastError,omitempty"`
-	// HasUnclaimedSecret is true only for a completed External binding whose
-	// secret has never been claimed. Internal agents and already-claimed
-	// External bindings are always false.
-	HasUnclaimedSecret bool `json:"hasUnclaimedSecret"`
 	// RequestedBy is AMS's own record of who triggered this binding — see the
 	// field doc on AgentThunderClient.RequestedBy for why this is tracked here
 	// rather than via Thunder's own owner field.
@@ -115,25 +106,6 @@ type AgentIdentityActionRequest struct {
 	Environment string `json:"environment"`
 }
 
-// AgentClaimSecretStatus is the fixed value of AgentClaimSecretResponse.Status —
-// claim has exactly one successful outcome, so this isn't an enum in practice,
-// just a named constant so the literal string exists in one place.
-const AgentClaimSecretStatus = "claimed"
-
-// AgentClaimSecretResponse is returned by the explicit one-time-claim endpoint
-// for an External agent's secret. Calling this endpoint IS the claim: the
-// first successful call returns and permanently destroys the stored secret;
-// every subsequent call fails with a 404 (see utils.ErrAgentCredentialNotAvailable).
-type AgentClaimSecretResponse struct {
-	EnvironmentName string `json:"environmentName"`
-	// AgentID is Thunder's own UUID for this identity (the /agents resource ID) —
-	// distinct from ClientID, which is the OAuth2 client_id.
-	AgentID      string `json:"agentId"`
-	ClientID     string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
-	Status       string `json:"status"`
-}
-
 // AgentRegenerateSecretStatus is the fixed value of AgentRegenerateSecretResponse.Status —
 // regenerate has exactly one successful outcome, so this isn't an enum in
 // practice, just a named constant so the literal string exists in one place.
@@ -142,8 +114,7 @@ const AgentRegenerateSecretStatus = "regenerated"
 // AgentRegenerateSecretResponse is returned by the regenerate-secret endpoint.
 // ClientSecret is always populated, for both Internal and External agents —
 // the caller just explicitly asked to rotate this credential and already
-// holds agent:update, so there is no reason to make them make a second call
-// (GetAgentCredentials) just to see the value their own request produced.
+// holds agent:update, so there is no reason to make them fetch it separately.
 // ProvisioningType is included so a caller can tell which kind of agent this
 // binding belongs to without cross-referencing GetAgentIdentity.
 type AgentRegenerateSecretResponse struct {
@@ -152,6 +123,13 @@ type AgentRegenerateSecretResponse struct {
 	ClientID         string                `json:"clientId"`
 	ClientSecret     string                `json:"clientSecret"`
 	Status           string                `json:"status"`
+	// WorkloadRefreshWarning is set only when the rotation itself succeeded
+	// (the response above is otherwise unaffected) but the best-effort push of
+	// the new secret into the already-running pod failed. Without this, the
+	// pod keeps serving the now-invalidated old secret via its env var until
+	// something else redeploys it — silently, since the rotation still
+	// reports success. Empty on the ordinary success path.
+	WorkloadRefreshWarning string `json:"workloadRefreshWarning,omitempty"`
 }
 
 // AgentRevokeSecretStatus is the fixed value of AgentRevokeSecretResponse.Status —
@@ -166,18 +144,9 @@ type AgentRevokeSecretResponse struct {
 	EnvironmentName string `json:"environmentName"`
 	ClientID        string `json:"clientId"`
 	Status          string `json:"status"`
-}
-
-// AgentCredentialsResponse is returned by the Internal-agent-only credentials
-// endpoint. Unlike every other identity response, ClientSecret is always
-// populated and retrieval is repeatable — Internal agents have no other way to
-// obtain their own credential today (Gateway Binding, which will inject it
-// into the workload automatically, is a later phase).
-type AgentCredentialsResponse struct {
-	EnvironmentName string `json:"environmentName"`
-	// AgentID is Thunder's own UUID for this identity (the /agents resource ID) —
-	// distinct from ClientID, which is the OAuth2 client_id.
-	AgentID      string `json:"agentId"`
-	ClientID     string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
+	// WorkloadRefreshWarning is set when the revoke succeeded but the
+	// best-effort cleanup of the running pod's credential couldn't be
+	// completed or verified — e.g. the deployment pipeline couldn't be
+	// resolved. Empty on the ordinary success path.
+	WorkloadRefreshWarning string `json:"workloadRefreshWarning,omitempty"`
 }

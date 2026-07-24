@@ -86,15 +86,23 @@ install_control_plane() {
     fi
 
     # v0.45 puts the client name in 'client_id' (was 'sub'), so the built-in service-account
-    # bindings keyed on 'sub' stop matching and return 403. Switch them to 'client_id';
+    # bindings keyed on 'sub' stop matching and return 403. Switch them to 'client_id'.
+    # Use server-side apply with field-manager=helm (like the configmap patch above) instead of
+    # `kubectl patch`, which claims ownership under a `kubectl-patch` field manager and causes
+    # 'conflict with "kubectl-patch"' errors on the next `helm upgrade --install`.
     echo "🔧 Migrating service-account ClusterAuthzRoleBindings: claim sub → client_id..."
     for binding in $(kubectl get clusterauthzrolebindings.openchoreo.dev \
         -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
         claim=$(kubectl get clusterauthzrolebinding.openchoreo.dev "$binding" \
             -o jsonpath='{.spec.entitlement.claim}' 2>/dev/null)
         if [ "$claim" = "sub" ]; then
-            if kubectl patch clusterauthzrolebinding.openchoreo.dev "$binding" \
-                --type=merge -p '{"spec":{"entitlement":{"claim":"client_id"}}}' >/dev/null 2>&1; then
+            patched_binding_yaml=$(kubectl get clusterauthzrolebinding.openchoreo.dev "$binding" -o yaml \
+                | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
+            if ! echo "$patched_binding_yaml" | grep -q "claim: client_id"; then
+                echo "❌ Failed to patch ClusterAuthzRoleBinding '${binding}' entitlement claim to client_id"
+                return 1
+            fi
+            if echo "$patched_binding_yaml" | kubectl apply --server-side --field-manager=helm --force-conflicts -f - >/dev/null 2>&1; then
                 echo "   ✓ migrated ${binding}"
             else
                 echo "❌ Failed to migrate ClusterAuthzRoleBinding '${binding}' to client_id"
@@ -218,7 +226,14 @@ install_observability_plane() {
       --set adapter.openSearchSecretName="opensearch-admin-credentials"
     echo "✅ OpenSearch based logs module installed"
 
-    # Enable logs collection in the configured logs module
+    # Enable logs collection in the configured logs module.
+    # fluent-bit.tolerations[operator=Exists] lets the Fluent Bit log collector (a
+    # DaemonSet, one pod per node) run on EVERY node, including tainted isolation-tier
+    # nodes such as the gVisor node (setup-gvisor-node.sh) or the Kata node
+    # (setup-kata-node.sh). Without it, agents on those nodes produce no runtime logs
+    # because no collector tails that node's container logs. operator=Exists tolerates
+    # any taint, so both the gvisor and kata taints are covered. Harmless for all-runc
+    # clusters (the toleration just matches nothing).
     echo "Enabling log collection in Observability Plane..."
     helm upgrade observability-logs-opensearch \
       oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
@@ -226,7 +241,8 @@ install_observability_plane() {
       --namespace openchoreo-observability-plane \
       --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
       --reuse-values \
-      --set fluent-bit.enabled=true
+      --set fluent-bit.enabled=true \
+      --set "fluent-bit.tolerations[0].operator=Exists"
     echo "✅ OpenSearch Log collection enabled"
 
     echo "Enabling opensearch based tracing module..."
@@ -239,7 +255,13 @@ install_observability_plane() {
         --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
         --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config"
 
-    # Prometheus based metrics module
+    # Prometheus based metrics module.
+    # The values file relabels sandbox-cgroup cAdvisor series (gVisor/Kata
+    # isolation tiers) to container="sandbox" so the metrics adapter's
+    # container-scoped usage queries return data for sandboxed agents too —
+    # without it, CPU/memory usage charts are empty on gVisor/Kata
+    # environments (usage lives in the sandbox cgroup, not per-container
+    # cgroups, on those runtimes).
     echo "Installing Prometheus based metrics module..."
     install_metrics_prometheus() {
         helm upgrade --install observability-metrics-prometheus \
@@ -247,6 +269,7 @@ install_observability_plane() {
           --create-namespace \
           --namespace openchoreo-observability-plane \
           --version "${OBSERVABILITY_METRICS_PROMETHEUS_VERSION}" \
+          --values "${PROJECT_ROOT}/deployments/values/observability-metrics-prometheus.yaml" \
           --set adapter.image.tag="" \
           --timeout 10m
     }
@@ -440,20 +463,6 @@ install_platform_resources() {
     echo "✅ Default Platform Resources installed/upgraded successfully"
 }
 
-install_default_env_thunder() {
-    echo "📦 Provisioning Thunder ID instance for the default environment..."
-    # The default environment (created by Platform Resources above) is the birthplace
-    # of agent identities, so it gets its own Thunder instance — separate from the
-    # platform Thunder (amp-thunder) used for console login. Installs the upstream
-    # ThunderID release chart directly (add-environment-thunder.sh's own default),
-    # NOT the wso2-amp-thunder-extension chart platform Thunder uses above — this
-    # keeps env-Thunder's version independent of whatever platform Thunder runs.
-    ENV_NAME=default DISPLAY_NAME="Default" ORG_NAME=default \
-        WAIT_TIMEOUT=300s \
-        bash "${SCRIPT_DIR}/../scripts/add-environment-thunder.sh"
-    echo "✅ Default environment Thunder ID instance provisioned"
-}
-
 echo "🚀 Starting PARALLEL installation of AMP extensions..."
 echo ""
 
@@ -466,35 +475,26 @@ run_parallel_tasks \
 echo "✅ All AMP extensions installed successfully"
 echo ""
 
-# Provision default env-Thunder after parallel extensions to avoid racing default env creation.
-# The wait for the platform Thunder TLS cert is handled internally by add-environment-thunder.sh.
-
-if install_default_env_thunder; then
-    echo ""
-else
-    echo "⚠️  Default-env Thunder provisioning failed — continuing with remaining setup steps."
-    echo "    Re-run manually: ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"
-    echo "      bash ${SCRIPT_DIR}/../scripts/add-environment-thunder.sh"
-    echo ""
-fi
+# Default-env Thunder provisioning moved to the Makefile's setup-default-env-thunder
+# target: it now needs AMS up (store_via_ams), which this script runs before.
 
 # ============================================================================
-# Step 6: Install Observability Extension (Traces Observer Service)
+# Step 6: Install Observability Extension (Agent Manager Observer)
 # ============================================================================
-echo "6️⃣  Observability Extension (Traces Observer Service)"
+echo "6️⃣  Observability Extension (Agent Manager Observer)"
 if ! helm status wso2-amp-observability-extension -n openchoreo-observability-plane &>/dev/null; then
-    echo "Building and loading Traces Observer Service Docker image into k3d cluster..."
-    make -C ${PROJECT_ROOT}/traces-observer-service docker-load-k3d
+    echo "Building and loading Agent Manager Observer Docker image into k3d cluster..."
+    make -C ${PROJECT_ROOT}/agent-manager-observer docker-load-k3d
     sleep 10
 fi
-echo "   Installing/upgrading Traces Observer (local dev: JWKS disabled, unverified JWT parse)..."
+echo "   Installing/upgrading Agent Manager Observer (local dev: JWKS disabled, unverified JWT parse)..."
 helm upgrade --install wso2-amp-observability-extension ${PROJECT_ROOT}/deployments/helm-charts/wso2-amp-observability-extension \
     --create-namespace \
     --namespace openchoreo-observability-plane \
     --timeout=10m \
-    --set tracesObserver.developmentMode=true \
-    --set tracesObserver.auth.isLocalDevEnv=true \
-    --set-string tracesObserver.auth.jwksUrl=""
+    --set amObserver.developmentMode=true \
+    --set amObserver.auth.isLocalDevEnv=true \
+    --set-string amObserver.auth.jwksUrl=""
 echo ""
 
 # ============================================================================
@@ -510,7 +510,15 @@ else
         --create-namespace \
         --set logging.level=debug \
         --set gatewayApi.installStandardCRDs=false \
-        --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}"
+        --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}" \
+        --set "gateway.values.gateway.controller.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.controller.image.repository=ghcr.io/wso2/api-platform/gateway-controller \
+        --set "gateway.values.gateway.gatewayRuntime.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.gatewayRuntime.image.repository=ghcr.io/wso2/api-platform/gateway-runtime \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.port=admin \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.port=admin
     echo "✅ Gateway Operator installed successfully"
 fi
 echo ""
@@ -619,7 +627,6 @@ while IFS= read -r _ns; do
   echo ""
 done < <(kubectl get namespaces -o name 2>/dev/null | sed 's|^namespace/||' | grep '^amp-thunder-')
 if [ "$_active_count" -gt 0 ]; then
-  echo "  💡 Retrieve credentials anytime with the kubectl command above."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
 fi

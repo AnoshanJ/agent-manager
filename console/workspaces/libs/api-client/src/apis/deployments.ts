@@ -24,6 +24,9 @@ import type {
   UpdateAgentDeploySettingsRequest,
   UpdateAgentConfigurationsPathParams,
   UpdateAgentConfigurationsRequest,
+  RegenerateTracingTokenPathParams,
+  RegenerateTracingTokenRequest,
+  RegenerateTracingTokenResponse,
   DeploymentListResponse,
   DeploymentResponse,
   ListAgentDeploymentsPathParams,
@@ -33,6 +36,7 @@ import type {
   GetAgentConfigurationsPathParams,
   ConfigurationResponse,
   ListEnvironmentsPathParams,
+  GetEnvironmentPathParams,
   EnvironmentListResponse,
   GetDeploymentPipelinePathParams,
   DeploymentPipelineResponse,
@@ -115,6 +119,25 @@ export async function updateAgentConfigurations(params: UpdateAgentConfiguration
         { token },
     );
     if (!res.ok) throw await res.json();
+}
+
+// eslint-disable-next-line max-len
+export async function regenerateTracingToken(params: RegenerateTracingTokenPathParams, body: RegenerateTracingTokenRequest, getToken?: () => Promise<string>)
+: Promise<RegenerateTracingTokenResponse> {
+    const { orgName = "default", projName = "default", agentName } = params;
+
+    if (!agentName) {
+        throw new Error("agentName is required");
+    }
+
+    const token = getToken ? await getToken() : undefined;
+    const res = await httpPOST(
+        `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}/projects/${encodeURIComponent(projName)}/agents/${encodeURIComponent(agentName)}/tracing-token/regenerate`,
+        body,
+        { token },
+    );
+    if (!res.ok) throw await res.json();
+    return res.json();
 }
 
 // eslint-disable-next-line max-len
@@ -323,6 +346,24 @@ export async function deleteDeploymentPipeline(
     if (res.status === 204 || res.headers.get('content-length') === '0') {
         return;
     }
+}
+
+// eslint-disable-next-line max-len
+export async function getEnvironment(params: GetEnvironmentPathParams, getToken?: () => Promise<string>)
+: Promise<Environment> {
+    const { orgName = "default", envName } = params;
+
+    if (!envName) {
+        throw new Error("envName is required");
+    }
+
+    const token = getToken ? await getToken() : undefined;
+    const res = await httpGET(
+        `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}/environments/${encodeURIComponent(envName)}`,
+        { token },
+    );
+    if (!res.ok) throw await res.json();
+    return res.json();
 }
 
 // eslint-disable-next-line max-len

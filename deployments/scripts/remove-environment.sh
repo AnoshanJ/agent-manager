@@ -10,7 +10,7 @@ set -euo pipefail
 # All inputs are provided via environment variables so the script can be piped
 # directly into bash:
 #
-#   curl -fsSL https://raw.githubusercontent.com/wso2/ai-agent-management-platform/main/deployments/scripts/remove-environment.sh \
+#   curl -fsSL https://raw.githubusercontent.com/wso2/agent-manager/main/deployments/scripts/remove-environment.sh \
 #     | ENV_NAME=staging \
 #       AGENT_MANAGER_TOKEN=<token> \
 #       bash
@@ -20,7 +20,7 @@ set -euo pipefail
 #   - AGENT_MANAGER_TOKEN: bearer token authorized to delete environments
 # Optional:
 #   - ORG_NAME (default: default)
-#   - AGENT_MANAGER_URL (default: http://localhost:9000)
+#   - AGENT_MANAGER_URL (default: http://api.amp.localhost:8080)
 #   - GATEWAY_NAMESPACE (default: openchoreo-data-plane)
 #   - DEPROVISION_THUNDER (default: true) — set to false to skip Thunder removal
 #   - THUNDER_SCRIPT_URL — override the URL of remove-environment-thunder.sh
@@ -36,9 +36,10 @@ fi
 
 # --- Configuration ---
 ORG_NAME="${ORG_NAME:-default}"
-AGENT_MANAGER_URL="${AGENT_MANAGER_URL:-http://localhost:9000}"
+AGENT_MANAGER_URL="${AGENT_MANAGER_URL:-http://api.amp.localhost:8080}"
 AGENT_MANAGER_API_URL="${AGENT_MANAGER_API_URL:-${AGENT_MANAGER_URL}/api/v1}"
-GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-openchoreo-data-plane}"
+# Must match the per-org-env namespace add-environment.sh installs into.
+GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-${ORG_NAME}-${ENV_NAME}}"
 
 # Release name MUST match what add-environment.sh installs. Single org segment.
 RELEASE_NAME="api-platform-${ORG_NAME}-${ENV_NAME}"
@@ -92,12 +93,19 @@ esac
 if [ "${DEPROVISION_THUNDER:-true}" = "true" ]; then
     echo ""
     echo "🔐 Removing Thunder ID instance for '${ENV_NAME}'..."
+    # The console overrides THUNDER_SCRIPT_URL to a release-pinned URL but never
+    # sets SCRIPT_BASE_URL directly — derive it from THUNDER_SCRIPT_URL's own
+    # directory so the chained script's thunder-naming.sh/ams-auth.sh fetches
+    # use that SAME release ref instead of silently defaulting to main.
+    if [ -z "${SCRIPT_BASE_URL:-}" ] && [ -n "${THUNDER_SCRIPT_URL:-}" ]; then
+        SCRIPT_BASE_URL="$(dirname "$THUNDER_SCRIPT_URL")"
+    fi
     SCRIPT_BASE_URL="${SCRIPT_BASE_URL:-https://raw.githubusercontent.com/wso2/agent-manager/main/deployments/scripts}"
     THUNDER_SCRIPT_URL="${THUNDER_SCRIPT_URL:-${SCRIPT_BASE_URL}/remove-environment-thunder.sh}"
     script_tmp="$(mktemp)"
     if curl -fsSL "${THUNDER_SCRIPT_URL}" -o "$script_tmp"; then
       # SCRIPT_BASE_URL is forwarded so the chained script fetches
-      # thunder-naming.sh from the same git ref as this one (see thunder-naming.sh).
+      # thunder-naming.sh/ams-auth.sh from the same git ref as this one.
       if ENV_NAME="${ENV_NAME}" ORG_NAME="${ORG_NAME}" SCRIPT_BASE_URL="${SCRIPT_BASE_URL}" bash "$script_tmp"; then
         echo "✅ Thunder ID instance removed"
       else
@@ -128,6 +136,19 @@ if kubectl wait --for=delete "apigateway/${GATEWAY_NAME}" -n "${GATEWAY_NAMESPAC
     echo "✅ Gateway resources cleaned up"
 else
     echo "⚠️  Timed out or failed waiting for apigateway/${GATEWAY_NAME} to delete; continuing..."
+fi
+
+# --- Step 4: Delete the per-env gateway namespace ---
+# Only when it follows the "<org>-<env>" isolation convention — never delete a
+# shared namespace (e.g. a legacy install with GATEWAY_NAMESPACE=openchoreo-data-plane).
+if [ "${GATEWAY_NAMESPACE}" = "${ORG_NAME}-${ENV_NAME}" ]; then
+    echo ""
+    echo "🧹 Deleting gateway namespace '${GATEWAY_NAMESPACE}'..."
+    if kubectl delete namespace "${GATEWAY_NAMESPACE}" --timeout=120s 2>/dev/null; then
+        echo "✅ Namespace deleted"
+    else
+        echo "ℹ️  Namespace '${GATEWAY_NAMESPACE}' not found or already deleting, skipping..."
+    fi
 fi
 
 echo ""

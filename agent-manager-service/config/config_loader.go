@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -121,30 +122,34 @@ func loadEnvs() {
 		// Tracing configuration
 		IsTraceContentEnabled: r.readOptionalBool("OTEL_TRACELOOP_TRACE_CONTENT", true),
 
-		// OTLP Exporter configuration
-		ExporterEndpoint: r.readOptionalString("OTEL_EXPORTER_OTLP_ENDPOINT", "http://api-platform-default-default-gateway-gateway-runtime.openchoreo-data-plane.svc.cluster.local:22893/otel"),
+		// OTLP Exporter configuration. Routed through kgateway by hostname
+		// ("<env>-<org>.gateway.localhost") like agent trace exports, so the
+		// endpoint stays independent of the gateway runtime's namespace.
+		ExporterEndpoint: r.readOptionalString("OTEL_EXPORTER_OTLP_ENDPOINT", "http://default-default.gateway.localhost:19080/otel"),
 	}
 
-	// Observer service configuration - temporarily use localhost for agent-manager-service to access observer service
+	config.IsLocalDevEnv = r.readOptionalBool("IS_LOCAL_DEV_ENV", false)
+
+	// Observer service configuration. URL is used server-side (in-cluster) for
+	// monitor-run log fetches. PublicURL is handed to out-of-cluster clients
+	// (console, CLI) via GET /api/v1/config. It has NO internal-URL fallback:
+	// empty means "observer not configured" and clients surface that loudly.
+	publicURLDefault := ""
+	if config.IsLocalDevEnv {
+		publicURLDefault = "http://localhost:9098"
+	}
 	config.Observer = ObserverConfig{
-		URL: r.readOptionalString("OBSERVER_URL", "http://localhost:8085"),
-	}
-
-	// Trace Observer service configuration.
-	// URL is used server-side (in-cluster) by the agent-manager-service to
-	// query trace data. PublicURL is the externally reachable URL handed to
-	// out-of-cluster clients (e.g. the CLI) via GET /api/v1/config; it mirrors the
-	// console's trace observer URL and falls back to URL when unset.
-	traceObserverURL := r.readOptionalString("TRACE_OBSERVER_URL", "http://localhost:9098")
-	config.TraceObserver = TraceObserverConfig{
-		URL:       traceObserverURL,
-		PublicURL: r.readOptionalString("TRACE_OBSERVER_PUBLIC_URL", traceObserverURL),
+		URL:       r.readOptionalString("AM_OBSERVER_URL", "http://localhost:9098"),
+		PublicURL: r.readOptionalString("AM_OBSERVER_PUBLIC_URL", publicURLDefault),
 	}
 
 	config.InstrumentationURL = r.readOptionalString("INSTRUMENTATION_URL", "http://default-default.gateway.localhost:19080/otel")
-
-	config.IsLocalDevEnv = r.readOptionalBool("IS_LOCAL_DEV_ENV", false)
 	config.DefaultGatewayPort = int(r.readOptionalInt64("DEFAULT_GATEWAY_PORT", 19080))
+	config.GatewayRuntime = GatewayRuntimeConfig{
+		NamePrefix:    r.readOptionalString("GATEWAY_RUNTIME_NAME_PREFIX", "api-platform-"),
+		ServiceSuffix: r.readOptionalString("GATEWAY_RUNTIME_SERVICE_SUFFIX", "-gw-gateway-gateway-runtime"),
+		Port:          int(r.readOptionalInt64("GATEWAY_RUNTIME_PORT", 22893)),
+	}
 	config.KeyManagerConfigurations = KeyManagerConfigurations{
 		// Comma-separated list of allowed issuers and audiences
 		Issuer:   r.readOptionalStringList("KEY_MANAGER_ISSUER", "Agent Management Platform Local"),
@@ -169,7 +174,7 @@ func loadEnvs() {
 		PrivateKeyPath:        r.readOptionalString("JWT_SIGNING_PRIVATE_KEY_PATH", "keys/private.pem"),
 		PublicKeysConfigPath:  r.readOptionalString("JWT_SIGNING_PUBLIC_KEYS_CONFIG", "keys/public-keys-config.json"),
 		ActiveKeyID:           r.readOptionalString("JWT_SIGNING_ACTIVE_KEY_ID", "key-1"),
-		DefaultExpiryDuration: r.readOptionalString("JWT_SIGNING_DEFAULT_EXPIRY", "8760h"), // 1 year default
+		DefaultExpiryDuration: r.readOptionalString("JWT_SIGNING_DEFAULT_EXPIRY", "2160h"), // 90 days default
 		Issuer:                r.readOptionalString("JWT_SIGNING_ISSUER", "agent-manager-service"),
 		DefaultEnvironment:    r.readOptionalString("JWT_SIGNING_DEFAULT_ENVIRONMENT", "default"),
 	}
@@ -179,7 +184,11 @@ func loadEnvs() {
 		Token: r.readOptionalString("GITHUB_TOKEN", ""),
 	}
 	config.OpenChoreo = OpenChoreoConfig{
-		BaseURL: r.readRequiredString("OPEN_CHOREO_BASE_URL"),
+		BaseURL:          r.readRequiredString("OPEN_CHOREO_BASE_URL"),
+		DefaultNamespace: r.readOptionalString("OPEN_CHOREO_DEFAULT_NAMESPACE", "default"),
+		SystemLabelKeyPrefixes: r.readOptionalStringList(
+			"OPEN_CHOREO_SYSTEM_LABEL_KEY_PREFIXES", "openchoreo.dev/",
+		),
 	}
 
 	// Internal Server configuration (for WebSocket and gateway internal APIs)
@@ -245,14 +254,6 @@ func loadEnvs() {
 		MaxMemory:   r.readOptionalString("RESOURCE_MAX_MEMORY", "1Gi"),
 	}
 
-	// Gateway runtime addressing — how RestApi bindings reach the API Platform Gateway
-	// in-cluster. Override per deployment if the data-plane namespace or service-name
-	// suffix differs from the openchoreo defaults.
-	config.GatewayRuntime = GatewayRuntimeConfig{
-		HostSuffix: r.readOptionalString("GATEWAY_RUNTIME_HOST_SUFFIX", "-gateway-gateway-runtime.openchoreo-data-plane"),
-		Port:       int(r.readOptionalInt64("GATEWAY_RUNTIME_PORT", 22893)),
-	}
-
 	// Encryption key for secrets at rest (hex-encoded 32-byte AES-256 key)
 	// Encryption key for secrets at rest (hex-encoded 32-byte AES-256 key).
 	// Validated at runtime in wiring.ProvideEncryptionKey() so that
@@ -268,13 +269,26 @@ func loadEnvs() {
 	validateOAuthAuthorizationServers(config, r)
 	validateServerPublicURL(config, r)
 	validateInstrumentationURL(config, r)
-	validateTraceObserverURLs(config, r)
+	validateObserverURLs(config, r)
+	validateGatewayRuntimeConfig(config, r)
 	validateResourceLimitsConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
 
 	r.logAndExitIfErrorsFound()
 
 	slog.Info("configReader: configs loaded")
+}
+
+func validateGatewayRuntimeConfig(cfg *Config, r *configReader) {
+	if strings.TrimSpace(cfg.GatewayRuntime.NamePrefix) == "" {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_NAME_PREFIX must be non-empty"))
+	}
+	if strings.TrimSpace(cfg.GatewayRuntime.ServiceSuffix) == "" {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_SERVICE_SUFFIX must be non-empty"))
+	}
+	if cfg.GatewayRuntime.Port < 1 || cfg.GatewayRuntime.Port > 65535 {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_PORT must be between 1 and 65535, got %d", cfg.GatewayRuntime.Port))
+	}
 }
 
 func validateHTTPServerConfigs(cfg *Config, r *configReader) {
@@ -349,7 +363,7 @@ func validateInstrumentationURL(cfg *Config, r *configReader) {
 	}
 }
 
-func validateTraceObserverURLs(cfg *Config, r *configReader) {
+func validateObserverURLs(cfg *Config, r *configReader) {
 	validate := func(envVar, raw string) {
 		if raw == "" {
 			return
@@ -366,8 +380,8 @@ func validateTraceObserverURLs(cfg *Config, r *configReader) {
 			r.errors = append(r.errors, fmt.Errorf("%s %q must have a non-empty host", envVar, raw))
 		}
 	}
-	validate("TRACE_OBSERVER_URL", cfg.TraceObserver.URL)
-	validate("TRACE_OBSERVER_PUBLIC_URL", cfg.TraceObserver.PublicURL)
+	validate("AM_OBSERVER_URL", cfg.Observer.URL)
+	validate("AM_OBSERVER_PUBLIC_URL", cfg.Observer.PublicURL)
 }
 
 func validateInternalServerConfigs(cfg *Config, r *configReader) {

@@ -24,9 +24,8 @@ type AgentKindResponse struct {
 	// Unique slug name of the Agent Kind within the organization
 	Name string `json:"name"`
 	// Human-readable name
-	DisplayName      string  `json:"displayName"`
-	Description      *string `json:"description,omitempty"`
-	OrganizationName string  `json:"organizationName"`
+	DisplayName string  `json:"displayName"`
+	Description *string `json:"description,omitempty"`
 	// Resource type discriminator (always \"AgentKind\" for this schema)
 	Kind string `json:"kind"`
 	// The most recently published version tag
@@ -34,18 +33,19 @@ type AgentKindResponse struct {
 	Versions      []AgentKindVersionResponse `json:"versions"`
 	CreatedAt     time.Time                  `json:"createdAt"`
 	UpdatedAt     *time.Time                 `json:"updatedAt,omitempty"`
+	// User-defined key/value labels. Keys are 1-63 characters of [a-zA-Z0-9._-] starting and ending alphanumeric (not enforceable here as an OpenAPI 3.0 property-name pattern — validated server-side); values follow the same rules but may be empty. At most 10 labels per resource.
+	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 // NewAgentKindResponse instantiates a new AgentKindResponse object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAgentKindResponse(uuid string, name string, displayName string, organizationName string, kind string, versions []AgentKindVersionResponse, createdAt time.Time) *AgentKindResponse {
+func NewAgentKindResponse(uuid string, name string, displayName string, kind string, versions []AgentKindVersionResponse, createdAt time.Time) *AgentKindResponse {
 	this := AgentKindResponse{}
 	this.Uuid = uuid
 	this.Name = name
 	this.DisplayName = displayName
-	this.OrganizationName = organizationName
 	this.Kind = kind
 	this.Versions = versions
 	this.CreatedAt = createdAt
@@ -162,30 +162,6 @@ func (o *AgentKindResponse) HasDescription() bool {
 // SetDescription gets a reference to the given string and assigns it to the Description field.
 func (o *AgentKindResponse) SetDescription(v string) {
 	o.Description = &v
-}
-
-// GetOrganizationName returns the OrganizationName field value
-func (o *AgentKindResponse) GetOrganizationName() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.OrganizationName
-}
-
-// GetOrganizationNameOk returns a tuple with the OrganizationName field value
-// and a boolean to check if the value has been set.
-func (o *AgentKindResponse) GetOrganizationNameOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.OrganizationName, true
-}
-
-// SetOrganizationName sets field value
-func (o *AgentKindResponse) SetOrganizationName(v string) {
-	o.OrganizationName = v
 }
 
 // GetKind returns the Kind field value
@@ -324,6 +300,38 @@ func (o *AgentKindResponse) SetUpdatedAt(v time.Time) {
 	o.UpdatedAt = &v
 }
 
+// GetLabels returns the Labels field value if set, zero value otherwise.
+func (o *AgentKindResponse) GetLabels() map[string]string {
+	if o == nil || IsNil(o.Labels) {
+		var ret map[string]string
+		return ret
+	}
+	return *o.Labels
+}
+
+// GetLabelsOk returns a tuple with the Labels field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AgentKindResponse) GetLabelsOk() (*map[string]string, bool) {
+	if o == nil || IsNil(o.Labels) {
+		return nil, false
+	}
+	return o.Labels, true
+}
+
+// HasLabels returns a boolean if a field has been set.
+func (o *AgentKindResponse) HasLabels() bool {
+	if o != nil && !IsNil(o.Labels) {
+		return true
+	}
+
+	return false
+}
+
+// SetLabels gets a reference to the given map[string]string and assigns it to the Labels field.
+func (o *AgentKindResponse) SetLabels(v map[string]string) {
+	o.Labels = &v
+}
+
 func (o AgentKindResponse) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -340,7 +348,6 @@ func (o AgentKindResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
 	}
-	toSerialize["organizationName"] = o.OrganizationName
 	toSerialize["kind"] = o.Kind
 	if !IsNil(o.LatestVersion) {
 		toSerialize["latestVersion"] = o.LatestVersion
@@ -349,6 +356,9 @@ func (o AgentKindResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["createdAt"] = o.CreatedAt
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updatedAt"] = o.UpdatedAt
+	}
+	if !IsNil(o.Labels) {
+		toSerialize["labels"] = o.Labels
 	}
 	return toSerialize, nil
 }

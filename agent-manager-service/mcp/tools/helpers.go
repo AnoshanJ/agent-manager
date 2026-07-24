@@ -26,19 +26,19 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	reqlogger "github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
-	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
-// helper function for resolving the org of the agent
-const defaultOrgName = "default"
-
-func resolveOrgName(value string) string {
-	if trimmed := strings.TrimSpace(value); trimmed != "" {
-		return trimmed
+// resolveOUID returns the caller's OU ID from the token claims. Org identity
+// is never taken from tool input: the token is the single source of truth,
+// and services scope all data by ou_id.
+func resolveOUID(ctx context.Context) string {
+	if claims := jwtassertion.GetTokenClaims(ctx); claims != nil {
+		return claims.OuId
 	}
-	return defaultOrgName
+	return ""
 }
 
 // helper function for resolving the environment of the agent
@@ -183,29 +183,4 @@ func normalizeOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
-}
-
-// format logs (both runtime and build logs) response to a more LLM-friendly format
-func reduceLogsResponse(resp *models.LogsResponse) map[string]any {
-	if resp == nil {
-		return map[string]any{
-			"logs":       []map[string]any{},
-			"totalCount": 0,
-			"tookMs":     0,
-		}
-	}
-
-	logs := make([]map[string]any, 0, len(resp.Logs))
-	for _, entry := range resp.Logs {
-		logs = append(logs, map[string]any{
-			"timestamp": entry.Timestamp,
-			"logLevel":  entry.LogLevel,
-			"log":       entry.Log,
-		})
-	}
-	return map[string]any{
-		"logs":       logs,
-		"totalCount": resp.TotalCount,
-		"tookMs":     resp.TookMs,
-	}
 }

@@ -35,6 +35,23 @@ import type {
   GenerateAgentTokenQuery,
   TokenRequest,
   TokenResponse,
+  GetAgentRolesPathParams,
+  GetAgentRolesQuery,
+  AgentRolesResponse,
+  GetAgentGroupsPathParams,
+  GetAgentGroupsQuery,
+  AgentGroupsResponse,
+  GetAgentIdentityPathParams,
+  GetAgentIdentityQuery,
+  AgentIdentityEnvironmentView,
+  ProvisionAgentIdentityPathParams,
+  ProvisionAgentIdentityQuery,
+  RegenerateAgentIdentitySecretPathParams,
+  AgentIdentityActionRequest,
+  AgentRegenerateSecretResponse,
+  RevokeAgentIdentitySecretPathParams,
+  RevokeAgentIdentitySecretQuery,
+  AgentRevokeSecretResponse,
 } from "@agent-management-platform/types";
 
 export async function listAgents(
@@ -44,14 +61,19 @@ export async function listAgents(
 ): Promise<AgentListResponse> {
   const { orgName = "default", projName = "default" } = params;
 
-  const search = query
-    ? Object.fromEntries(
-        Object.entries(query)
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          .filter(([_, v]) => v !== undefined)
-          .map(([k, v]) => [k, String(v)])
-      )
-    : undefined;
+  // Entries form (not an object) so array values expand into repeated
+  // parameters, e.g. label=env:prod&label=team:ml.
+  const search: string[][] = [];
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v === undefined) continue;
+      if (Array.isArray(v)) {
+        v.forEach((item) => search.push([k, String(item)]));
+      } else {
+        search.push([k, String(v)]);
+      }
+    }
+  }
   const token = getToken ? await getToken() : undefined;
   const res = await httpGET(
     `${SERVICE_BASE}/orgs/${encodeURIComponent(
@@ -191,6 +213,114 @@ export async function generateAgentToken(
     `/agents/${encodeURIComponent(agentName)}/token`;
   
   const res = await httpPOST(url, body || {}, { searchParams: search, token });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// --- Agent identity: roles/groups (read-only) ---
+
+export async function getAgentRoles(
+  params: GetAgentRolesPathParams,
+  query: GetAgentRolesQuery,
+  getToken?: () => Promise<string>,
+): Promise<AgentRolesResponse> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const url =
+    `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}` +
+    `/projects/${encodeURIComponent(projName)}` +
+    `/agents/${encodeURIComponent(agentName ?? "")}/roles`;
+  const res = await httpGET(url, { searchParams: { environment: query.environment }, token });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+export async function getAgentGroups(
+  params: GetAgentGroupsPathParams,
+  query: GetAgentGroupsQuery,
+  getToken?: () => Promise<string>,
+): Promise<AgentGroupsResponse> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const url =
+    `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}` +
+    `/projects/${encodeURIComponent(projName)}` +
+    `/agents/${encodeURIComponent(agentName ?? "")}/groups`;
+  const res = await httpGET(url, { searchParams: { environment: query.environment }, token });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// --- Agent identity: AgentID lifecycle (per environment) ---
+
+const identityBase = (orgName: string, projName: string, agentName: string) =>
+  `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}` +
+  `/projects/${encodeURIComponent(projName)}` +
+  `/agents/${encodeURIComponent(agentName)}/identities`;
+
+// Lists the agent's AgentID binding for every environment in the project's
+// deployment pipeline (or one, if `environment` is passed). Safe read: never
+// returns or removes a secret.
+export async function getAgentIdentity(
+  params: GetAgentIdentityPathParams,
+  query?: GetAgentIdentityQuery,
+  getToken?: () => Promise<string>,
+): Promise<AgentIdentityEnvironmentView[]> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpGET(identityBase(orgName, projName, agentName ?? ""), {
+    searchParams: query?.environment ? { environment: query.environment } : undefined,
+    token,
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// Creates an AgentID for an externally hosted agent in an environment that
+// was added after the agent already existed. Idempotent: an existing binding
+// is left as is and returned unchanged.
+export async function provisionAgentIdentity(
+  params: ProvisionAgentIdentityPathParams,
+  query: ProvisionAgentIdentityQuery,
+  getToken?: () => Promise<string>,
+): Promise<AgentIdentityEnvironmentView> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpPUT(identityBase(orgName, projName, agentName ?? ""), {}, {
+    searchParams: { environment: query.environment },
+    token,
+  });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// Rotates the AgentID secret for one environment and returns the new value
+// straight away, for both platform-hosted and externally hosted agents.
+export async function regenerateAgentIdentitySecret(
+  params: RegenerateAgentIdentitySecretPathParams,
+  body: AgentIdentityActionRequest,
+  getToken?: () => Promise<string>,
+): Promise<AgentRegenerateSecretResponse> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpPOST(identityBase(orgName, projName, agentName ?? ""), body, { token });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// Turns off the AgentID secret for one environment without issuing a new
+// one. Call regenerate afterward to restore access.
+export async function revokeAgentIdentitySecret(
+  params: RevokeAgentIdentitySecretPathParams,
+  query: RevokeAgentIdentitySecretQuery,
+  getToken?: () => Promise<string>,
+): Promise<AgentRevokeSecretResponse> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpDELETE(identityBase(orgName, projName, agentName ?? ""), {
+    searchParams: { environment: query.environment },
+    token,
+  });
   if (!res.ok) throw await res.json();
   return res.json();
 }

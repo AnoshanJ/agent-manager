@@ -37,7 +37,7 @@ window.__RUNTIME_CONFIG__ = {
   disableAuth: '$DISABLE_AUTH' === 'true',
   rbacEnabled: '$RBAC_ENABLED' === 'true',
   apiBaseUrl: '$API_BASE_URL',
-  obsApiBaseUrl: '$OBS_API_BASE_URL',
+  configDiscoveryBaseUrl: '$CONFIG_DISCOVERY_BASE_URL',
   gatewayControlPlaneUrl: '$GATEWAY_CONTROL_PLANE_URL',
   gatewayVersion: '$GATEWAY_VERSION',
   ampVersion: '$AMP_VERSION',
@@ -52,6 +52,12 @@ window.__RUNTIME_CONFIG__ = {
     graniteGuardian:    '$GUARDRAIL_CAP_GRANITE_GUARDIAN' === 'true',
     nemoGuard:          '$GUARDRAIL_CAP_NEMO_GUARD' === 'true',
     semanticGuardrails: '$GUARDRAIL_CAP_SEMANTIC_GUARDRAILS' === 'true',
+  },
+  featureFlags: {
+    enablePrivateRepoSupport: '$FEATURE_FLAG_ENABLE_PRIVATE_REPO_SUPPORT' === 'true',
+    enableIdentityProviderManagedMode: '$FEATURE_FLAG_ENABLE_IDENTITY_PROVIDER_MANAGED_MODE' === 'true',
+    enableProfileManagement: '$FEATURE_FLAG_ENABLE_PROFILE_MANAGEMENT' === 'true',
+    enableUserManagement: '$FEATURE_FLAG_ENABLE_USER_MANAGEMENT' === 'true',
   },
   docsUrl: 'https://wso2.github.io/agent-manager/docs/next',
   footerLinks: {

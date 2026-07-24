@@ -22,14 +22,14 @@ var _ MappedNullable = &GatewayEnvironmentResponse{}
 type GatewayEnvironmentResponse struct {
 	// Unique identifier for the environment
 	Id string `json:"id"`
-	// Organization UUID
-	OrganizationName string `json:"organizationName"`
 	// Unique environment name (lowercase, alphanumeric with hyphens)
 	Name string `json:"name"`
 	// Human-readable display name
 	DisplayName string `json:"displayName"`
 	// Optional description of the environment
 	Description *string `json:"description,omitempty"`
+	// Pod runtime isolation tier for agents. Use \"gvisor\" for runsc kernel isolation or \"kata\" for Kata Containers VM isolation (rendered as the kata-qemu RuntimeClass); omit for the default runc runtime.
+	IsolationTier *string `json:"isolationTier,omitempty"`
 	// Reference to the dataplane
 	DataplaneRef string `json:"dataplaneRef"`
 	// DNS prefix for the environment
@@ -47,10 +47,9 @@ type GatewayEnvironmentResponse struct {
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayEnvironmentResponse(id string, organizationName string, name string, displayName string, dataplaneRef string, dnsPrefix string, isProduction bool, createdAt time.Time, updatedAt time.Time) *GatewayEnvironmentResponse {
+func NewGatewayEnvironmentResponse(id string, name string, displayName string, dataplaneRef string, dnsPrefix string, isProduction bool, createdAt time.Time, updatedAt time.Time) *GatewayEnvironmentResponse {
 	this := GatewayEnvironmentResponse{}
 	this.Id = id
-	this.OrganizationName = organizationName
 	this.Name = name
 	this.DisplayName = displayName
 	this.DataplaneRef = dataplaneRef
@@ -91,30 +90,6 @@ func (o *GatewayEnvironmentResponse) GetIdOk() (*string, bool) {
 // SetId sets field value
 func (o *GatewayEnvironmentResponse) SetId(v string) {
 	o.Id = v
-}
-
-// GetOrganizationName returns the OrganizationName field value
-func (o *GatewayEnvironmentResponse) GetOrganizationName() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.OrganizationName
-}
-
-// GetOrganizationNameOk returns a tuple with the OrganizationName field value
-// and a boolean to check if the value has been set.
-func (o *GatewayEnvironmentResponse) GetOrganizationNameOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.OrganizationName, true
-}
-
-// SetOrganizationName sets field value
-func (o *GatewayEnvironmentResponse) SetOrganizationName(v string) {
-	o.OrganizationName = v
 }
 
 // GetName returns the Name field value
@@ -195,6 +170,38 @@ func (o *GatewayEnvironmentResponse) HasDescription() bool {
 // SetDescription gets a reference to the given string and assigns it to the Description field.
 func (o *GatewayEnvironmentResponse) SetDescription(v string) {
 	o.Description = &v
+}
+
+// GetIsolationTier returns the IsolationTier field value if set, zero value otherwise.
+func (o *GatewayEnvironmentResponse) GetIsolationTier() string {
+	if o == nil || IsNil(o.IsolationTier) {
+		var ret string
+		return ret
+	}
+	return *o.IsolationTier
+}
+
+// GetIsolationTierOk returns a tuple with the IsolationTier field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayEnvironmentResponse) GetIsolationTierOk() (*string, bool) {
+	if o == nil || IsNil(o.IsolationTier) {
+		return nil, false
+	}
+	return o.IsolationTier, true
+}
+
+// HasIsolationTier returns a boolean if a field has been set.
+func (o *GatewayEnvironmentResponse) HasIsolationTier() bool {
+	if o != nil && !IsNil(o.IsolationTier) {
+		return true
+	}
+
+	return false
+}
+
+// SetIsolationTier gets a reference to the given string and assigns it to the IsolationTier field.
+func (o *GatewayEnvironmentResponse) SetIsolationTier(v string) {
+	o.IsolationTier = &v
 }
 
 // GetDataplaneRef returns the DataplaneRef field value
@@ -360,11 +367,13 @@ func (o GatewayEnvironmentResponse) MarshalJSON() ([]byte, error) {
 func (o GatewayEnvironmentResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
-	toSerialize["organizationName"] = o.OrganizationName
 	toSerialize["name"] = o.Name
 	toSerialize["displayName"] = o.DisplayName
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
+	}
+	if !IsNil(o.IsolationTier) {
+		toSerialize["isolationTier"] = o.IsolationTier
 	}
 	toSerialize["dataplaneRef"] = o.DataplaneRef
 	toSerialize["dnsPrefix"] = o.DnsPrefix

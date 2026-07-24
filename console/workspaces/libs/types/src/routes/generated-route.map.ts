@@ -23,7 +23,51 @@ export const generatedRouteMap =  {
             "view": {
               "path": "/org/:orgId/thunder-instances/view/:envName",
               "wildPath": "/org/:orgId/thunder-instances/view/:envName/*",
-              "children": {}
+              "children": {
+                "agents": {
+                  "path": "/org/:orgId/thunder-instances/view/:envName/agents",
+                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/agents/*",
+                  "children": {
+                    "detail": {
+                      "path": "/org/:orgId/thunder-instances/view/:envName/agents/:projectName/:agentName",
+                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/agents/:projectName/:agentName/*",
+                      "children": {}
+                    }
+                  }
+                },
+                "groups": {
+                  "path": "/org/:orgId/thunder-instances/view/:envName/groups",
+                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/*",
+                  "children": {
+                    "create": {
+                      "path": "/org/:orgId/thunder-instances/view/:envName/groups/create",
+                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/create/*",
+                      "children": {}
+                    },
+                    "detail": {
+                      "path": "/org/:orgId/thunder-instances/view/:envName/groups/:groupId",
+                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/:groupId/*",
+                      "children": {}
+                    }
+                  }
+                },
+                "roles": {
+                  "path": "/org/:orgId/thunder-instances/view/:envName/roles",
+                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/*",
+                  "children": {
+                    "create": {
+                      "path": "/org/:orgId/thunder-instances/view/:envName/roles/create",
+                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/create/*",
+                      "children": {}
+                    },
+                    "detail": {
+                      "path": "/org/:orgId/thunder-instances/view/:envName/roles/:roleId",
+                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/:roleId/*",
+                      "children": {}
+                    }
+                  }
+                }
+              }
             }
           }
         },
@@ -171,7 +215,13 @@ export const generatedRouteMap =  {
         "environments": {
           "path": "/org/:orgId/environments",
           "wildPath": "/org/:orgId/environments/*",
-          "children": {}
+          "children": {
+            "view": {
+              "path": "/org/:orgId/environments/:envName",
+              "wildPath": "/org/:orgId/environments/:envName/*",
+              "children": {}
+            }
+          }
         },
         "catalog": {
           "path": "/org/:orgId/catalog",

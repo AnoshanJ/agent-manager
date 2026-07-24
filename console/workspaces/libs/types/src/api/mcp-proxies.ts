@@ -17,10 +17,6 @@
 
 import type { ListQuery, OrgPathParams } from "./common";
 import type {
-  CreateLLMAPIKeyRequest,
-  CreateLLMAPIKeyResponse,
-  RotateLLMAPIKeyRequest,
-  RotateLLMAPIKeyResponse,
   SecurityConfig,
   UpstreamAuth,
   UpstreamConfig,
@@ -50,21 +46,58 @@ export interface MCPPolicyAvailabilityResponse {
   list: MCPPolicyAvailableItem[];
 }
 
+/**
+ * MCPEndpointConfig is the deployable configuration of a single MCP proxy endpoint:
+ * upstream (URL + auth), policies, capabilities and security. It is the flat config
+ * carried on each MCPProxyEndpoint. Environment binding and per-environment deployment
+ * status live on MCPEndpointEnvironment, not here. Scopes gating individual tools are
+ * managed separately, at the proxy level (see MCPProxyScopeResponse).
+ */
+export interface MCPEndpointConfig {
+  upstream?: UpstreamConfig;
+  policies?: MCPProxyPolicy[];
+  capabilities?: MCPProxyCapabilities;
+  security?: SecurityConfig;
+}
+
+/**
+ * MCPEndpointEnvironment is one endpoint→environment binding. deploymentStatus is
+ * response-only: it reports whether this environment's gateway artifact is currently
+ * deployed ("Deployed") or not ("Undeployed"). Computed on read; never sent.
+ */
+export interface MCPEndpointEnvironment {
+  environmentUuid: string;
+  deploymentStatus?: "Deployed" | "Undeployed";
+}
+
+/**
+ * MCPProxyEndpoint is one deployable endpoint of an MCP proxy. Its id is unique within the
+ * parent proxy. The endpoint's flat config (upstream/policies/capabilities/security) applies
+ * to every environment it is bound to via environments; within a proxy an environment maps to
+ * at most one endpoint.
+ */
+export interface MCPProxyEndpoint extends MCPEndpointConfig {
+  id: string;
+  name?: string;
+  environments: MCPEndpointEnvironment[];
+}
+
+/**
+ * MCPProxy is an org-level grouping. Name/version/context/vhost/mcpSpecVersion are shared
+ * metadata; the deployable config lives on each endpoint in endpoints. The proxy itself
+ * deploys nothing to any gateway.
+ */
 export interface MCPProxy {
   id: string;
   inCatalog?: boolean;
   name: string;
   version: string;
-  upstream: UpstreamConfig;
   description?: string;
   createdBy?: string;
   context?: string;
   vhost?: string;
-  gateways?: string[];
   mcpSpecVersion?: string;
-  policies?: MCPProxyPolicy[];
-  capabilities?: MCPProxyCapabilities;
-  security?: SecurityConfig;
+  endpoints: MCPProxyEndpoint[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -115,16 +148,3 @@ export type ListMCPProxiesPathParams = OrgPathParams;
 export type ListAvailableMCPPoliciesPathParams = OrgPathParams;
 export type ListMCPProxiesQuery = ListQuery;
 export type FetchMCPProxyServerInfoPathParams = OrgPathParams;
-
-export interface MCPProxyAPIKeyPathParams extends GetMCPProxyPathParams {
-  keyName: string;
-}
-
-export type CreateMCPProxyAPIKeyPathParams = GetMCPProxyPathParams;
-export type RotateMCPProxyAPIKeyPathParams = MCPProxyAPIKeyPathParams;
-export type RevokeMCPProxyAPIKeyPathParams = MCPProxyAPIKeyPathParams;
-export type ListMCPProxyAPIKeysPathParams = GetMCPProxyPathParams;
-export type CreateMCPProxyAPIKeyRequest = CreateLLMAPIKeyRequest;
-export type CreateMCPProxyAPIKeyResponse = CreateLLMAPIKeyResponse;
-export type RotateMCPProxyAPIKeyRequest = RotateLLMAPIKeyRequest;
-export type RotateMCPProxyAPIKeyResponse = RotateLLMAPIKeyResponse;

@@ -6,7 +6,9 @@ resources directly from the developer's workflow — no Console required.
 
 The server speaks MCP over Streamable HTTP and is protected by the existing
 JWT middleware, which means every tool call goes through the standard OAuth
-2.0 authorization-code + PKCE flow against Thunder.
+2.0 authorization-code + PKCE flow against Thunder. Each tool additionally
+declares the `rbac` permission(s) it requires; calls are denied unless the
+token carries the matching `amp:*` scopes (when `RBAC_ENABLED=true`).
 
 ## Quick start with Claude Code
 
@@ -59,7 +61,6 @@ Internal agents only — external agents are never built by the platform.
 | --- | --- |
 | `list_builds` | Builds for an agent, with status, image id, and timestamps |
 | `get_build_details` | Detailed view of one build — steps, durations, commit, build parameters |
-| `get_build_logs` | Build-time stdout/stderr from each pipeline stage |
 | `build_agent` | Trigger a fresh build from a specific commit (defaults to latest). Returns immediately; poll `get_build_details` for completion |
 
 ### Deployments
@@ -88,7 +89,7 @@ The relevant env vars on `agent-manager-service` are already set:
 The same values live in `wso2-agent-manager/values.yaml` under
 `keyManager.audience` and `serverPublicURL`. The OAuth client itself is
 registered by `wso2-amp-thunder-extension/templates/amp-thunder-bootstrap.yaml`
-(script `58-am-mcp-client.sh`).
+(script `59-am-mcp-client.sh`).
 
 ## Adding a new tool
 
@@ -96,16 +97,23 @@ registered by `wso2-amp-thunder-extension/templates/amp-thunder-bootstrap.yaml`
    (e.g., `builds.go`). Use snake_case JSON tags for keys.
 2. **Define a typed output struct** in the same file. Avoid
    `map[string]any` — typed structs give MCP clients a stable schema.
-3. **Register the tool** inside the package's `register*Tools` function
-   using `gomcp.AddTool` + `withToolLogging`. Provide a clear description;
-   the LLM relies on it to decide when to call the tool.
-4. **Implement the handler closure** — validate input, resolve org name
+3. **Pick the tool's permission(s)** from `rbac/permissions.go` — mirror the
+   permission the equivalent REST route declares in `api/*_routes.go`. Every
+   tool call is authorized against the caller's token scopes; a tool
+   registered without permissions panics at startup, and one registered by
+   bypassing `addTool` is denied on every call (fail-closed).
+4. **Register the tool** inside the package's `register*Tools` function using
+   `addTool(reg, server, tool, handler, perms...)`. Provide a clear
+   description; the LLM relies on it to decide when to call the tool.
+5. **Implement the handler closure** — validate input, resolve org name
    via `resolveOrgName`, call into the toolset handler interface, format
    the output struct, and return via `handleToolResult`.
-5. **Wire the toolset interface method** in `mcp/tools/types.go` and
+6. **Wire the toolset interface method** in `mcp/tools/types.go` and
    implement it in the corresponding `mcp/handlers/*_handler.go` (which
    delegates to the existing service-layer interface).
-6. **Add a license header** matching `agent-manager-service/.github/copyright_header.tmpl`.
+7. **Add a test spec** in the matching `*_specs_test.go`, including the
+   `permissions` field — the registration tests fail without it.
+8. **Add a license header** matching `agent-manager-service/.github/copyright_header.tmpl`.
 
 After saving, the dev-mode service hot-reloads. Refresh the MCP Server
 connection (reconnect) to refresh the cached tool list.

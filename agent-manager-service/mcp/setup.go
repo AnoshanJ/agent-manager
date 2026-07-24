@@ -19,7 +19,7 @@ package mcp
 import (
 	"net/http"
 
-	traceobserversvc "github.com/wso2/agent-manager/agent-manager-service/clients/traceobserversvc"
+	"github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/wso2/agent-manager/agent-manager-service/mcp/handlers"
 	"github.com/wso2/agent-manager/agent-manager-service/mcp/tools"
@@ -32,7 +32,6 @@ type Dependencies struct {
 	InfraResourceManager     services.InfraResourceManager
 	AgentManagerService      services.AgentManagerService
 	AgentTokenManagerService services.AgentTokenManagerService
-	TraceObserverSvcClient   traceobserversvc.TraceObserverSvcClient
 }
 
 // RegisterRoute builds the MCP HTTP handler, wraps it with the standard middleware chain,
@@ -40,14 +39,19 @@ type Dependencies struct {
 func RegisterRoute(mux *http.ServeMux, deps Dependencies, authMiddleware func(http.Handler) http.Handler,
 ) {
 	toolsets := &tools.Toolsets{
-		ProjectToolset:       handlers.NewProjectHandler(deps.InfraResourceManager),
-		AgentToolset:         handlers.NewAgentHandler(deps.AgentManagerService, deps.AgentTokenManagerService),
-		BuildToolset:         handlers.NewBuildHandler(deps.AgentManagerService),
-		DeploymentToolset:    handlers.NewDeploymentHandler(deps.AgentManagerService),
-		ObservabilityToolset: handlers.NewObservabilityHandler(deps.AgentManagerService, deps.TraceObserverSvcClient),
+		ProjectToolset:    handlers.NewProjectHandler(deps.InfraResourceManager),
+		AgentToolset:      handlers.NewAgentHandler(deps.AgentManagerService, deps.AgentTokenManagerService),
+		BuildToolset:      handlers.NewBuildHandler(deps.AgentManagerService),
+		DeploymentToolset: handlers.NewDeploymentHandler(deps.AgentManagerService),
 	}
 
 	handler := NewHTTPServer(toolsets)
-	mux.Handle("/mcp", authMiddleware(handler))
-	mux.Handle("/mcp/", authMiddleware(handler))
+	// The SDK's bearer-token middleware runs INSIDE our auth middleware: our
+	// middleware validates the JWT and puts claims on the request context
+	// first, then claimsTokenVerifier (mcp/tokeninfo.go) reads those claims
+	// to populate auth.TokenInfo for the SDK's per-request scope plumbing and
+	// session-hijack guard.
+	wrapped := authMiddleware(auth.RequireBearerToken(claimsTokenVerifier, nil)(handler))
+	mux.Handle("/mcp", wrapped)
+	mux.Handle("/mcp/", wrapped)
 }

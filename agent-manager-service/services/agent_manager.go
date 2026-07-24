@@ -22,12 +22,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
-	observabilitysvc "github.com/wso2/agent-manager/agent-manager-service/clients/observabilitysvc"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
+	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/instrumentation"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
@@ -39,42 +40,40 @@ import (
 )
 
 type AgentManagerService interface {
-	ListAgents(ctx context.Context, orgName string, projName string, limit int32, offset int32) ([]*models.AgentResponse, int32, error)
-	CreateAgent(ctx context.Context, orgName string, projectName string, req *spec.CreateAgentRequest) error
-	UpdateAgentBasicInfo(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error)
-	UpdateAgentBuildParameters(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error)
-	BuildAgent(ctx context.Context, orgName string, projectName string, agentName string, commitId string) (*models.BuildResponse, error)
-	DeleteAgent(ctx context.Context, orgName string, projectName string, agentName string) error
-	DeployAgent(ctx context.Context, orgName string, projectName string, agentName string, req *spec.DeployAgentRequest) (string, error)
-	GetAgent(ctx context.Context, orgName string, projectName string, agentName string) (*models.AgentResponse, error)
-	ListAgentBuilds(ctx context.Context, orgName string, projectName string, agentName string, limit int32, offset int32) ([]*models.BuildResponse, int32, error)
-	GetBuild(ctx context.Context, orgName string, projectName string, agentName string, buildName string) (*models.BuildDetailsResponse, error)
-	GetAgentDeployments(ctx context.Context, orgName string, projectName string, agentName string) ([]*models.DeploymentResponse, error)
-	UpdateAgentDeploymentState(ctx context.Context, orgName string, projectName string, agentName string, environment string, state string) error
-	GetAgentEndpoints(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error)
-	GetAgentConfigurations(ctx context.Context, orgName string, projectName string, agentName string, environment string) ([]models.EnvVars, error)
-	GetAgentFileMounts(ctx context.Context, orgName string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error)
-	GetBuildLogs(ctx context.Context, orgName string, projectName string, agentName string, buildName string) (*models.LogsResponse, error)
-	GenerateName(ctx context.Context, orgName string, payload spec.ResourceNameRequest) (string, error)
-	GetAgentMetrics(ctx context.Context, orgName string, projectName string, agentName string, payload spec.MetricsFilterRequest) (*spec.MetricsResponse, error)
-	GetAgentRuntimeLogs(ctx context.Context, orgName string, projectName string, agentName string, payload spec.LogFilterRequest) (*models.LogsResponse, error)
-	GetAgentResourceConfigs(ctx context.Context, orgName string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error)
-	UpdateAgentResourceConfigs(ctx context.Context, orgName string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error)
-	PromoteAgent(ctx context.Context, orgName string, projectName string, agentName string, req *spec.PromoteAgentRequest) error
-	UpdateAgentDeploySettings(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentDeploySettingsRequest) error
-	UpdateAgentConfigurations(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentConfigurationsRequest) error
-	GetAgentIdentity(ctx context.Context, orgName string, projectName string, agentName string) ([]models.AgentIdentityEnvironmentView, error)
-	ClaimAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (*models.AgentClaimSecretResponse, error)
-	RegenerateAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error)
-	RevokeAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error)
-	ProvisionAgentIdentity(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (view models.AgentIdentityEnvironmentView, alreadyExisted bool, err error)
-	GetAgentCredentials(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (models.AgentCredentialsResponse, error)
+	ListAgents(ctx context.Context, ouID string, projName string, labelFilter map[string]string, limit int32, offset int32) ([]*models.AgentResponse, int32, error)
+	CreateAgent(ctx context.Context, ouID string, projectName string, req *spec.CreateAgentRequest) error
+	UpdateAgentBasicInfo(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error)
+	UpdateAgentBuildParameters(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error)
+	BuildAgent(ctx context.Context, ouID string, projectName string, agentName string, commitId string) (*models.BuildResponse, error)
+	DeleteAgent(ctx context.Context, ouID string, projectName string, agentName string) error
+	DeployAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.DeployAgentRequest) (string, error)
+	GetAgent(ctx context.Context, ouID string, projectName string, agentName string) (*models.AgentResponse, error)
+	ListAgentBuilds(ctx context.Context, ouID string, projectName string, agentName string, limit int32, offset int32) ([]*models.BuildResponse, int32, error)
+	GetBuild(ctx context.Context, ouID string, projectName string, agentName string, buildName string) (*models.BuildDetailsResponse, error)
+	GetAgentDeployments(ctx context.Context, ouID string, projectName string, agentName string) ([]*models.DeploymentResponse, error)
+	UpdateAgentDeploymentState(ctx context.Context, ouID string, projectName string, agentName string, environment string, state string) error
+	GetAgentEndpoints(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error)
+	GetAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.EnvVars, error)
+	GetAgentFileMounts(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error)
+	GetAgentEnvConfig(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*models.AgentConfig, error)
+	GenerateName(ctx context.Context, ouID string, payload spec.ResourceNameRequest) (string, error)
+	GetAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error)
+	UpdateAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error)
+	PromoteAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.PromoteAgentRequest) error
+	UpdateAgentDeploySettings(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentDeploySettingsRequest) error
+	UpdateAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentConfigurationsRequest) error
+	RegenerateAgentTracingToken(ctx context.Context, ouID string, projectName string, agentName string, environmentName string, expiresIn string) (*TracingTokenRotationResult, error)
+	GetAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string) ([]models.AgentIdentityEnvironmentView, error)
+	RegenerateAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error)
+	RevokeAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error)
+	ProvisionAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (view models.AgentIdentityEnvironmentView, alreadyExisted bool, err error)
+	GetAgentRoles(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderRole, error)
+	GetAgentGroups(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderGroup, error)
 }
 
 type agentManagerService struct {
 	db                        *gorm.DB
 	ocClient                  client.OpenChoreoClient
-	observabilitySvcClient    observabilitysvc.ObservabilitySvcClient
 	secretMgmtClient          secretmanagersvc.SecretManagementClient
 	gitRepositoryService      RepositoryService
 	tokenManagerService       AgentTokenManagerService
@@ -85,6 +84,7 @@ type agentManagerService struct {
 	aiApplicationService      *AIApplicationService
 	gatewayRepo               repositories.GatewayRepository
 	agentThunderProvisioning  AgentThunderProvisioningService
+	monitorManagerService     MonitorManagerService
 	agentIdentityInjection    AgentIdentityInjectionService
 	logger                    *slog.Logger
 }
@@ -92,7 +92,6 @@ type agentManagerService struct {
 func NewAgentManagerService(
 	db *gorm.DB,
 	OpenChoreoClient client.OpenChoreoClient,
-	observabilitySvcClient observabilitysvc.ObservabilitySvcClient,
 	secretMgmtClient secretmanagersvc.SecretManagementClient,
 	gitRepositoryService RepositoryService,
 	tokenManagerService AgentTokenManagerService,
@@ -103,13 +102,13 @@ func NewAgentManagerService(
 	aiApplicationService *AIApplicationService,
 	gatewayRepo repositories.GatewayRepository,
 	agentThunderProvisioning AgentThunderProvisioningService,
+	monitorManagerService MonitorManagerService,
 	agentIdentityInjection AgentIdentityInjectionService,
 	logger *slog.Logger,
 ) AgentManagerService {
 	return &agentManagerService{
 		db:                        db,
 		ocClient:                  OpenChoreoClient,
-		observabilitySvcClient:    observabilitySvcClient,
 		secretMgmtClient:          secretMgmtClient,
 		gitRepositoryService:      gitRepositoryService,
 		tokenManagerService:       tokenManagerService,
@@ -117,6 +116,7 @@ func NewAgentManagerService(
 		agentConfigurationService: agentConfigurationService,
 		agentKindService:          agentKindService,
 		agentThunderProvisioning:  agentThunderProvisioning,
+		monitorManagerService:     monitorManagerService,
 		agentIdentityInjection:    agentIdentityInjection,
 		artifactRepo:              artifactRepo,
 		aiApplicationService:      aiApplicationService,
@@ -178,14 +178,14 @@ func translatePipelineError(err error) error {
 }
 
 // validateGitSecretExists checks if the specified git secret exists in the organization
-func (s *agentManagerService) validateGitSecretExists(ctx context.Context, orgName string, secretRef string) error {
+func (s *agentManagerService) validateGitSecretExists(ctx context.Context, ouID string, secretRef string) error {
 	if secretRef == "" {
 		return fmt.Errorf("git secret reference is empty")
 	}
 
-	secrets, err := s.ocClient.ListGitSecrets(ctx, orgName)
+	secrets, err := s.ocClient.ListGitSecrets(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to list git secrets for validation", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to list git secrets for validation", "ouID", ouID, "error", err)
 		return fmt.Errorf("failed to validate git secret: %w", err)
 	}
 
@@ -195,7 +195,7 @@ func (s *agentManagerService) validateGitSecretExists(ctx context.Context, orgNa
 		}
 	}
 
-	s.logger.Error("Git secret not found", "orgName", orgName, "secretRef", secretRef)
+	s.logger.Error("Git secret not found", "ouID", ouID, "secretRef", secretRef)
 	return utils.ErrGitSecretNotFound
 }
 
@@ -322,7 +322,7 @@ func mapInputInterface(specInterface *spec.InputInterface) *client.InputInterfac
 		config.BasePath = *specInterface.BasePath
 	}
 	if specInterface.Schema != nil {
-		config.SchemaPath = specInterface.Schema.Path
+		config.SchemaPath = utils.StrPointerAsStr(specInterface.Schema.Path, "")
 	}
 
 	return config
@@ -331,7 +331,7 @@ func mapInputInterface(specInterface *spec.InputInterface) *client.InputInterfac
 // buildCreateTraitRequests collects all traits needed during agent creation into a single
 // list so they can be attached in one GET-UPDATE cycle, avoiding resource version conflicts.
 // artifactID is the UUID of the agent's artifact record (used for api-configuration trait).
-func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgName, projectName, artifactID, envName string, req *spec.CreateAgentRequest) ([]client.TraitRequest, error) {
+func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, ouID, projectName, artifactID, envName string, req *spec.CreateAgentRequest) ([]client.TraitRequest, error) {
 	var traits []client.TraitRequest
 
 	// Determine instrumentation settings
@@ -348,11 +348,11 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 	// python-otel-instrumentation-trait is only attached for Python buildpack agents with
 	// auto-instrumentation enabled; it handles the init container, SDK volume, and PYTHONPATH.
 	if isAPIAgent && isPythonBuildpack {
-		apiKey, err := s.generateAgentAPIKey(ctx, orgName, projectName, req.Name, envName)
+		apiKey, err := s.generateAgentAPIKey(ctx, ouID, projectName, req.Name, envName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate agent API key: %w", err)
 		}
-		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, orgName, projectName, req.Name, envName, apiKey)
+		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, ouID, projectName, req.Name, envName, apiKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to store agent API key: %w", err)
 		}
@@ -384,11 +384,11 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 			},
 		})
 	} else if isAPIAgent && isBallerinaBuildpack {
-		apiKey, err := s.generateAgentAPIKey(ctx, orgName, projectName, req.Name, envName)
+		apiKey, err := s.generateAgentAPIKey(ctx, ouID, projectName, req.Name, envName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate agent API key: %w", err)
 		}
-		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, orgName, projectName, req.Name, envName, apiKey)
+		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, ouID, projectName, req.Name, envName, apiKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to store agent API key: %w", err)
 		}
@@ -416,11 +416,11 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, orgN
 		})
 	} else if isAPIAgent && isDocker {
 		// Docker: attach only env-injection trait (no init container needed)
-		apiKey, err := s.generateAgentAPIKey(ctx, orgName, projectName, req.Name, envName)
+		apiKey, err := s.generateAgentAPIKey(ctx, ouID, projectName, req.Name, envName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate agent API key: %w", err)
 		}
-		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, orgName, projectName, req.Name, envName, apiKey)
+		apiKeySecretRef, apiKeySecretProperty, err := s.storeAgentAPIKey(ctx, ouID, projectName, req.Name, envName, apiKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to store agent API key: %w", err)
 		}
@@ -486,8 +486,8 @@ var ErrInstrumentationVersionNotPinned = errors.New("agent has no pinned instrum
 // EnableAutoInstrumentation setting from agent_configs. Defaults to
 // true when there is no row yet (matching the configurations default).
 // Errors only on genuine DB failures; missing config is not an error.
-func (s *agentManagerService) lookupAgentAutoInstrumentation(ctx context.Context, orgName, projectName, agentName string) (bool, error) {
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+func (s *agentManagerService) lookupAgentAutoInstrumentation(ctx context.Context, ouID, projectName, agentName string) (bool, error) {
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
 		return true, fmt.Errorf("failed to get deployment pipeline: %w", err)
 	}
@@ -498,7 +498,7 @@ func (s *agentManagerService) lookupAgentAutoInstrumentation(ctx context.Context
 	if lowestEnv == "" {
 		return true, nil
 	}
-	cfg, err := s.agentConfigRepo.Get(orgName, projectName, agentName, lowestEnv)
+	cfg, err := s.agentConfigRepo.Get(ouID, projectName, agentName, lowestEnv)
 	if errors.Is(err, repositories.ErrAgentConfigNotFound) {
 		return true, nil
 	}
@@ -515,8 +515,8 @@ func (s *agentManagerService) lookupAgentAutoInstrumentation(ctx context.Context
 // version (from agent_configs.instrumentation_version). It returns
 // ErrInstrumentationVersionNotPinned when there's genuinely no pin to honour,
 // and a wrapped real error for transient failures.
-func (s *agentManagerService) lookupAgentInstrumentationVersion(ctx context.Context, orgName, projectName, agentName string) (*string, error) {
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+func (s *agentManagerService) lookupAgentInstrumentationVersion(ctx context.Context, ouID, projectName, agentName string) (*string, error) {
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deployment pipeline: %w", err)
 	}
@@ -527,7 +527,7 @@ func (s *agentManagerService) lookupAgentInstrumentationVersion(ctx context.Cont
 	if lowestEnv == "" {
 		return nil, ErrInstrumentationVersionNotPinned
 	}
-	cfg, err := s.agentConfigRepo.Get(orgName, projectName, agentName, lowestEnv)
+	cfg, err := s.agentConfigRepo.Get(ouID, projectName, agentName, lowestEnv)
 	if errors.Is(err, repositories.ErrAgentConfigNotFound) {
 		return nil, ErrInstrumentationVersionNotPinned
 	}
@@ -707,9 +707,9 @@ func (s *agentManagerService) resolveInstrumentationImageOverride(isPythonBuildp
 // persistInstrumentationConfig saves the instrumentation config to the database.
 // instrumentationVersion is nil when the caller did not pin a specific version —
 // the column stays NULL and the resolver falls back to the platform default.
-func (s *agentManagerService) persistInstrumentationConfig(ctx context.Context, orgName, projectName, agentName string, enableAutoInstrumentation bool, instrumentationVersion *string) {
+func (s *agentManagerService) persistInstrumentationConfig(ctx context.Context, ouID, projectName, agentName string, enableAutoInstrumentation bool, instrumentationVersion *string) {
 	// Get the first/lowest environment
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
 		s.logger.Warn("Failed to get deployment pipeline for config persistence", "agentName", agentName, "error", err)
 		return
@@ -721,7 +721,7 @@ func (s *agentManagerService) persistInstrumentationConfig(ctx context.Context, 
 		return
 	}
 
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, orgName, lowestEnv)
+	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
 	if err != nil {
 		s.logger.Warn("Failed to get environment details for config persistence", "agentName", agentName, "environment", lowestEnv, "error", err)
 		return
@@ -729,7 +729,7 @@ func (s *agentManagerService) persistInstrumentationConfig(ctx context.Context, 
 
 	defaultCORS := config.GetAgentWorkloadConfig().CORS
 	agentConfig := &models.AgentConfig{
-		OrgName:                   orgName,
+		OUID:                      ouID,
 		ProjectName:               projectName,
 		AgentName:                 agentName,
 		EnvironmentName:           targetEnv.Name,
@@ -757,20 +757,21 @@ func (s *agentManagerService) persistInstrumentationConfig(ctx context.Context, 
 
 // generateAgentAPIKey generates an agent API key (JWT token) for the agent
 // This is a common utility used by both buildpack and docker agent instrumentation
-func (s *agentManagerService) generateAgentAPIKey(ctx context.Context, orgName, projectName, agentName, envName string) (string, error) {
+func (s *agentManagerService) generateAgentAPIKey(ctx context.Context, ouID, projectName, agentName, envName string) (string, error) {
 	// Extract OrgId from the caller's JWT claims
 	callerClaims := jwtassertion.GetTokenClaims(ctx)
 	if callerClaims == nil || callerClaims.OuId == "" {
 		s.logger.Error("GenerateToken: missing organization identity in caller token")
 		return "", utils.ErrForbidden
 	}
-	// Generate agent API key using token manager service with 1 year expiry
+	// Generate agent API key using the token manager service. Leaving ExpiresIn empty
+	// routes through the configured default (JWT_SIGNING_DEFAULT_EXPIRY) rather than a
+	// hardcoded value, so the deploy/create/promote expiry stays in sync with config.
 	tokenReq := GenerateTokenRequest{
-		OrgName:     orgName,
+		OrgName:     ouID,
 		ProjectName: projectName,
 		AgentName:   agentName,
 		Environment: envName,
-		ExpiresIn:   "8760h", // 1 year (365 days * 24 hours)
 		OrgId:       callerClaims.OuId,
 	}
 	tokenResp, err := s.tokenManagerService.GenerateToken(ctx, tokenReq)
@@ -786,9 +787,9 @@ func (s *agentManagerService) generateAgentAPIKey(ctx context.Context, orgName, 
 // agentAPIKeySecretLocation returns the KV store location for an agent's API key in a
 // given environment. The key is scoped per environment so each environment materializes
 // its own ExternalSecret via the env-injection trait.
-func agentAPIKeySecretLocation(orgName, projectName, agentName, envName string) secretmanagersvc.SecretLocation {
+func agentAPIKeySecretLocation(ouID, projectName, agentName, envName string) secretmanagersvc.SecretLocation {
 	return secretmanagersvc.SecretLocation{
-		OrgName:         orgName,
+		OrgName:         ouID,
 		ProjectName:     projectName,
 		EnvironmentName: envName,
 		AgentName:       agentName,
@@ -806,11 +807,11 @@ func agentAPIKeySecretLocation(orgName, projectName, agentName, envName string) 
 // provider's real remote reference. (For OpenBao that happens to be the KV path, but for
 // the Secret Manager API it is the provider's own reference — location.KVPath() is wrong
 // there, so we must read it back from the SecretReference.)
-func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, orgName, projectName, agentName, envName, apiKey string) (key string, property string, err error) {
+func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projectName, agentName, envName, apiKey string) (key string, property string, err error) {
 	if s.secretMgmtClient == nil {
 		return "", "", fmt.Errorf("secret management is not initialized; cannot store agent API key")
 	}
-	location := agentAPIKeySecretLocation(orgName, projectName, agentName, envName)
+	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
 	secretRefName, err := s.secretMgmtClient.CreateSecret(ctx, location, map[string]string{
 		secretmanagersvc.SecretKeyAPIKey: apiKey,
 	})
@@ -818,41 +819,141 @@ func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, orgName, pro
 		return "", "", fmt.Errorf("failed to store agent API key in secret store: %w", err)
 	}
 
-	secretRef, err := s.ocClient.GetSecretReference(ctx, orgName, secretRefName)
+	key, property, err = s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		return "", "", err
+	}
+	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
+		"secretRefName", secretRefName, "remoteKey", key)
+	return key, property, nil
+}
+
+// resolveAgentAPIKeySecretRef returns the remote KV key/property of an environment's agent API key
+// WITHOUT minting or storing anything — it derives the deterministic SecretReference name from the
+// location and reads the existing reference. Used by the deploy-settings rebuild to re-attach the
+// per-env secret ref that would otherwise be dropped when trait configs are replaced.
+func (s *agentManagerService) resolveAgentAPIKeySecretRef(ctx context.Context, ouID, projectName, agentName, envName string) (key string, property string, err error) {
+	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
+	secretRefName := location.SecretRefName()
+	secretRef, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to resolve agent API key secret reference %q: %w", secretRefName, err)
 	}
 	for _, ds := range secretRef.Data {
 		if ds.SecretKey == secretmanagersvc.SecretKeyAPIKey {
-			s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
-				"secretRefName", secretRefName, "remoteKey", ds.RemoteRef.Key)
 			return ds.RemoteRef.Key, ds.RemoteRef.Property, nil
 		}
 	}
 	return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
 }
 
-func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, projectName string, agentName string) (*models.AgentResponse, error) {
-	s.logger.Info("Getting agent", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
-	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+// injectAgentAPIKeySecretRef adds the env-injection trait's per-environment agentApiKeySecretRef
+// (and property) into a traitEnvConfigs map, preserving any config already set for that trait
+// instance. buildTraitEnvConfigs omits this field, and UpdateReleaseBindingTraitConfigs REPLACES
+// the binding's trait configs wholesale — so without re-injecting here, a promoted environment
+// loses its per-env key ref and the env-injection trait falls back to the base (lowest env's) ref.
+func injectAgentAPIKeySecretRef(traitEnvConfigs map[string]interface{}, agentName, secretRef, secretProperty string) {
+	if secretRef == "" {
+		return
+	}
+	envInjKey := agentName + "-" + string(client.TraitEnvInjection)
+	envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
+	if envInjCfg == nil {
+		envInjCfg = map[string]interface{}{}
+	}
+	envInjCfg["agentApiKeySecretRef"] = secretRef
+	if secretProperty != "" {
+		envInjCfg["agentApiKeySecretProperty"] = secretProperty
+	}
+	traitEnvConfigs[envInjKey] = envInjCfg
+}
+
+// TracingTokenRotationResult is the outcome of a tracing-token regeneration. The raw JWT is never
+// returned — it reaches the agent only through the secret store.
+type TracingTokenRotationResult struct {
+	EnvironmentName string
+	ExpiresAt       int64
+	RotatedAt       int64
+}
+
+// RegenerateAgentTracingToken mints a fresh tracing API key and upserts it into the secret store
+// under the agent's stable secret reference. It does NOT restart the workload: the running pod
+// picks up the new key on the next rollout, which the caller triggers via the standard Apply
+// (UpdateAgentConfigurations) path — the same ExternalSecret + restartedAt mechanism used for every
+// other secret. Rotating the key never invalidates previously issued ones; they remain valid until
+// their own expiry.
+func (s *agentManagerService) RegenerateAgentTracingToken(ctx context.Context, ouID, projectName, agentName, environmentName, expiresIn string) (*TracingTokenRotationResult, error) {
+	s.logger.Info("Regenerating agent tracing token", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environmentName)
+
+	if environmentName == "" {
+		return nil, fmt.Errorf("%w: environmentName is required", utils.ErrInvalidInput)
+	}
+
+	// Org identity comes from the caller's JWT claims, same as generateAgentAPIKey.
+	callerClaims := jwtassertion.GetTokenClaims(ctx)
+	if callerClaims == nil || callerClaims.OuId == "" {
+		s.logger.Error("RegenerateAgentTracingToken: missing organization identity in caller token")
+		return nil, utils.ErrForbidden
+	}
+
+	// Validate org/agent/env exist. GetComponent resolves the OpenChoreo namespace from the OU id,
+	// so pass ouID (matching GenerateToken's GenerateTokenRequest{OrgName: ouID}), not org.Name.
+	if _, err := s.ocClient.GetOrganization(ctx, ouID); err != nil {
 		return nil, translateOrgError(err)
 	}
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	if _, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
+		return nil, translateAgentError(err)
+	}
+	if _, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName); err != nil {
+		return nil, translateEnvironmentError(err)
+	}
+
+	tokenResp, err := s.tokenManagerService.GenerateToken(ctx, GenerateTokenRequest{
+		OrgName:     ouID,
+		ProjectName: projectName,
+		AgentName:   agentName,
+		Environment: environmentName,
+		ExpiresIn:   expiresIn, // empty → configured default
+		OrgId:       callerClaims.OuId,
+	})
 	if err != nil {
-		s.logger.Error("Failed to fetch agent from OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to generate agent tracing token", "agentName", agentName, "environment", environmentName, "error", err)
+		return nil, fmt.Errorf("failed to generate agent tracing token: %w", err)
+	}
+
+	if _, _, err := s.storeAgentAPIKey(ctx, ouID, projectName, agentName, environmentName, tokenResp.Token); err != nil {
+		s.logger.Error("Failed to store rotated agent tracing token", "agentName", agentName, "environment", environmentName, "error", err)
+		return nil, fmt.Errorf("failed to store agent tracing token: %w", err)
+	}
+
+	return &TracingTokenRotationResult{
+		EnvironmentName: environmentName,
+		ExpiresAt:       tokenResp.ExpiresAt,
+		RotatedAt:       time.Now().Unix(),
+	}, nil
+}
+
+func (s *agentManagerService) GetAgent(ctx context.Context, ouID string, projectName string, agentName string) (*models.AgentResponse, error) {
+	s.logger.Info("Getting agent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+	// Validate organization exists
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
+	if err != nil {
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
+		return nil, translateOrgError(err)
+	}
+	agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
+	if err != nil {
+		s.logger.Error("Failed to fetch agent from OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
 	// Populate per-environment agent configuration from database
 	// Get the first/lowest environment to read the config
-	pipeline, pipelineErr := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	pipeline, pipelineErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if pipelineErr == nil && len(pipeline.PromotionPaths) > 0 {
 		lowestEnv := findLowestEnvironment(pipeline.PromotionPaths)
 		if lowestEnv != "" {
-			agentConfig, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, lowestEnv)
+			agentConfig, configErr := s.agentConfigRepo.Get(ouID, projectName, agentName, lowestEnv)
 			if errors.Is(configErr, repositories.ErrAgentConfigNotFound) {
 				// No config in DB - use defaults for display purposes
 				defaultEnabled := true
@@ -892,7 +993,7 @@ func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, proj
 
 			// Populate env vars for internal agents (non-fatal if it fails)
 			if agent.Provisioning.Type == string(utils.InternalAgent) {
-				if envConfigs, envErr := s.ocClient.GetComponentConfigurations(ctx, orgName, projectName, agentName, lowestEnv); envErr == nil {
+				if envConfigs, envErr := s.ocClient.GetComponentConfigurations(ctx, ouID, projectName, agentName, lowestEnv); envErr == nil {
 					var envVars []models.EnvVars
 					for _, ev := range envConfigs {
 						if _, isSystem := client.SystemInjectedEnvVars[ev.Key]; !isSystem {
@@ -909,29 +1010,42 @@ func (s *agentManagerService) GetAgent(ctx context.Context, orgName string, proj
 		}
 	}
 
-	s.logger.Info("Fetched agent successfully from oc", "agentName", agent.Name, "orgName", orgName, "projectName", projectName, "provisioningType", agent.Provisioning.Type)
+	s.logger.Info("Fetched agent successfully from oc", "agentName", agent.Name, "ouID", ouID, "projectName", projectName, "provisioningType", agent.Provisioning.Type)
 	return agent, nil
 }
 
-func (s *agentManagerService) ListAgents(ctx context.Context, orgName string, projName string, limit int32, offset int32) ([]*models.AgentResponse, int32, error) {
-	s.logger.Info("Listing agents", "orgName", orgName, "projectName", projName, "limit", limit, "offset", offset)
+func (s *agentManagerService) ListAgents(ctx context.Context, ouID string, projName string, labelFilter map[string]string, limit int32, offset int32) ([]*models.AgentResponse, int32, error) {
+	s.logger.Info("Listing agents", "ouID", ouID, "projectName", projName, "limit", limit, "offset", offset)
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, 0, translateOrgError(err)
 	}
 
 	// Fetch all agent components
-	agents, err := s.ocClient.ListComponents(ctx, orgName, projName)
+	agents, err := s.ocClient.ListComponents(ctx, ouID, projName)
 	if err != nil {
-		s.logger.Error("Failed to list agents from repository", "orgName", orgName, "projectName", projName, "error", err)
+		s.logger.Error("Failed to list agents from repository", "ouID", ouID, "projectName", projName, "error", err)
 		return nil, 0, fmt.Errorf("failed to list agents: %w", err)
+	}
+
+	// Filter before computing total and paginating so both stay correct.
+	// agent.Labels already arrives populated from the component's own
+	// metadata (see convertComponentFromTyped), no separate fetch needed.
+	if len(labelFilter) > 0 {
+		filtered := make([]*models.AgentResponse, 0, len(agents))
+		for _, agent := range agents {
+			if utils.LabelsMatch(agent.Labels, labelFilter) {
+				filtered = append(filtered, agent)
+			}
+		}
+		agents = filtered
 	}
 
 	total := int32(len(agents))
 	paginatedAgents := paginateSlice(agents, offset, limit)
-	s.logger.Info("Listed agents successfully", "orgName", orgName, "projName", projName, "totalAgents", total, "returnedAgents", len(paginatedAgents))
+	s.logger.Info("Listed agents successfully", "ouID", ouID, "projName", projName, "totalAgents", total, "returnedAgents", len(paginatedAgents))
 	return paginatedAgents, total, nil
 }
 
@@ -955,7 +1069,7 @@ func paginateSlice[T any](items []T, offset, limit int32) []T {
 	return items[offset:end]
 }
 
-func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, projectName string, req *spec.CreateAgentRequest) error {
+func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, projectName string, req *spec.CreateAgentRequest) error {
 	var requestedVersion *string
 	autoInstr := true
 	if req.Configurations != nil {
@@ -972,7 +1086,7 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, p
 
 	imageID := ""
 	if req.Provisioning.AgentKind != nil {
-		kindVersion, err := s.agentKindService.GetKindVersion(ctx, orgName, req.Provisioning.AgentKind.Name, req.Provisioning.AgentKind.Version)
+		kindVersion, err := s.agentKindService.GetKindVersion(ctx, ouID, req.Provisioning.AgentKind.Name, req.Provisioning.AgentKind.Version)
 		if err != nil {
 			return err
 		}
@@ -986,7 +1100,7 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, p
 		if kindVersion.ImageId == "" {
 			return fmt.Errorf("kind version %q has no stored image; re-publish the kind from a successfully built agent", req.Provisioning.AgentKind.Version)
 		}
-		sourceComponent, err := s.ocClient.GetComponent(ctx, orgName, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName)
+		sourceComponent, err := s.ocClient.GetComponent(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName)
 		if err != nil {
 			s.logger.Error("Failed to get source component for kind version", "agentName", kindVersion.Kind.AgentName, "error", err)
 			return fmt.Errorf("failed to resolve kind version source: %w", err)
@@ -1006,7 +1120,7 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, p
 				BasePath: &basePath,
 			}
 			if sourceComponent.InputInterface.Schema != nil && sourceComponent.InputInterface.Schema.Path != "" {
-				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: sourceComponent.InputInterface.Schema.Path}
+				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &sourceComponent.InputInterface.Schema.Path}
 			}
 		}
 		imageID = kindVersion.ImageId
@@ -1025,28 +1139,28 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, orgName string, p
 			return err
 		}
 	}
-	return s.createComponentAgent(ctx, orgName, projectName, req, imageID)
+	return s.createComponentAgent(ctx, ouID, projectName, req, imageID)
 }
 
 // createComponentAgent is the shared agent creation flow for all internal agents.
 // For source-based (imageID == ""): CreateComponent (with Workflow) → AttachTraits → TriggerBuild
 // For kind-based (imageID != ""): CreateComponent (no Workflow) → AttachTraits → CreateInternalAgentFromKindWorkload
-func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName, projectName string, req *spec.CreateAgentRequest, imageID string) error {
-	s.logger.Info("Creating agent", "agentName", req.Name, "orgName", orgName, "projectName", projectName, "provisioningType", req.Provisioning.Type)
+func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest, imageID string) error {
+	s.logger.Info("Creating agent", "agentName", req.Name, "ouID", ouID, "projectName", projectName, "provisioningType", req.Provisioning.Type)
 
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return translateOrgError(err)
 	}
 
 	if req.Provisioning.Repository != nil && req.Provisioning.Repository.SecretRef.Get() != nil {
-		if err := s.validateGitSecretExists(ctx, orgName, req.Provisioning.Repository.GetSecretRef()); err != nil {
+		if err := s.validateGitSecretExists(ctx, ouID, req.Provisioning.Repository.GetSecretRef()); err != nil {
 			return err
 		}
 	}
 
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
 		s.logger.Error("Failed to get deployment pipeline", "projectName", projectName, "error", err)
 		return translatePipelineError(err)
@@ -1064,7 +1178,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 		for _, mc := range req.ModelConfig {
 			handles = append(handles, mc.ProviderName)
 		}
-		if err := s.agentConfigurationService.ValidateProvidersInCatalog(ctx, orgName, handles); err != nil {
+		if err := s.agentConfigurationService.ValidateProvidersInCatalog(ctx, ouID, handles); err != nil {
 			return err
 		}
 	}
@@ -1076,13 +1190,13 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 		for _, mc := range req.McpConfig {
 			handles = append(handles, mc.ProxyName)
 		}
-		if err := s.agentConfigurationService.ValidateMCPProxiesInCatalog(ctx, orgName, handles); err != nil {
+		if err := s.agentConfigurationService.ValidateMCPProxiesInCatalog(ctx, ouID, handles); err != nil {
 			return err
 		}
 	}
 
 	secretLocation := secretmanagersvc.SecretLocation{
-		OrgName:         orgName,
+		OrgName:         ouID,
 		ProjectName:     projectName,
 		EnvironmentName: firstEnv,
 		EntityName:      req.Name,
@@ -1128,7 +1242,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 	}
 
 	createAgentReq := s.toCreateAgentRequestWithSecrets(req, secretReference)
-	if err := s.ocClient.CreateComponent(ctx, orgName, projectName, createAgentReq); err != nil {
+	if err := s.ocClient.CreateComponent(ctx, ouID, projectName, createAgentReq); err != nil {
 		s.logger.Error("Failed to create agent component", "agentName", req.Name, "error", err)
 		if hasSecrets {
 			s.cleanupSecretsOnRollback(ctx, secretLocation)
@@ -1138,24 +1252,24 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 
 	var agentAPIArtifact *models.Artifact
 	if req.AgentType.Type == string(utils.AgentTypeAPI) {
-		firstEnvDetails, envErr := s.ocClient.GetEnvironment(ctx, orgName, firstEnv)
+		firstEnvDetails, envErr := s.ocClient.GetEnvironment(ctx, ouID, firstEnv)
 		if envErr != nil {
 			s.logger.Error("Failed to get environment details", "environment", firstEnv, "error", envErr)
 			if hasSecrets {
 				s.cleanupSecretsOnRollback(ctx, secretLocation)
 			}
-			if errDeletion := s.ocClient.DeleteComponent(ctx, orgName, projectName, req.Name); errDeletion != nil {
+			if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
 				s.logger.Error("Failed to rollback agent component after environment lookup failure", "agentName", req.Name, "error", errDeletion)
 			}
 			return translateEnvironmentError(envErr)
 		}
-		agentAPIArtifact, err = ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, orgName, projectName, req.Name, firstEnvDetails.UUID)
+		agentAPIArtifact, err = ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, req.Name, firstEnvDetails.UUID)
 		if err != nil {
 			s.logger.Error("Failed to create agent API artifact record", "agentName", req.Name, "environment", firstEnv, "environmentUUID", firstEnvDetails.UUID, "error", err)
 			if hasSecrets {
 				s.cleanupSecretsOnRollback(ctx, secretLocation)
 			}
-			if errDeletion := s.ocClient.DeleteComponent(ctx, orgName, projectName, req.Name); errDeletion != nil {
+			if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
 				s.logger.Error("Failed to rollback agent component after API artifact create failure", "agentName", req.Name, "error", errDeletion)
 			}
 			return fmt.Errorf("failed to create agent API artifact record: %w", err)
@@ -1169,12 +1283,12 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 		// otherwise be orphaned once the component is deleted below. Use a non-cancellable
 		// context so cleanup still runs if the request context was cancelled.
 		isExternalAgent := req.Provisioning.Type == string(utils.ExternalAgent)
-		s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), orgName, projectName, req.Name, isExternalAgent)
+		s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), ouID, projectName, req.Name, isExternalAgent)
 
 		if hasSecrets {
 			s.cleanupSecretsOnRollback(ctx, secretLocation)
 		}
-		if errDeletion := s.ocClient.DeleteComponent(ctx, orgName, projectName, req.Name); errDeletion != nil {
+		if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
 			s.logger.Error("Failed to rollback agent component", "agentName", req.Name, "reason", reason, "error", errDeletion)
 		}
 		if agentAPIArtifact != nil {
@@ -1186,7 +1300,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 
 	// Create LLM configurations (applies to both internal and external agents)
 	if len(req.ModelConfig) > 0 {
-		if err := s.createAgentLLMConfigs(ctx, orgName, projectName, firstEnv, req); err != nil {
+		if err := s.createAgentLLMConfigs(ctx, ouID, projectName, firstEnv, req); err != nil {
 			s.logger.Error("Failed to create LLM configurations for agent", "agentName", req.Name, "error", err)
 			rollbackAgentCreate("LLM config failure")
 			return err
@@ -1195,7 +1309,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 
 	// Create MCP proxy mapping configurations (applies to both internal and external agents)
 	if len(req.McpConfig) > 0 {
-		if err := s.createAgentMCPConfigs(ctx, orgName, projectName, firstEnv, req); err != nil {
+		if err := s.createAgentMCPConfigs(ctx, ouID, projectName, firstEnv, req); err != nil {
 			s.logger.Error("Failed to create MCP configurations for agent", "agentName", req.Name, "error", err)
 			rollbackAgentCreate("MCP config failure")
 			return err
@@ -1214,12 +1328,12 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 			artifactID = agentAPIArtifact.UUID.String()
 		}
 		// Resolve the lowest environment for API key generation
-		createPipeline, pipeErr := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+		createPipeline, pipeErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 		var lowestEnvName string
 		if pipeErr == nil {
 			lowestEnvName = findLowestEnvironment(createPipeline.PromotionPaths)
 		}
-		traitRequests, err := s.buildCreateTraitRequests(ctx, orgName, projectName, artifactID, lowestEnvName, req)
+		traitRequests, err := s.buildCreateTraitRequests(ctx, ouID, projectName, artifactID, lowestEnvName, req)
 		if err != nil {
 			s.logger.Error("Failed to build trait requests", "agentName", req.Name, "error", err)
 			rollbackAgentCreate("trait build failure")
@@ -1227,7 +1341,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 		}
 
 		if len(traitRequests) > 0 {
-			if err := s.ocClient.AttachTraits(ctx, orgName, projectName, req.Name, traitRequests); err != nil {
+			if err := s.ocClient.AttachTraits(ctx, ouID, projectName, req.Name, traitRequests); err != nil {
 				s.logger.Error("Failed to attach traits", "agentName", req.Name, "error", err)
 				rollbackAgentCreate("trait attachment failure")
 				return err
@@ -1242,8 +1356,18 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 				kindEnvVars = createAgentReq.Configurations.Env
 				kindFileVars = createAgentReq.Configurations.Files
 			}
+			// Kind-sourced agents bypass the build/workflow system, so the LLM env vars
+			// written into the Component workflow params by createAgentLLMConfigs never reach
+			// the container. The Workload CR is authoritative for these agents, so resolve the
+			// system-managed LLM env vars from the persisted config and inject them here.
+			kindEnvVars, envErr := s.mergeKindWorkloadLLMEnvVars(ctx, req.Name, ouID, projectName, firstEnv, kindEnvVars, len(req.ModelConfig) > 0)
+			if envErr != nil {
+				s.logger.Error("Failed to resolve LLM env vars for kind-sourced agent workload", "agentName", req.Name, "environment", firstEnv, "error", envErr)
+				rollbackAgentCreate("LLM env var resolution failure")
+				return envErr
+			}
 			kindEndpoints := inputInterfaceToEndpoints(createAgentReq.InputInterface, req.Name)
-			if err := s.ocClient.CreateInternalAgentFromKindWorkload(ctx, orgName, projectName, req.Name, client.InternalAgentFromKindWorkloadRequest{
+			if err := s.ocClient.CreateInternalAgentFromKindWorkload(ctx, ouID, projectName, req.Name, client.InternalAgentFromKindWorkloadRequest{
 				ImageID:   imageID,
 				Endpoints: kindEndpoints,
 				Env:       kindEnvVars,
@@ -1253,14 +1377,14 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 				if hasSecrets {
 					s.cleanupSecretsOnRollback(ctx, secretLocation)
 				}
-				if errDeletion := s.ocClient.DeleteComponent(ctx, orgName, projectName, req.Name); errDeletion != nil {
+				if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
 					s.logger.Error("Failed to rollback agent creation after kind-workload failure", "agentName", req.Name, "error", errDeletion)
 				}
 				return err
 			}
 			s.logger.Info("Created internal-agent-from-kind workload", "agentName", req.Name)
 		} else {
-			if err := s.triggerInitialBuild(ctx, orgName, projectName, req); err != nil {
+			if err := s.triggerInitialBuild(ctx, ouID, projectName, req); err != nil {
 				s.logger.Warn("Failed to trigger initial build for agent, build can be triggered manually", "agentName", req.Name, "error", err)
 			} else {
 				s.logger.Debug("Triggered initial build for agent", "agentName", req.Name)
@@ -1275,7 +1399,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 			}
 			instrumentationVersion = req.Configurations.InstrumentationVersion.Get()
 		}
-		s.persistInstrumentationConfig(ctx, orgName, projectName, req.Name, enableAutoInstrumentation, instrumentationVersion)
+		s.persistInstrumentationConfig(ctx, ouID, projectName, req.Name, enableAutoInstrumentation, instrumentationVersion)
 	}
 
 	// AgentID provisioning: one Thunder identity per org-level environment (not
@@ -1284,33 +1408,36 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, orgName,
 	// environments when displaying bindings). Runs after every step above has
 	// succeeded, so a Thunder hiccup never rolls back an otherwise-successful
 	// agent creation; the write-ahead + retry reconciler make it durable
-	// without needing a place in the rollback chain above.
-	if envs, envErr := s.ocClient.ListEnvironments(ctx, orgName); envErr != nil {
-		s.logger.Warn("Failed to list org environments for agent thunder provisioning", "agentName", req.Name, "error", envErr)
-	} else if len(envs) > 0 {
-		envNames := make([]string, 0, len(envs))
-		for _, e := range envs {
-			envNames = append(envNames, e.Name)
+	// without needing a place in the rollback chain above. Skipped when this
+	// deployment injects no provisioning implementation.
+	if s.agentThunderProvisioning != nil {
+		if envs, envErr := s.ocClient.ListEnvironments(ctx, ouID); envErr != nil {
+			s.logger.Warn("Failed to list org environments for agent thunder provisioning", "agentName", req.Name, "error", envErr)
+		} else if len(envs) > 0 {
+			envNames := make([]string, 0, len(envs))
+			for _, e := range envs {
+				envNames = append(envNames, e.Name)
+			}
+			ownership := models.AgentProvisioningType(req.Provisioning.Type)
+			// requestedBy is captured now, synchronously, because the retry reconciler
+			// may not attempt some of these bindings until minutes or hours later, long
+			// after this request's own caller identity would otherwise be gone. It is
+			// AMS's own audit record only — never sent to Thunder (see
+			// models.AgentThunderClient.RequestedBy for why Thunder's own "owner" field
+			// cannot carry this).
+			var requestedBy string
+			if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
+				requestedBy = callerClaims.Sub
+			}
+			s.agentThunderProvisioning.ProvisionForAgent(ctx, ouID, projectName, req.Name, ownership, envNames, requestedBy)
 		}
-		ownership := models.AgentProvisioningType(req.Provisioning.Type)
-		// requestedBy is captured now, synchronously, because the retry reconciler
-		// may not attempt some of these bindings until minutes or hours later, long
-		// after this request's own caller identity would otherwise be gone. It is
-		// AMS's own audit record only — never sent to Thunder (see
-		// models.AgentThunderClient.RequestedBy for why Thunder's own "owner" field
-		// cannot carry this).
-		var requestedBy string
-		if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
-			requestedBy = callerClaims.Sub
-		}
-		s.agentThunderProvisioning.ProvisionForAgent(ctx, orgName, projectName, req.Name, ownership, envNames, requestedBy)
 	}
 
-	s.logger.Info("Agent created successfully", "agentName", req.Name, "orgName", orgName, "projectName", projectName, "provisioningType", req.Provisioning.Type)
+	s.logger.Info("Agent created successfully", "agentName", req.Name, "ouID", ouID, "projectName", projectName, "provisioningType", req.Provisioning.Type)
 	return nil
 }
 
-func (s *agentManagerService) triggerInitialBuild(ctx context.Context, orgName, projectName string, req *spec.CreateAgentRequest) error {
+func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest) error {
 	// Get the latest commit from the repository
 	commitId := ""
 	if req.Provisioning.Repository != nil {
@@ -1328,16 +1455,35 @@ func (s *agentManagerService) triggerInitialBuild(ctx context.Context, orgName, 
 		}
 	}
 	// Trigger build in OpenChoreo with the latest commit
-	build, err := s.ocClient.TriggerBuild(ctx, orgName, projectName, req.Name, commitId)
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, req.Name, commitId)
 	if err != nil {
 		return fmt.Errorf("failed to trigger initial build: agentName %s, error: %w", req.Name, err)
 	}
-	s.logger.Info("Agent component created and build triggered successfully", "agentName", req.Name, "orgName", orgName, "projectName", projectName, "buildName", build.Name, "commitId", commitId)
+	s.logger.Info("Agent component created and build triggered successfully", "agentName", req.Name, "ouID", ouID, "projectName", projectName, "buildName", build.Name, "commitId", commitId)
 	return nil
 }
 
+// mergeKindWorkloadLLMEnvVars appends the system-managed LLM env vars (proxy URL + API key
+// secret ref) for the first environment onto the user-supplied env vars of a kind-sourced agent.
+// Kind-sourced agents create their Workload CR directly, bypassing the build/workflow system that
+// otherwise carries these vars into the container, so they must be injected into the Workload here.
+// When the agent has no LLM configuration, userEnvVars is returned unchanged.
+func (s *agentManagerService) mergeKindWorkloadLLMEnvVars(
+	ctx context.Context, agentName, ouID, projectName, firstEnv string, userEnvVars []client.EnvVar, hasModelConfig bool,
+) ([]client.EnvVar, error) {
+	if !hasModelConfig {
+		return userEnvVars, nil
+	}
+	llmEnvVars, err := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, ouID, projectName, firstEnv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build system-managed LLM env vars: agentName %s, ouID %s, projectName %s, env %s, error: %w",
+			agentName, ouID, projectName, firstEnv, err)
+	}
+	return append(userEnvVars, llmEnvVars...), nil
+}
+
 func (s *agentManagerService) createAgentLLMConfigs(
-	ctx context.Context, orgName, projectName, firstEnv string, req *spec.CreateAgentRequest,
+	ctx context.Context, ouID, projectName, firstEnv string, req *spec.CreateAgentRequest,
 ) error {
 	for i, mc := range req.ModelConfig {
 		configName := fmt.Sprintf("%s-llm-config", req.Name)
@@ -1359,7 +1505,7 @@ func (s *agentManagerService) createAgentLLMConfigs(
 			},
 			EnvironmentVariables: convertEnvVars(mc.EnvironmentVariables),
 		}
-		if _, err := s.agentConfigurationService.Create(ctx, orgName, projectName, req.Name, createReq, "system"); err != nil {
+		if _, err := s.agentConfigurationService.Create(ctx, ouID, projectName, req.Name, createReq, "system"); err != nil {
 			return fmt.Errorf("failed to create LLM configuration %d: %w", i+1, err)
 		}
 	}
@@ -1367,7 +1513,7 @@ func (s *agentManagerService) createAgentLLMConfigs(
 }
 
 func (s *agentManagerService) createAgentMCPConfigs(
-	ctx context.Context, orgName, projectName, firstEnv string, req *spec.CreateAgentRequest,
+	ctx context.Context, ouID, projectName, firstEnv string, req *spec.CreateAgentRequest,
 ) error {
 	for i, mc := range req.McpConfig {
 		configName := fmt.Sprintf("%s-mcp-config", req.Name)
@@ -1385,7 +1531,7 @@ func (s *agentManagerService) createAgentMCPConfigs(
 			},
 			EnvironmentVariables: convertEnvVars(mc.EnvironmentVariables),
 		}
-		if _, err := s.agentConfigurationService.Create(ctx, orgName, projectName, req.Name, createReq, "system"); err != nil {
+		if _, err := s.agentConfigurationService.Create(ctx, ouID, projectName, req.Name, createReq, "system"); err != nil {
 			return fmt.Errorf("failed to create MCP configuration %d: %w", i+1, err)
 		}
 	}
@@ -1438,6 +1584,11 @@ func (s *agentManagerService) toCreateAgentRequestWithSecrets(req *spec.CreateAg
 		}
 	}
 
+	var labels map[string]string
+	if req.Labels != nil {
+		labels = *req.Labels
+	}
+
 	result := client.CreateComponentRequest{
 		Name:             req.Name,
 		DisplayName:      req.DisplayName,
@@ -1448,6 +1599,7 @@ func (s *agentManagerService) toCreateAgentRequestWithSecrets(req *spec.CreateAg
 		AgentKind:        agentKindRef,
 		Build:            mapBuildConfig(req.Build),
 		InputInterface:   mapInputInterface(req.InputInterface),
+		Labels:           labels,
 	}
 
 	result.Configurations = mapConfigurationsWithSecrets(req.Configurations, secretReferences)
@@ -1510,78 +1662,82 @@ func (s *agentManagerService) cleanupSecretsOnRollback(ctx context.Context, loca
 	}
 }
 
-func (s *agentManagerService) UpdateAgentBasicInfo(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error) {
-	s.logger.Info("Updating agent basic info", "agentName", agentName, "orgName", orgName, "projectName", projectName)
+func (s *agentManagerService) UpdateAgentBasicInfo(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error) {
+	s.logger.Info("Updating agent basic info", "agentName", agentName, "ouID", ouID, "projectName", projectName)
 
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 
 	// Fetch existing agent to validate it exists
-	_, err = s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	_, err = s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
-	// Update agent basic info in OpenChoreo
+	// Update agent basic info in OpenChoreo. Labels: nil means "leave
+	// unchanged", a non-nil (possibly empty) map replaces the user-label set
+	// while system-managed labels are preserved (see UpdateComponentBasicInfo).
 	updateReq := client.UpdateComponentBasicInfoRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
+		Labels:      req.Labels,
 	}
-	if err := s.ocClient.UpdateComponentBasicInfo(ctx, orgName, projectName, agentName, updateReq); err != nil {
-		s.logger.Error("Failed to update agent meta data in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+	if err := s.ocClient.UpdateComponentBasicInfo(ctx, ouID, projectName, agentName, updateReq); err != nil {
+		s.logger.Error("Failed to update agent meta data in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, fmt.Errorf("failed to update agent basic info: %w", err)
 	}
 
-	// Fetch agent to return current state
-	updatedAgent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	// Fetch agent to return current state (labels come pre-populated from
+	// the component's own metadata).
+	updatedAgent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
-	s.logger.Info("Agent basic info update called", "agentName", agentName, "orgName", orgName, "projectName", projectName)
+	s.logger.Info("Agent basic info update called", "agentName", agentName, "ouID", ouID, "projectName", projectName)
 	return updatedAgent, nil
 }
 
-func (s *agentManagerService) UpdateAgentBuildParameters(ctx context.Context, orgName string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error) {
-	s.logger.Info("Updating agent build parameters", "agentName", agentName, "orgName", orgName, "projectName", projectName)
+func (s *agentManagerService) UpdateAgentBuildParameters(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error) {
+	s.logger.Info("Updating agent build parameters", "agentName", agentName, "ouID", ouID, "projectName", projectName)
 
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 
 	// Validate git secret exists if specified
 	if req.Provisioning.Repository != nil && req.Provisioning.Repository.SecretRef.Get() != nil {
-		if err := s.validateGitSecretExists(ctx, orgName, req.Provisioning.Repository.GetSecretRef()); err != nil {
+		if err := s.validateGitSecretExists(ctx, ouID, req.Provisioning.Repository.GetSecretRef()); err != nil {
 			return nil, err
 		}
 	}
 
 	// Fetch existing agent to validate immutable fields
-	existingAgent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	existingAgent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
@@ -1621,7 +1777,7 @@ func (s *agentManagerService) UpdateAgentBuildParameters(ctx context.Context, or
 		if req.Configurations != nil && req.Configurations.EnableAutoInstrumentation != nil {
 			autoInstr = *req.Configurations.EnableAutoInstrumentation
 		} else {
-			persisted, lookupErr := s.lookupAgentAutoInstrumentation(ctx, orgName, projectName, agentName)
+			persisted, lookupErr := s.lookupAgentAutoInstrumentation(ctx, ouID, projectName, agentName)
 			if lookupErr != nil {
 				return nil, lookupErr
 			}
@@ -1631,7 +1787,7 @@ func (s *agentManagerService) UpdateAgentBuildParameters(ctx context.Context, or
 			// No new pin: validate against the agent's currently-pinned
 			// version (or the platform default if none).
 			if requestedVersion == nil {
-				pinned, lookupErr := s.lookupAgentInstrumentationVersion(ctx, orgName, projectName, agentName)
+				pinned, lookupErr := s.lookupAgentInstrumentationVersion(ctx, ouID, projectName, agentName)
 				switch {
 				case errors.Is(lookupErr, ErrInstrumentationVersionNotPinned):
 					// Leave nil; helper resolves to catalog default.
@@ -1649,112 +1805,125 @@ func (s *agentManagerService) UpdateAgentBuildParameters(ctx context.Context, or
 
 	// Update agent build parameters in OpenChoreo
 	updateReq := buildUpdateBuildParametersRequest(req)
-	if err := s.ocClient.UpdateComponentBuildParameters(ctx, orgName, projectName, agentName, updateReq); err != nil {
-		s.logger.Error("Failed to update agent build parameters in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+	if err := s.ocClient.UpdateComponentBuildParameters(ctx, ouID, projectName, agentName, updateReq); err != nil {
+		s.logger.Error("Failed to update agent build parameters in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, fmt.Errorf("failed to update agent build parameters: %w", err)
 	}
 
 	// Fetch agent to return current state
-	updatedAgent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	updatedAgent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
-	s.logger.Info("Agent build parameters updated successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName)
+	s.logger.Info("Agent build parameters updated successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName)
 	return updatedAgent, nil
 }
 
-func (s *agentManagerService) GetAgentResourceConfigs(ctx context.Context, orgName string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error) {
-	s.logger.Info("Getting agent resource configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
+func (s *agentManagerService) GetAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error) {
+	s.logger.Info("Getting agent resource configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
 
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 
 	// Validate agent exists
-	_, err = s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	_, err = s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
-	_, err = s.ocClient.GetEnvironment(ctx, orgName, environment)
+	_, err = s.ocClient.GetEnvironment(ctx, ouID, environment)
 	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
 		return nil, translateEnvironmentError(err)
 	}
 
 	// Fetch resource configurations from OpenChoreo
-	configs, err := s.ocClient.GetEnvResourceConfigs(ctx, orgName, projectName, agentName, environment)
+	configs, err := s.ocClient.GetEnvResourceConfigs(ctx, ouID, projectName, agentName, environment)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent resource configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "error", err)
+		s.logger.Error("Failed to fetch agent resource configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "error", err)
 		return nil, fmt.Errorf("failed to get agent resource configurations: %w", err)
 	}
 
 	// Convert client response to spec response
 	response := buildResourceConfigsResponse(configs)
 
-	s.logger.Info("Fetched agent resource configurations successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
+	s.logger.Info("Fetched agent resource configurations successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
 	return response, nil
 }
 
-func (s *agentManagerService) UpdateAgentResourceConfigs(ctx context.Context, orgName string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error) {
-	s.logger.Info("Updating agent resource configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
+func (s *agentManagerService) UpdateAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error) {
+	s.logger.Info("Updating agent resource configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
 
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 
 	// Fetch existing agent to validate it exists
-	_, err = s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	_, err = s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch existing agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateAgentError(err)
 	}
 
 	// Validate environment (required)
-	_, err = s.ocClient.GetEnvironment(ctx, orgName, environment)
+	_, err = s.ocClient.GetEnvironment(ctx, ouID, environment)
 	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
 		return nil, translateEnvironmentError(err)
+	}
+
+	// Fetch the agent's current effective resource configuration so a partial update
+	// (e.g. requests-only, leaving limits untouched) can be validated against whatever
+	// stays in effect for the side it didn't touch.
+	currentConfigs, err := s.GetAgentResourceConfigs(ctx, ouID, projectName, agentName, environment)
+	if err != nil {
+		s.logger.Error("Failed to fetch current agent resource configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "error", err)
+		return nil, fmt.Errorf("failed to get current agent resource configurations: %w", err)
+	}
+	if err := utils.ValidateResourceRequestsWithinLimits(req.Resources, currentConfigs.Resources); err != nil {
+		s.logger.Error("Rejected agent resource configuration update", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "error", err)
+		return nil, err
 	}
 
 	// Update agent resource configurations in OpenChoreo
 	updateReq := buildUpdateResourceConfigsRequest(req)
-	if err := s.ocClient.UpdateEnvResourceConfigs(ctx, orgName, projectName, agentName, environment, updateReq); err != nil {
-		s.logger.Error("Failed to update agent resource configurations in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "error", err)
+	if err := s.ocClient.UpdateEnvResourceConfigs(ctx, ouID, projectName, agentName, environment, updateReq); err != nil {
+		s.logger.Error("Failed to update agent resource configurations in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "error", err)
 		return nil, fmt.Errorf("failed to update agent resource configurations: %w", err)
 	}
 
 	// Fetch updated resource configurations to return
-	updatedConfigs, err := s.GetAgentResourceConfigs(ctx, orgName, projectName, agentName, environment)
+	updatedConfigs, err := s.GetAgentResourceConfigs(ctx, ouID, projectName, agentName, environment)
 	if err != nil {
-		s.logger.Error("Failed to fetch updated resource configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "error", err)
+		s.logger.Error("Failed to fetch updated resource configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "error", err)
 		return nil, fmt.Errorf("failed to get agent resource configurations: %w", err)
 	}
 
-	s.logger.Info("Agent resource configurations updated successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
+	s.logger.Info("Agent resource configurations updated successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
 	return updatedConfigs, nil
 }
 
@@ -1889,12 +2058,12 @@ func buildUpdateBuildParametersRequest(req *spec.UpdateAgentBuildParametersReque
 	}
 }
 
-func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, payload spec.ResourceNameRequest) (string, error) {
-	s.logger.Info("Generating resource name", "resourceType", payload.ResourceType, "displayName", payload.DisplayName, "orgName", orgName)
+func (s *agentManagerService) GenerateName(ctx context.Context, ouID string, payload spec.ResourceNameRequest) (string, error) {
+	s.logger.Info("Generating resource name", "resourceType", payload.ResourceType, "displayName", payload.DisplayName, "ouID", ouID)
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return "", translateOrgError(err)
 	}
 
@@ -1905,9 +2074,9 @@ func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, 
 	if payload.ResourceType == string(utils.ResourceTypeAgent) {
 		projectName := utils.StrPointerAsStr(payload.ProjectName, "")
 		// Validates the project name by checking its existence
-		project, err := s.ocClient.GetProject(ctx, orgName, projectName)
+		project, err := s.ocClient.GetProject(ctx, ouID, projectName)
 		if err != nil {
-			s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+			s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 			return "", translateProjectError(err)
 		}
 
@@ -1923,10 +2092,10 @@ func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, 
 		// Name is taken, generate unique name with suffix
 		uniqueName, err := s.generateUniqueAgentName(ctx, org.Name, project.Name, candidateName)
 		if err != nil {
-			s.logger.Error("Failed to generate unique agent name", "baseName", candidateName, "orgName", org.Name, "projectName", project.Name, "error", err)
+			s.logger.Error("Failed to generate unique agent name", "baseName", candidateName, "ouID", org.Name, "projectName", project.Name, "error", err)
 			return "", fmt.Errorf("failed to generate unique agent name: %w", err)
 		}
-		s.logger.Info("Generated unique agent name", "agentName", uniqueName, "orgName", orgName, "projectName", projectName)
+		s.logger.Info("Generated unique agent name", "agentName", uniqueName, "ouID", ouID, "projectName", projectName)
 		return uniqueName, nil
 	}
 	if payload.ResourceType == string(utils.ResourceTypeProject) {
@@ -1934,20 +2103,20 @@ func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, 
 		_, err = s.ocClient.GetProject(ctx, org.Name, candidateName)
 		if err != nil && errors.Is(translateProjectError(err), utils.ErrProjectNotFound) {
 			// Name is available, return it
-			s.logger.Info("Generated unique project name", "projectName", candidateName, "orgName", orgName)
+			s.logger.Info("Generated unique project name", "projectName", candidateName, "ouID", ouID)
 			return candidateName, nil
 		}
 		if err != nil {
-			s.logger.Error("Failed to check project name availability", "name", candidateName, "orgName", org.Name, "error", err)
+			s.logger.Error("Failed to check project name availability", "name", candidateName, "ouID", org.Name, "error", err)
 			return "", fmt.Errorf("failed to check project name availability: %w", err)
 		}
 		// Name is taken, generate unique name with suffix
 		uniqueName, err := s.generateUniqueProjectName(ctx, org.Name, candidateName)
 		if err != nil {
-			s.logger.Error("Failed to generate unique project name", "baseName", candidateName, "orgName", org.Name, "error", err)
+			s.logger.Error("Failed to generate unique project name", "baseName", candidateName, "ouID", org.Name, "error", err)
 			return "", fmt.Errorf("failed to generate unique project name: %w", err)
 		}
-		s.logger.Info("Generated unique project name", "projectName", uniqueName, "orgName", orgName)
+		s.logger.Info("Generated unique project name", "projectName", uniqueName, "ouID", ouID)
 		return uniqueName, nil
 	}
 	if payload.ResourceType == string(utils.ResourceTypeEnvironment) {
@@ -1961,20 +2130,20 @@ func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, 
 		_, err = s.ocClient.GetEnvironment(ctx, org.Name, candidateName)
 		if err != nil && errors.Is(translateEnvironmentError(err), utils.ErrEnvironmentNotFound) {
 			// Name is available, return it
-			s.logger.Info("Generated unique env name", "envName", candidateName, "orgName", orgName)
+			s.logger.Info("Generated unique env name", "envName", candidateName, "ouID", ouID)
 			return candidateName, nil
 		}
 		if err != nil {
-			s.logger.Error("Failed to check env name availability", "name", candidateName, "orgName", org.Name, "error", err)
+			s.logger.Error("Failed to check env name availability", "name", candidateName, "ouID", org.Name, "error", err)
 			return "", fmt.Errorf("failed to check env name availability: %w", err)
 		}
 		// Name is taken, generate unique name with suffix
-		uniqueName, err := s.generateUniqueEnvName(ctx, org.Name, candidateName)
+		uniqueName, err := s.generateUniqueEnvName(ctx, ouID, org.Name, candidateName)
 		if err != nil {
-			s.logger.Error("Failed to generate unique env name", "baseName", candidateName, "orgName", org.Name, "error", err)
+			s.logger.Error("Failed to generate unique env name", "baseName", candidateName, "ouID", org.Name, "error", err)
 			return "", fmt.Errorf("failed to generate unique env name: %w", err)
 		}
-		s.logger.Info("Generated unique env name", "envName", uniqueName, "orgName", orgName)
+		s.logger.Info("Generated unique env name", "envName", uniqueName, "ouID", ouID)
 		return uniqueName, nil
 
 	}
@@ -1982,16 +2151,16 @@ func (s *agentManagerService) GenerateName(ctx context.Context, orgName string, 
 }
 
 // generateUniqueProjectName creates a unique name by appending a random suffix
-func (s *agentManagerService) generateUniqueProjectName(ctx context.Context, orgName string, baseName string) (string, error) {
+func (s *agentManagerService) generateUniqueProjectName(ctx context.Context, ouID string, baseName string) (string, error) {
 	// Create a name availability checker function that uses the project repository
 	nameChecker := func(name string) (bool, error) {
-		_, err := s.ocClient.GetProject(ctx, orgName, name)
+		_, err := s.ocClient.GetProject(ctx, ouID, name)
 		if err != nil && errors.Is(translateProjectError(err), utils.ErrProjectNotFound) {
 			// Name is available
 			return true, nil
 		}
 		if err != nil {
-			s.logger.Error("Failed to check project name availability", "name", name, "orgName", orgName, "error", err)
+			s.logger.Error("Failed to check project name availability", "name", name, "ouID", ouID, "error", err)
 			return false, fmt.Errorf("failed to check project name availability: %w", err)
 		}
 		// Name is taken
@@ -2001,7 +2170,7 @@ func (s *agentManagerService) generateUniqueProjectName(ctx context.Context, org
 	// Use the common unique name generation logic from utils
 	uniqueName, err := utils.GenerateUniqueNameWithSuffix(baseName, nameChecker)
 	if err != nil {
-		s.logger.Error("Failed to generate unique project name", "baseName", baseName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to generate unique project name", "baseName", baseName, "ouID", ouID, "error", err)
 		return "", fmt.Errorf("failed to generate unique project name: %w", err)
 	}
 
@@ -2009,7 +2178,7 @@ func (s *agentManagerService) generateUniqueProjectName(ctx context.Context, org
 }
 
 // generateUniqueEnvName creates a unique name by appending a random suffix
-func (s *agentManagerService) generateUniqueEnvName(ctx context.Context, orgName string, baseName string) (string, error) {
+func (s *agentManagerService) generateUniqueEnvName(ctx context.Context, ouID string, orgName string, baseName string) (string, error) {
 	// Bound the base so the resulting "<base>-XX" stays within the per-org env-name
 	// limit (which keeps the gateway runtime Service name ≤ 63 chars).
 	maxBaseLen := utils.MaxEnvNameLength(orgName) - utils.RandomSuffixLength - 1 // 1 for hyphen
@@ -2022,13 +2191,13 @@ func (s *agentManagerService) generateUniqueEnvName(ctx context.Context, orgName
 
 	// Create a name availability checker function that uses the project repository
 	nameChecker := func(name string) (bool, error) {
-		_, err := s.ocClient.GetEnvironment(ctx, orgName, name)
+		_, err := s.ocClient.GetEnvironment(ctx, ouID, name)
 		if err != nil && errors.Is(translateEnvironmentError(err), utils.ErrEnvironmentNotFound) {
 			// Name is available
 			return true, nil
 		}
 		if err != nil {
-			s.logger.Error("Failed to check env name availability", "name", name, "orgName", orgName, "error", err)
+			s.logger.Error("Failed to check env name availability", "name", name, "ouID", ouID, "error", err)
 			return false, fmt.Errorf("failed to check env name availability: %w", err)
 		}
 		// Name is taken
@@ -2038,7 +2207,7 @@ func (s *agentManagerService) generateUniqueEnvName(ctx context.Context, orgName
 	// Use the common unique name generation logic from utils
 	uniqueName, err := utils.GenerateUniqueNameWithSuffix(baseName, nameChecker)
 	if err != nil {
-		s.logger.Error("Failed to generate unique env name", "baseName", baseName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to generate unique env name", "baseName", baseName, "ouID", ouID, "error", err)
 		return "", fmt.Errorf("failed to generate unique env name: %w", err)
 	}
 
@@ -2046,10 +2215,10 @@ func (s *agentManagerService) generateUniqueEnvName(ctx context.Context, orgName
 }
 
 // generateUniqueAgentName creates a unique name by appending a random suffix
-func (s *agentManagerService) generateUniqueAgentName(ctx context.Context, orgName string, projectName string, baseName string) (string, error) {
+func (s *agentManagerService) generateUniqueAgentName(ctx context.Context, ouID string, projectName string, baseName string) (string, error) {
 	// Create a name availability checker function that uses the agent repository
 	nameChecker := func(name string) (bool, error) {
-		exists, err := s.ocClient.ComponentExists(ctx, orgName, projectName, name)
+		exists, err := s.ocClient.ComponentExists(ctx, ouID, projectName, name)
 		if err != nil {
 			return false, fmt.Errorf("failed to check agent name availability: %w", err)
 		}
@@ -2070,24 +2239,24 @@ func (s *agentManagerService) generateUniqueAgentName(ctx context.Context, orgNa
 	return uniqueName, nil
 }
 
-func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, projectName string, agentName string) error {
-	s.logger.Info("Deleting agent", "agentName", agentName, "orgName", orgName, "projectName", projectName)
+func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, projectName string, agentName string) error {
+	s.logger.Info("Deleting agent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return translateOrgError(err)
 	}
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "ouID", ouID, "error", err)
 		return translateProjectError(err)
 	}
 
 	// Refuse to delete an agent that is still the source of an agent kind —
 	// deleting it would leave the kind unable to create new instances.
-	isKindSource, err := s.agentKindService.HasKindsSourcedFrom(ctx, orgName, projectName, agentName)
+	isKindSource, err := s.agentKindService.HasKindsSourcedFrom(ctx, ouID, projectName, agentName)
 	if err != nil {
 		s.logger.Error("Failed to check agent kinds sourced from agent", "agentName", agentName, "error", err)
 		return err
@@ -2097,7 +2266,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 	}
 
 	// Step 1: Fetch workload and check for secret references in env vars
-	secretRefNames, err := s.ocClient.GetWorkloadSecretRefNames(ctx, orgName, projectName, agentName)
+	secretRefNames, err := s.ocClient.GetWorkloadSecretRefNames(ctx, ouID, projectName, agentName)
 	if err != nil {
 		s.logger.Warn("Failed to get workload secret references", "agentName", agentName, "error", err)
 		// Continue with deletion even if we can't get secret refs
@@ -2105,13 +2274,13 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 
 	// Step 2-4: For each secret reference, get its details, delete from KV, then delete the CR
 	for _, secretRefName := range secretRefNames {
-		s.cleanupSecretReference(ctx, orgName, projectName, agentName, secretRefName)
+		s.cleanupSecretReference(ctx, ouID, projectName, agentName, secretRefName)
 	}
 
 	// Resolve agent type before component deletion so LLM config cleanup does not need
 	// to call GetComponent after the component is gone.
 	isExternalAgent := false
-	agentComp, compErr := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	agentComp, compErr := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if compErr != nil {
 		s.logger.Warn("Failed to determine agent type before deletion, assuming internal",
 			"agentName", agentName, "error", compErr)
@@ -2129,7 +2298,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 	// racing-the-same-agent) risk it would prevent. publishVersion independently
 	// verifies the source agent still exists before ever creating a kind, which
 	// is what actually closes the common (non-racing) case of this gap.
-	isKindSource, err = s.agentKindService.HasKindsSourcedFrom(ctx, orgName, projectName, agentName)
+	isKindSource, err = s.agentKindService.HasKindsSourcedFrom(ctx, ouID, projectName, agentName)
 	if err != nil {
 		s.logger.Error("Failed to recheck agent kinds sourced from agent", "agentName", agentName, "error", err)
 		return err
@@ -2141,17 +2310,20 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 	// Step 5: Delete agent component in OpenChoreo — this is the commit point.
 	// LLM config cleanup happens after a confirmed DeleteComponent so a transient OC
 	// failure leaves the system fully intact and the delete can be retried cleanly.
-	s.logger.Debug("Deleting oc agent", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	err = s.ocClient.DeleteComponent(ctx, orgName, projectName, agentName)
+	s.logger.Debug("Deleting oc agent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+	err = s.ocClient.DeleteComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
 		translatedErr := translateAgentError(err)
 		if errors.Is(translatedErr, utils.ErrAgentNotFound) {
-			s.logger.Warn("Agent not found during deletion, delete is idempotent", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-			if configErr := s.agentConfigRepo.DeleteAllByAgent(orgName, projectName, agentName); configErr != nil {
+			s.logger.Warn("Agent not found during deletion, delete is idempotent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+			if configErr := s.agentConfigRepo.DeleteAllByAgent(ouID, projectName, agentName); configErr != nil {
 				s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 			}
-			s.deleteAgentAPIArtifact(ctx, orgName, projectName, agentName)
-			go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), orgName, projectName, agentName)
+			s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName)
+			if s.agentThunderProvisioning != nil {
+				go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
+			}
+			s.cleanupAgentMonitors(ctx, ouID, projectName, agentName)
 			return nil
 		}
 		s.logger.Error("Failed to delete oc agent", "agentName", agentName, "error", err)
@@ -2162,24 +2334,37 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, orgName string, p
 	// background. context.WithoutCancel detaches the request deadline so the goroutine
 	// is not cancelled when the HTTP handler returns, while still inheriting any values
 	// (trace IDs, logger) from the request context.
-	go s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), orgName, projectName, agentName, isExternalAgent)
-	go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), orgName, projectName, agentName)
+	go s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), ouID, projectName, agentName, isExternalAgent)
+	if s.agentThunderProvisioning != nil {
+		go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
+	}
 
 	// Cleanup agent configs from database
-	if configErr := s.agentConfigRepo.DeleteAllByAgent(orgName, projectName, agentName); configErr != nil {
+	if configErr := s.agentConfigRepo.DeleteAllByAgent(ouID, projectName, agentName); configErr != nil {
 		s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 		// Don't fail the deletion - configs will be orphaned but harmless
 	}
 
 	// Cleanup env-scoped API artifact record.
-	s.deleteAgentAPIArtifact(ctx, orgName, projectName, agentName)
+	s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName)
 
-	s.logger.Debug("Agent deleted from OpenChoreo successfully", "orgName", orgName, "agentName", agentName)
+	// Cleanup monitors owned by this agent so they are not orphaned after deletion.
+	s.cleanupAgentMonitors(ctx, ouID, projectName, agentName)
+
+	s.logger.Debug("Agent deleted from OpenChoreo successfully", "ouID", ouID, "agentName", agentName)
 	return nil
 }
 
-func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, orgName, projectName, agentName string) {
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+// cleanupAgentMonitors removes all monitors owned by an agent. Best-effort: orphaned
+// monitors are logged but do not fail the delete, matching the other post-delete cleanups.
+func (s *agentManagerService) cleanupAgentMonitors(ctx context.Context, ouID, projectName, agentName string) {
+	if err := s.monitorManagerService.DeleteMonitorsByAgent(context.WithoutCancel(ctx), ouID, projectName, agentName); err != nil {
+		s.logger.Warn("Failed to delete monitors during agent deletion", "agentName", agentName, "error", err)
+	}
+}
+
+func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, projectName, agentName string) {
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
 		s.logger.Warn("Failed to get deployment pipeline for agent API artifact cleanup", "agentName", agentName, "error", err)
 		return
@@ -2188,12 +2373,12 @@ func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, orgNam
 	if environmentName == "" {
 		return
 	}
-	environment, err := s.ocClient.GetEnvironment(ctx, orgName, environmentName)
+	environment, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName)
 	if err != nil {
 		s.logger.Warn("Failed to get environment for agent API artifact cleanup", "agentName", agentName, "environment", environmentName, "error", err)
 		return
 	}
-	artifact, err := s.artifactRepo.GetByHandle(agentEnvAPIArtifactHandle(projectName, agentName, environment.UUID), orgName)
+	artifact, err := s.artifactRepo.GetByHandle(agentEnvAPIArtifactHandle(projectName, agentName, environment.UUID), ouID)
 	if err != nil {
 		return
 	}
@@ -2208,8 +2393,8 @@ func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, orgNam
 // patching and SecretReference CR deletion (handled by component teardown).
 // After all configs are deleted, the shared AI application records (one per agent+env) are removed.
 // Best-effort: individual failures are logged but do not abort the agent deletion.
-func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, orgName, projectName, agentName string, isExternalAgent bool) {
-	listResp, err := s.agentConfigurationService.List(ctx, orgName, projectName, agentName, 1000, 0)
+func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, ouID, projectName, agentName string, isExternalAgent bool) {
+	listResp, err := s.agentConfigurationService.List(ctx, ouID, projectName, agentName, 1000, 0)
 	if err != nil {
 		s.logger.Warn("Failed to list agent configurations for cleanup", "agentName", agentName, "error", err)
 		return
@@ -2220,13 +2405,13 @@ func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, 
 			s.logger.Warn("Failed to parse config UUID during agent deletion", "uuid", cfg.UUID, "type", cfg.Type, "error", parseErr)
 			continue
 		}
-		if delErr := s.agentConfigurationService.DeleteForAgentDeletion(ctx, configUUID, orgName, projectName, agentName, isExternalAgent); delErr != nil {
+		if delErr := s.agentConfigurationService.DeleteForAgentDeletion(ctx, configUUID, ouID, projectName, agentName, isExternalAgent); delErr != nil {
 			s.logger.Warn("Failed to delete configuration during agent deletion", "configUUID", cfg.UUID, "type", cfg.Type, "error", delErr)
 		}
 	}
 
 	// Delete all AI application records for this agent (one per environment) now that all configs are gone.
-	if delErr := s.aiApplicationService.DeleteAllByAgent(ctx, orgName, projectName, agentName); delErr != nil {
+	if delErr := s.aiApplicationService.DeleteAllByAgent(ctx, ouID, projectName, agentName); delErr != nil {
 		s.logger.Warn("Failed to delete AI applications during agent deletion", "agentName", agentName, "error", delErr)
 	}
 }
@@ -2234,14 +2419,14 @@ func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, 
 // cleanupSecretReference deletes secrets from KV and the SecretReference CR.
 // It retrieves the SecretReference to get the actual KV path, parses it to a location,
 // then calls DeleteSecret which handles both KV and SecretReference deletion.
-func (s *agentManagerService) cleanupSecretReference(ctx context.Context, orgName, projectName, agentName, secretRefName string) {
+func (s *agentManagerService) cleanupSecretReference(ctx context.Context, ouID, projectName, agentName, secretRefName string) {
 	if s.secretMgmtClient == nil {
 		s.logger.Warn("Secret management client not configured, skipping secret cleanup", "secretRefName", secretRefName)
 		return
 	}
 
 	// Get the SecretReference to find the actual KV path
-	secretRefInfo, err := s.ocClient.GetSecretReference(ctx, orgName, secretRefName)
+	secretRefInfo, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			s.logger.Debug("SecretReference not found, skipping cleanup", "secretRefName", secretRefName)
@@ -2280,19 +2465,19 @@ func (s *agentManagerService) cleanupSecretReference(ctx context.Context, orgNam
 }
 
 // BuildAgent triggers a build for an agent.
-func (s *agentManagerService) BuildAgent(ctx context.Context, orgName string, projectName string, agentName string, commitId string) (*models.BuildResponse, error) {
-	s.logger.Info("Building agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "commitId", commitId)
+func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, projectName string, agentName string, commitId string) (*models.BuildResponse, error) {
+	s.logger.Info("Building agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 
 	// Validate project exists
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
+	_, err = s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "ouID", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 
@@ -2308,22 +2493,22 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, orgName string, pr
 		return nil, fmt.Errorf("build operation is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 	// Trigger build in OpenChoreo
-	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "commitId", commitId)
-	build, err := s.ocClient.TriggerBuild(ctx, orgName, projectName, agentName, commitId)
+	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId)
 	if err != nil {
-		s.logger.Error("Failed to trigger build in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to trigger build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateBuildError(err)
 	}
-	s.logger.Info("Build triggered successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "buildName", build.Name)
+	s.logger.Info("Build triggered successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "buildName", build.Name)
 	return build, nil
 }
 
 // DeployAgent deploys an agent.
-func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, projectName string, agentName string, req *spec.DeployAgentRequest) (string, error) {
-	s.logger.Info("Deploying agent", "agentName", agentName, "orgName", orgName, "projectName", projectName, "imageId", req.ImageId)
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.DeployAgentRequest) (string, error) {
+	s.logger.Info("Deploying agent", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return "", translateOrgError(err)
 	}
 	agent, err := s.ocClient.GetComponent(ctx, org.Name, projectName, agentName)
@@ -2335,9 +2520,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		return "", fmt.Errorf("deploy operation is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to fetch deployment pipeline", "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch deployment pipeline", "ouID", ouID, "projectName", projectName, "error", err)
 		return "", translatePipelineError(err)
 	}
 	lowestEnv := findLowestEnvironment(pipeline.PromotionPaths)
@@ -2369,10 +2554,10 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// both ReplaceComponentEnvVars and Deploy() overwrite all env vars.
 	// We fetch these FIRST so we can filter them out of req.Env before processEnvVars, which would
 	// otherwise mangle their SecretKeyRef.Key (using env var name instead of the original secret key).
-	systemManagedEnvVars, systemManagedKeys, sysEnvErr := s.getSystemManagedEnvVars(ctx, orgName, projectName, lowestEnv, agentName)
+	systemManagedEnvVars, systemManagedKeys, sysEnvErr := s.getSystemManagedEnvVars(ctx, ouID, projectName, lowestEnv, agentName)
 	if sysEnvErr != nil {
 		s.logger.Error("Failed to fetch system-managed env vars, aborting deploy to prevent data loss",
-			"agentName", agentName, "orgName", orgName, "projectName", projectName, "error", sysEnvErr)
+			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", sysEnvErr)
 		return "", fmt.Errorf("failed to fetch system-managed env vars for agent %s: %w", agentName, sysEnvErr)
 	}
 	if len(systemManagedEnvVars) > 0 {
@@ -2397,7 +2582,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// (yet) for this environment, which is a normal state, not an error. A real error
 	// aborts the deploy for the same reason getSystemManagedEnvVars failure does: a
 	// deploy that silently drops injected credentials is worse than a failed deploy.
-	identityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, orgName, projectName, agentName, lowestEnv)
+	identityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, lowestEnv)
 	if idErr != nil {
 		s.logger.Error("Failed to build agent identity env vars, aborting deploy to prevent credential loss",
 			"agentName", agentName, "environment", lowestEnv, "error", idErr)
@@ -2406,12 +2591,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// Always filter user-echoed copies of the identity keys (the console reads
 	// configurations back and may round-trip them), even when there is nothing
 	// to re-inject — these keys are system-owned, never user-writable.
-	if systemManagedKeys == nil {
-		systemManagedKeys = map[string]bool{}
-	}
-	for k := range AgentIdentityEnvVarKeys() {
-		systemManagedKeys[k] = true
-	}
+	systemManagedKeys = mergeAgentIdentityEnvVarKeys(systemManagedKeys)
 
 	// Filter out system-managed env vars from the deploy request before processEnvVars.
 	// The frontend may include these (e.g., LLM config API key) in req.Env because it reads
@@ -2435,7 +2615,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// Process user-provided environment variables, handling secrets separately
 	// Always call processEnvVars to ensure secrets cleanup happens when all env vars are removed
 	// Include file mount secrets alongside env var secrets so they share the same KV path
-	envVars, err := s.processEnvVars(ctx, orgName, projectName, lowestEnv, agentName, userEnv, req.Files)
+	envVars, err := s.processEnvVars(ctx, ouID, projectName, lowestEnv, agentName, userEnv, req.Files)
 	if err != nil {
 		s.logger.Error("Failed to process environment variables", "agentName", agentName, "error", err)
 		return "", fmt.Errorf("failed to process environment variables: %w", err)
@@ -2457,7 +2637,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	s.logger.Debug("Final deploy env vars", "agentName", agentName, "totalCount", len(deployReq.Env))
 
 	// Process file mounts
-	fileVars, err := s.processFileVars(ctx, orgName, projectName, lowestEnv, agentName, req.Files)
+	fileVars, err := s.processFileVars(ctx, ouID, projectName, lowestEnv, agentName, req.Files)
 	if err != nil {
 		s.logger.Error("Failed to process file mounts", "agentName", agentName, "error", err)
 		return "", fmt.Errorf("failed to process file mounts: %w", err)
@@ -2465,7 +2645,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	deployReq.Files = fileVars
 	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(fileVars))
 
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, orgName, lowestEnv)
+	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
 	if err != nil {
 		s.logger.Warn("Failed to get environment details", "environment", lowestEnv, "error", err)
 	}
@@ -2474,7 +2654,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// fields from DB and preserve pinned instrumentation_version during Upsert.
 	var existingConfig *models.AgentConfig
 	if targetEnv != nil {
-		cfg, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, targetEnv.Name)
+		cfg, configErr := s.agentConfigRepo.Get(ouID, projectName, agentName, targetEnv.Name)
 		switch {
 		case errors.Is(configErr, repositories.ErrAgentConfigNotFound):
 			s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
@@ -2523,7 +2703,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// would race with our own writes: the controller flips Ready→False/Progressing
 	// while reconciling them, the check then misreads that as a real concurrent
 	// deploy, and we abort with the Component already half-mutated.
-	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, orgName, agentName, lowestEnv)
+	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, ouID, agentName, lowestEnv)
 	if err != nil {
 		s.logger.Warn("Failed to check deployment status", "agentName", agentName, "environment", lowestEnv, "error", err)
 		// Continue with deploy even if the check fails
@@ -2562,14 +2742,14 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// Replace Component CR workflow parameters with env vars and file mounts from deploy request
 	// This replaces all existing env vars to ensure the component CR matches the deploy request
 	s.logger.Debug("Replacing component workflow parameters with environment variables", "agentName", agentName, "envVarCount", len(deployReq.Env))
-	if err := s.ocClient.ReplaceComponentEnvVars(ctx, orgName, projectName, agentName, deployReq.Env); err != nil {
+	if err := s.ocClient.ReplaceComponentEnvVars(ctx, ouID, projectName, agentName, deployReq.Env); err != nil {
 		s.logger.Warn("Failed to replace component workflow parameters with env vars", "agentName", agentName, "error", err)
 		// Continue with deploy even if this fails - env vars will still be applied to the workload
 	}
 
 	if deployReq.Files != nil {
 		s.logger.Debug("Replacing component workflow parameters with file mounts", "agentName", agentName, "fileMountCount", len(deployReq.Files))
-		if err := s.ocClient.ReplaceComponentFileMounts(ctx, orgName, projectName, agentName, deployReq.Files); err != nil {
+		if err := s.ocClient.ReplaceComponentFileMounts(ctx, ouID, projectName, agentName, deployReq.Files); err != nil {
 			s.logger.Warn("Failed to replace component workflow parameters with file mounts", "agentName", agentName, "error", err)
 		}
 	}
@@ -2578,7 +2758,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		if targetEnv == nil {
 			return "", fmt.Errorf("cannot deploy API agent without environment details")
 		}
-		apiArtifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, orgName, projectName, agentName, targetEnv.UUID)
+		apiArtifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
 		if artifactErr != nil {
 			return "", fmt.Errorf("cannot deploy API agent without environment API artifact record: %w", artifactErr)
 		}
@@ -2617,7 +2797,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// and also applies any trait changes needed for this deploy.
 	s.logger.Debug("Updating component deployment config", "agentName", agentName, "envVarCount", len(deployReq.Env),
 		"traitsToAttach", len(componentDeployConfig.TraitsToAttach), "traitsToDetach", len(componentDeployConfig.TraitsToDetach))
-	if err := s.ocClient.UpdateComponentDeploymentConfig(ctx, orgName, projectName, agentName, componentDeployConfig); err != nil {
+	if err := s.ocClient.UpdateComponentDeploymentConfig(ctx, ouID, projectName, agentName, componentDeployConfig); err != nil {
 		if requiresComponentConfig {
 			return "", fmt.Errorf("failed to update component deployment config: %w", err)
 		}
@@ -2626,15 +2806,21 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	}
 
 	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
-	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "imageId", req.ImageId)
-	if err := s.ocClient.Deploy(ctx, orgName, projectName, agentName, deployReq); err != nil {
-		s.logger.Error("Failed to deploy agent component in OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
+	if err := s.ocClient.Deploy(ctx, ouID, projectName, agentName, deployReq); err != nil {
+		s.logger.Error("Failed to deploy agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return "", err
 	}
 
-	// Update trait environment configs on the release binding after deploy
-	if len(deployTraitEnvConfigs) > 0 {
-		if err := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, orgName, agentName, lowestEnv, deployTraitEnvConfigs); err != nil {
+	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
+	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
+	// so gate on isAPIAgent to match PromoteAgent and avoid writing an irrelevant key to their bindings.
+	var deployCTConfigs map[string]interface{}
+	if isAPIAgent {
+		deployCTConfigs = buildComponentTypeEnvConfigs(targetEnv)
+	}
+	if len(deployTraitEnvConfigs) > 0 || len(deployCTConfigs) > 0 {
+		if err := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, ouID, agentName, lowestEnv, deployTraitEnvConfigs, deployCTConfigs); err != nil {
 			s.logger.Warn("Failed to update trait environment configs on release binding", "agentName", agentName, "environment", lowestEnv, "error", err)
 		}
 	}
@@ -2645,7 +2831,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 	// the value would NULL out a customer's pin on every redeploy.
 	if targetEnv != nil {
 		agentConfig := &models.AgentConfig{
-			OrgName:                   orgName,
+			OUID:                      ouID,
 			ProjectName:               projectName,
 			AgentName:                 agentName,
 			EnvironmentName:           targetEnv.Name,
@@ -2671,7 +2857,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, orgName string, p
 		}
 	}
 
-	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "orgName", org.Name, "projectName", projectName, "environment", lowestEnv)
+	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "ouID", org.Name, "projectName", projectName, "environment", lowestEnv)
 	return lowestEnv, nil
 }
 
@@ -2900,6 +3086,36 @@ func buildPolicies(cfg resolvedCORSConfig) []map[string]interface{} {
 	return policies
 }
 
+// runtimeClassForIsolationTier maps an environment's isolation tier to the Kubernetes
+// runtimeClassName the agent-api ComponentType should request. Empty means "omit" (default runc).
+func runtimeClassForIsolationTier(tier string) string {
+	switch tier {
+	case utils.IsolationTierGvisor:
+		return utils.RuntimeClassGvisor
+	case utils.IsolationTierKata:
+		// kata-deploy registers the runtime under the "kata-qemu" RuntimeClass/handler
+		// (the QEMU hypervisor variant). The tier name stays "kata" at the API; only the
+		// rendered runtimeClassName is "kata-qemu" so it matches what the node installs.
+		return utils.RuntimeClassKataQemu
+	default:
+		return ""
+	}
+}
+
+// buildComponentTypeEnvConfigs builds the ComponentTypeEnvironmentConfigs overrides for a deployment,
+// derived from the target environment's isolation tier. Returns an empty map for the default (runc)
+// tier so the rendered SandboxTemplate is unchanged for existing environments.
+func buildComponentTypeEnvConfigs(env *models.EnvironmentResponse) map[string]interface{} {
+	configs := map[string]interface{}{}
+	if env == nil {
+		return configs
+	}
+	if rc := runtimeClassForIsolationTier(env.IsolationTier); rc != "" {
+		configs["runtimeClassName"] = rc
+	}
+	return configs
+}
+
 // buildTraitEnvConfigs builds the traitEnvironmentConfigs map for a release binding.
 // Keys must be trait instance names (format: "{componentName}-{traitName}") because
 // OpenChoreo's rendering engine looks up traitEnvironmentConfigs by instance name.
@@ -2993,20 +3209,22 @@ func allPipelineEnvironmentNames(promotionPaths []models.PromotionPath) map[stri
 // org-level environment (Section 2.1 of the AgentID architecture doc), but a
 // project only ever shows the bindings for environments in its own pipeline —
 // this filters the org-wide result down to that visibility rule. A safe GET:
-// it never returns or destroys a secret. Use ClaimAgentIdentitySecret to
-// actually retrieve an unclaimed External agent's secret.
-func (s *agentManagerService) GetAgentIdentity(ctx context.Context, orgName string, projectName string, agentName string) ([]models.AgentIdentityEnvironmentView, error) {
-	views, err := s.agentThunderProvisioning.GetIdentityViews(ctx, orgName, projectName, agentName)
+// it never returns or destroys a secret. Use RegenerateAgentIdentitySecret to
+// obtain a secret for an External agent.
+func (s *agentManagerService) GetAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string) ([]models.AgentIdentityEnvironmentView, error) {
+	// No provisioning implementation: no identities to report.
+	if s.agentThunderProvisioning == nil {
+		return []models.AgentIdentityEnvironmentView{}, nil
+	}
+	views, err := s.agentThunderProvisioning.GetIdentityViews(ctx, ouID, projectName, agentName)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	visible, err := s.visiblePipelineEnvironments(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to get deployment pipeline for agent identity visibility", "projectName", projectName, "error", err)
-		return nil, translatePipelineError(err)
+		return nil, err
 	}
-	visible := allPipelineEnvironmentNames(pipeline.PromotionPaths)
 
 	filtered := make([]models.AgentIdentityEnvironmentView, 0, len(views))
 	for _, v := range views {
@@ -3017,46 +3235,72 @@ func (s *agentManagerService) GetAgentIdentity(ctx context.Context, orgName stri
 	return filtered, nil
 }
 
-// ClaimAgentIdentitySecret performs the one-time claim of an External agent's
-// secret for one environment. Unlike GetAgentIdentity (a safe GET), calling
-// this IS the claim — the first successful call returns and permanently
-// destroys the stored secret. Internal agents are rejected; use
-// GetAgentCredentials instead.
-func (s *agentManagerService) ClaimAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (*models.AgentClaimSecretResponse, error) {
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+// visiblePipelineEnvironments returns the set of environment names visible to
+// projectName's deployment pipeline — AgentIDs are provisioned across every
+// org-level environment (Section 2.1 of the AgentID architecture doc), but a
+// project only ever sees the ones in its own pipeline. Shared by
+// GetAgentIdentity (filtering a list) and requireVisibleEnvironment
+// (checking a single name).
+func (s *agentManagerService) visiblePipelineEnvironments(ctx context.Context, ouID, projectName string) (map[string]bool, error) {
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent for identity secret claim", "agentName", agentName, "error", err)
-		return nil, translateAgentError(err)
+		s.logger.Error("Failed to get deployment pipeline for agent identity visibility", "projectName", projectName, "error", err)
+		return nil, translatePipelineError(err)
 	}
-	if agent.Provisioning.Type != string(utils.ExternalAgent) {
-		return nil, fmt.Errorf(
-			"%w: agent %q is an internal agent — internal agent credentials are retrieved via GetAgentCredentials, not claim",
-			utils.ErrInvalidInput, agentName,
-		)
-	}
+	return allPipelineEnvironmentNames(pipeline.PromotionPaths), nil
+}
 
-	agentID, clientID, clientSecret, err := s.agentThunderProvisioning.ClaimSecret(ctx, orgName, projectName, agentName, environmentName)
+// requireVisibleEnvironment validates that environmentName is part of
+// projectName's deployment pipeline — the same visibility rule GetAgentIdentity
+// applies when filtering its org-wide binding list down to project scope.
+func (s *agentManagerService) requireVisibleEnvironment(ctx context.Context, ouID, projectName, environmentName string) error {
+	visible, err := s.visiblePipelineEnvironments(ctx, ouID, projectName)
 	if err != nil {
+		return err
+	}
+	if !visible[environmentName] {
+		return fmt.Errorf("%w: %s", utils.ErrEnvironmentNotFound, environmentName)
+	}
+	return nil
+}
+
+// GetAgentRoles returns the Thunder roles assigned to the agent's AgentID in
+// one environment, if that environment is part of this project's deployment
+// pipeline.
+func (s *agentManagerService) GetAgentRoles(ctx context.Context, ouID, projectName, agentName, environmentName string) ([]thundersvc.ThunderRole, error) {
+	if s.agentThunderProvisioning == nil {
+		return nil, fmt.Errorf("%w: %s in %s", utils.ErrAgentIdentityNotProvisioned, agentName, environmentName)
+	}
+	if err := s.requireVisibleEnvironment(ctx, ouID, projectName, environmentName); err != nil {
 		return nil, err
 	}
-	return &models.AgentClaimSecretResponse{
-		EnvironmentName: environmentName,
-		AgentID:         agentID,
-		ClientID:        clientID,
-		ClientSecret:    clientSecret,
-		Status:          models.AgentClaimSecretStatus,
-	}, nil
+	return s.agentThunderProvisioning.GetAgentRoles(ctx, ouID, projectName, agentName, environmentName)
+}
+
+// GetAgentGroups returns the Thunder groups the agent's AgentID belongs to in
+// one environment, if that environment is part of this project's deployment
+// pipeline.
+func (s *agentManagerService) GetAgentGroups(ctx context.Context, ouID, projectName, agentName, environmentName string) ([]thundersvc.ThunderGroup, error) {
+	if s.agentThunderProvisioning == nil {
+		return nil, fmt.Errorf("%w: %s in %s", utils.ErrAgentIdentityNotProvisioned, agentName, environmentName)
+	}
+	if err := s.requireVisibleEnvironment(ctx, ouID, projectName, environmentName); err != nil {
+		return nil, err
+	}
+	return s.agentThunderProvisioning.GetAgentGroups(ctx, ouID, projectName, agentName, environmentName)
 }
 
 // RegenerateAgentIdentitySecret rotates the AgentID secret for one environment.
 // The new secret is returned in the response for BOTH Internal and External
 // agents — the caller already holds agent:update and just explicitly asked
 // for a new credential, so withholding the value it produced would only
-// force a second call (GetAgentCredentials) to see it. ProvisioningType is
-// included so the caller can tell which kind of agent this is without a
-// separate lookup.
-func (s *agentManagerService) RegenerateAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error) {
-	ownership, clientID, newSecret, err := s.agentThunderProvisioning.RegenerateSecret(ctx, orgName, projectName, agentName, environmentName)
+// force a second call to fetch it separately. ProvisioningType is included
+// so the caller can tell which kind of agent this is without a separate lookup.
+func (s *agentManagerService) RegenerateAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error) {
+	if s.agentThunderProvisioning == nil {
+		return nil, utils.ErrAgentIdentityNotProvisioned
+	}
+	ownership, clientID, newSecret, err := s.agentThunderProvisioning.RegenerateSecret(ctx, ouID, projectName, agentName, environmentName)
 	if err != nil {
 		return nil, err
 	}
@@ -3065,28 +3309,39 @@ func (s *agentManagerService) RegenerateAgentIdentitySecret(ctx context.Context,
 	// secret via its SecretReference-backed env var. Force an immediate Secret
 	// re-sync + pod rollout so it picks up the rotated value. Best-effort —
 	// the rotation itself already succeeded, so the response must report it
-	// regardless; a failed refresh self-heals on the next deploy.
+	// regardless. A failed refresh does NOT self-heal on its own: the pod's
+	// env var only updates on an actual rollout, so it keeps serving the now-
+	// invalidated old secret until something else redeploys it — surfaced to
+	// the caller via WorkloadRefreshWarning instead of only being logged, so
+	// this isn't a silent failure from the API consumer's point of view.
+	var workloadRefreshWarning string
 	if ownership == models.AgentProvisioningTypeInternal {
-		if refreshErr := s.agentIdentityInjection.RefreshAfterRotation(ctx, orgName, projectName, agentName, environmentName); refreshErr != nil {
+		if refreshErr := s.agentIdentityInjection.RefreshAfterRotation(ctx, ouID, projectName, agentName, environmentName); refreshErr != nil {
 			s.logger.Warn("Failed to refresh agent identity credentials in workload after rotation",
 				"agentName", agentName, "environment", environmentName, "error", refreshErr)
+			workloadRefreshWarning = "The secret was rotated, but the running workload could not be refreshed automatically; " +
+				"it will keep using the previous secret until its next deploy, promote, or rotation."
 		}
 	}
 
 	return &models.AgentRegenerateSecretResponse{
-		EnvironmentName:  environmentName,
-		ProvisioningType: ownership,
-		ClientID:         clientID,
-		ClientSecret:     newSecret,
-		Status:           models.AgentRegenerateSecretStatus,
+		EnvironmentName:        environmentName,
+		ProvisioningType:       ownership,
+		ClientID:               clientID,
+		ClientSecret:           newSecret,
+		Status:                 models.AgentRegenerateSecretStatus,
+		WorkloadRefreshWarning: workloadRefreshWarning,
 	}, nil
 }
 
 // RevokeAgentIdentitySecret invalidates the AgentID secret for one environment.
 // It never returns a usable secret — an explicit regenerate is required
 // afterward to restore access.
-func (s *agentManagerService) RevokeAgentIdentitySecret(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error) {
-	clientID, err := s.agentThunderProvisioning.RevokeSecret(ctx, orgName, projectName, agentName, environmentName)
+func (s *agentManagerService) RevokeAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error) {
+	if s.agentThunderProvisioning == nil {
+		return models.AgentRevokeSecretResponse{}, utils.ErrAgentIdentityNotProvisioned
+	}
+	clientID, err := s.agentThunderProvisioning.RevokeSecret(ctx, ouID, projectName, agentName, environmentName)
 	if err != nil {
 		return models.AgentRevokeSecretResponse{}, err
 	}
@@ -3097,22 +3352,34 @@ func (s *agentManagerService) RevokeAgentIdentitySecret(ctx context.Context, org
 	// level (written there by the deploy flow) — removing workload-level vars
 	// while revoking any OTHER environment's credential would break the lowest
 	// environment's pod. Best-effort: the revoke itself already succeeded.
+	//
+	// includeWorkloadLevel is true only for the pipeline's lowest environment
+	// (the deploy flow's shared Workload CR only needs clearing there).
+	// workloadRefreshWarning is set on the response whenever that cleanup
+	// couldn't be confirmed, so a caller knows the running pod may still
+	// reference the revoked credential.
+	var workloadRefreshWarning string
 	includeWorkloadLevel := false
-	if pipeline, pipeErr := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName); pipeErr != nil {
+	if pipeline, pipeErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); pipeErr != nil {
 		s.logger.Warn("Failed to resolve deployment pipeline during identity revoke cleanup; skipping workload-level env removal",
 			"agentName", agentName, "environment", environmentName, "error", pipeErr)
+		workloadRefreshWarning = "Could not confirm whether this is the deployment pipeline's lowest environment, " +
+			"so its shared workload-level credentials were left untouched as a precaution."
 	} else {
 		includeWorkloadLevel = findLowestEnvironment(pipeline.PromotionPaths) == environmentName
 	}
-	if removeErr := s.agentIdentityInjection.RemoveForEnvironment(ctx, orgName, projectName, agentName, environmentName, includeWorkloadLevel); removeErr != nil {
+	if removeErr := s.agentIdentityInjection.RemoveForEnvironment(ctx, ouID, projectName, agentName, environmentName, includeWorkloadLevel); removeErr != nil {
 		s.logger.Warn("Failed to remove agent identity credentials from workload after revoke",
 			"agentName", agentName, "environment", environmentName, "error", removeErr)
+		workloadRefreshWarning = "The secret was revoked, but the running workload could not be refreshed automatically; " +
+			"it may keep referencing the revoked credential until this is confirmed or the workload is redeployed."
 	}
 
 	return models.AgentRevokeSecretResponse{
-		EnvironmentName: environmentName,
-		ClientID:        clientID,
-		Status:          models.AgentRevokeSecretStatus,
+		EnvironmentName:        environmentName,
+		ClientID:               clientID,
+		Status:                 models.AgentRevokeSecretStatus,
+		WorkloadRefreshWarning: workloadRefreshWarning,
 	}, nil
 }
 
@@ -3128,8 +3395,11 @@ func (s *agentManagerService) RevokeAgentIdentitySecret(ctx context.Context, org
 // present (any status) — the caller uses this to choose between 200 (nothing
 // new happened, here's the current state) and 202 (provisioning was just
 // kicked off in the background).
-func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, bool, error) {
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, bool, error) {
+	if s.agentThunderProvisioning == nil {
+		return models.AgentIdentityEnvironmentView{}, false, utils.ErrAgentIdentityNotProvisioned
+	}
+	agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
 		s.logger.Error("Failed to fetch agent for identity provisioning", "agentName", agentName, "error", err)
 		return models.AgentIdentityEnvironmentView{}, false, translateAgentError(err)
@@ -3141,7 +3411,7 @@ func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, orgNam
 		)
 	}
 
-	if _, err := s.ocClient.GetEnvironment(ctx, orgName, environmentName); err != nil {
+	if _, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName); err != nil {
 		s.logger.Error("Failed to fetch environment for identity provisioning", "environmentName", environmentName, "error", err)
 		return models.AgentIdentityEnvironmentView{}, false, translateEnvironmentError(err)
 	}
@@ -3152,13 +3422,13 @@ func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, orgNam
 	}
 
 	alreadyExisted, err := s.agentThunderProvisioning.ProvisionForEnvironmentIfMissing(
-		ctx, orgName, projectName, agentName, environmentName, models.AgentProvisioningTypeExternal, requestedBy,
+		ctx, ouID, projectName, agentName, environmentName, models.AgentProvisioningTypeExternal, requestedBy,
 	)
 	if err != nil {
 		return models.AgentIdentityEnvironmentView{}, false, err
 	}
 
-	views, err := s.agentThunderProvisioning.GetIdentityViews(ctx, orgName, projectName, agentName)
+	views, err := s.agentThunderProvisioning.GetIdentityViews(ctx, ouID, projectName, agentName)
 	if err != nil {
 		return models.AgentIdentityEnvironmentView{}, alreadyExisted, err
 	}
@@ -3172,48 +3442,15 @@ func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, orgNam
 	return models.AgentIdentityEnvironmentView{}, alreadyExisted, fmt.Errorf("agent thunder binding for %s/%s vanished immediately after being provisioned", agentName, environmentName)
 }
 
-// GetAgentCredentials returns the current client ID and secret for an Internal
-// agent in one environment — repeatable, unlike the External agent's one-time
-// claim via ClaimAgentIdentitySecret. Internal agents have no other way to
-// retrieve their own credential today; Gateway Binding (automatically injecting
-// it into the workload) is a later phase. Rejects External agents outright —
-// they already have their own retrieval path (ClaimAgentIdentitySecret's
-// one-time claim, or RegenerateAgentIdentitySecret), and letting them use this
-// endpoint too would defeat the point of that one-time claim design.
-func (s *agentManagerService) GetAgentCredentials(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (models.AgentCredentialsResponse, error) {
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
-	if err != nil {
-		s.logger.Error("Failed to fetch agent for credential retrieval", "agentName", agentName, "error", err)
-		return models.AgentCredentialsResponse{}, translateAgentError(err)
-	}
-	if agent.Provisioning.Type != string(utils.InternalAgent) {
-		return models.AgentCredentialsResponse{}, fmt.Errorf(
-			"%w: agent %q is an external agent — external agent credentials are retrieved via DELETE .../identities/secrets (one-time claim) or POST .../identities (regenerate), not this endpoint",
-			utils.ErrInvalidInput, agentName,
-		)
-	}
-
-	agentID, clientID, clientSecret, err := s.agentThunderProvisioning.GetCredentials(ctx, orgName, projectName, agentName, environmentName)
-	if err != nil {
-		return models.AgentCredentialsResponse{}, err
-	}
-	return models.AgentCredentialsResponse{
-		EnvironmentName: environmentName,
-		AgentID:         agentID,
-		ClientID:        clientID,
-		ClientSecret:    clientSecret,
-	}, nil
-}
-
 // PromoteAgent promotes an agent from one environment to another.
-func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, projectName string, agentName string, req *spec.PromoteAgentRequest) error {
-	s.logger.Info("Promoting agent", "agentName", agentName, "orgName", orgName, "projectName", projectName,
+func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.PromoteAgentRequest) error {
+	s.logger.Info("Promoting agent", "agentName", agentName, "ouID", ouID, "projectName", projectName,
 		"sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment)
 
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return translateOrgError(err)
 	}
 
@@ -3228,9 +3465,9 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	}
 
 	// Validate promotion path exists: get deployment pipeline and verify source → target is valid
-	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, orgName, projectName)
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to fetch deployment pipeline", "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch deployment pipeline", "ouID", ouID, "projectName", projectName, "error", err)
 		return translatePipelineError(err)
 	}
 
@@ -3239,7 +3476,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	}
 
 	// Check if a deployment is already in progress in target environment
-	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, orgName, agentName, req.TargetEnvironment)
+	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, ouID, agentName, req.TargetEnvironment)
 	if err != nil {
 		s.logger.Warn("Failed to check deployment status in target environment", "agentName", agentName, "environment", req.TargetEnvironment, "error", err)
 	} else if inProgress {
@@ -3249,14 +3486,14 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	// System-managed env vars (LLM provider URL/key, MCP, etc.) live per-environment in
 	// agent_env_config_variables_mapping. Promotion must enforce this invariant: if the
 	// SOURCE environment has any system-managed vars, the TARGET environment must also
-	// have its own — otherwise the agent would silently lose its LLM. This check runs in
+	// have its own — otherwise the agent would silently lose those managed bindings. This check runs in
 	// both useConfigFromSourceEnv branches so the rule is uniform.
-	srcSystemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agentName, orgName, req.SourceEnvironment)
+	srcSystemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agentName, ouID, projectName, req.SourceEnvironment)
 	if err != nil {
 		s.logger.Error("Failed to fetch source env system-managed env var keys for promotion", "agentName", agentName, "error", err)
 		return fmt.Errorf("failed to fetch source env system-managed keys: %w", err)
 	}
-	tgtSystemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agentName, orgName, req.TargetEnvironment)
+	tgtSystemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agentName, ouID, projectName, req.TargetEnvironment)
 	if err != nil {
 		s.logger.Error("Failed to fetch target env system-managed env var keys for promotion", "agentName", agentName, "error", err)
 		return fmt.Errorf("failed to fetch target env system-managed keys: %w", err)
@@ -3271,7 +3508,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	// whether we're cloning from source or taking user overrides.
 	var tgtSystemEnvVars []client.EnvVar
 	if len(tgtSystemKeys) > 0 {
-		tgtSystemEnvVars, err = s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, orgName, req.TargetEnvironment)
+		tgtSystemEnvVars, err = s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, ouID, projectName, req.TargetEnvironment)
 		if err != nil {
 			s.logger.Error("Failed to build target env system-managed vars from config", "agentName", agentName, "error", err)
 			return fmt.Errorf("failed to build target env system-managed vars: %w", err)
@@ -3285,56 +3522,72 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	// This runs AFTER the src-vs-tgt validation above, which must only compare
 	// DB-backed LLM/system configuration. The target environment's own identity
 	// vars are appended below.
-	if srcSystemKeys == nil {
-		srcSystemKeys = map[string]bool{}
-	}
-	if tgtSystemKeys == nil {
-		tgtSystemKeys = map[string]bool{}
-	}
-	for k := range AgentIdentityEnvVarKeys() {
-		srcSystemKeys[k] = true
-		tgtSystemKeys[k] = true
-	}
+	srcSystemKeys = mergeAgentIdentityEnvVarKeys(srcSystemKeys)
+	tgtSystemKeys = mergeAgentIdentityEnvVarKeys(tgtSystemKeys)
 
 	// Best-effort kick-off: the target environment may have been added to the
 	// org AFTER this agent was created, so its AgentID binding could be
 	// missing entirely (agent-creation only provisions into environments that
-	// existed at that time). Doing this BEFORE building envOverrides below —
-	// rather than after promotion succeeds, as this used to work — matters:
-	// see the hard block right after this call.
-	var requestedBy string
-	if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
-		requestedBy = callerClaims.Sub
-	}
-	if _, err := s.agentThunderProvisioning.ProvisionForEnvironmentIfMissing(
-		ctx, orgName, projectName, agentName, req.TargetEnvironment, models.AgentProvisioningTypeInternal, requestedBy,
-	); err != nil {
-		s.logger.Warn("Failed to ensure AgentID for promotion target environment before promoting", "agentName", agentName, "environment", req.TargetEnvironment, "error", err)
+	// existed at that time). Must happen BEFORE building envOverrides below,
+	// since the hard block right after this call needs the binding's state
+	// already resolved. Skipped when AgentThunder provisioning is disabled
+	// for this deployment — nothing can create a new binding in that case,
+	// but the readiness check and hard block below still apply.
+	if s.agentThunderProvisioning != nil {
+		var requestedBy string
+		if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
+			requestedBy = callerClaims.Sub
+		}
+		if _, err := s.agentThunderProvisioning.ProvisionForEnvironmentIfMissing(
+			ctx, ouID, projectName, agentName, req.TargetEnvironment, models.AgentProvisioningTypeInternal, requestedBy,
+		); err != nil {
+			s.logger.Warn("Failed to ensure AgentID for promotion target environment before promoting", "agentName", agentName, "environment", req.TargetEnvironment, "error", err)
+		}
 	}
 
-	tgtIdentityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, orgName, projectName, agentName, req.TargetEnvironment)
+	// Read unconditionally, mirroring the deploy path (DeployAgent):
+	// s.agentThunderProvisioning only gates minting a NEW credential (the
+	// kick-off above), not reading one that already exists — a real
+	// credential can still be sitting in the shared Workload CR even after
+	// provisioning is later disabled for this deployment.
+	tgtIdentityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, req.TargetEnvironment)
 	if idErr != nil {
 		s.logger.Error("Failed to build target env agent identity env vars, aborting promotion to prevent credential loss",
 			"agentName", agentName, "environment", req.TargetEnvironment, "error", idErr)
 		return fmt.Errorf("failed to build target env agent identity env vars: %w", idErr)
 	}
-	// HARD BLOCK, not best-effort: identity credentials for the deploy flow's
-	// lowest environment are written into the shared OpenChoreo Workload CR
-	// (inherited by every environment unless a ReleaseBinding overrides it).
-	// If the target environment's own identity isn't ready yet, tgtIdentityEnvVars
-	// is empty and NOTHING would override those keys in the target's
-	// ReleaseBinding — the promoted pod would silently start up presenting the
-	// SOURCE (or lowest) environment's real client_id/client_secret, a genuine
-	// cross-environment credential leak. Refusing to promote until the
-	// target's own identity is ready is the same strategy already used a few
-	// lines above for LLM/system configuration (len(tgtSystemKeys) == 0 case).
+	if len(tgtIdentityEnvVars) == 0 && s.agentThunderProvisioning != nil {
+		// The kick-off above only just wrote a PENDING row and kicked off its
+		// Thunder call on a detached goroutine — checking readiness this soon
+		// virtually always sees it still in flight, so promoting to a brand
+		// new environment would otherwise ALWAYS fail once before a manual
+		// retry succeeds. A Thunder+OpenBao round trip normally finishes in
+		// well under a second, so give it a short, bounded chance to land
+		// before falling through to the hard block below. Only meaningful when
+		// a kick-off actually happened above — with provisioning disabled
+		// there is nothing in flight to wait out.
+		tgtIdentityEnvVars = s.pollForTargetIdentityReady(ctx, ouID, projectName, agentName, req.TargetEnvironment)
+	}
 	if len(tgtIdentityEnvVars) == 0 {
-		return fmt.Errorf(
-			"%w: agent %q's AgentID identity for target environment %q is not ready yet (still provisioning). "+
-				"Promotion is blocked to prevent the promoted pod from inheriting a different environment's credentials — "+
-				"check GET .../identities for this agent and retry once it shows status=completed for %q",
-			utils.ErrInvalidInput, agentName, req.TargetEnvironment, req.TargetEnvironment,
-		)
+		// HARD BLOCK, not best-effort: the lowest environment's real identity
+		// is written into the shared OpenChoreo Workload CR, inherited by
+		// every environment unless a ReleaseBinding overrides it. If the
+		// target's own identity isn't ready, nothing overrides those keys and
+		// the promoted pod would silently start up with the lowest
+		// environment's real credentials — a cross-environment leak. Only
+		// enforced when the lowest environment actually holds a real
+		// credential; a pipeline that has never used AgentID has nothing to
+		// leak and must not be blocked from promoting.
+		lowestEnv := findLowestEnvironment(pipeline.PromotionPaths)
+		lowestEnvVars, lowestErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, lowestEnv)
+		if lowestErr != nil {
+			s.logger.Error("Failed to check lowest env agent identity state for promotion safety, aborting promotion to prevent credential loss",
+				"agentName", agentName, "lowestEnvironment", lowestEnv, "error", lowestErr)
+			return fmt.Errorf("failed to check lowest environment agent identity state: %w", lowestErr)
+		}
+		if len(lowestEnvVars) > 0 {
+			return s.buildPromotionIdentityBlockedError(ctx, ouID, projectName, agentName, req.TargetEnvironment)
+		}
 	}
 
 	var envOverrides []client.EnvVar
@@ -3344,7 +3597,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 	if useSource {
 		// Clone the source env's workload overrides, but scrub source's system-managed
 		// keys — they're env-specific and must be replaced with the target's own.
-		srcEnvVars, srcFileVars, err := s.ocClient.GetSourceEnvWorkloadOverrides(ctx, orgName, agentName, req.SourceEnvironment)
+		srcEnvVars, srcFileVars, err := s.ocClient.GetSourceEnvWorkloadOverrides(ctx, ouID, agentName, req.SourceEnvironment)
 		if err != nil {
 			s.logger.Error("Failed to fetch source env workload overrides for promotion", "agentName", agentName, "error", err)
 			return fmt.Errorf("failed to fetch source env workload overrides: %w", err)
@@ -3370,7 +3623,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 			}
 		}
 		if len(userEnv) > 0 {
-			processed, err := s.processEnvVars(ctx, orgName, projectName, req.TargetEnvironment, agentName, userEnv, req.Files)
+			processed, err := s.processEnvVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, userEnv, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process environment variables for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process environment variables: %w", err)
@@ -3378,7 +3631,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 			envOverrides = append(envOverrides, processed...)
 		}
 		if len(req.Files) > 0 {
-			processed, err := s.processFileVars(ctx, orgName, projectName, req.TargetEnvironment, agentName, req.Files)
+			processed, err := s.processFileVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process file mounts for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process file mounts: %w", err)
@@ -3398,11 +3651,12 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 
 	// Build trait environment configs for per-environment trait overrides
 	var traitEnvConfigs map[string]interface{}
+	var promoteCTConfigs map[string]interface{}
 	isAPIAgent := agent.Type.Type == string(utils.AgentTypeAPI)
 	if isAPIAgent {
 		// Resolve config values: request > source env DB > defaults
 		var existingConfig *models.AgentConfig
-		cfg, configErr := s.agentConfigRepo.Get(orgName, projectName, agentName, req.SourceEnvironment)
+		cfg, configErr := s.agentConfigRepo.Get(ouID, projectName, agentName, req.SourceEnvironment)
 		if configErr == nil {
 			existingConfig = cfg
 		}
@@ -3425,7 +3679,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 
 		// Each environment must have its own unique artifact UUID so the gateway controller
 		// does not confuse two environments' RestApi resources (same UUID = one overwrites the other).
-		targetEnv, targetEnvErr := s.ocClient.GetEnvironment(ctx, orgName, req.TargetEnvironment)
+		targetEnv, targetEnvErr := s.ocClient.GetEnvironment(ctx, ouID, req.TargetEnvironment)
 		if targetEnvErr != nil {
 			return fmt.Errorf("failed to fetch target environment details: %w", targetEnvErr)
 		}
@@ -3435,7 +3689,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 			}
 		}
 
-		artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, orgName, projectName, agentName, targetEnv.UUID)
+		artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
 		if artifactErr != nil {
 			return fmt.Errorf("failed to ensure target env API artifact: %w", artifactErr)
 		}
@@ -3460,30 +3714,20 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 			return resolveErr
 		}
 		traitEnvConfigs = buildTraitEnvConfigs(agentName, policies, targetArtifactID, promotePythonBuildpack, promoteBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, promoteInstrumentationImage)
+		promoteCTConfigs = buildComponentTypeEnvConfigs(targetEnv)
 
-		apiKey, apiKeyErr := s.generateAgentAPIKey(ctx, orgName, projectName, agentName, req.TargetEnvironment)
+		apiKey, apiKeyErr := s.generateAgentAPIKey(ctx, ouID, projectName, agentName, req.TargetEnvironment)
 		if apiKeyErr != nil {
 			s.logger.Warn("Failed to generate agent API key for promotion", "agentName", agentName, "environment", req.TargetEnvironment, "error", apiKeyErr)
-		} else if apiKeySecretRef, apiKeySecretProperty, storeErr := s.storeAgentAPIKey(ctx, orgName, projectName, agentName, req.TargetEnvironment, apiKey); storeErr != nil {
+		} else if apiKeySecretRef, apiKeySecretProperty, storeErr := s.storeAgentAPIKey(ctx, ouID, projectName, agentName, req.TargetEnvironment, apiKey); storeErr != nil {
 			s.logger.Warn("Failed to store agent API key for promotion", "agentName", agentName, "environment", req.TargetEnvironment, "error", storeErr)
 		} else {
-			envInjKey := agentName + "-" + string(client.TraitEnvInjection)
-			// Preserve any env config buildTraitEnvConfigs already set (e.g.
-			// envInjectionEnabled for Ballerina) instead of overwriting it.
-			envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
-			if envInjCfg == nil {
-				envInjCfg = map[string]interface{}{}
-			}
-			envInjCfg["agentApiKeySecretRef"] = apiKeySecretRef
-			if apiKeySecretProperty != "" {
-				envInjCfg["agentApiKeySecretProperty"] = apiKeySecretProperty
-			}
-			traitEnvConfigs[envInjKey] = envInjCfg
+			injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
 		}
 
 		// Persist config for the target environment
 		agentConfig := &models.AgentConfig{
-			OrgName:                   orgName,
+			OUID:                      ouID,
 			ProjectName:               projectName,
 			AgentName:                 agentName,
 			EnvironmentName:           req.TargetEnvironment,
@@ -3507,34 +3751,134 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, orgName string, 
 		}
 	}
 
-	// Promote via OC client
-	if err := s.ocClient.PromoteComponent(ctx, orgName, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides, traitEnvConfigs); err != nil {
+	// Promote via OC client. The target environment's AgentID is already
+	// guaranteed to exist and be COMPLETED at this point — the pre-promote
+	// hard block above returns before reaching here otherwise — so there is
+	// nothing left to provision for it after a successful promote.
+	if err := s.ocClient.PromoteComponent(ctx, ouID, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides, traitEnvConfigs, promoteCTConfigs); err != nil {
 		s.logger.Error("Failed to promote agent", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment, "error", err)
 		return fmt.Errorf("failed to promote agent: %w", err)
 	}
 
-	// (AgentID provisioning for the target environment is now ensured, and
-	// verified ready, BEFORE promotion above — see the hard block earlier in
-	// this function. By this point tgtIdentityEnvVars was already non-empty,
-	// so there is nothing left to backfill here.)
-
 	s.logger.Info("Agent promoted successfully", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment)
 	return nil
+}
+
+// promotionIdentityPollInterval/promotionIdentityPollBudget bound
+// pollForTargetIdentityReady. Variables (not consts) so tests can shrink them
+// to keep the "still not ready after polling" path fast.
+var (
+	promotionIdentityPollInterval = 300 * time.Millisecond
+	promotionIdentityPollBudget   = 3 * time.Second
+)
+
+// pollForTargetIdentityReady gives a just-kicked-off AgentID provisioning
+// attempt (ProvisionForEnvironmentIfMissing's Thunder call runs on a detached
+// goroutine — see AgentThunderProvisioningService.ProvisionForAgent) a short,
+// bounded chance to finish before PromoteAgent's hard block gives up. Without
+// this, promoting to a target environment that didn't have a binding yet
+// would ALWAYS fail once (the goroutine can't possibly have completed a real
+// network round trip in the few microseconds since it was scheduled) before a
+// manual retry succeeds — even though a healthy Thunder+OpenBao round trip
+// normally finishes in well under a second. A genuinely stuck/slow attempt
+// still falls through to the hard block after this budget, unchanged from
+// before. Returns nil (unwrapped, not an error) if the budget elapses or ctx
+// is done first, in either case leaving the caller to hard-block as usual.
+func (s *agentManagerService) pollForTargetIdentityReady(ctx context.Context, ouID, projectName, agentName, envName string) []client.EnvVar {
+	deadline := time.Now().Add(promotionIdentityPollBudget)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(promotionIdentityPollInterval):
+		}
+		vars, err := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, envName)
+		if err != nil {
+			// A transient error here doesn't warrant retrying the poll loop —
+			// the original (pre-poll) call already succeeded moments earlier,
+			// so treat this the same as "still not ready" and let the hard
+			// block's own error path (which re-reads state) take over.
+			return nil
+		}
+		if len(vars) > 0 {
+			return vars
+		}
+	}
+	return nil
+}
+
+// buildPromotionIdentityBlockedError builds a state-specific error for
+// PromoteAgent's hard block, distinguishing WHY the target environment's
+// AgentID isn't ready — EnvVarsForEnvironment collapses several very
+// different states into the same "nothing to inject" nil (see
+// agentIdentityInjectionService.injectableBinding): no binding, still
+// provisioning, permanently failed, and revoked all look identical from
+// there. Only "still provisioning" is something a retry actually fixes; the
+// other states need a state-specific message so the caller knows what to do
+// instead of being told to simply wait and retry.
+func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Context, ouID, projectName, agentName, envName string) error {
+	if s.agentThunderProvisioning == nil {
+		// AgentID provisioning is disabled for this deployment, so nothing can
+		// ever mint the target's own credential — unlike the "just triggered"
+		// case below, this will never resolve on its own by retrying.
+		return fmt.Errorf(
+			"%w: agent %q has no AgentID identity for target environment %q, and AgentID provisioning is disabled "+
+				"for this deployment — promotion is blocked to prevent the promoted pod from inheriting a "+
+				"different environment's real credentials. Enable AgentID provisioning and provision this "+
+				"environment before promoting",
+			utils.ErrInvalidInput, agentName, envName,
+		)
+	}
+
+	state, err := s.agentThunderProvisioning.GetBindingState(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		s.logger.Warn("Failed to read agent thunder binding state for promotion error message, falling back to a generic message",
+			"agentName", agentName, "environment", envName, "error", err)
+		state = nil
+	}
+
+	switch {
+	case state == nil:
+		return fmt.Errorf(
+			"%w: agent %q has no AgentID identity for target environment %q yet — provisioning was just triggered; "+
+				"check GET .../identities for this agent and retry shortly",
+			utils.ErrInvalidInput, agentName, envName,
+		)
+	case state.Status == models.AgentThunderStatusFailed:
+		return fmt.Errorf(
+			"%w: agent %q's AgentID provisioning for target environment %q has permanently failed (%s). "+
+				"Retrying promotion will not fix this — check GET .../identities for this agent and re-provision the environment",
+			utils.ErrInvalidInput, agentName, envName, state.LastError,
+		)
+	case state.Status == models.AgentThunderStatusCompleted && !state.HasSecret:
+		return fmt.Errorf(
+			"%w: agent %q's AgentID credential for target environment %q has been revoked. "+
+				"Retrying promotion will not fix this — regenerate the credential for %q before promoting",
+			utils.ErrInvalidInput, agentName, envName, envName,
+		)
+	default: // Pending / InProgress, or any other in-flight state
+		return fmt.Errorf(
+			"%w: agent %q's AgentID identity for target environment %q is not ready yet (still provisioning). "+
+				"Promotion is blocked to prevent the promoted pod from inheriting a different environment's credentials — "+
+				"check GET .../identities for this agent and retry once it shows status=completed for %q",
+			utils.ErrInvalidInput, agentName, envName, envName,
+		)
+	}
 }
 
 // UpdateAgentDeploySettings updates per-environment deploy settings (CORS, API key security,
 // auto instrumentation) on an existing release binding without redeploying or promoting the
 // agent. Triggers a pod rollout so policy changes take effect immediately. Any field omitted
 // from the request keeps its current DB value.
-func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, orgName, projectName, agentName string, req *spec.UpdateAgentDeploySettingsRequest) error {
-	s.logger.Info("Updating agent deploy settings", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", req.EnvironmentName)
+func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouID, projectName, agentName string, req *spec.UpdateAgentDeploySettingsRequest) error {
+	s.logger.Info("Updating agent deploy settings", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", req.EnvironmentName)
 
 	if req.EnvironmentName == "" {
 		return fmt.Errorf("%w: environmentName is required", utils.ErrInvalidInput)
 	}
 
 	// Validate org/agent/env exist.
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
 		return translateOrgError(err)
 	}
@@ -3545,14 +3889,14 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, org
 	if agent.Type.Type != string(utils.AgentTypeAPI) {
 		return fmt.Errorf("%w: deploy settings only apply to API-type agents (got %q)", utils.ErrInvalidInput, agent.Type.Type)
 	}
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, orgName, req.EnvironmentName)
+	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName)
 	if err != nil {
 		return translateEnvironmentError(err)
 	}
 
 	// Resolve final settings: precedence is request → existing DB
 	var existingConfig *models.AgentConfig
-	if cfg, getErr := s.agentConfigRepo.Get(orgName, projectName, agentName, req.EnvironmentName); getErr == nil {
+	if cfg, getErr := s.agentConfigRepo.Get(ouID, projectName, agentName, req.EnvironmentName); getErr == nil {
 		existingConfig = cfg
 	}
 	tracingCfg := resolveTracingConfig(existingConfig, req.EnableAutoInstrumentation, false)
@@ -3573,7 +3917,7 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, org
 	// Each environment must keep its own existing API artifact UUID so we don't churn the
 	// gateway's RestApi binding. ensureAgentEnvAPIArtifact is idempotent: returns the existing
 	// row if one is already allocated for (agent, env).
-	artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, orgName, projectName, agentName, targetEnv.UUID)
+	artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
 	if artifactErr != nil {
 		return fmt.Errorf("failed to ensure agent env API artifact: %w", artifactErr)
 	}
@@ -3598,15 +3942,27 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, org
 	}
 	traitEnvConfigs := buildTraitEnvConfigs(agentName, policies, artifact.UUID.String(), isPythonBuildpack, isBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, instrumentationImage)
 
-	// Apply to the release binding (atomic: trait configs + restartedAt in a single update).
-	if updateErr := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, orgName, agentName, req.EnvironmentName, traitEnvConfigs); updateErr != nil {
+	// Re-attach the per-env agent API key secret ref. buildTraitEnvConfigs omits it and the update
+	// below REPLACES the binding's trait configs, so without this a non-lowest env falls back to the
+	// base (lowest env's) ref and never sees its own key — including after a regenerate. Resolving is
+	// read-only (no new key minted); it heals bindings whose ref was previously dropped.
+	if apiKeySecretRef, apiKeySecretProperty, resolveErr := s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, req.EnvironmentName); resolveErr != nil {
+		s.logger.Warn("Failed to resolve agent API key secret ref for deploy settings; env-injection trait will fall back to the base ref",
+			"agentName", agentName, "environment", req.EnvironmentName, "error", resolveErr)
+	} else {
+		injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
+	}
+
+	// Apply to the release binding (atomic: trait configs + component-type configs + restartedAt in a single update).
+	settingsCTConfigs := buildComponentTypeEnvConfigs(targetEnv)
+	if updateErr := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, ouID, agentName, req.EnvironmentName, traitEnvConfigs, settingsCTConfigs); updateErr != nil {
 		s.logger.Error("Failed to update release binding deploy settings", "agentName", agentName, "environment", req.EnvironmentName, "error", updateErr)
 		return fmt.Errorf("failed to update deploy settings: %w", updateErr)
 	}
 
 	// Persist resolved config so subsequent deploy/promote calls see the current values.
 	agentConfig := &models.AgentConfig{
-		OrgName:                   orgName,
+		OUID:                      ouID,
 		ProjectName:               projectName,
 		AgentName:                 agentName,
 		EnvironmentName:           req.EnvironmentName,
@@ -3639,8 +3995,8 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, org
 // are filtered out of req.Env server-side and re-injected from the agent's DB-tracked config,
 // so the caller never has to know about them (mirrors the deploy/promote flow).
 // Triggers a pod rollout via the same Get→mutate→Update cycle that writes the overrides.
-func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, orgName, projectName, agentName string, req *spec.UpdateAgentConfigurationsRequest) error {
-	s.logger.Info("Updating agent configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", req.EnvironmentName)
+func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, ouID, projectName, agentName string, req *spec.UpdateAgentConfigurationsRequest) error {
+	s.logger.Info("Updating agent configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", req.EnvironmentName)
 
 	if req.EnvironmentName == "" {
 		return fmt.Errorf("%w: environmentName is required", utils.ErrInvalidInput)
@@ -3650,21 +4006,21 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, org
 	}
 
 	// Validate org/agent/env exist.
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
 		return translateOrgError(err)
 	}
 	if _, err := s.ocClient.GetComponent(ctx, org.Name, projectName, agentName); err != nil {
 		return translateAgentError(err)
 	}
-	if _, err := s.ocClient.GetEnvironment(ctx, orgName, req.EnvironmentName); err != nil {
+	if _, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName); err != nil {
 		return translateEnvironmentError(err)
 	}
 
 	// Fetch system-managed env vars + their keys for the target env. We must filter the user's
 	// env list to drop these before processEnvVars (which would otherwise mangle their secret
 	// key refs), then re-append the canonical system values.
-	systemManagedEnvVars, systemManagedKeys, sysEnvErr := s.getSystemManagedEnvVars(ctx, orgName, projectName, req.EnvironmentName, agentName)
+	systemManagedEnvVars, systemManagedKeys, sysEnvErr := s.getSystemManagedEnvVars(ctx, ouID, projectName, req.EnvironmentName, agentName)
 	if sysEnvErr != nil {
 		s.logger.Warn("Failed to fetch system-managed env vars for configurations update", "agentName", agentName, "error", sysEnvErr)
 		systemManagedEnvVars = nil
@@ -3675,18 +4031,13 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, org
 	// the environment's entire env var set. Unlike the lenient LLM-var fallback
 	// above, an error here aborts: rewriting overrides without re-appending the
 	// identity vars would silently strip the agent's credentials.
-	identityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, orgName, projectName, agentName, req.EnvironmentName)
+	identityEnvVars, idErr := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, req.EnvironmentName)
 	if idErr != nil {
 		s.logger.Error("Failed to build agent identity env vars, aborting configurations update to prevent credential loss",
 			"agentName", agentName, "environment", req.EnvironmentName, "error", idErr)
 		return fmt.Errorf("failed to build agent identity env vars: %w", idErr)
 	}
-	if systemManagedKeys == nil {
-		systemManagedKeys = map[string]bool{}
-	}
-	for k := range AgentIdentityEnvVarKeys() {
-		systemManagedKeys[k] = true
-	}
+	systemManagedKeys = mergeAgentIdentityEnvVarKeys(systemManagedKeys)
 
 	// Build env overrides (nil-vs-empty has meaning at the client layer: nil = leave existing,
 	// empty slice = clear).
@@ -3703,7 +4054,7 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, org
 				}
 			}
 		}
-		processed, err := s.processEnvVars(ctx, orgName, projectName, req.EnvironmentName, agentName, userEnv, req.Files)
+		processed, err := s.processEnvVars(ctx, ouID, projectName, req.EnvironmentName, agentName, userEnv, req.Files)
 		if err != nil {
 			s.logger.Error("Failed to process env vars", "agentName", agentName, "environment", req.EnvironmentName, "error", err)
 			return fmt.Errorf("failed to process env vars: %w", err)
@@ -3720,7 +4071,7 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, org
 	// Build file overrides.
 	var fileOverrides []client.FileVar
 	if req.Files != nil {
-		processed, err := s.processFileVars(ctx, orgName, projectName, req.EnvironmentName, agentName, req.Files)
+		processed, err := s.processFileVars(ctx, ouID, projectName, req.EnvironmentName, agentName, req.Files)
 		if err != nil {
 			s.logger.Error("Failed to process file mounts", "agentName", agentName, "environment", req.EnvironmentName, "error", err)
 			return fmt.Errorf("failed to process file mounts: %w", err)
@@ -3736,7 +4087,7 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, org
 		return fmt.Errorf("%w: request must include env or files", utils.ErrInvalidInput)
 	}
 
-	if err := s.ocClient.ReplaceReleaseBindingWorkloadOverrides(ctx, orgName, agentName, req.EnvironmentName, envOverrides, fileOverrides); err != nil {
+	if err := s.ocClient.ReplaceReleaseBindingWorkloadOverrides(ctx, ouID, agentName, req.EnvironmentName, envOverrides, fileOverrides); err != nil {
 		s.logger.Error("Failed to replace release binding workload overrides", "agentName", agentName, "environment", req.EnvironmentName, "error", err)
 		return fmt.Errorf("failed to update agent configurations: %w", err)
 	}
@@ -3776,9 +4127,9 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 //   - map[string]bool: set of system-managed env var keys (for filtering from deploy request)
 func (s *agentManagerService) getSystemManagedEnvVars(
 	ctx context.Context,
-	orgName, projectName, environmentName, componentName string,
+	ouID, projectName, environmentName, componentName string,
 ) ([]client.EnvVar, map[string]bool, error) {
-	existingConfigs, err := s.ocClient.GetComponentConfigurations(ctx, orgName, projectName, componentName, environmentName)
+	existingConfigs, err := s.ocClient.GetComponentConfigurations(ctx, ouID, projectName, componentName, environmentName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3789,7 +4140,7 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 
 	// Fetch the set of SecretReference names that belong to LLM configurations for this agent
 	// and environment from the DB. These are the source of truth — provider-agnostic.
-	llmSecretRefs, err := s.agentConfigurationService.ListAgentLLMConfigSecretReferences(ctx, componentName, orgName, environmentName)
+	llmSecretRefs, err := s.agentConfigurationService.ListAgentLLMConfigSecretReferences(ctx, componentName, ouID, environmentName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch LLM config secret references: %w", err)
 	}
@@ -3850,7 +4201,7 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 // same KV path alongside env var secrets.
 func (s *agentManagerService) processEnvVars(
 	ctx context.Context,
-	orgName, projectName, environmentName, componentName string,
+	ouID, projectName, environmentName, componentName string,
 	envVars []spec.EnvironmentVariable,
 	fileMounts []spec.FileMount,
 ) ([]client.EnvVar, error) {
@@ -3859,7 +4210,7 @@ func (s *agentManagerService) processEnvVars(
 
 	// Build secret location for the secret store
 	location := secretmanagersvc.SecretLocation{
-		OrgName:         orgName,
+		OrgName:         ouID,
 		ProjectName:     projectName,
 		EnvironmentName: environmentName,
 		EntityName:      componentName,
@@ -3966,7 +4317,7 @@ func (s *agentManagerService) processEnvVars(
 // already stored in KV by processEnvVars which handles both env and file secrets).
 func (s *agentManagerService) processFileVars(
 	ctx context.Context,
-	orgName, projectName, environmentName, componentName string,
+	ouID, projectName, environmentName, componentName string,
 	fileMounts []spec.FileMount,
 ) ([]client.FileVar, error) {
 	if len(fileMounts) == 0 {
@@ -3975,7 +4326,7 @@ func (s *agentManagerService) processFileVars(
 
 	// Build secret location to derive the secretRefName
 	location := secretmanagersvc.SecretLocation{
-		OrgName:         orgName,
+		OrgName:         ouID,
 		ProjectName:     projectName,
 		EnvironmentName: environmentName,
 		EntityName:      componentName,
@@ -4120,19 +4471,19 @@ func (s *agentManagerService) syncSecrets(
 	return secretRefName, nil
 }
 
-func (s *agentManagerService) ListAgentBuilds(ctx context.Context, orgName string, projectName string, agentName string, limit int32, offset int32) ([]*models.BuildResponse, int32, error) {
-	s.logger.Info("Listing agent builds", "agentName", agentName, "orgName", orgName, "projectName", projectName, "limit", limit, "offset", offset)
+func (s *agentManagerService) ListAgentBuilds(ctx context.Context, ouID string, projectName string, agentName string, limit int32, offset int32) ([]*models.BuildResponse, int32, error) {
+	s.logger.Info("Listing agent builds", "agentName", agentName, "ouID", ouID, "projectName", projectName, "limit", limit, "offset", offset)
 	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+	_, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to validate organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate organization", "ouID", ouID, "error", err)
 		return nil, 0, translateOrgError(err)
 	}
 
 	// Check if component already exists
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
+	agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch component", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch component", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, 0, translateAgentError(err)
 	}
 
@@ -4141,25 +4492,25 @@ func (s *agentManagerService) ListAgentBuilds(ctx context.Context, orgName strin
 	}
 
 	// Fetch all builds from OpenChoreo first
-	allBuilds, err := s.ocClient.ListBuilds(ctx, orgName, projectName, agentName)
+	allBuilds, err := s.ocClient.ListBuilds(ctx, ouID, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to list builds from OpenChoreo", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to list builds from OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, 0, err
 	}
 
 	total := int32(len(allBuilds))
 	paginatedBuilds := paginateSlice(allBuilds, offset, limit)
 
-	s.logger.Info("Listed builds successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "totalBuilds", total, "returnedBuilds", len(paginatedBuilds))
+	s.logger.Info("Listed builds successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "totalBuilds", total, "returnedBuilds", len(paginatedBuilds))
 	return paginatedBuilds, total, nil
 }
 
-func (s *agentManagerService) GetBuild(ctx context.Context, orgName string, projectName string, agentName string, buildName string) (*models.BuildDetailsResponse, error) {
-	s.logger.Info("Getting build details", "agentName", agentName, "buildName", buildName, "orgName", orgName, "projectName", projectName)
+func (s *agentManagerService) GetBuild(ctx context.Context, ouID string, projectName string, agentName string, buildName string) (*models.BuildDetailsResponse, error) {
+	s.logger.Info("Getting build details", "agentName", agentName, "buildName", buildName, "ouID", ouID, "projectName", projectName)
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 	agent, err := s.ocClient.GetComponent(ctx, org.Name, projectName, agentName)
@@ -4171,43 +4522,94 @@ func (s *agentManagerService) GetBuild(ctx context.Context, orgName string, proj
 		return nil, fmt.Errorf("build operation is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 	// Fetch the build from OpenChoreo
-	build, err := s.ocClient.GetBuild(ctx, orgName, projectName, agentName, buildName)
+	build, err := s.ocClient.GetBuild(ctx, ouID, projectName, agentName, buildName)
 	if err != nil {
-		s.logger.Error("Failed to get build from OpenChoreo", "buildName", buildName, "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to get build from OpenChoreo", "buildName", buildName, "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateBuildError(err)
 	}
 
-	s.logger.Info("Fetched build successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "buildName", build.Name)
+	s.logger.Info("Fetched build successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "buildName", build.Name)
 	return build, nil
 }
 
-func (s *agentManagerService) GetAgentDeployments(ctx context.Context, orgName string, projectName string, agentName string) ([]*models.DeploymentResponse, error) {
-	s.logger.Info("Getting agent deployments", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	project, err := s.ocClient.GetProject(ctx, orgName, projectName)
+func (s *agentManagerService) GetAgentDeployments(ctx context.Context, ouID string, projectName string, agentName string) ([]*models.DeploymentResponse, error) {
+	s.logger.Info("Getting agent deployments", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+	project, err := s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "org", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "org", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 	// Get deployment pipeline name from project
 	pipelineName := project.DeploymentPipeline
-	deployments, err := s.ocClient.GetDeployments(ctx, orgName, pipelineName, projectName, agentName)
+	deployments, err := s.ocClient.GetDeployments(ctx, ouID, pipelineName, projectName, agentName)
 	if err != nil {
-		s.logger.Error("Failed to get deployments from OpenChoreo", "agentName", agentName, "pipelineName", pipelineName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to get deployments from OpenChoreo", "agentName", agentName, "pipelineName", pipelineName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, fmt.Errorf("failed to get deployments for agent %s: %w", agentName, err)
 	}
 
-	s.logger.Info("Fetched deployments successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "deploymentCount", len(deployments))
+	s.logger.Info("Fetched deployments successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "deploymentCount", len(deployments))
+
+	// Reconcile isolation-tier runtimeClassName on out-of-band bindings. OpenChoreo's AutoDeploy
+	// creates a release binding when a build completes, WITHOUT the backend's deploy-time config
+	// write — so an agent in a gVisor/Kata environment first comes up on the default runtime. The
+	// deploy-status poll is the natural point to detect that the binding now exists and correct it.
+	// Only platform-hosted API agents carry a SandboxTemplate (and thus a runtimeClassName);
+	// external agents have no pod to reconcile, so skip the work — and its per-environment API
+	// calls — entirely for them. Best-effort and idempotent: it never fails the read, is a no-op
+	// for all-runc setups, and converges in a single write per binding.
+	if agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
+		s.logger.Warn("isolation reconcile: failed to fetch agent for type gate", "agentName", agentName, "error", err)
+	} else if agent.Type.Type == string(utils.AgentTypeAPI) {
+		s.reconcileIsolationRuntimeClass(ctx, ouID, agentName, deployments)
+	}
+
 	return deployments, nil
 }
 
+// reconcileIsolationRuntimeClass ensures every deployment whose environment has an isolation tier
+// carries the matching runtimeClassName on its release binding. See EnsureReleaseBindingRuntimeClass
+// for why this is needed (AutoDeploy bypasses the deploy-time config write). Best-effort: failures
+// are logged and ignored so they never break the deployments read.
+func (s *agentManagerService) reconcileIsolationRuntimeClass(ctx context.Context, ouID, agentName string, deployments []*models.DeploymentResponse) {
+	if len(deployments) == 0 {
+		return
+	}
+	envs, err := s.ocClient.ListEnvironments(ctx, ouID)
+	if err != nil {
+		s.logger.Warn("isolation reconcile: failed to list environments", "agentName", agentName, "error", err)
+		return
+	}
+	// Map only the environments that actually have an isolation tier; for all-runc setups this
+	// stays empty and we skip the work entirely.
+	rcByEnv := make(map[string]string)
+	for _, e := range envs {
+		if rc := runtimeClassForIsolationTier(e.IsolationTier); rc != "" {
+			rcByEnv[e.Name] = rc
+		}
+	}
+	if len(rcByEnv) == 0 {
+		return
+	}
+	for _, d := range deployments {
+		rc, ok := rcByEnv[d.Environment]
+		if !ok {
+			continue
+		}
+		if err := s.ocClient.EnsureReleaseBindingRuntimeClass(ctx, ouID, agentName, d.Environment, rc); err != nil {
+			s.logger.Warn("isolation reconcile: failed to set runtimeClassName",
+				"agentName", agentName, "environment", d.Environment, "runtimeClass", rc, "error", err)
+		}
+	}
+}
+
 // UpdateAgentDeploymentState updates the deployment state of an agent in a specific environment
-func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, orgName string, projectName string, agentName string, environment string, state string) error {
-	s.logger.Info("Updating agent deployment state", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "state", state)
+func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, ouID string, projectName string, agentName string, environment string, state string) error {
+	s.logger.Info("Updating agent deployment state", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "state", state)
 
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return translateOrgError(err)
 	}
 
@@ -4222,9 +4624,9 @@ func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, or
 	}
 
 	// Validate environment exists
-	_, err = s.ocClient.GetEnvironment(ctx, orgName, environment)
+	_, err = s.ocClient.GetEnvironment(ctx, ouID, environment)
 	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
 		return translateEnvironmentError(err)
 	}
 
@@ -4240,71 +4642,71 @@ func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, or
 	}
 
 	// Update the deployment state via OpenChoreo client
-	err = s.ocClient.UpdateDeploymentState(ctx, orgName, projectName, agentName, environment, bindingState)
+	err = s.ocClient.UpdateDeploymentState(ctx, ouID, projectName, agentName, environment, bindingState)
 	if err != nil {
 		s.logger.Error("Failed to update deployment state", "agentName", agentName, "environment", environment, "state", state, "error", err)
 		return fmt.Errorf("failed to update deployment state for agent %s in environment %s: %w", agentName, environment, err)
 	}
 
-	s.logger.Info("Updated deployment state successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "state", state)
+	s.logger.Info("Updated deployment state successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "state", state)
 	return nil
 }
 
-func (s *agentManagerService) GetAgentEndpoints(ctx context.Context, orgName string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error) {
-	s.logger.Info("Getting agent endpoints", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environmentName)
+func (s *agentManagerService) GetAgentEndpoints(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error) {
+	s.logger.Info("Getting agent endpoints", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environmentName)
 	// Validate organization exists
-	org, err := s.ocClient.GetOrganization(ctx, orgName)
+	org, err := s.ocClient.GetOrganization(ctx, ouID)
 	if err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
-	project, err := s.ocClient.GetProject(ctx, orgName, projectName)
+	project, err := s.ocClient.GetProject(ctx, ouID, projectName)
 	if err != nil {
-		s.logger.Error("Failed to find project", "projectName", projectName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to find project", "projectName", projectName, "ouID", ouID, "error", err)
 		return nil, translateProjectError(err)
 	}
 	agent, err := s.ocClient.GetComponent(ctx, org.Name, project.Name, agentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch agent", "agentName", agentName, "projectName", projectName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to fetch agent", "agentName", agentName, "projectName", projectName, "ouID", ouID, "error", err)
 		return nil, translateAgentError(err)
 	}
 	if agent.Provisioning.Type != string(utils.InternalAgent) {
 		return nil, fmt.Errorf("endpoints are not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 	// Check if environment exists
-	_, err = s.ocClient.GetEnvironment(ctx, orgName, environmentName)
+	_, err = s.ocClient.GetEnvironment(ctx, ouID, environmentName)
 	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environmentName, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate environment", "environment", environmentName, "ouID", ouID, "error", err)
 		return nil, translateEnvironmentError(err)
 	}
-	s.logger.Debug("Fetching agent endpoints from OpenChoreo", "agentName", agentName, "environment", environmentName, "orgName", orgName, "projectName", projectName)
-	endpoints, err := s.ocClient.GetComponentEndpoints(ctx, orgName, projectName, agentName, environmentName)
+	s.logger.Debug("Fetching agent endpoints from OpenChoreo", "agentName", agentName, "environment", environmentName, "ouID", ouID, "projectName", projectName)
+	endpoints, err := s.ocClient.GetComponentEndpoints(ctx, ouID, projectName, agentName, environmentName)
 	if err != nil {
-		s.logger.Error("Failed to fetch endpoints", "agentName", agentName, "environment", environmentName, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch endpoints", "agentName", agentName, "environment", environmentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, fmt.Errorf("failed to get endpoints for agent %s: %w", agentName, err)
 	}
 
-	s.logger.Info("Fetched endpoints successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environmentName, "endpointCount", len(endpoints))
+	s.logger.Info("Fetched endpoints successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environmentName, "endpointCount", len(endpoints))
 	return endpoints, nil
 }
 
-func (s *agentManagerService) GetAgentConfigurations(ctx context.Context, orgName string, projectName string, agentName string, environment string) ([]models.EnvVars, error) {
-	s.logger.Info("Getting agent configurations", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
-	if _, err := s.ocClient.GetOrganization(ctx, orgName); err != nil {
-		s.logger.Error("Failed to find organization", "orgName", orgName, "error", err)
+func (s *agentManagerService) GetAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.EnvVars, error) {
+	s.logger.Info("Getting agent configurations", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
+	if _, err := s.ocClient.GetOrganization(ctx, ouID); err != nil {
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
 		return nil, translateOrgError(err)
 	}
 	// Check if environment exists
-	_, err := s.ocClient.GetEnvironment(ctx, orgName, environment)
+	_, err := s.ocClient.GetEnvironment(ctx, ouID, environment)
 	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "orgName", orgName, "error", err)
+		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
 		return nil, translateEnvironmentError(err)
 	}
 
-	s.logger.Debug("Fetching agent configurations from OpenChoreo", "agentName", agentName, "environment", environment, "orgName", orgName, "projectName", projectName)
-	configurations, err := s.ocClient.GetComponentConfigurations(ctx, orgName, projectName, agentName, environment)
+	s.logger.Debug("Fetching agent configurations from OpenChoreo", "agentName", agentName, "environment", environment, "ouID", ouID, "projectName", projectName)
+	configurations, err := s.ocClient.GetComponentConfigurations(ctx, ouID, projectName, agentName, environment)
 	if err != nil {
-		s.logger.Error("Failed to fetch configurations", "agentName", agentName, "environment", environment, "orgName", orgName, "projectName", projectName, "error", err)
+		s.logger.Error("Failed to fetch configurations", "agentName", agentName, "environment", environment, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, fmt.Errorf("failed to get configurations for agent %s: %w", agentName, err)
 	}
 
@@ -4314,8 +4716,8 @@ func (s *agentManagerService) GetAgentConfigurations(ctx context.Context, orgNam
 	// SystemInjectedEnvVars allowlist, which only covers platform-injected
 	// boot-time vars (OTEL, agent API key).
 	systemKeys := map[string]bool{}
-	if agent, agentErr := s.ocClient.GetComponent(ctx, orgName, projectName, agentName); agentErr == nil && agent != nil && agent.UUID != "" {
-		if dbKeys, listErr := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agent.Name, orgName, environment); listErr == nil {
+	if agent, agentErr := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); agentErr == nil && agent != nil && agent.UUID != "" {
+		if dbKeys, listErr := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, agent.Name, ouID, projectName, environment); listErr == nil {
 			systemKeys = dbKeys
 		} else {
 			s.logger.Warn("Failed to list system-managed env var keys; falling back to allowlist only", "agentName", agentName, "environment", environment, "error", listErr)
@@ -4334,14 +4736,14 @@ func (s *agentManagerService) GetAgentConfigurations(ctx context.Context, orgNam
 		}
 	}
 
-	s.logger.Info("Fetched configurations successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment, "configCount", len(configurations))
+	s.logger.Info("Fetched configurations successfully", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment, "configCount", len(configurations))
 	return configurations, nil
 }
 
-func (s *agentManagerService) GetAgentFileMounts(ctx context.Context, orgName string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error) {
-	s.logger.Info("Getting agent file mounts", "agentName", agentName, "orgName", orgName, "projectName", projectName, "environment", environment)
+func (s *agentManagerService) GetAgentFileMounts(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error) {
+	s.logger.Info("Getting agent file mounts", "agentName", agentName, "ouID", ouID, "projectName", projectName, "environment", environment)
 
-	fileMounts, err := s.ocClient.GetComponentFileMounts(ctx, orgName, projectName, agentName, environment)
+	fileMounts, err := s.ocClient.GetComponentFileMounts(ctx, ouID, projectName, agentName, environment)
 	if err != nil {
 		s.logger.Error("Failed to fetch file mounts", "agentName", agentName, "error", err)
 		return nil, fmt.Errorf("failed to get file mounts for agent %s: %w", agentName, err)
@@ -4351,144 +4753,19 @@ func (s *agentManagerService) GetAgentFileMounts(ctx context.Context, orgName st
 	return fileMounts, nil
 }
 
-func (s *agentManagerService) GetBuildLogs(ctx context.Context, orgName string, projectName string, agentName string, buildName string) (*models.LogsResponse, error) {
-	s.logger.Info("Getting build logs", "agentName", agentName, "buildName", buildName, "orgName", orgName, "projectName", projectName)
-	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
+// GetAgentEnvConfig returns the full per-environment agent_configs row for (agent, environment)
+// — tracing/instrumentation plus CORS and endpoint-authentication settings — or nil when none is
+// persisted yet. Unlike GetAgent (which reads only the lowest environment's config), this is scoped
+// to the requested environment so the console seeds the correct per-env values.
+func (s *agentManagerService) GetAgentEnvConfig(_ context.Context, ouID, projectName, agentName, environment string) (*models.AgentConfig, error) {
+	cfg, err := s.agentConfigRepo.Get(ouID, projectName, agentName, environment)
+	if errors.Is(err, repositories.ErrAgentConfigNotFound) {
+		return nil, nil //nolint:nilnil // "no config yet" is a valid, expected state distinct from an error
+	}
 	if err != nil {
-		s.logger.Error("Failed to validate organization", "orgName", orgName, "error", err)
-		return nil, translateOrgError(err)
+		return nil, fmt.Errorf("failed to get agent env config: %w", err)
 	}
-	// Validates the project name by checking its existence
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
-	if err != nil {
-		s.logger.Error("Failed to get OpenChoreo project", "projectName", projectName, "orgName", orgName, "error", err)
-		return nil, translateProjectError(err)
-	}
-
-	// Check if component already exists
-	_, err = s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
-	if err != nil {
-		s.logger.Error("Failed to check component existence", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
-		return nil, translateAgentError(err)
-	}
-
-	// Check if build exists
-	build, err := s.ocClient.GetBuild(ctx, orgName, projectName, agentName, buildName)
-	if err != nil {
-		s.logger.Error("Failed to get build", "buildName", buildName, "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
-		return nil, translateBuildError(err)
-	}
-
-	// Fetch the build logs from Observability service
-	buildLogsParams := observabilitysvc.BuildLogsParams{
-		NamespaceName:      orgName,
-		ProjectName:        projectName,
-		AgentComponentName: agentName,
-		BuildName:          build.Name,
-	}
-	buildLogs, err := s.observabilitySvcClient.GetBuildLogs(ctx, buildLogsParams)
-	if err != nil {
-		s.logger.Error("Failed to fetch build logs from observability service", "buildName", build.Name, "error", err)
-		return nil, fmt.Errorf("failed to fetch build logs: %w", err)
-	}
-	s.logger.Info("Fetched build logs successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "buildName", buildName, "logCount", len(buildLogs.Logs))
-	return buildLogs, nil
-}
-
-func (s *agentManagerService) GetAgentRuntimeLogs(ctx context.Context, orgName string, projectName string, agentName string, payload spec.LogFilterRequest) (*models.LogsResponse, error) {
-	s.logger.Info("Getting application logs", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
-	if err != nil {
-		s.logger.Error("Failed to validate organization", "orgName", orgName, "error", err)
-		return nil, translateOrgError(err)
-	}
-	// Validates the project name by checking its existence
-	_, err = s.ocClient.GetProject(ctx, orgName, projectName)
-	if err != nil {
-		s.logger.Error("Failed to get OpenChoreo project", "projectName", projectName, "orgName", orgName, "error", err)
-		return nil, translateProjectError(err)
-	}
-
-	// Check if component already exists
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
-	if err != nil {
-		s.logger.Error("Failed to check component existence", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
-		return nil, translateAgentError(err)
-	}
-	if agent.Provisioning.Type != string(utils.InternalAgent) {
-		return nil, fmt.Errorf("runtime logs are not supported for agent type: '%s'", agent.Provisioning.Type)
-	}
-	// Fetch environment from open choreo
-	environment, err := s.ocClient.GetEnvironment(ctx, orgName, payload.EnvironmentName)
-	if err != nil {
-		s.logger.Error("Failed to fetch environment from OpenChoreo", "environmentName", payload.EnvironmentName, "orgName", orgName, "error", err)
-		return nil, translateEnvironmentError(err)
-	}
-
-	// Fetch the run time logs from Observability service
-	componentLogsParams := observabilitysvc.ComponentLogsParams{
-		AgentComponentId: agent.UUID,
-		EnvId:            environment.UUID,
-		NamespaceName:    orgName,
-		ComponentName:    agentName,
-		ProjectName:      projectName,
-		EnvironmentName:  payload.EnvironmentName,
-	}
-	applicationLogs, err := s.observabilitySvcClient.GetComponentLogs(ctx, componentLogsParams, payload)
-	if err != nil {
-		s.logger.Error("Failed to fetch application logs from observability service", "agent", agentName, "error", err)
-		return nil, fmt.Errorf("failed to fetch application logs: %w", err)
-	}
-	s.logger.Info("Fetched application logs successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName, "logCount", len(applicationLogs.Logs))
-	return applicationLogs, nil
-}
-
-func (s *agentManagerService) GetAgentMetrics(ctx context.Context, orgName string, projectName string, agentName string, payload spec.MetricsFilterRequest) (*spec.MetricsResponse, error) {
-	s.logger.Info("Getting agent metrics", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	// Validate organization exists
-	_, err := s.ocClient.GetOrganization(ctx, orgName)
-	if err != nil {
-		s.logger.Error("Failed to validate organization", "orgName", orgName, "error", err)
-		return nil, translateOrgError(err)
-	}
-	// Validates the project name by checking its existence
-	project, err := s.ocClient.GetProject(ctx, orgName, projectName)
-	if err != nil {
-		s.logger.Error("Failed to get OpenChoreo project", "projectName", projectName, "orgName", orgName, "error", err)
-		return nil, translateProjectError(err)
-	}
-	// Fetch environment from open choreo
-	environment, err := s.ocClient.GetEnvironment(ctx, orgName, payload.EnvironmentName)
-	if err != nil {
-		s.logger.Error("Failed to fetch environment from OpenChoreo", "environmentName", payload.EnvironmentName, "orgName", orgName, "error", err)
-		return nil, translateEnvironmentError(err)
-	}
-	// Check if component already exists
-	agent, err := s.ocClient.GetComponent(ctx, orgName, projectName, agentName)
-	if err != nil {
-		s.logger.Error("Failed to check component existence", "agentName", agentName, "orgName", orgName, "projectName", projectName, "error", err)
-		return nil, translateAgentError(err)
-	}
-
-	// Fetch the metrics from Observability service
-	componentMetricsParams := observabilitysvc.ComponentMetricsParams{
-		AgentComponentId: agent.UUID,
-		EnvId:            environment.UUID,
-		ProjectId:        project.UUID,
-		NamespaceName:    orgName,
-		ProjectName:      projectName,
-		ComponentName:    agentName,
-		EnvironmentName:  payload.EnvironmentName,
-	}
-	metrics, err := s.observabilitySvcClient.GetComponentMetrics(ctx, componentMetricsParams, payload)
-	if err != nil {
-		s.logger.Error("Failed to fetch agent metrics from observability service", "agent", agentName, "error", err)
-		return nil, fmt.Errorf("failed to fetch agent metrics: %w", err)
-	}
-	s.logger.Info("Fetched agent metrics successfully", "agentName", agentName, "orgName", orgName, "projectName", projectName)
-	return utils.ConvertToMetricsResponse(metrics), nil
+	return cfg, nil
 }
 
 // modelBuildToSpecBuild converts a models.Build (from GetComponent) into a spec.Build for CreateAgent enrichment.

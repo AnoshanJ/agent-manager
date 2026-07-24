@@ -14,8 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib-vm.sh"
 # shellcheck source=../lib-advanced.sh disable=SC1091
 source "${SCRIPT_DIR}/../lib-advanced.sh"
-# shellcheck source=../lib-tls.sh disable=SC1091
-source "${SCRIPT_DIR}/../lib-tls.sh"
+# shellcheck source=../lib-certmanager.sh disable=SC1091
+source "${SCRIPT_DIR}/../lib-certmanager.sh"
 # shellcheck source=../lib-bootstrap.sh disable=SC1091
 source "${SCRIPT_DIR}/../lib-bootstrap.sh"
 
@@ -66,23 +66,35 @@ assert_eq "amp tlsEnabled (legacy key)" \
 assert_eq "amp console apiBaseUrl" \
   "console.config.apiBaseUrl=https://api.amp.203.0.113.10.sslip.io" \
   "$(grep -F 'config.apiBaseUrl' <<<"$amp")"
-assert_eq "amp console obsApiBaseUrl" \
-  "console.config.obsApiBaseUrl=https://observer.amp.203.0.113.10.sslip.io" \
-  "$(grep -F 'obsApiBaseUrl' <<<"$amp")"
+assert_eq "amp amObserverPublicURL" \
+  "agentManagerService.config.amObserverPublicURL=https://observer.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'amObserverPublicURL' <<<"$amp")"
 assert_eq "amp console instrumentationUrl" \
   "console.config.instrumentationUrl=https://gateway.amp.203.0.113.10.sslip.io/otel" \
   "$(grep -F 'instrumentationUrl' <<<"$amp")"
 assert_eq "amp console signInRedirectURL" \
   "console.config.auth.signInRedirectURL=https://console.amp.203.0.113.10.sslip.io/login" \
   "$(grep -F 'signInRedirectURL' <<<"$amp")"
-# external gateways on by default => full-URL gatewayControlPlaneUrl
+# Console/API HTTPRoute hostnames must match the public hosts Caddy forwards.
+assert_eq "amp console ocIngress hostname" \
+  "console.ocIngress.hostname=console.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'console.ocIngress.hostname' <<<"$amp")"
+assert_eq "amp api ocIngress hostname" \
+  "agentManagerService.ocIngress.hostname=api.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'agentManagerService.ocIngress.hostname' <<<"$amp")"
+# external gateways on by default => full-URL gatewayControlPlaneUrl + the
+# gateway-management service restored to LoadBalancer (chart default ClusterIP)
 assert_eq "amp cp url by default" \
   "console.config.gatewayControlPlaneUrl=https://cp.amp.203.0.113.10.sslip.io" \
   "$(grep -F 'gatewayControlPlaneUrl' <<<"$amp")"
+assert_eq "amp gateway-mgmt route hostname when cp on" \
+  "agentManagerService.ocIngress.gatewayMgmt.hostnames={cp.amp.203.0.113.10.sslip.io}" \
+  "$(grep -F 'gatewayMgmt.hostnames' <<<"$amp")"
 
 # --- build_amp_helm_args (external gateways disabled) ---
 amp_nocp="$(build_amp_helm_args 203.0.113.10 false)"
 assert_eq "amp no cp when disabled" "" "$(grep -F 'gatewayControlPlaneUrl' <<<"$amp_nocp")"
+assert_eq "amp no gateway-mgmt hostname when cp off" "" "$(grep -F 'gatewayMgmt.hostnames' <<<"$amp_nocp")"
 
 # --- build_gateway_helm_args sets the published vhost + user-token keymanager issuer ---
 gw="$(build_gateway_helm_args 203.0.113.10)"
@@ -102,11 +114,20 @@ assert_eq "gateway ThunderKeyManager public issuer" "yes" \
   "$(has "$km_json" '"name":"ThunderKeyManager","issuer":"https://thunder.amp.203.0.113.10.sslip.io"')"
 assert_eq "gateway no sparse/null keymanager" "no" "$(has "$km_json" 'null')"
 
-# --- build_observability_helm_args points the traces observer at the public issuer ---
+# --- build_observability_helm_args points the observer at the public issuer ---
 obs="$(build_observability_helm_args 203.0.113.10)"
-assert_eq "observability traces issuer -> public thunder" \
-  "tracesObserver.auth.issuer=https://thunder.amp.203.0.113.10.sslip.io" \
-  "$(grep -F 'tracesObserver.auth.issuer' <<<"$obs")"
+assert_eq "observability issuer -> public thunder" \
+  "amObserver.auth.issuer=https://thunder.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'amObserver.auth.issuer' <<<"$obs")"
+assert_eq "observability ocIngress hostname" \
+  "amObserver.ocIngress.hostname=observer.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'amObserver.ocIngress.hostname' <<<"$obs")"
+assert_eq "observability publicUrl -> public observer host" \
+  "amObserver.publicUrl=https://observer.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'amObserver.publicUrl' <<<"$obs")"
+assert_eq "observability oauth authorizationServers -> public thunder" \
+  "amObserver.oauth.authorizationServers=https://thunder.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'amObserver.oauth.authorizationServers' <<<"$obs")"
 
 # --- render_dataplane_external_ingress: public host on :443, both http+https entries
 #     bound to the internal http listener (amp-api advertises the https variant) ---
@@ -195,11 +216,12 @@ assert_eq "k3d registry mirror key untouched" \
 cf="$(render_caddyfile 203.0.113.10 "ops@example.com" false)"
 assert_eq "caddy email block" "	email ops@example.com" "$(grep -F 'email ops@example.com' <<<"$cf")"
 assert_eq "caddy console site" "console.amp.203.0.113.10.sslip.io {" "$(grep -F 'console.amp' <<<"$cf" | head -1)"
-assert_eq "caddy console upstream" "	reverse_proxy 127.0.0.1:3000" "$(grep -F '127.0.0.1:3000' <<<"$cf")"
-# Two sites proxy to 8080: the fixed platform-Thunder host, and the env-Thunder
-# wildcard (*.thunder.<domain>) added right after it — kgateway itself
-# discriminates by Host header from there (see add-environment-thunder.sh).
-assert_eq "caddy thunder upstream" "2" "$(grep -cF '127.0.0.1:8080' <<<"$cf")"
+assert_eq "caddy console upstream (via kgateway)" "	reverse_proxy 127.0.0.1:8080" \
+  "$(grep -F -A8 'console.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
+# Four sites proxy to the CP kgateway (8080): console, api, the fixed
+# platform-Thunder host, and the env-Thunder wildcard (*.thunder.<domain>) —
+# kgateway itself discriminates by Host header via each backend's HTTPRoute.
+assert_eq "caddy cp-kgateway upstream count" "4" "$(grep -cF '127.0.0.1:8080' <<<"$cf")"
 assert_eq "caddy env-thunder wildcard site" "*.thunder.amp.203.0.113.10.sslip.io {" \
   "$(grep -F '*.thunder.amp' <<<"$cf" | head -1)"
 # gateway host routes through the kgateway data plane (19080), not the ClusterIP
@@ -209,8 +231,11 @@ assert_eq "caddy gateway upstream (via kgateway)" "	reverse_proxy 127.0.0.1:1908
   "$(grep -F -A8 'gateway.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
 assert_eq "caddy no 22893 dead-end" "" "$(grep -F '127.0.0.1:22893' <<<"$cf")"
 assert_eq "caddy no cp when disabled" "" "$(grep -F 'cp.amp' <<<"$cf")"
-assert_eq "caddy api upstream" "	reverse_proxy 127.0.0.1:9000" "$(grep -F '127.0.0.1:9000' <<<"$cf")"
-assert_eq "caddy observer upstream" "	reverse_proxy 127.0.0.1:9098" "$(grep -F '127.0.0.1:9098' <<<"$cf")"
+assert_eq "caddy api upstream (via kgateway)" "	reverse_proxy 127.0.0.1:8080" \
+  "$(grep -F -A8 'api.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
+assert_eq "caddy observer upstream (via kgateway)" "	reverse_proxy 127.0.0.1:11080" "$(grep -F '127.0.0.1:11080' <<<"$cf")"
+# The old dedicated-service upstreams must be gone (ClusterIP, not node-published).
+assert_eq "caddy no 3000/9000/9098 dead-ends" "" "$(grep -E '127\.0\.0\.1:(3000|9000|9098)' <<<"$cf")"
 
 # --- render_caddyfile: always 443-only TLS-ALPN-01 (disable_redirects + per-site
 #     issuer acme/disable_http_challenge); no http mode, no port-80 redirect ---
@@ -230,7 +255,11 @@ assert_eq "no http:// public site"     "no"  "$(has "$cf_tls" 'http://console')"
 cf_default="$(render_caddyfile 203.0.113.10 "")"
 assert_eq "caddy cp on by default" "cp.amp.203.0.113.10.sslip.io {" "$(grep -F 'cp.amp' <<<"$cf_default" | head -1)"
 cf_cp="$(render_caddyfile 203.0.113.10 "" true)"
-assert_eq "caddy cp tls skip verify" "			tls_insecure_skip_verify" "$(grep -F 'tls_insecure_skip_verify' <<<"$cf_cp")"
+# cp rides the CP kgateway like console/api (BackendTLSPolicy handles the TLS
+# hop in-cluster) — no direct-to-9243 TLS transport anymore.
+assert_eq "caddy cp upstream (via kgateway)" "	reverse_proxy 127.0.0.1:8080" \
+  "$(grep -F -A8 'cp.amp.203.0.113.10.sslip.io {' <<<"$cf_cp" | grep -F 'reverse_proxy' | head -1)"
+assert_eq "caddy cp no direct 9243" "" "$(grep -F '127.0.0.1:9243' <<<"$cf_cp")"
 
 # --- build_platform_resources_helm_args: point the workload publisher at the
 #     Thunder service directly (the gateway path 404s once Thunder's vhost moves to
@@ -240,7 +269,14 @@ assert_eq "caddy cp tls skip verify" "			tls_insecure_skip_verify" "$(grep -F 't
 #     with try-out 405ing against its own host). Reads AMP_AGENTS_BASE from scope. ---
 (
   AMP_AGENTS_BASE=agents.amp.example.com
+  AMP_HOST_GATEWAY=gateway.amp.example.com
   pr="$(build_platform_resources_helm_args)"
+  # Agents run in-cluster and must use the chart's default in-cluster runtime
+  # endpoint. Overriding it with the public gateway host breaks trace export on a
+  # private-network VM, where that hostname resolves into an RFC-1918 range the
+  # sandbox NetworkPolicy blocks on :443.
+  assert_eq "platform-resources leaves agent OTEL endpoint in-cluster" "no" \
+    "$(has "$pr" 'apiPlatformGatewayVhost.otelEndpointOverride')"
   assert_eq "platform-resources oauth tokenUrl (direct svc)" \
     "global.oauth.tokenUrl=http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token" \
     "$(grep -F 'global.oauth.tokenUrl' <<<"$pr")"
@@ -364,7 +400,7 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   AMP_AGENTS_BASE=agents.amp.example.com
   cf_le="$(caddyfile letsencrypt "ops@example.com" "" "" "")"
   assert_eq "core caddy LE console site" "yes" "$(has "$cf_le" 'console.amp.example.com {')"
-  assert_eq "core caddy LE console upstream" "yes" "$(has "$cf_le" 'reverse_proxy 127.0.0.1:3000')"
+  assert_eq "core caddy LE console upstream" "yes" "$(has "$cf_le" 'reverse_proxy 127.0.0.1:8080')"
   assert_eq "core caddy LE issuer acme" "yes" "$(has "$cf_le" 'issuer acme')"
   assert_eq "core caddy LE disable_http_challenge" "yes" "$(has "$cf_le" 'disable_http_challenge')"
   assert_eq "core caddy LE email" "yes" "$(has "$cf_le" 'email ops@example.com')"
@@ -406,7 +442,7 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "upstream sets http_port" "yes" "$(has "$cf_up" 'http_port 8080')"
   assert_eq "upstream trusts proxy headers" "yes" "$(has "$cf_up" 'trusted_proxies static 0.0.0.0/0')"
   assert_eq "upstream console site is plain http" "yes" "$(has "$cf_up" 'http://console.amp.example.com:8080 {')"
-  assert_eq "upstream console upstream port" "yes" "$(has "$cf_up" 'reverse_proxy 127.0.0.1:3000')"
+  assert_eq "upstream console upstream port" "yes" "$(has "$cf_up" 'reverse_proxy 127.0.0.1:8080')"
   assert_eq "upstream no acme" "no" "$(has "$cf_up" 'issuer acme')"
   assert_eq "upstream no tls cert directive" "no" "$(has "$cf_up" 'tls /')"
   assert_eq "upstream agent wildcard plain http" "yes" "$(has "$cf_up" 'http://*.agents.amp.example.com:8080 {')"
@@ -460,261 +496,80 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "derive cp empty when external gateways off" "" "$AMP_HOST_CP"
 )
 
-# --- validate_config: complete letsencrypt config passes ---
+# --- validate_config: complete DNS-01 config passes ---
 (
-  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=letsencrypt
-  ACME_EMAIL=ops@mycompany.com
+  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; ACME_EMAIL=ops@mycompany.com
+  DNS_PROVIDER=cloudflare; CLOUDFLARE_API_TOKEN=tok
   validate_config; rc=$?
-  assert_eq "validate complete LE config rc=0" "0" "$rc"
+  assert_eq "validate complete DNS-01 config rc=0" "0" "$rc"
 )
 
-# --- validate_config: ACME_EMAIL is optional (recommended) -> letsencrypt without it passes ---
+# --- validate_config: missing ACME_EMAIL fails (required for the ACME account) ---
 (
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=letsencrypt
-  validate_config 2>/dev/null; rc=$?
-  assert_eq "validate LE without ACME_EMAIL rc=0" "0" "$rc"
+  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com
+  DNS_PROVIDER=cloudflare; CLOUDFLARE_API_TOKEN=tok
+  validate_config; rc=$?
+  assert_eq "validate missing ACME_EMAIL rc=1" "1" "$rc"
 )
 
 # --- validate_config: missing DOMAIN_BASE fails ---
 (
-  AMP_VERSION=0.15.0; TLS_MODE=letsencrypt; ACME_EMAIL=ops@mycompany.com
+  AMP_VERSION=0.15.0; ACME_EMAIL=ops@mycompany.com
+  DNS_PROVIDER=cloudflare; CLOUDFLARE_API_TOKEN=tok
   validate_config; rc=$?
   assert_eq "validate missing DOMAIN_BASE rc=1" "1" "$rc"
   assert_eq "validate names DOMAIN_BASE" "yes" \
     "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'DOMAIN_BASE' && echo yes || echo no)"
 )
 
-# --- validate_config: bad TLS_MODE fails ---
+# --- validate_config: unknown DNS_PROVIDER fails ---
 (
-  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=banana
+  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; ACME_EMAIL=ops@mycompany.com
+  DNS_PROVIDER=banana
   validate_config; rc=$?
-  assert_eq "validate bad TLS_MODE rc=1" "1" "$rc"
+  assert_eq "validate unknown DNS_PROVIDER rc=1" "1" "$rc"
 )
 
-# --- validate_config: byoc requires cert+key ---
+# --- validate_config: missing provider credentials fail and are named ---
 (
-  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=byoc
+  AMP_VERSION=0.15.0; DOMAIN_BASE=amp.mycompany.com; ACME_EMAIL=ops@mycompany.com
+  DNS_PROVIDER=cloudflare
   validate_config; rc=$?
-  assert_eq "validate byoc without cert rc=1" "1" "$rc"
-  assert_eq "validate byoc names TLS_CERT_FILE" "yes" \
-    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'TLS_CERT_FILE' && echo yes || echo no)"
+  assert_eq "validate cloudflare without token rc=1" "1" "$rc"
+  assert_eq "validate names CLOUDFLARE_API_TOKEN" "yes" \
+    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'CLOUDFLARE_API_TOKEN' && echo yes || echo no)"
 )
 
 # --- install-advanced.sh --init emits a sourceable, complete template ---
 ADV="${SCRIPT_DIR}/../install-advanced.sh"
 init_out="$(bash "$ADV" --init)"
-assert_eq "init has AMP_VERSION"  "yes" "$(has "$init_out" 'AMP_VERSION=')"
-assert_eq "init has DOMAIN_BASE"  "yes" "$(has "$init_out" 'DOMAIN_BASE=')"
-assert_eq "init has TLS_MODE"     "yes" "$(has "$init_out" 'TLS_MODE=')"
-assert_eq "init mentions byoc keys" "yes" "$(has "$init_out" 'TLS_CERT_FILE=')"
-assert_eq "init mentions upstream port" "yes" "$(has "$init_out" 'UPSTREAM_LISTEN_PORT=')"
-assert_eq "init mentions letsencrypt-dns" "yes" "$(has "$init_out" 'letsencrypt-dns')"
-assert_eq "init mentions selfsigned"      "yes" "$(has "$init_out" 'selfsigned')"
-assert_eq "init mentions DNS_PROVIDER"    "yes" "$(has "$init_out" 'DNS_PROVIDER=')"
-assert_eq "init mentions ACME_SERVER"     "yes" "$(has "$init_out" 'ACME_SERVER=')"
+assert_eq "init has AMP_VERSION"   "yes" "$(has "$init_out" 'AMP_VERSION=')"
+assert_eq "init has DOMAIN_BASE"   "yes" "$(has "$init_out" 'DOMAIN_BASE=')"
+assert_eq "init has ACME_EMAIL"    "yes" "$(has "$init_out" 'ACME_EMAIL=')"
+assert_eq "init has DNS_PROVIDER"  "yes" "$(has "$init_out" 'DNS_PROVIDER=')"
+assert_eq "init mentions ACME_SERVER" "yes" "$(has "$init_out" 'ACME_SERVER=')"
+assert_eq "init has no TLS_MODE (single DNS-01 path)" "no" "$(has "$init_out" 'TLS_MODE=')"
 # The emitted template must be valid shell (sourceable without error).
 tmp_init="$(mktemp)"; printf '%s\n' "$init_out" > "$tmp_init"
 if bash -n "$tmp_init"; then assert_eq "init template is valid shell" "0" "0"; else assert_eq "init template is valid shell" "0" "1"; fi
 rm -f "$tmp_init"
 
-# --- --dry-run renders Caddyfile + helm args for an upstream config, no cluster work ---
+# --- --dry-run renders the cert-manager resources + helm args, no cluster work ---
 tmp_cfg="$(mktemp)"
 cat > "$tmp_cfg" <<'CFG'
 AMP_VERSION=0.15.0
 DOMAIN_BASE=amp.mycompany.com
-TLS_MODE=upstream
-UPSTREAM_LISTEN_PORT=80
+ACME_EMAIL=ops@mycompany.com
+DNS_PROVIDER=cloudflare
+CLOUDFLARE_API_TOKEN=dummy-token
 EXTERNAL_GATEWAYS=true
 CFG
-# upstream mode skips cert + DNS hard checks, so dry-run can run hermetically.
 dry_out="$(bash "$ADV" --config "$tmp_cfg" --dry-run 2>&1)"
-assert_eq "dry-run renders console site" "yes" "$(has "$dry_out" 'http://console.amp.mycompany.com:80 {')"
+assert_eq "dry-run renders ACME ClusterIssuer" "yes" "$(has "$dry_out" 'kind: ClusterIssuer')"
+assert_eq "dry-run renders consolidated gateway" "yes" "$(has "$dry_out" 'kind: Gateway')"
 assert_eq "dry-run renders amp helm arg" "yes" "$(has "$dry_out" 'serverPublicURL=https://api.amp.mycompany.com')"
 assert_eq "dry-run does NOT start install" "no" "$(has "$dry_out" 'Running base installer')"
 rm -f "$tmp_cfg"
-
-# --- validate_config: UPSTREAM_LISTEN_PORT must be a valid, non-colliding port ---
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=upstream; UPSTREAM_LISTEN_PORT=8088
-  validate_config; rc=$?
-  assert_eq "validate upstream good port rc=0" "0" "$rc"
-)
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=upstream; UPSTREAM_LISTEN_PORT=http
-  validate_config; rc=$?
-  assert_eq "validate upstream non-numeric port rc=1" "1" "$rc"
-)
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=upstream; UPSTREAM_LISTEN_PORT=70000
-  validate_config; rc=$?
-  assert_eq "validate upstream out-of-range port rc=1" "1" "$rc"
-)
-(
-  # 8080 is a loopback-bound cluster port (Thunder/kgateway) -> must be rejected.
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=upstream; UPSTREAM_LISTEN_PORT=8080
-  validate_config; rc=$?
-  assert_eq "validate upstream colliding port rc=1" "1" "$rc"
-  assert_eq "validate names the collision" "yes" \
-    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'collides with a loopback-bound cluster port' && echo yes || echo no)"
-)
-
-# --- caddyfile upstream: trusted_proxies is configurable (6th arg) ---
-(
-  AMP_HOST_CONSOLE=console.amp.example.com
-  AMP_HOST_API=api.amp.example.com
-  AMP_HOST_THUNDER=thunder.amp.example.com
-  AMP_HOST_OBSERVER=observer.amp.example.com
-  AMP_HOST_GATEWAY=gateway.amp.example.com
-  AMP_HOST_CP=""
-  AMP_AGENTS_BASE=agents.amp.example.com
-  cf_tp="$(caddyfile upstream "" "" "" 80 "130.211.0.0/22 35.191.0.0/16")"
-  assert_eq "upstream custom trusted_proxies" "yes" \
-    "$(has "$cf_tp" 'trusted_proxies static 130.211.0.0/22 35.191.0.0/16')"
-)
-
-# --- tls_san_list: all hosts + agent wildcard, console first, cp gated ---
-(
-  AMP_HOST_CONSOLE=console.amp.example.com
-  AMP_HOST_API=api.amp.example.com
-  AMP_HOST_THUNDER=thunder.amp.example.com
-  AMP_HOST_OBSERVER=observer.amp.example.com
-  AMP_HOST_GATEWAY=gateway.amp.example.com
-  AMP_HOST_CP=cp.amp.example.com
-  AMP_AGENTS_BASE=agents.amp.example.com
-  sans="$(tls_san_list)"
-  assert_eq "san list console is first" "console.amp.example.com" "$(head -1 <<<"$sans")"
-  assert_eq "san list has api"      "yes" "$(has "$sans" 'api.amp.example.com')"
-  assert_eq "san list has cp"       "yes" "$(has "$sans" 'cp.amp.example.com')"
-  assert_eq "san list has agents wildcard" "yes" "$(has "$sans" '*.agents.amp.example.com')"
-  assert_eq "san list has env-thunder wildcard" "yes" "$(has "$sans" '*.thunder.amp.example.com')"
-)
-(
-  AMP_HOST_CONSOLE=console.amp.example.com
-  AMP_HOST_API=api.amp.example.com
-  AMP_HOST_THUNDER=thunder.amp.example.com
-  AMP_HOST_OBSERVER=observer.amp.example.com
-  AMP_HOST_GATEWAY=gateway.amp.example.com
-  AMP_HOST_CP=""
-  AMP_AGENTS_BASE=agents.amp.example.com
-  assert_eq "san list omits cp when empty" "no" "$(has "$(tls_san_list)" 'cp.amp.example.com')"
-)
-
-# --- build_lego_args: dns provider, email, domains per SAN, action last ---
-(
-  AMP_HOST_CONSOLE=console.amp.example.com
-  AMP_HOST_API=api.amp.example.com
-  AMP_HOST_THUNDER=thunder.amp.example.com
-  AMP_HOST_OBSERVER=observer.amp.example.com
-  AMP_HOST_GATEWAY=gateway.amp.example.com
-  AMP_HOST_CP=cp.amp.example.com
-  AMP_AGENTS_BASE=agents.amp.example.com
-  lego="$(build_lego_args ops@example.com route53 /opt/amp/certs "" run)"
-  assert_eq "lego dns provider" "yes" "$(printf '%s\n' "$lego" | grep -A1 -- '--dns' | grep -qxF 'route53' && echo yes || echo no)"
-  assert_eq "lego email"        "yes" "$(printf '%s\n' "$lego" | grep -A1 -- '--email' | grep -qxF 'ops@example.com' && echo yes || echo no)"
-  assert_eq "lego domains console" "yes" "$(has "$lego" 'console.amp.example.com')"
-  assert_eq "lego domains agent wildcard" "yes" "$(has "$lego" '*.agents.amp.example.com')"
-  assert_eq "lego action run is last" "run" "$(tail -1 <<<"$lego")"
-  assert_eq "lego no server when unset" "no" "$(has "$lego" '--server')"
-  lego_stg="$(build_lego_args ops@example.com route53 /opt/amp/certs https://acme-staging-v02.api.letsencrypt.org/directory renew)"
-  assert_eq "lego server when set" "yes" "$(printf '%s\n' "$lego_stg" | grep -A1 -- '--server' | grep -qxF 'https://acme-staging-v02.api.letsencrypt.org/directory' && echo yes || echo no)"
-  assert_eq "lego action renew is last" "renew" "$(tail -1 <<<"$lego_stg")"
-)
-
-# --- --dry-run, selfsigned: renders byoc-form Caddyfile, generates NOTHING ---
-tmp_ss="$(mktemp -d)"
-cat > "$tmp_ss/cfg" <<'CFG'
-AMP_VERSION=0.16.0
-DOMAIN_BASE=amp.mycompany.com
-TLS_MODE=selfsigned
-EXTERNAL_GATEWAYS=true
-CFG
-ss_out="$(bash "$ADV" --config "$tmp_ss/cfg" --dry-run 2>&1)"
-assert_eq "dry selfsigned serves cert file" "yes" "$(has "$ss_out" 'tls /opt/amp/certs/fullchain.pem /opt/amp/certs/privkey.pem')"
-assert_eq "dry selfsigned no acme issuer"   "no"  "$(has "$ss_out" 'issuer acme')"
-assert_eq "dry selfsigned does NOT install" "no"  "$(has "$ss_out" 'Running base installer')"
-assert_eq "dry selfsigned shows SAN plan"   "yes" "$(has "$ss_out" '*.agents.amp.mycompany.com')"
-rm -rf "$tmp_ss"
-
-# --- --dry-run, letsencrypt-dns: prints lego plan, no docker, no install ---
-tmp_dns="$(mktemp -d)"
-cat > "$tmp_dns/cfg" <<'CFG'
-AMP_VERSION=0.16.0
-DOMAIN_BASE=amp.mycompany.com
-TLS_MODE=letsencrypt-dns
-DNS_PROVIDER=route53
-ACME_EMAIL=ops@mycompany.com
-EXTERNAL_GATEWAYS=true
-CFG
-dns_out="$(bash "$ADV" --config "$tmp_dns/cfg" --dry-run 2>&1)"
-assert_eq "dry dns shows lego provider"  "yes" "$(has "$dns_out" '--dns')"
-assert_eq "dry dns shows route53"        "yes" "$(has "$dns_out" 'route53')"
-assert_eq "dry dns shows agent wildcard" "yes" "$(has "$dns_out" '*.agents.amp.mycompany.com')"
-assert_eq "dry dns serves cert file"     "yes" "$(has "$dns_out" 'tls /opt/amp/certs/fullchain.pem /opt/amp/certs/privkey.pem')"
-assert_eq "dry dns does NOT install"     "no"  "$(has "$dns_out" 'Running base installer')"
-rm -rf "$tmp_dns"
-
-# --- validate_config: letsencrypt-dns requires DNS_PROVIDER + ACME_EMAIL ---
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=letsencrypt-dns
-  DNS_PROVIDER=route53; ACME_EMAIL=ops@mycompany.com
-  validate_config; rc=$?
-  assert_eq "validate complete dns config rc=0" "0" "$rc"
-)
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=letsencrypt-dns
-  ACME_EMAIL=ops@mycompany.com
-  validate_config; rc=$?
-  assert_eq "validate dns without provider rc=1" "1" "$rc"
-  assert_eq "validate dns names DNS_PROVIDER" "yes" \
-    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'DNS_PROVIDER' && echo yes || echo no)"
-)
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=letsencrypt-dns
-  DNS_PROVIDER=route53
-  validate_config; rc=$?
-  assert_eq "validate dns without email rc=1" "1" "$rc"
-  assert_eq "validate dns names ACME_EMAIL" "yes" \
-    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'ACME_EMAIL' && echo yes || echo no)"
-)
-
-# --- validate_config: selfsigned needs nothing beyond version + domain ---
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=selfsigned
-  validate_config; rc=$?
-  assert_eq "validate selfsigned minimal rc=0" "0" "$rc"
-)
-
-# --- validate_config: bad-mode error lists the new modes ---
-(
-  AMP_VERSION=0.16.0; DOMAIN_BASE=amp.mycompany.com; TLS_MODE=banana
-  validate_config 2>/dev/null
-  assert_eq "bad-mode error mentions letsencrypt-dns" "yes" \
-    "$(printf '%s\n' "${CONFIG_ERRORS[@]}" | grep -qF 'letsencrypt-dns' && echo yes || echo no)"
-)
-
-# --- render_renewal_units: emits a renew service (lego renew + caddy reload) + timer ---
-(
-  AMP_HOST_CONSOLE=console.amp.example.com
-  AMP_HOST_API=api.amp.example.com
-  AMP_HOST_THUNDER=thunder.amp.example.com
-  AMP_HOST_OBSERVER=observer.amp.example.com
-  AMP_HOST_GATEWAY=gateway.amp.example.com
-  AMP_HOST_CP=cp.amp.example.com
-  AMP_AGENTS_BASE=agents.amp.example.com
-  ACME_EMAIL=ops@example.com DNS_PROVIDER=route53
-  units="$(render_renewal_units /opt/amp/certs /opt/amp/amp-config.env)"
-  assert_eq "renewal runs lego renew"   "yes" "$(has "$units" 'goacme/lego')"
-  # lego v5 dropped the global flags build_lego_args emits, so the image must stay
-  # pinned to v4.x; :latest (now v5) breaks issuance with "flag not defined".
-  assert_eq "renewal lego pinned not :latest" "no"  "$(has "$units" 'goacme/lego:latest')"
-  assert_eq "renewal lego pinned to v4"       "yes" "$(has "$units" 'goacme/lego:v4')"
-  assert_eq "renewal ExecStart action is renew" "yes" \
-    "$(grep '^ExecStart=' <<<"$units" | grep -qE ' renew$' && echo yes || echo no)"
-  assert_eq "renewal reloads caddy"     "yes" "$(has "$units" 'docker exec amp-caddy caddy reload')"
-  assert_eq "renewal reads env-file"    "yes" "$(has "$units" '--env-file /opt/amp/amp-config.env')"
-  assert_eq "renewal timer is daily"    "yes" "$(has "$units" 'OnCalendar=daily')"
-  assert_eq "renewal has unit separator" "yes" "$(has "$units" '---UNIT-SEPARATOR---')"
-)
 
 # --- inotify_bump_target: bump to floor only when below it (or unreadable) ---
 assert_eq "inotify below floor bumps"         "512"    "$(inotify_bump_target 128 512)"
@@ -723,6 +578,19 @@ assert_eq "inotify above floor never lowers"  ""       "$(inotify_bump_target 10
 assert_eq "inotify empty current bumps"       "512"    "$(inotify_bump_target "" 512)"
 assert_eq "inotify non-numeric current bumps" "512"    "$(inotify_bump_target foo 512)"
 assert_eq "inotify watches floor"             "524288" "$(inotify_bump_target 8192 524288)"
+
+# --- _public_ip: succeeds with empty output when every endpoint is unreachable
+# (egress-restricted VM). install-advanced.sh assigns its output under set -e, so a
+# non-zero status would abort the install instead of skipping the public-IP candidate. ---
+(
+  # shellcheck disable=SC2329  # invoked indirectly by _public_ip
+  curl() { return 6; }   # shadow the binaries: every probe fails
+  # shellcheck disable=SC2329
+  wget() { return 4; }
+  out="$(_public_ip)"; rc=$?
+  assert_eq "_public_ip offline exit status"  "0" "$rc"
+  assert_eq "_public_ip offline output empty" ""  "$out"
+)
 
 if [[ -s "$FAILLOG" ]]; then echo "TESTS FAILED"; exit 1; fi
 echo "ALL TESTS PASSED"

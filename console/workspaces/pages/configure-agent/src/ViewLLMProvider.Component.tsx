@@ -26,6 +26,7 @@ import {
 import {
   CodeBlock,
   PolicyListSection,
+  usePipelineEnvironmentsState,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
 import {
@@ -53,8 +54,8 @@ import { absoluteRouteMap } from "@agent-management-platform/types";
 import {
   useGetAgent,
   useGetAgentModelConfig,
+  useLLMPoliciesCatalog,
   useListCatalogLLMProviders,
-  useListEnvironments,
   useListLLMProviderTemplates,
   useUpdateAgentModelConfig,
 } from "@agent-management-platform/api-client";
@@ -63,6 +64,7 @@ import { ProviderSelectDrawer } from "./ProviderSelectDrawer";
 import { EmptyConfigCard } from "./Configure/subComponents/EmptyConfigCard";
 import { EnvironmentVariablesGuideDrawer } from "./Configure/subComponents/EnvironmentVariablesGuideDrawer";
 import { LLMProxyAPIKeysSection } from "./Configure/subComponents/LLMProxyAPIKeysSection";
+import { CONFIGURE_TAB_PARAM } from "./configureTabs";
 
 function generateDisplayName(key: string): string {
   switch (key) {
@@ -187,17 +189,17 @@ export const ViewLLMProviderComponent: React.FC = () => {
 
   const backHref =
     orgId && projectId && agentId
-      ? generatePath(
+      ? `${generatePath(
         absoluteRouteMap.children.org.children.projects.children.agents
           .children.configure.path,
         { orgId, projectId, agentId },
-      )
+      )}?${CONFIGURE_TAB_PARAM}=llm`
       : "#";
 
   const {
     data: config,
-    isLoading,
-    isError,
+    isLoading: isLoadingConfig,
+    isError: isConfigError,
   } = useGetAgentModelConfig({
     orgName: orgId,
     projName: projectId,
@@ -205,9 +207,13 @@ export const ViewLLMProviderComponent: React.FC = () => {
     configId,
   });
 
-  const { data: environments = [] } = useListEnvironments({
-    orgName: orgId,
-  });
+  const {
+    environments,
+    isLoading: isLoadingEnvironments,
+    isError: isEnvironmentsError,
+  } = usePipelineEnvironmentsState(orgId, projectId);
+
+  const isLoading = isLoadingConfig || isLoadingEnvironments;
 
   const { data: agent } = useGetAgent({
     orgName: orgId,
@@ -225,6 +231,19 @@ export const ViewLLMProviderComponent: React.FC = () => {
   const { data: templatesData } = useListLLMProviderTemplates({
     orgName: orgId,
   });
+
+  // Friendly-name lookup for guardrails. Same gateway-manifest + hub-enriched
+  // catalog the picker uses (react-query dedupes this with the drawer's own
+  // fetch), consulted only to label already-saved guardrails — which persist as
+  // name/version/params and so carry no displayName of their own.
+  const { data: guardrailCatalog } = useLLMPoliciesCatalog(orgId);
+  const guardrailDisplayNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const policy of guardrailCatalog?.data ?? []) {
+      if (policy.displayName) names.set(policy.name, policy.displayName);
+    }
+    return names;
+  }, [guardrailCatalog]);
 
   const updateConfig = useUpdateAgentModelConfig();
 
@@ -322,8 +341,16 @@ export const ViewLLMProviderComponent: React.FC = () => {
   }, [catalogProvider, templatesData]);
 
   const guardrails = useMemo(
-    () => guardrailsByEnv[selectedEnvName] ?? [],
-    [guardrailsByEnv, selectedEnvName],
+    () =>
+      (guardrailsByEnv[selectedEnvName] ?? []).map((g) => ({
+        ...g,
+        // Resolve the label at render time (never persisted): guardrails added
+        // this session already carry the drawer's displayName; ones loaded from
+        // the saved config don't, so fall back to the catalog lookup, then name.
+        displayName:
+          g.displayName ?? guardrailDisplayNames.get(g.name) ?? g.name,
+      })),
+    [guardrailsByEnv, selectedEnvName, guardrailDisplayNames],
   );
 
   const isDirty = useMemo(() => {
@@ -425,11 +452,19 @@ export const ViewLLMProviderComponent: React.FC = () => {
       }
     > = {};
 
-    // Cover both environments that already have a mapping and ones that only
+    // Cover active environments that already have a mapping and ones that only
     // gained a provider in this session (newly selected for an empty env).
+    // Deleted environments are returned by the backend under their UUID as a
+    // fallback key; sending that UUID back as an environment name makes update
+    // fail before reconciliation can remove the stale mapping.
+    const activeEnvNames = new Set(environments.map((env) => env.name));
     const editedEnvNames = new Set([
-      ...Object.keys(config.envMappings ?? {}),
-      ...Object.keys(pendingProviderByEnv),
+      ...Object.keys(config.envMappings ?? {}).filter((envName) =>
+        activeEnvNames.has(envName),
+      ),
+      ...Object.keys(pendingProviderByEnv).filter((envName) =>
+        activeEnvNames.has(envName),
+      ),
     ]);
 
     for (const envName of editedEnvNames) {
@@ -517,9 +552,8 @@ export const ViewLLMProviderComponent: React.FC = () => {
     envVarNames,
     pendingProviderByEnv,
     providers,
+    environments,
     updateConfig,
-    navigate,
-    backHref,
   ]);
 
   if (isLoading) {
@@ -539,7 +573,22 @@ export const ViewLLMProviderComponent: React.FC = () => {
     );
   }
 
-  if (isError || !config) {
+  if (isEnvironmentsError) {
+    return (
+      <PageLayout
+        title="LLM Configuration"
+        backHref={backHref}
+        disableIcon
+        backLabel="Back to Configure"
+      >
+        <Alert severity="error" icon={<AlertTriangle size={18} />}>
+          Failed to load the project&apos;s deployment pipeline environments. Please try again.
+        </Alert>
+      </PageLayout>
+    );
+  }
+
+  if (isConfigError || !config) {
     return (
       <PageLayout
         title="LLM Configuration"
@@ -914,7 +963,9 @@ export const ViewLLMProviderComponent: React.FC = () => {
                             deployments: displayCatalog.deployments,
                             security: displayCatalog.security,
                             rateLimiting: displayCatalog.rateLimiting,
-                            policies: displayCatalog.policies,
+                            policies: displayCatalog.policies?.map(
+                              (name) => guardrailDisplayNames.get(name) ?? name,
+                            ),
                           }
                           : { name: providerConfig?.providerName ?? "" }
                       }

@@ -92,6 +92,18 @@ global:
 kubectl:
   image: bitnamilegacy/kubectl:1.32.4
 
+# Build workflow pod hardening
+buildWorkflows:
+  # Run build pods inside a Linux user namespace (hostUsers: false) so the
+  # build's root user is unprivileged on the node. This requires idmapped-mount
+  # support for every filesystem the pod mounts (overlayfs AND tmpfs/projected
+  # volumes) — in practice Linux kernel >= 6.3 (e.g. Ubuntu 24.04, Amazon Linux
+  # 2023, recent COS). On older kernels (e.g. Ubuntu 22.04's 5.15, Amazon Linux
+  # 2's 5.10) every build pod fails at sandbox creation with
+  # "failed to set MOUNT_ATTR_IDMAP ... invalid argument" — set this to false
+  # on such nodes to run builds without user namespaces.
+  userNamespaces: true
+
 # Environment configuration
 environment:
   # Name of the default environment
@@ -124,6 +136,18 @@ environment:
     # https:
     #   host: am-gateway.localhost
     #   port: 443
+
+# API Platform Gateway vhost used for externally reachable gateway URLs.
+# Sandboxed platform agents use the per-environment gateway runtime's in-cluster
+# Service for OTEL and managed LLM/MCP proxy traffic instead.
+apiPlatformGatewayVhost:
+  host: gateway.localhost
+  port: 19080
+  # Full override for the agent OTEL endpoint. When set, it replaces the
+  # in-cluster runtime URL entirely — used on installs that front a single
+  # public gateway host on :443 (e.g. a VM install), where the per-environment
+  # Kubernetes Service does not apply. Empty = derive the in-cluster Service.
+  otelEndpointOverride: ""
 
 # Deployment Pipeline configuration
 deploymentPipeline:
@@ -161,6 +185,14 @@ authz:
     clientId: amp-api-client
     # Role to assign (admin grants full access to OpenChoreo APIs)
     role: admin
+  # AM Observer Client authorization binding
+  amObserverClient:
+    # Client ID used by agent-manager-observer's outbound calls to the
+    # OpenChoreo observer (must match Thunder OAuth client_id seeded by
+    # wso2-amp-thunder-extension's amObserverClient)
+    clientId: am-observer-client
+    # Minimal read-only role for observability data (traces/logs/metrics)
+    role: amp-observer-reader
 
 # Gateway TLS certificate configuration
 gatewayTls:
@@ -193,4 +225,3 @@ gatewayTls:
     name: openchoreo-data-plane-selfsigned-issuer
     # Issuer kind: Issuer or ClusterIssuer
     kind: Issuer
-

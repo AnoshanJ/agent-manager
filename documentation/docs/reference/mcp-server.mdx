@@ -1,6 +1,6 @@
 # MCP Server
 
-WSO2 Agent Manager (AMP) ships a Model Context Protocol (MCP) server that lets MCP-capable AI assistants — Claude Code, Codex, Cursor, and others — drive the platform directly from the developer's terminal. Through the server, an assistant can list projects, register agents, trigger builds, deploy images, and inspect runtime traces and logs without leaving the conversation.
+WSO2 Agent Manager (AMP) ships a Model Context Protocol (MCP) server that lets MCP-capable AI assistants — Claude Code, Codex, Cursor, and others — drive the platform directly from the developer's terminal. Through the server, an assistant can list projects, register agents, trigger builds, and deploy images without leaving the conversation.
 
 ## Overview
 
@@ -10,7 +10,7 @@ A single OAuth client (`am-mcp`) is pre-registered in Thunder out of the box, so
 
 ## Available Tools
 
-The MCP server provides **19 tools** organized into five toolsets covering the agent lifecycle — from creating a project through observing a deployed agent's traces.
+The MCP server provides **12 tools** organized into four toolsets covering the agent lifecycle — from creating a project through deploying an agent. Trace, log, and metrics tools live on a separate server; see [Observer MCP Server](./observer-mcp-server.mdx).
 
 <details>
 <summary><strong>Project Toolset (3 tools)</strong></summary>
@@ -31,13 +31,12 @@ The MCP server provides **19 tools** organized into five toolsets covering the a
 </details>
 
 <details>
-<summary><strong>Build Toolset (4 tools)</strong></summary>
+<summary><strong>Build Toolset (3 tools)</strong></summary>
 
 Internal agents only — external agents are never built by the platform.
 
 - `list_builds` — Paginated list of builds for an agent, including status, image ID, and timestamps. Includes a `retry_after_seconds` hint when a build is still in progress.
 - `get_build_details` — Detailed view of a single build: steps, durations, commit, and build parameters.
-- `get_build_logs` — Step-by-step stdout/stderr produced while packaging the agent source into a runnable image.
 - `build_agent` — Trigger a fresh build from a specific commit (defaults to the latest commit on the configured branch). Returns immediately — successful builds trigger deployment automatically, so the assistant only needs to poll `get_build_details` for completion.
 
 </details>
@@ -51,18 +50,6 @@ Internal agents only — external agents are never built by the platform.
 
 </details>
 
-<details>
-<summary><strong>Observability Toolset (6 tools)</strong></summary>
-
-- `get_runtime_logs` — Application logs emitted by a deployed agent. Filter by time window (RFC3339, max 14 days), log levels (`DEBUG`, `INFO`, `WARN`, `ERROR`), sort order, and free-text search.
-- `get_metrics` — CPU and memory usage, request, and limit metrics for a deployment over a time range.
-- `list_traces` — Summary view of recent traces for an agent (trace ID, root span, duration, span count, token usage, status). Optional `include_io` flag attaches input/output payloads.
-- `get_traces` — Traces with full span details. Supports server-side condition filters: `error_status`, `high_latency`, `high_token_usage`, `tool_call_fails`, and `excessive_steps` — each with a tunable threshold parameter.
-- `get_trace_details` — Metadata and span list for a single trace by trace ID.
-- `get_span_details` — Full execution details for a single span: timing, inputs, outputs, attributes — useful for inspecting one LLM call, tool invocation, or retriever lookup inside a trace.
-
-</details>
-
 ## Finding the MCP Server URL
 
 The MCP server URL follows the public URL of the `agent-manager-service`:
@@ -71,10 +58,10 @@ The MCP server URL follows the public URL of the `agent-manager-service`:
 <server-public-url>/mcp
 ```
 
-For a stock local installation (Quick Start, docker-compose, or k3d via the bundled Helm chart), the service binds to `localhost:9000`, so the MCP server URL is:
+For a stock local installation (Quick Start, docker-compose, or k3d via the bundled Helm chart), the API is served through the OpenChoreo control-plane gateway at `api.amp.localhost:8080`, so the MCP server URL is:
 
 ```
-http://localhost:9000/mcp
+http://api.amp.localhost:8080/mcp
 ```
 
 If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value.
@@ -89,18 +76,20 @@ AMP ships a pre-registered OAuth application in Thunder for MCP clients:
 
 The client is public (no secret), PKCE is required, and the callback port is pinned to **33418**. Because the redirect URIs are baked into the OAuth client registration, every MCP client must run its local OAuth listener on port `33418` to complete the login.
 
-The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `58-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
+The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
+
+*Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On existing installs, re-run the bootstrap job — it replaces legacy MCP resource servers automatically and seeds the permissions; a `helm upgrade` alone will not re-seed, and without the permissions MCP tokens are issued with an empty scope list and every tool call returns 403.*
 
 ## Configuring AI Assistants
 
-The examples below assume the default local URL `http://localhost:9000/mcp`. Replace it with your deployment's value if different.
+The examples below assume the default local URL `http://api.amp.localhost:8080/mcp`. Replace it with your deployment's value if different.
 
 ### Claude Code
 
 Register the MCP server with Claude Code using the `am-mcp` client and the pinned callback port:
 
 ```bash
-claude mcp add --transport http agent-manager http://localhost:9000/mcp \
+claude mcp add --transport http agent-manager http://api.amp.localhost:8080/mcp \
   --client-id am-mcp \
   --callback-port 33418
 ```
@@ -129,7 +118,7 @@ command = "npx"
 args = [
   "-y",
   "mcp-remote@latest",
-  "http://localhost:9000/mcp",
+  "http://api.amp.localhost:8080/mcp",
   "--client-id", "am-mcp",
   "--callback-port", "33418",
 ]
@@ -143,5 +132,6 @@ Restart Codex (or start a new session). On the first tool call, `mcp-remote` ope
 
 ## Next Steps
 
-- Try a few prompts in Claude Code, e.g. *"List the projects in my org"*, *"Create a new Python agent from this repo"*, *"Show me the last 10 traces for agent X"*.
+- Try a few prompts in Claude Code, e.g. *"List the projects in my org"*, *"Create a new Python agent from this repo"*, *"Deploy the latest build of agent X"*.
+- See [Observer MCP Server](./observer-mcp-server.mdx) to let the same assistant inspect runtime logs, metrics, and traces for a deployed agent.
 - See [Observe Your First Agent](../tutorials/observe-first-agent.mdx) for an end-to-end walkthrough of registering and instrumenting an agent — the same flow the MCP `create_external_agent` tool automates.

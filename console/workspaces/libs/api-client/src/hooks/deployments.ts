@@ -21,10 +21,12 @@ import {
   deployAgent,
   updateAgentDeploySettings,
   updateAgentConfigurations,
+  regenerateTracingToken,
   listAgentDeployments,
   getAgentEndpoints,
   getAgentConfigurations,
   listEnvironments,
+  getEnvironment,
   getDeploymentPipeline,
   listDeploymentPipelines,
   listDataPlanes,
@@ -45,6 +47,9 @@ import type {
   UpdateAgentDeploySettingsRequest,
   UpdateAgentConfigurationsPathParams,
   UpdateAgentConfigurationsRequest,
+  RegenerateTracingTokenPathParams,
+  RegenerateTracingTokenRequest,
+  RegenerateTracingTokenResponse,
   DeploymentListResponse,
   DeploymentResponse,
   ListAgentDeploymentsPathParams,
@@ -55,6 +60,7 @@ import type {
   ConfigurationResponse,
   ListEnvironmentsPathParams,
   EnvironmentListResponse,
+  GetEnvironmentPathParams,
   GetDeploymentPipelinePathParams,
   DeploymentPipelineResponse,
   DeploymentPipelineListResponse,
@@ -129,6 +135,22 @@ export function useUpdateAgentConfigurations() {
   });
 }
 
+export function useRegenerateTracingToken() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuthHooks();
+  return useApiMutation<RegenerateTracingTokenResponse, unknown,
+  { params: RegenerateTracingTokenPathParams; body: RegenerateTracingTokenRequest }>({
+    // The drawer pushes its own detailed success/error snackbars (expiry date, restart notice),
+    // so suppress the generic ones here to avoid duplicate toasts.
+    showSuccess: false,
+    showError: false,
+    mutationFn: ({ params, body }) => regenerateTracingToken(params, body, getToken),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-deployments'] });
+    },
+  });
+}
+
 export function useListAgentDeployments(
   params: ListAgentDeploymentsPathParams, 
   options?: { enabled?: boolean }
@@ -177,6 +199,15 @@ export function useListEnvironments(params: ListEnvironmentsPathParams) {
     queryKey: ['environments', params],
     queryFn: () => listEnvironments(params, getToken),
     enabled: !!params.orgName,
+  });
+}
+
+export function useGetEnvironment(params: GetEnvironmentPathParams) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<Environment>({
+    queryKey: ['environment', params],
+    queryFn: () => getEnvironment(params, getToken),
+    enabled: !!params.orgName && !!params.envName,
   });
 }
 

@@ -24,157 +24,146 @@ import (
 	"testing"
 	"time"
 
-	vault "github.com/hashicorp/vault/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeOpenBaoReader is a hand-written test double for the narrow openBaoReader
-// interface (mirrors the Func-field mock style used elsewhere in this codebase).
-type fakeOpenBaoReader struct {
-	ReadWithContextFunc func(ctx context.Context, path string) (*vault.Secret, error)
+// Fixed ouID/orgNamespace used by most tests below, kept deliberately distinct
+// from each other so a test that accidentally swaps the two arguments fails
+// loudly instead of passing by coincidence.
+const (
+	testOUID         = "ou-acme"
+	testOrgNamespace = "default"
+)
+
+// okReader returns a fixed clientID/secret for any (ouID, env) — the common
+// case for tests that don't care about the read itself.
+func okReader(clientID, secret string) ReadSystemClientFunc {
+	return func(context.Context, string, string) (string, string, error) {
+		return clientID, secret, nil
+	}
 }
 
-func (f *fakeOpenBaoReader) ReadWithContext(ctx context.Context, path string) (*vault.Secret, error) {
-	return f.ReadWithContextFunc(ctx, path)
-}
-
-// fakeResolveBaseURL stands in for real network probing in tests that don't care
-// about base-URL resolution itself — it always reports a fake base URL reachable
-// with no dial override.
+// fakeResolveBaseURL stands in for real network probing — always reports a
+// fake, reachable base URL with no dial override.
 func fakeResolveBaseURL(_ context.Context, _, _ string) (string, string, bool) {
 	return "http://fake-thunder:8090", "", true
 }
 
-func TestNewEnvThunderResolver_RejectsMissingConfig(t *testing.T) {
-	_, err := NewEnvThunderResolver("http://openbao:8200", "", "secret")
-	require.Error(t, err)
-}
-
 func TestEnvThunderResolver_Resolve_Success(t *testing.T) {
-	var capturedPath string
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, p string) (*vault.Secret, error) {
-			capturedPath = p
-			return &vault.Secret{
-				Data: map[string]any{
-					"data": map[string]any{
-						"client-secret": "the-system-client-secret",
-					},
-				},
-			}, nil
-		},
+	var gotOUID, gotEnv string
+	read := func(_ context.Context, ouID, env string) (string, string, error) {
+		gotOUID, gotEnv = ouID, env
+		return "amp-system-client", "the-system-client-secret", nil
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
 
-	client, err := resolver.Resolve(context.Background(), "acme", "staging")
+	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
 	require.NotNil(t, client)
-	assert.Equal(t, "secret/data/thunder-system-clients/acme/staging", capturedPath)
+	assert.Equal(t, testOUID, gotOUID, "the credential read must be scoped by ouID, not orgNamespace")
+	assert.Equal(t, "staging", gotEnv)
 }
 
-// TestEnvThunderResolver_Resolve_RejectsPathBreakingSegments guards against a
-// path.Join subtlety: it cleans its result, so a ".." segment silently escapes
-// the "thunder-system-clients" prefix even though it contains no "/".
-func TestEnvThunderResolver_Resolve_RejectsPathBreakingSegments(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(context.Context, string) (*vault.Secret, error) {
-			t.Fatal("must not read OpenBao when a segment is invalid")
-			return &vault.Secret{}, nil
-		},
-	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+// TestEnvThunderResolver_Resolve_UsesStoredClientID confirms the resolver uses
+// the client ID returned by the reader (not only the well-known constant).
+func TestEnvThunderResolver_Resolve_UsesStoredClientID(t *testing.T) {
+	resolver := newEnvThunderResolverWithReader(okReader("custom-client-id", "s3cr3t"), fakeResolveBaseURL)
 
-	cases := []struct{ org, env string }{
-		{"..", "staging"},
-		{"acme", ".."},
-		{".", "staging"},
-		{"acme", ""},
-		{"acme/evil", "staging"},
+	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
+	require.NoError(t, err)
+	tc, ok := client.(*thunderClient)
+	require.True(t, ok)
+	assert.Equal(t, "custom-client-id", tc.clientID)
+}
+
+// TestEnvThunderResolver_Resolve_RejectsPathBreakingSegments guards ouID/orgNamespace/env
+// with a clear, fast error rather than letting a nonsensical value reach the reader.
+func TestEnvThunderResolver_Resolve_RejectsPathBreakingSegments(t *testing.T) {
+	read := func(context.Context, string, string) (string, string, error) {
+		t.Fatal("must not read the store when a segment is invalid")
+		return "", "", nil // unreachable — t.Fatal above halts the test
+	}
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
+
+	cases := []struct{ ouID, ns, env string }{
+		{"..", testOrgNamespace, "staging"},
+		{testOUID, "..", "staging"},
+		{testOUID, testOrgNamespace, ".."},
+		{".", testOrgNamespace, "staging"},
+		{testOUID, ".", "staging"},
+		{testOUID, testOrgNamespace, "."},
+		{"", testOrgNamespace, "staging"},
+		{testOUID, "", "staging"},
+		{testOUID, testOrgNamespace, ""},
+		{"acme/evil", testOrgNamespace, "staging"},
 	}
 	for _, tc := range cases {
-		_, err := resolver.Resolve(context.Background(), tc.org, tc.env)
-		require.Error(t, err)
+		_, err := resolver.Resolve(context.Background(), tc.ouID, tc.ns, tc.env)
+		require.Error(t, err, "ouID=%q ns=%q env=%q", tc.ouID, tc.ns, tc.env)
 	}
 }
 
 func TestEnvThunderResolver_Resolve_Caches(t *testing.T) {
 	calls := 0
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			calls++
-			return &vault.Secret{
-				Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}},
-			}, nil
-		},
+	read := func(context.Context, string, string) (string, string, error) {
+		calls++
+		return "amp-system-client", "s3cr3t", nil
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
 
-	c1, err := resolver.Resolve(context.Background(), "acme", "staging")
+	c1, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
-	c2, err := resolver.Resolve(context.Background(), "acme", "staging")
+	c2, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
 
-	assert.Same(t, c1, c2, "a resolved client for the same org/env must be cached, not rebuilt")
-	assert.Equal(t, 1, calls, "the OpenBao secret must only be fetched once per org/env")
+	assert.Same(t, c1, c2, "a resolved client for the same ouID/namespace/env must be cached, not rebuilt")
+	assert.Equal(t, 1, calls, "the secret must only be fetched once per ouID/env")
 }
 
-// TestEnvThunderResolver_Resolve_ExpiresAfterTTL guards against a cached
-// ThunderClient (and the system-client secret baked into it) surviving
-// forever: if that secret is ever rotated (e.g. a re-bootstrap), every call
-// against a never-expiring cache would keep authenticating with the stale
-// secret until the AMS process restarts.
+// TestEnvThunderResolver_Resolve_ExpiresAfterTTL guards against a cached client
+// outliving a secret rotation — without the TTL, a rotated secret would break until restart.
 func TestEnvThunderResolver_Resolve_ExpiresAfterTTL(t *testing.T) {
 	calls := 0
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			calls++
-			return &vault.Secret{
-				Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}},
-			}, nil
-		},
+	read := func(context.Context, string, string) (string, string, error) {
+		calls++
+		return "amp-system-client", "s3cr3t", nil
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
 	now := time.Now()
 	resolver.now = func() time.Time { return now }
 	resolver.ttl = time.Minute
 
-	c1, err := resolver.Resolve(context.Background(), "acme", "staging")
+	c1, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
 
 	now = now.Add(30 * time.Second)
-	c2, err := resolver.Resolve(context.Background(), "acme", "staging")
+	c2, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
 	assert.Same(t, c1, c2, "still within TTL, must not rebuild")
 	assert.Equal(t, 1, calls)
 
 	now = now.Add(time.Minute)
-	c3, err := resolver.Resolve(context.Background(), "acme", "staging")
+	c3, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
-	assert.NotSame(t, c1, c3, "past TTL, must re-read OpenBao and rebuild so a rotated secret takes effect")
+	assert.NotSame(t, c1, c3, "past TTL, must re-read the store and rebuild so a rotated secret takes effect")
 	assert.Equal(t, 2, calls)
 }
 
 // TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight guards
-// against a thundering-herd on cold cache: many concurrent first-time Resolve calls
-// for the same org/env must share one OpenBao read and one base-URL probe, not each
-// pay that cost independently.
+// against a thundering-herd: concurrent first-time resolves must share one read/probe.
 func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t *testing.T) {
 	var readCalls, probeCalls int64
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			atomic.AddInt64(&readCalls, 1)
-			time.Sleep(20 * time.Millisecond) // widen the race window
-			return &vault.Secret{
-				Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}},
-			}, nil
-		},
+	read := func(context.Context, string, string) (string, string, error) {
+		atomic.AddInt64(&readCalls, 1)
+		time.Sleep(20 * time.Millisecond) // widen the race window
+		return "amp-system-client", "s3cr3t", nil
 	}
 	probeFn := func(_ context.Context, _, _ string) (string, string, bool) {
 		atomic.AddInt64(&probeCalls, 1)
 		return "http://fake-thunder:8090", "", true
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", probeFn)
+	resolver := newEnvThunderResolverWithReader(read, probeFn)
 
 	const goroutines = 20
 	clients := make([]ThunderClient, goroutines)
@@ -184,7 +173,7 @@ func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t
 	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
-			c, err := resolver.Resolve(context.Background(), "acme", "staging")
+			c, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 			errs[idx] = err
 			clients[idx] = c
 		}(i)
@@ -194,7 +183,7 @@ func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t
 	for i, err := range errs {
 		require.NoError(t, err, "goroutine %d", i)
 	}
-	assert.EqualValues(t, 1, atomic.LoadInt64(&readCalls), "concurrent cache misses for the same key must share one OpenBao read")
+	assert.EqualValues(t, 1, atomic.LoadInt64(&readCalls), "concurrent cache misses for the same key must share one credential read")
 	assert.EqualValues(t, 1, atomic.LoadInt64(&probeCalls), "concurrent cache misses for the same key must share one base-URL probe")
 	for i := 1; i < goroutines; i++ {
 		assert.Same(t, clients[0], clients[i], "all concurrent resolvers for the same key must get the identical client")
@@ -202,76 +191,78 @@ func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t
 }
 
 func TestEnvThunderResolver_Resolve_DifferentEnvironmentsAreNotCachedTogether(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return &vault.Secret{Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}}}, nil
-		},
-	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), fakeResolveBaseURL)
 
-	staging, err := resolver.Resolve(context.Background(), "acme", "staging")
+	staging, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
-	prod, err := resolver.Resolve(context.Background(), "acme", "prod")
+	prod, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "prod")
 	require.NoError(t, err)
 
 	assert.NotSame(t, staging, prod)
 }
 
-func TestEnvThunderResolver_Resolve_NotProvisioned_NilSecret(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return nil, nil //nolint:nilnil // simulates OpenBao's real (nil, nil) response for a missing secret
-		},
+// TestEnvThunderResolver_Resolve_DifferentOUIDsAreNotCachedTogether is the
+// multi-tenant-safety property this resolver split exists for: two tenants
+// hitting the same env name must never share a cached client (or, upstream of
+// caching, each other's credential row).
+func TestEnvThunderResolver_Resolve_DifferentOUIDsAreNotCachedTogether(t *testing.T) {
+	var gotOUIDs []string
+	read := func(_ context.Context, ouID, _ string) (string, string, error) {
+		gotOUIDs = append(gotOUIDs, ouID)
+		return "amp-system-client", "s3cr3t-" + ouID, nil
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
 
-	_, err := resolver.Resolve(context.Background(), "acme", "no-such-env")
+	acme, err := resolver.Resolve(context.Background(), "ou-acme", testOrgNamespace, "staging")
+	require.NoError(t, err)
+	other, err := resolver.Resolve(context.Background(), "ou-other", testOrgNamespace, "staging")
+	require.NoError(t, err)
+
+	assert.NotSame(t, acme, other, "same orgNamespace/env but different ouID must resolve to different clients")
+	assert.Equal(t, []string{"ou-acme", "ou-other"}, gotOUIDs, "each ouID must trigger its own credential read")
+}
+
+func TestEnvThunderResolver_Resolve_NotProvisioned_NoRow(t *testing.T) {
+	read := func(context.Context, string, string) (string, string, error) {
+		return "", "", ErrThunderNotProvisioned
+	}
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
+
+	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "no-such-env")
 	assert.True(t, errors.Is(err, ErrThunderNotProvisioned))
 }
 
-func TestEnvThunderResolver_Resolve_NotProvisioned_MissingSecretKey(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return &vault.Secret{Data: map[string]any{"data": map[string]any{}}}, nil
-		},
-	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+func TestEnvThunderResolver_Resolve_NotProvisioned_EmptySecret(t *testing.T) {
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", ""), fakeResolveBaseURL)
 
-	_, err := resolver.Resolve(context.Background(), "acme", "half-provisioned-env")
+	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "half-provisioned-env")
 	assert.True(t, errors.Is(err, ErrThunderNotProvisioned))
 }
 
-func TestEnvThunderResolver_Resolve_OpenBaoErrorPropagates(t *testing.T) {
-	boom := errors.New("connection refused")
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return nil, boom
-		},
+func TestEnvThunderResolver_Resolve_ReadErrorPropagates(t *testing.T) {
+	boom := errors.New("decrypt failed")
+	read := func(context.Context, string, string) (string, string, error) {
+		return "", "", boom
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, fakeResolveBaseURL)
 
-	_, err := resolver.Resolve(context.Background(), "acme", "staging")
+	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.Error(t, err)
-	assert.False(t, errors.Is(err, ErrThunderNotProvisioned), "a real OpenBao error must not be mistaken for not-provisioned")
+	assert.False(t, errors.Is(err, ErrThunderNotProvisioned), "a real read error must not be mistaken for not-provisioned")
 }
 
 func TestEnvThunderResolver_Resolve_UsesResolvedBaseURLAndDialOverride(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return &vault.Secret{Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}}}, nil
-		},
-	}
-	var gotOrg, gotEnv string
-	resolveBaseURL := func(_ context.Context, org, env string) (string, string, bool) {
-		gotOrg, gotEnv = org, env
+	var gotNamespace, gotEnv string
+	resolveBaseURL := func(_ context.Context, ns, env string) (string, string, bool) {
+		gotNamespace, gotEnv = ns, env
 		return "http://acme-staging.thunder.amp.localhost:8080", "host.docker.internal:8080", true
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", resolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), resolveBaseURL)
 
-	client, err := resolver.Resolve(context.Background(), "acme", "staging")
+	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
 
-	assert.Equal(t, "acme", gotOrg)
+	assert.Equal(t, testOrgNamespace, gotNamespace, "the base URL must be built from orgNamespace, not ouID")
 	assert.Equal(t, "staging", gotEnv)
 
 	tc, ok := client.(*thunderClient)
@@ -281,17 +272,12 @@ func TestEnvThunderResolver_Resolve_UsesResolvedBaseURLAndDialOverride(t *testin
 }
 
 func TestEnvThunderResolver_Resolve_ThunderUnreachable(t *testing.T) {
-	reader := &fakeOpenBaoReader{
-		ReadWithContextFunc: func(_ context.Context, _ string) (*vault.Secret, error) {
-			return &vault.Secret{Data: map[string]any{"data": map[string]any{"client-secret": "s3cr3t"}}}, nil
-		},
-	}
 	resolveBaseURL := func(_ context.Context, _, _ string) (string, string, bool) {
 		return "", "", false
 	}
-	resolver := newEnvThunderResolverWithReader(reader, "secret", resolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), resolveBaseURL)
 
-	_, err := resolver.Resolve(context.Background(), "acme", "staging")
+	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrThunderUnreachable))
 	assert.False(t, errors.Is(err, ErrThunderNotProvisioned), "unreachable-but-provisioned must not be treated as never-provisioned (that classifies as a permanent failure upstream, unreachable must be retried)")

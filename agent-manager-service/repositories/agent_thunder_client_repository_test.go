@@ -35,7 +35,7 @@ import (
 
 func newTestAgentThunderClient(org, project, agent, env string) *models.AgentThunderClient {
 	return &models.AgentThunderClient{
-		OrgName:          org,
+		OUID:             org,
 		ProjectName:      project,
 		AgentName:        agent,
 		EnvironmentName:  env,
@@ -156,7 +156,7 @@ func TestAgentThunderClientRepo_FindDue(t *testing.T) {
 
 	dueEnvs := make(map[string]bool)
 	for _, row := range due {
-		if row.OrgName == org && row.ProjectName == project && row.AgentName == agent {
+		if row.OUID == org && row.ProjectName == project && row.AgentName == agent {
 			dueEnvs[row.EnvironmentName] = true
 		}
 	}
@@ -225,74 +225,6 @@ func TestAgentThunderClientRepo_UpdateAfterAttempt_FailureSchedulesRetry(t *test
 	// but the zero-value guard in UpdateAfterAttempt is what protects a non-empty
 	// prior value from being overwritten by an empty one.
 	assert.Empty(t, updated.ThunderAgentID)
-}
-
-func TestAgentThunderClientRepo_MarkClaimed(t *testing.T) {
-	repo := NewAgentThunderClientRepo(db.GetDB())
-	const org, project, agent, env = "test-org", "test-proj", "atc-claim-agent", "dev"
-	cleanupAgentThunderClients(t, repo, org, project, agent)
-
-	c := newTestAgentThunderClient(org, project, agent, env)
-	require.NoError(t, repo.Upsert(context.Background(), c))
-	got, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-	assert.Nil(t, got.ClaimedAt)
-
-	claimedAt := time.Now()
-	claimed, err := repo.MarkClaimed(context.Background(), got.ID, claimedAt)
-	require.NoError(t, err)
-	assert.True(t, claimed, "the first claim on an unclaimed binding must succeed")
-
-	updated, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-	require.NotNil(t, updated.ClaimedAt)
-	assert.WithinDuration(t, claimedAt, *updated.ClaimedAt, time.Second)
-}
-
-func TestAgentThunderClientRepo_MarkClaimed_SecondClaimFails(t *testing.T) {
-	repo := NewAgentThunderClientRepo(db.GetDB())
-	const org, project, agent, env = "test-org", "test-proj", "atc-claim-cas-agent", "dev"
-	cleanupAgentThunderClients(t, repo, org, project, agent)
-
-	c := newTestAgentThunderClient(org, project, agent, env)
-	require.NoError(t, repo.Upsert(context.Background(), c))
-	got, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-
-	firstClaimed, err := repo.MarkClaimed(context.Background(), got.ID, time.Now())
-	require.NoError(t, err)
-	require.True(t, firstClaimed)
-
-	// A second claim attempt on the same already-claimed binding must fail —
-	// this is the compare-and-swap that makes the one-time secret claim
-	// actually atomic against a concurrent duplicate request.
-	secondClaimed, err := repo.MarkClaimed(context.Background(), got.ID, time.Now())
-	require.NoError(t, err)
-	assert.False(t, secondClaimed, "a binding that is already claimed must not be claimable again")
-}
-
-func TestAgentThunderClientRepo_ClearClaim(t *testing.T) {
-	repo := NewAgentThunderClientRepo(db.GetDB())
-	const org, project, agent, env = "test-org", "test-proj", "atc-clearclaim-agent", "dev"
-	cleanupAgentThunderClients(t, repo, org, project, agent)
-
-	c := newTestAgentThunderClient(org, project, agent, env)
-	require.NoError(t, repo.Upsert(context.Background(), c))
-	got, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-	wasClaimed, err := repo.MarkClaimed(context.Background(), got.ID, time.Now())
-	require.NoError(t, err)
-	require.True(t, wasClaimed)
-
-	claimed, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-	require.NotNil(t, claimed.ClaimedAt, "precondition: must actually be claimed before clearing")
-
-	require.NoError(t, repo.ClearClaim(context.Background(), got.ID))
-
-	cleared, err := repo.Get(context.Background(), org, project, agent, env)
-	require.NoError(t, err)
-	assert.Nil(t, cleared.ClaimedAt, "a regenerated secret must be eligible for the one-time claim again")
 }
 
 func TestAgentThunderClientRepo_UpdateSecretRef(t *testing.T) {

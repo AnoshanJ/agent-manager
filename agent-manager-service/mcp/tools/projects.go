@@ -24,6 +24,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -50,8 +51,8 @@ type listProjectsOutput struct {
 	Projects []listProjectItem `json:"projects"`
 }
 
-func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
-	gomcp.AddTool(server, &gomcp.Tool{
+func (t *Toolsets) registerProjectTools(server *gomcp.Server, reg *toolRegistry) {
+	addTool(reg, server, &gomcp.Tool{
 		Name: "list_projects",
 		Description: "List projects in an organization. " +
 			"A project is a logical container that groups agents and related resources within an organization. " +
@@ -61,9 +62,9 @@ func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
 			"limit":    intProperty(fmt.Sprintf("Optional. Max projects to return (default %d, min %d, max %d).", utils.DefaultLimit, utils.MinLimit, utils.MaxLimit)),
 			"offset":   intProperty(fmt.Sprintf("Optional. Pagination offset (default %d, min %d).", utils.DefaultOffset, utils.MinOffset)),
 		}, nil),
-	}, withToolLogging("list_projects", listProjects(t.ProjectToolset)))
+	}, listProjects(t.ProjectToolset), rbac.ProjectRead)
 
-	gomcp.AddTool(server, &gomcp.Tool{
+	addTool(reg, server, &gomcp.Tool{
 		Name: "create_project",
 		Description: "Create a new project in an organization. " +
 			"A project is a logical container for agents and related resources within an organization.",
@@ -73,12 +74,12 @@ func (t *Toolsets) registerProjectTools(server *gomcp.Server) {
 			"display_name": stringProperty("Required. Project display name."),
 			"description":  stringProperty("Optional. Project description."),
 		}, []string{"project_name", "display_name"}),
-	}, withToolLogging("create_project", createProject(t.ProjectToolset)))
+	}, createProject(t.ProjectToolset), rbac.ProjectCreate)
 }
 
 func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.CallToolRequest, listProjectsInput) (*gomcp.CallToolResult, any, error) {
 	return func(ctx context.Context, _ *gomcp.CallToolRequest, input listProjectsInput) (*gomcp.CallToolResult, any, error) {
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 
 		// Apply default limit. Validate bounds.
 		limit := utils.DefaultLimit
@@ -97,7 +98,7 @@ func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.Ca
 			return nil, nil, fmt.Errorf("offset must be >= %d", utils.MinOffset)
 		}
 		// Calls the service-layer interface
-		projects, total, err := handler.ListProjects(ctx, orgName, limit, offset)
+		projects, total, err := handler.ListProjects(ctx, ouID, limit, offset)
 		if err != nil {
 			return nil, nil, wrapToolError("list_projects", err)
 		}
@@ -113,7 +114,7 @@ func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.Ca
 			})
 		}
 		response := listProjectsOutput{
-			OrgName:  orgName,
+			OrgName:  ouID,
 			Total:    total,
 			Projects: formatted,
 		}
@@ -123,7 +124,7 @@ func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.Ca
 
 func createProject(handler ProjectToolsetHandler) func(context.Context, *gomcp.CallToolRequest, createProjectInput) (*gomcp.CallToolResult, any, error) {
 	return func(ctx context.Context, _ *gomcp.CallToolRequest, input createProjectInput) (*gomcp.CallToolResult, any, error) {
-		orgName := resolveOrgName(input.OrgName)
+		ouID := resolveOUID(ctx)
 		projectName := strings.TrimSpace(input.ProjectName)
 		displayName := strings.TrimSpace(input.DisplayName)
 
@@ -142,12 +143,12 @@ func createProject(handler ProjectToolsetHandler) func(context.Context, *gomcp.C
 			DeploymentPipeline: "default",
 			Description:        normalizeOptionalString(input.Description),
 		}
-		project, err := handler.CreateProject(ctx, orgName, req)
+		project, err := handler.CreateProject(ctx, ouID, req)
 		if err != nil {
 			return nil, nil, wrapToolError("create_project", err)
 		}
 		response := map[string]any{
-			"org_name": orgName,
+			"org_name": ouID,
 			"project":  utils.ConvertToProjectResponse(project),
 		}
 		return handleToolResult(response, nil)

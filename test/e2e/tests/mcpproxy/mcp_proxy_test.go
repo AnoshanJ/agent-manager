@@ -15,8 +15,8 @@
 // under the License.
 
 // Validates the MCP proxy lifecycle: discovering a live upstream MCP server,
-// creating a proxy from it (deployed to the AI gateway), reading it back by
-// handle and UUID, listing, issuing an API key, and deleting it.
+// creating a proxy from it (with a single endpoint deployed to the default
+// environment's AI gateway), reading it back by handle, listing, and deleting it.
 
 package mcpproxy
 
@@ -37,6 +37,7 @@ var _ = Describe("MCP Proxy Lifecycle", Label("mcp-proxy"), Ordered, func() {
 		suffix      string
 		proxyID     string
 		gatewayUUID string
+		envUUID     string
 	)
 
 	BeforeAll(func() {
@@ -45,8 +46,9 @@ var _ = Describe("MCP Proxy Lifecycle", Label("mcp-proxy"), Ordered, func() {
 	})
 
 	It("should have a running AI gateway", func() {
-		gatewayUUID = gateway.WaitForActiveGatewayForEnv(Client, Cfg.DefaultOrg, Cfg.DefaultEnv, 3*time.Minute)
+		gatewayUUID, envUUID = gateway.WaitForActiveGatewayForEnvWithEnvUUID(Client, Cfg.DefaultOrg, Cfg.DefaultEnv, 3*time.Minute)
 		Expect(gatewayUUID).NotTo(BeEmpty())
+		Expect(envUUID).NotTo(BeEmpty(), "expected an environment UUID for %s", Cfg.DefaultEnv)
 	})
 
 	It("should discover the upstream MCP server", func() {
@@ -59,7 +61,7 @@ var _ = Describe("MCP Proxy Lifecycle", Label("mcp-proxy"), Ordered, func() {
 			len(info.Tools), len(info.Prompts), len(info.Resources))
 	})
 
-	It("should create an MCP proxy deployed to the gateway", func() {
+	It("should create an MCP proxy with an endpoint deployed to the gateway", func() {
 		upstreamURL := framework.TestMCPServerURL
 		ctx := "/" + proxyID
 
@@ -69,38 +71,46 @@ var _ = Describe("MCP Proxy Lifecycle", Label("mcp-proxy"), Ordered, func() {
 				Name:    "E2E MCP Proxy " + suffix,
 				Version: "v1.0",
 				Context: &ctx,
-				Upstream: framework.UpstreamConfig{
-					Main: &framework.UpstreamEndpoint{
-						URL: &upstreamURL,
+				// The proxy carries a single endpoint whose upstream + security define the
+				// deployable definition; it is deployed to DefaultEnv's gateway.
+				Endpoints: []framework.MCPProxyEndpoint{
+					{
+						ID:       "primary",
+						Upstream: framework.UpstreamConfig{Main: &framework.UpstreamEndpoint{URL: &upstreamURL}},
+						Security: &framework.SecurityConfig{
+							Enabled: true,
+							APIKey: &framework.SecurityAPIKey{
+								Enabled: true,
+								Key:     "X-API-Key",
+								In:      "header",
+							},
+						},
+						Environments: []framework.MCPEndpointEnvironment{
+							{EnvironmentUUID: envUUID},
+						},
 					},
 				},
-				Security: &framework.SecurityConfig{
-					Enabled: true,
-					APIKey: &framework.SecurityAPIKey{
-						Enabled: true,
-						Key:     "X-API-Key",
-						In:      "header",
-					},
-				},
-				Gateways: []string{gatewayUUID},
 			})
 		Expect(proxy.ID).To(Equal(proxyID))
-		GinkgoWriter.Printf("Created MCP proxy %s (deployed to gateway %s)\n", proxy.ID, gatewayUUID)
+		GinkgoWriter.Printf("Created MCP proxy %s (env %s deployed to gateway %s)\n", proxy.ID, envUUID, gatewayUUID)
 	})
 
 	It("should get the MCP proxy by handle", func() {
 		proxy := mcpproxyop.GetMCPProxy(Default, Client, Cfg.DefaultOrg, proxyID)
 		Expect(proxy.ID).To(Equal(proxyID))
 		Expect(proxy.Name).To(Equal("E2E MCP Proxy " + suffix))
-		Expect(proxy.Upstream.Main).NotTo(BeNil())
-	})
+		Expect(proxy.Endpoints).To(HaveLen(1), "expected a single endpoint")
+		endpoint := proxy.Endpoints[0]
+		Expect(endpoint.ID).To(Equal("primary"))
+		Expect(endpoint.Upstream.Main).NotTo(BeNil(), "expected an upstream in the endpoint")
+		Expect(endpoint.Upstream.Main.URL).NotTo(BeNil())
+		Expect(*endpoint.Upstream.Main.URL).To(Equal(framework.TestMCPServerURL))
 
-	It("should issue an API key for the MCP proxy", func() {
-		name := "e2e-mcp-key-" + suffix
-		key := mcpproxyop.CreateMCPProxyAPIKey(Default, Client, Cfg.DefaultOrg, proxyID,
-			framework.CreateLLMAPIKeyRequest{Name: &name})
-		Expect(key.ApiKey).NotTo(BeNil(), "expected an API key value")
-		Expect(*key.ApiKey).NotTo(BeEmpty())
+		envUUIDs := make([]string, 0, len(endpoint.Environments))
+		for _, e := range endpoint.Environments {
+			envUUIDs = append(envUUIDs, e.EnvironmentUUID)
+		}
+		Expect(envUUIDs).To(ContainElement(envUUID), "expected the endpoint deployed to %s", envUUID)
 	})
 
 	It("should list the MCP proxy", func() {

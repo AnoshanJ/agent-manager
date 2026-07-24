@@ -17,7 +17,12 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { createAgent, deleteAgent, getAgent, listAgents, generateAgentToken, updateAgent, updateAgentBuildParameters } from "../apis";
+import {
+  createAgent, deleteAgent, getAgent, listAgents, generateAgentToken, updateAgent,
+  updateAgentBuildParameters, getAgentRoles, getAgentGroups, getAgentIdentity,
+  provisionAgentIdentity, regenerateAgentIdentitySecret, revokeAgentIdentitySecret,
+} from "../apis";
+import { SLOW_POLL_INTERVAL } from "../utils";
 import type {
   AgentListResponse,
   AgentResponse,
@@ -35,6 +40,23 @@ import type {
   GenerateAgentTokenQuery,
   TokenRequest,
   TokenResponse,
+  GetAgentRolesPathParams,
+  GetAgentRolesQuery,
+  AgentRolesResponse,
+  GetAgentGroupsPathParams,
+  GetAgentGroupsQuery,
+  AgentGroupsResponse,
+  GetAgentIdentityPathParams,
+  GetAgentIdentityQuery,
+  AgentIdentityEnvironmentView,
+  ProvisionAgentIdentityPathParams,
+  ProvisionAgentIdentityQuery,
+  RegenerateAgentIdentitySecretPathParams,
+  AgentIdentityActionRequest,
+  AgentRegenerateSecretResponse,
+  RevokeAgentIdentitySecretPathParams,
+  RevokeAgentIdentitySecretQuery,
+  AgentRevokeSecretResponse,
 } from "@agent-management-platform/types";
 import { useAuthHooks } from "@agent-management-platform/auth";
 import { useApiMutation, useApiQuery } from "./react-query-notifications";
@@ -123,16 +145,164 @@ export function useDeleteAgent() {
 }
 
 
+// Lazy, cache-backed token generation. It mints only when `enabled` is set true (explicit intent)
+// and every automatic refetch trigger is disabled, so it never silently re-mints on
+// mount/refocus/remount (#1140). Caching (staleTime/gcTime Infinity) keeps the minted token visible
+// across the drawer's remounts within a session; callers force a new token with refetch().
 export function useGenerateAgentToken(
   params: GenerateAgentTokenPathParams,
   body?: TokenRequest,
   query?: GenerateAgentTokenQuery,
-  enabled: boolean = true
+  enabled: boolean = false,
 ) {
   const { getToken } = useAuthHooks();
   return useApiQuery<TokenResponse>({
-    queryKey: ['agent-token', params.agentName, params.projName, params.orgName, body?.expires_in, query?.environment],
+    // Duration is intentionally NOT in the key: changing it must not auto-mint. refetch() re-runs
+    // queryFn with the latest duration on explicit (re)generate.
+    queryKey: ["agent-token", params.agentName, params.projName, params.orgName, query?.environment],
     queryFn: () => generateAgentToken(params, body, query, getToken),
-    enabled: enabled
+    enabled,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
+
+// --- Agent identity: roles/groups (read-only) ---
+
+export function useGetAgentRoles(
+  params: GetAgentRolesPathParams,
+  query: GetAgentRolesQuery,
+  options?: { enabled?: boolean },
+) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<AgentRolesResponse>({
+    queryKey: ['agent-roles', params, query],
+    queryFn: () => getAgentRoles(params, query, getToken),
+    enabled: (options?.enabled ?? true)
+      && !!params.orgName && !!params.projName && !!params.agentName && !!query.environment,
+  });
+}
+
+export function useGetAgentGroups(
+  params: GetAgentGroupsPathParams,
+  query: GetAgentGroupsQuery,
+  options?: { enabled?: boolean },
+) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<AgentGroupsResponse>({
+    queryKey: ['agent-groups', params, query],
+    queryFn: () => getAgentGroups(params, query, getToken),
+    enabled: (options?.enabled ?? true)
+      && !!params.orgName && !!params.projName && !!params.agentName && !!query.environment,
+  });
+}
+
+// --- Agent identity: AgentID lifecycle (per environment) ---
+
+export function useGetAgentIdentity(
+  params: GetAgentIdentityPathParams,
+  query?: GetAgentIdentityQuery,
+) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<AgentIdentityEnvironmentView[]>({
+    queryKey: ['agent-identity', params, query],
+    queryFn: () => getAgentIdentity(params, query, getToken),
+    enabled: !!params.orgName && !!params.projName && !!params.agentName,
+    // Provisioning happens in the background (write-ahead PENDING, then a
+    // best-effort attempt) — poll while any binding is still settling, and
+    // stop automatically once every binding has completed or failed.
+    refetchInterval: (q) => {
+      const views = q.state.data;
+      const stillProvisioning = views?.some(
+        (v) => v.status === 'pending' || v.status === 'in_progress',
+      );
+      return stillProvisioning ? SLOW_POLL_INTERVAL : false;
+    },
+  });
+}
+
+interface AgentIdentityBindingParams {
+  orgId: string;
+  projectId: string;
+  agentId: string;
+  envId: string;
+}
+
+/**
+ * Shared "is this environment's AgentID binding usable" read. Several
+ * consumers across pages (the overview's roles/groups list, the identity
+ * regenerate button, the identity claim/reveal UI) each need to know whether
+ * provisioning has completed — this centralizes that definition instead of
+ * every consumer re-deriving `status === "completed"` from its own copy of
+ * the binding.
+ */
+export function useAgentIdentityBinding({
+  orgId, projectId, agentId, envId,
+}: AgentIdentityBindingParams) {
+  const { data: identityViews, isLoading, isError, error } = useGetAgentIdentity(
+    { orgName: orgId, projName: projectId, agentName: agentId },
+    { environment: envId },
+  );
+  const binding = identityViews?.[0];
+
+  return {
+    binding,
+    provisioned: binding?.status === "completed",
+    isLoading,
+    isError,
+    error,
+  };
+}
+
+export function useProvisionAgentIdentity() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<
+    AgentIdentityEnvironmentView,
+    unknown,
+    { params: ProvisionAgentIdentityPathParams; query: ProvisionAgentIdentityQuery }
+  >({
+    action: { verb: 'create', target: 'agent identity' },
+    mutationFn: ({ params, query }) => provisionAgentIdentity(params, query, getToken),
+    onSuccess: (_data, { params }) => {
+      queryClient.invalidateQueries({ queryKey: ['agent-identity', params] });
+    },
+  });
+}
+
+export function useRegenerateAgentIdentitySecret() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<
+    AgentRegenerateSecretResponse,
+    unknown,
+    { params: RegenerateAgentIdentitySecretPathParams; body: AgentIdentityActionRequest }
+  >({
+    action: { verb: 'rotate', target: 'agent identity secret' },
+    mutationFn: ({ params, body }) => regenerateAgentIdentitySecret(params, body, getToken),
+    onSuccess: (_data, { params }) => {
+      queryClient.invalidateQueries({ queryKey: ['agent-identity', params] });
+    },
+  });
+}
+
+export function useRevokeAgentIdentitySecret() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<
+    AgentRevokeSecretResponse,
+    unknown,
+    { params: RevokeAgentIdentitySecretPathParams; query: RevokeAgentIdentitySecretQuery }
+  >({
+    action: { verb: 'revoke', target: 'agent identity secret' },
+    mutationFn: ({ params, query }) => revokeAgentIdentitySecret(params, query, getToken),
+    onSuccess: (_data, { params }) => {
+      queryClient.invalidateQueries({ queryKey: ['agent-identity', params] });
+    },
+  });
+}
+

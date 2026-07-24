@@ -7,7 +7,7 @@ set -euo pipefail
 # All inputs are provided via environment variables so the script can be piped
 # directly into bash:
 #
-#   curl -fsSL https://raw.githubusercontent.com/wso2/ai-agent-management-platform/main/deployments/scripts/add-environment.sh \
+#   curl -fsSL https://raw.githubusercontent.com/wso2/agent-manager/main/deployments/scripts/add-environment.sh \
 #     | ENV_NAME=staging \
 #       DISPLAY_NAME="Staging" \
 #       AGENT_MANAGER_TOKEN=<token> \
@@ -33,12 +33,13 @@ set -euo pipefail
 #     When set, CHART_VERSION is ignored and the local chart is used directly.
 #   - IS_PRODUCTION (default: false)
 #   - ORG_NAME (default: default), DATAPLANE_REF (default: default)
-#   - AGENT_MANAGER_URL (default: http://localhost:9000)
+#   - AGENT_MANAGER_URL (default: http://api.amp.localhost:8080)
 #   - ENV_INGRESS_HOST (default: am-gateway.localhost): agent-facing gateway host.
 #   - ENV_INGRESS_HTTPS_HOST (default: unset): on TLS deployments, advertises an
 #     https listener variant. Set ENV_INGRESS_HTTPS_HOST=$ENV_INGRESS_HOST for
 #     the TLS toggle alone; without it the deployed-agent invoke URL is empty.
 #   - ENV_INGRESS_HTTPS_PORT (default: 443): port for the https listener variant.
+#   - IDP_SKIP_TLS_VERIFY (default: true): skipTlsVerify for the seeded env-Thunder identity provider.
 
 # --- Required inputs ---
 : "${ENV_NAME:?ENV_NAME is required (e.g. ENV_NAME=staging)}"
@@ -76,6 +77,11 @@ fi
 
 # --- Configuration (can be overridden via env vars) ---
 ORG_NAME="${ORG_NAME:-default}"
+# Namespace the OpenChoreo Environment CRs are created in. The platform-resources
+# chart provisions them in its defaultResources namespace ("default"), which is NOT
+# necessarily the org name — keep them distinct so a non-default ORG_NAME still
+# annotates the right namespace.
+ENVIRONMENT_NAMESPACE="${ENVIRONMENT_NAMESPACE:-default}"
 
 # The APIGateway controller materializes a Service named
 # "api-platform-<org>-<env>-gateway-gateway-runtime" (24-char suffix), which
@@ -89,9 +95,23 @@ if [ "${#ENV_NAME}" -gt "$MAX_ENV_NAME_LEN" ]; then
     exit 1
 fi
 DATAPLANE_REF="${DATAPLANE_REF:-default}"
-AGENT_MANAGER_URL="${AGENT_MANAGER_URL:-http://localhost:9000}"
+AGENT_MANAGER_URL="${AGENT_MANAGER_URL:-http://api.amp.localhost:8080}"
 AGENT_MANAGER_API_URL="${AGENT_MANAGER_API_URL:-${AGENT_MANAGER_URL}/api/v1}"
-GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-openchoreo-data-plane}"
+# Per-org-env namespace isolation: each environment's gateway stack (APIGateway
+# CR, runtime, RestApis, token secret) lives in its own "<org>-<env>" namespace.
+# The kgateway ingress (gateway-default) stays in openchoreo-data-plane; the
+# chart wires the cross-namespace route + ReferenceGrant automatically.
+# The <org>-<env> name stays well under the 63-char namespace limit because the
+# MAX_ENV_NAME_LEN check above already bounds org+env for the Service name.
+GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-${ORG_NAME}-${ENV_NAME}}"
+IDP_SKIP_TLS_VERIFY="${IDP_SKIP_TLS_VERIFY:-true}"
+case "$IDP_SKIP_TLS_VERIFY" in
+    true|false) ;;
+    *)
+        echo "❌ IDP_SKIP_TLS_VERIFY must be 'true' or 'false' (got '${IDP_SKIP_TLS_VERIFY}')"
+        exit 1
+        ;;
+esac
 
 CHART_REF="oci://ghcr.io/wso2/wso2-amp-api-platform-gateway-extension"
 
@@ -130,9 +150,7 @@ AGENT_MANAGER_INTERNAL_CP="${AGENT_MANAGER_INTERNAL_CP:-host.docker.internal:924
 AGENT_MANAGER_INTERNAL_API="${AGENT_MANAGER_INTERNAL_BASE_URL}/api/v1"
 AGENT_MANAGER_INTERNAL_JWKS="${AGENT_MANAGER_INTERNAL_BASE_URL}/auth/external/jwks.json"
 
-# Platform Thunder (shared) identity — matches the chart's built-in defaults.
-# Must always be re-asserted alongside keymanagers[0] because helm --set on
-# an indexed array replaces the entire list, not just the specified element.
+# Platform Thunder (shared) fallback identity — matches the chart's built-in defaults.
 PLATFORM_THUNDER_ISSUER="${PLATFORM_THUNDER_ISSUER:-http://thunder.amp.localhost:8080}"
 PLATFORM_THUNDER_JWKS="${PLATFORM_THUNDER_JWKS:-http://amp-thunder-extension-service.amp-thunder:8090/oauth2/jwks}"
 
@@ -200,12 +218,26 @@ if [ -n "${ENV_INGRESS_HTTPS_HOST}" ]; then
     EXTERNAL_LISTENERS="${EXTERNAL_LISTENERS}, \"https\": {\"host\": \"${ENV_INGRESS_HTTPS_HOST}\", \"port\": ${ENV_INGRESS_HTTPS_PORT}}"
 fi
 
+# Optional pod runtime isolation tier for this environment. "gvisor" makes agents run
+# under the runsc RuntimeClass (requires a gVisor node — see `make setup-gvisor`); "kata"
+# makes them run under the kata-qemu RuntimeClass in a lightweight VM (requires a Kata node
+# with nested virtualization — see `make setup-kata`). Empty (default) uses the standard
+# runc runtime. Only include the field in the payload when set, so runc environments send
+# the exact same request body as before.
+ISOLATION_TIER="${ISOLATION_TIER:-}"
+ISOLATION_TIER_FIELD=""
+if [ -n "${ISOLATION_TIER}" ]; then
+    ISOLATION_TIER_FIELD="\"isolationTier\": \"${ISOLATION_TIER}\","
+    echo "   Isolation tier: ${ISOLATION_TIER}"
+fi
+
 ENV_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${AGENT_MANAGER_API_URL}/orgs/${ORG_NAME}/environments" \
     -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
     -d "{
         \"name\": \"${ENV_NAME}\",
         \"displayName\": \"${DISPLAY_NAME_JSON}\",
+        ${ISOLATION_TIER_FIELD}
         \"dataplaneRef\": \"${DATAPLANE_REF}\",
         \"dnsPrefix\": \"${ENV_NAME}\",
         \"isProduction\": ${IS_PRODUCTION},
@@ -225,6 +257,19 @@ if [ "$ENV_HTTP_CODE" = "201" ]; then
     echo "✅ Environment '${ENV_NAME}' created"
 elif [ "$ENV_HTTP_CODE" = "409" ]; then
     echo "ℹ️  Environment '${ENV_NAME}' already exists, continuing..."
+    # The create request is the only place the API accepts isolationTier, so a
+    # re-run against an existing environment (e.g. after a partial first run)
+    # would otherwise silently drop it. The Environment CR annotation is the
+    # source of truth, so apply it directly instead.
+    if [ -n "${ISOLATION_TIER}" ]; then
+        if kubectl annotate environment "${ENV_NAME}" -n "${ENVIRONMENT_NAMESPACE}" \
+            "openchoreo.dev/isolation-tier=${ISOLATION_TIER}" --overwrite > /dev/null 2>&1; then
+            echo "✅ Isolation tier '${ISOLATION_TIER}' applied to existing environment"
+        else
+            echo "⚠️  Could not set isolation tier on the existing environment. Apply it manually:"
+            echo "    kubectl annotate environment ${ENV_NAME} -n ${ENVIRONMENT_NAMESPACE} openchoreo.dev/isolation-tier=${ISOLATION_TIER} --overwrite"
+        fi
+    fi
 else
     echo "❌ Failed to create environment (HTTP ${ENV_HTTP_CODE})"
     echo "   Response: ${ENV_BODY}"
@@ -264,9 +309,12 @@ if [ "${PROVISION_THUNDER:-true}" = "true" ]; then
       # Reset CHART_VERSION so the AMP release version doesn't bleed into the ThunderID chart
       # install. SCRIPT_BASE_URL IS forwarded (unlike CHART_VERSION) so the chained script
       # fetches thunder-naming.sh from the same git ref as this one — see thunder-naming.sh.
+      # AMP_API_URL/AGENT_MANAGER_TOKEN forward this call's already-verified AMS
+      # reachability + bearer token to the chained script's store_via_ams.
       if ENV_NAME="${ENV_NAME}" DISPLAY_NAME="${DISPLAY_NAME}" ORG_NAME="${ORG_NAME}" \
           DATAPLANE_REF="${DATAPLANE_REF}" THUNDER_CHART="${THUNDER_CHART:-}" \
           CHART_VERSION="${THUNDER_CHART_VERSION:-}" SCRIPT_BASE_URL="${SCRIPT_BASE_URL}" \
+          AMP_API_URL="${AGENT_MANAGER_API_URL}" AGENT_MANAGER_TOKEN="${AGENT_MANAGER_TOKEN}" \
           bash "$script_tmp"; then
         echo "✅ Thunder ID instance provisioned"
         THUNDER_PROVISIONED=true
@@ -277,7 +325,7 @@ if [ "${PROVISION_THUNDER:-true}" = "true" ]; then
         else
           echo "    The gateway will use its default ThunderKeyManager (shared platform Thunder)"
           echo "    instead of an address that doesn't exist. To fix:"
-          echo "    1) Re-run: curl -fsSL ${THUNDER_SCRIPT_URL} | ENV_NAME=${ENV_NAME} DISPLAY_NAME=\"${DISPLAY_NAME}\" ORG_NAME=${ORG_NAME} bash"
+          echo "    1) Re-run: curl -fsSL ${THUNDER_SCRIPT_URL} | ENV_NAME=${ENV_NAME} DISPLAY_NAME=\"${DISPLAY_NAME}\" ORG_NAME=${ORG_NAME} AMP_API_URL=${AGENT_MANAGER_API_URL} AGENT_MANAGER_TOKEN=<token> bash"
           echo "    2) Re-run this add-environment.sh with the same ENV_NAME (idempotent) to re-wire the gateway"
         fi
       fi
@@ -300,6 +348,13 @@ fi
 echo ""
 echo "🌐 Installing API Platform Gateway for '${ENV_NAME}'..."
 
+# Ensure the gateway namespace exists and carries the label the sandbox
+# NetworkPolicy (agent-api ComponentType) matches for agent gateway egress.
+# Without it, agents in this environment cannot reach the gateway's OTEL or
+# managed LLM/MCP endpoints when it runs outside openchoreo-data-plane.
+kubectl create namespace "${GATEWAY_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+kubectl label namespace "${GATEWAY_NAMESPACE}" "amp.wso2.com/api-platform-gateway=true" --overwrite > /dev/null
+
 # Release name must match the gateway runtime service lookup expected by
 # the kgateway routes (api-platform-<org>-<env> derives from _helpers.tpl
 # apiGatewayName). DO NOT duplicate the org segment.
@@ -312,6 +367,11 @@ HELM_ARGS=(
     upgrade --install "${RELEASE_NAME}"
     "${CHART_REF}"
     --namespace "${GATEWAY_NAMESPACE}"
+    --create-namespace
+    # apiGateway.namespace drives where the chart renders the APIGateway CR,
+    # config, RestApis, kgateway backendRef and token secret — --namespace alone
+    # only places the Helm release. Both must point at the same namespace.
+    --set apiGateway.namespace="${GATEWAY_NAMESPACE}"
     --set agentManager.orgName="${ORG_NAME}"
     --set gateway.environment="${ENV_NAME}"
     --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway"
@@ -343,7 +403,15 @@ if [ "$THUNDER_PROVISIONED" = "true" ]; then
         --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager"
         --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${THUNDER_ISSUER}"
         --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${THUNDER_INTERNAL_JWKS}"
-        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=true"
+        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
+    )
+    # Mirror the env-Thunder into Agent Manager as this gateway's identity provider.
+    # Name must match keymanagers[].name, which is always "ThunderKeyManager" (set above).
+    HELM_ARGS+=(
+        --set "bootstrap.identityProviders[0].name=ThunderKeyManager"
+        --set "bootstrap.identityProviders[0].issuer=${THUNDER_ISSUER}"
+        --set "bootstrap.identityProviders[0].jwksUri=${THUNDER_INTERNAL_JWKS}"
+        --set "bootstrap.identityProviders[0].skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
     )
 else
     # Re-assert the platform Thunder keymanager explicitly. Helm --set on an indexed array

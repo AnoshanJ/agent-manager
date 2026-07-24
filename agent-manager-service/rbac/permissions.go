@@ -111,6 +111,22 @@ const (
 	MCPServerAPIKeyManage       Permission = "mcp-server:api-key-manage"
 )
 
+// Scope catalog permissions
+const (
+	ScopeCreate Permission = "scope:create"
+	ScopeRead   Permission = "scope:read"
+	ScopeUpdate Permission = "scope:update"
+	ScopeDelete Permission = "scope:delete"
+)
+
+// Agent identity (env-Thunder agent groups/roles) permissions
+const (
+	AgentIdentityRead   Permission = "agent-identity:read"
+	AgentIdentityCreate Permission = "agent-identity:create"
+	AgentIdentityUpdate Permission = "agent-identity:update"
+	AgentIdentityDelete Permission = "agent-identity:delete"
+)
+
 // LLM proxy permissions
 const (
 	LLMProxyCreate       Permission = "llm-proxy:create"
@@ -164,12 +180,12 @@ const (
 	MonitorScorePublish Permission = "monitor:score-publish"
 )
 
-// Observability permissions
+// Observability permissions — data-read scopes enforced by agent-manager-observer
 const (
-	ObservabilityOrgDashboard     Permission = "observability:org-dashboard"
-	ObservabilityProjectDashboard Permission = "observability:project-dashboard"
-	ObservabilityGuardrailMetric  Permission = "observability:guardrail-metric"
-	ObservabilityInfraMetric      Permission = "observability:infra-metric"
+	ObservabilityTraceRead    Permission = "observability:trace-read"
+	ObservabilityLogRead      Permission = "observability:log-read"
+	ObservabilityBuildLogRead Permission = "observability:build-log-read"
+	ObservabilityMetricRead   Permission = "observability:metric-read"
 )
 
 // Role management permissions

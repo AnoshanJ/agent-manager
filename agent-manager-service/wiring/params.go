@@ -24,10 +24,9 @@ import (
 
 	"gorm.io/gorm"
 
-	observabilitysvc "github.com/wso2/agent-manager/agent-manager-service/clients/observabilitysvc"
+	observersvc "github.com/wso2/agent-manager/agent-manager-service/clients/observersvc"
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
-	traceobserversvc "github.com/wso2/agent-manager/agent-manager-service/clients/traceobserversvc"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/controllers"
@@ -60,7 +59,6 @@ type AppParams struct {
 	AgentAPIKeyController            controllers.AgentAPIKeyController
 	LLMProxyDeploymentController     controllers.LLMProxyDeploymentController
 	MCPProxyController               controllers.MCPProxyController
-	MCPProxyAPIKeyController         controllers.MCPProxyAPIKeyController
 	WebSocketController              controllers.WebSocketController
 	GatewayInternalController        controllers.GatewayInternalController
 	MonitorController                controllers.MonitorController
@@ -72,18 +70,21 @@ type AppParams struct {
 	AgentConfigurationController     controllers.AgentConfigurationController
 	GitSecretController              controllers.GitSecretController
 	IdentityController               controllers.IdentityController
+	MCPProxyScopeController          controllers.MCPProxyScopeController
+	AgentIdentityController          controllers.AgentIdentityController
 	MonitorScheduler                 services.MonitorSchedulerService
 	AgentThunderReconciler           services.AgentThunderReconcilerService
 
 	// Services
-	LLMTemplateStore         *services.LLMTemplateStore
-	InfraResourceManager     services.InfraResourceManager
-	AgentManagerService      services.AgentManagerService
-	AgentTokenManagerService services.AgentTokenManagerService
+	LLMTemplateStore              *services.LLMTemplateStore
+	InfraResourceManager          services.InfraResourceManager
+	AgentManagerService           services.AgentManagerService
+	AgentTokenManagerService      services.AgentTokenManagerService
+	AgentIdentityInjectionService services.AgentIdentityInjectionService
 
 	// Clients
-	OpenChoreoClient       occlient.OpenChoreoClient
-	TraceObserverSvcClient traceobserversvc.TraceObserverSvcClient
+	OpenChoreoClient  occlient.OpenChoreoClient
+	ObserverSvcClient observersvc.ObserverSvcClient
 
 	// WebSocket
 	WebSocketManager *websocket.Manager
@@ -97,14 +98,17 @@ type AppParams struct {
 
 // TestClients contains all mock clients needed for testing
 type TestClients struct {
-	OpenChoreoClient       occlient.OpenChoreoClient
-	ObservabilitySvcClient observabilitysvc.ObservabilitySvcClient
-	SecretMgmtClient       secretmanagersvc.SecretManagementClient
-	TraceObserverSvcClient traceobserversvc.TraceObserverSvcClient
+	OpenChoreoClient  occlient.OpenChoreoClient
+	SecretMgmtClient  secretmanagersvc.SecretManagementClient
+	ObserverSvcClient observersvc.ObserverSvcClient
 }
 
 func ProvideConfigFromPtr(config *config.Config) config.Config {
 	return *config
+}
+
+func ProvideGatewayRuntimeConfig(cfg config.Config) config.GatewayRuntimeConfig {
+	return cfg.GatewayRuntime
 }
 
 func ProvideAuthMiddleware(config config.Config) jwtassertion.Middleware {

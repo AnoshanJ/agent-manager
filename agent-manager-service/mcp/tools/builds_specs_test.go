@@ -16,7 +16,11 @@
 
 package tools
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
+)
 
 // Returns the test specs for tools registered by registerBuildTools.
 // New tools added to builds.go must have a spec here — registration_test.go fails the build otherwise.
@@ -25,6 +29,7 @@ func buildToolSpecs() []toolTestSpec {
 		{
 			name:                "list_builds",
 			toolset:             "build",
+			permissions:         []rbac.Permission{rbac.AgentRead},
 			descriptionKeywords: []string{"list", "build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
@@ -37,7 +42,7 @@ func buildToolSpecs() []toolTestSpec {
 			expectedMethod: "ListAgentBuilds",
 			validateCall: func(t *testing.T, args []interface{}) {
 				if got, want := args[0], testOrgName; got != want {
-					t.Errorf("orgName: got %v, want %q", got, want)
+					t.Errorf("ouID: got %v, want %q", got, want)
 				}
 				if got, want := args[1], testProjectName; got != want {
 					t.Errorf("projectName: got %v, want %q", got, want)
@@ -50,6 +55,7 @@ func buildToolSpecs() []toolTestSpec {
 		{
 			name:                "get_build_details",
 			toolset:             "build",
+			permissions:         []rbac.Permission{rbac.AgentRead},
 			descriptionKeywords: []string{"build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name", "build_name"},
@@ -63,7 +69,7 @@ func buildToolSpecs() []toolTestSpec {
 			expectedMethod: "GetBuild",
 			validateCall: func(t *testing.T, args []interface{}) {
 				if got, want := args[0], testOrgName; got != want {
-					t.Errorf("orgName: got %v, want %q", got, want)
+					t.Errorf("ouID: got %v, want %q", got, want)
 				}
 				if got, want := args[1], testProjectName; got != want {
 					t.Errorf("projectName: got %v, want %q", got, want)
@@ -79,6 +85,7 @@ func buildToolSpecs() []toolTestSpec {
 		{
 			name:                "build_agent",
 			toolset:             "build",
+			permissions:         []rbac.Permission{rbac.AgentBuild},
 			descriptionKeywords: []string{"build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
@@ -91,42 +98,13 @@ func buildToolSpecs() []toolTestSpec {
 			expectedMethod: "BuildAgent",
 			validateCall: func(t *testing.T, args []interface{}) {
 				if got, want := args[0], testOrgName; got != want {
-					t.Errorf("orgName: got %v, want %q", got, want)
+					t.Errorf("ouID: got %v, want %q", got, want)
 				}
 				if got, want := args[1], testProjectName; got != want {
 					t.Errorf("projectName: got %v, want %q", got, want)
 				}
 				if got, want := args[2], testAgentName; got != want {
 					t.Errorf("agentName: got %v, want %q", got, want)
-				}
-			},
-		},
-		{
-			name:                "get_build_logs",
-			toolset:             "build",
-			descriptionKeywords: []string{"build", "log"},
-			descriptionMinLen:   20,
-			requiredParams:      []string{"project_name", "agent_name", "build_name"},
-			optionalParams:      []string{"org_name"},
-			testArgs: map[string]any{
-				"org_name":     testOrgName,
-				"project_name": testProjectName,
-				"agent_name":   testAgentName,
-				"build_name":   testBuildName,
-			},
-			expectedMethod: "GetBuildLogs",
-			validateCall: func(t *testing.T, args []interface{}) {
-				if got, want := args[0], testOrgName; got != want {
-					t.Errorf("orgName: got %v, want %q", got, want)
-				}
-				if got, want := args[1], testProjectName; got != want {
-					t.Errorf("projectName: got %v, want %q", got, want)
-				}
-				if got, want := args[2], testAgentName; got != want {
-					t.Errorf("agentName: got %v, want %q", got, want)
-				}
-				if got, want := args[3], testBuildName; got != want {
-					t.Errorf("buildName: got %v, want %q", got, want)
 				}
 			},
 		},

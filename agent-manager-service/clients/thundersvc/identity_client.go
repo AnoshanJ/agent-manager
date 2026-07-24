@@ -42,6 +42,22 @@ type IdentityClient interface {
 	GetUserRoles(ctx context.Context, userID string) ([]ThunderRole, error)
 	InviteUser(ctx context.Context, email string, ouID string) (string, error)
 
+	// Agents (identity, not the AMP agent resource)
+	// GetAgentRoles returns the roles assigned to an agent identity, by
+	// fanning out over every role and checking its assignees — Thunder has no
+	// reverse-lookup endpoint for this (mirrors GetUserRoles/GetGroupRoles).
+	GetAgentRoles(ctx context.Context, agentID string) ([]ThunderRole, error)
+	// GetAgentGroups returns the groups an agent identity belongs to, by
+	// fanning out over every group in ouID and checking its members —
+	// Thunder has no reverse-lookup endpoint for this.
+	GetAgentGroups(ctx context.Context, ouID, agentID string) ([]ThunderGroup, error)
+	// GetAgentRoleAssignments returns a role's assignments with agent-identity
+	// (environment Thunder) semantics: agent assignees as raw {type, id}
+	// entries and group assignees resolved to full groups. Unlike
+	// GetRoleAssignments (built for the platform user store), it does not
+	// resolve or return users.
+	GetAgentRoleAssignments(ctx context.Context, roleID string) (*AgentRoleAssignments, error)
+
 	// Groups
 	ListGroups(ctx context.Context, ouID string, offset, limit int) ([]ThunderGroup, int, error)
 	ListGroupsByOUId(ctx context.Context, ouID string, offset, limit int) ([]ThunderGroup, int, error)
@@ -53,6 +69,13 @@ type IdentityClient interface {
 	RemoveGroupMembers(ctx context.Context, groupID string, userIDs []string) error
 	GetGroupMembers(ctx context.Context, groupID string, offset, limit int) ([]ThunderUser, int, error)
 	GetGroupRoles(ctx context.Context, groupID string) ([]ThunderRole, error)
+	// AddGroupMemberEntries adds typed members (agents, users, nested groups) to a group.
+	AddGroupMemberEntries(ctx context.Context, groupID string, members []GroupMember) error
+	// RemoveGroupMemberEntries removes typed members from a group.
+	RemoveGroupMemberEntries(ctx context.Context, groupID string, members []GroupMember) error
+	// ListGroupMemberEntries returns the raw typed member entries of a group (unlike
+	// GetGroupMembers, which resolves and returns only user members).
+	ListGroupMemberEntries(ctx context.Context, groupID string, offset, limit int) ([]GroupMember, int, error)
 
 	// Roles
 	ListRoles(ctx context.Context, ouID string, offset, limit int) ([]ThunderRole, int, error)
@@ -68,6 +91,16 @@ type IdentityClient interface {
 
 	// Permissions catalog
 	ListAMPPermissions(ctx context.Context) ([]ThunderPermission, string, error)
+	// EnsureProxyResourceServer makes sure the proxy's resource server exists
+	// (handle = identifier = proxyHandle, delimiter ":", type MCP) with every
+	// given action registered at the RS root, and returns the RS ID.
+	EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName string, actions []string) (string, error)
+	// DeleteProxyResourceServerAction best-effort deletes one root action.
+	// Missing RS or action is not an error. Returns the RS ID ("" if RS absent).
+	DeleteProxyResourceServerAction(ctx context.Context, proxyHandle, action string) (string, error)
+	// DeleteProxyResourceServer deletes every root action, then the RS itself
+	// (Thunder blocks RS deletion while actions exist). Missing RS is not an error.
+	DeleteProxyResourceServer(ctx context.Context, proxyHandle string) error
 
 	// Organization units
 	GetOUIDByHandle(ctx context.Context, handle string) (string, error)
@@ -397,6 +430,54 @@ func (c *thunderClient) GetGroupMembers(ctx context.Context, groupID string, off
 	return users, resp.TotalResults, nil
 }
 
+// AddGroupMemberEntries adds typed members (agents, users, nested groups) to a
+// group. Unlike AddGroupMembers it does not assume Type "user".
+func (c *thunderClient) AddGroupMemberEntries(ctx context.Context, groupID string, members []GroupMember) error {
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.doRequest(ctx, http.MethodPost, c.baseURL+"/groups/"+groupID+"/members/add", token, GroupMembersRequest{Members: members})
+	if err != nil {
+		return fmt.Errorf("thunder add group member entries: %w", err)
+	}
+	return nil
+}
+
+// RemoveGroupMemberEntries removes typed members from a group. Unlike
+// RemoveGroupMembers it does not assume Type "user".
+func (c *thunderClient) RemoveGroupMemberEntries(ctx context.Context, groupID string, members []GroupMember) error {
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.doRequest(ctx, http.MethodPost, c.baseURL+"/groups/"+groupID+"/members/remove", token, GroupMembersRequest{Members: members})
+	if err != nil {
+		return fmt.Errorf("thunder remove group member entries: %w", err)
+	}
+	return nil
+}
+
+// ListGroupMemberEntries returns the raw typed member entries of a group. Unlike
+// GetGroupMembers, it does not resolve entries into full user objects, so it
+// preserves non-user members (agents, nested groups).
+func (c *thunderClient) ListGroupMemberEntries(ctx context.Context, groupID string, offset, limit int) ([]GroupMember, int, error) {
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	url := fmt.Sprintf("%s/groups/%s/members?offset=%d&limit=%d", c.baseURL, groupID, offset, limit)
+	body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("thunder list group member entries: %w", err)
+	}
+	var resp thunderGroupMemberList
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, 0, fmt.Errorf("thunder list group member entries decode: %w", err)
+	}
+	return resp.Members, resp.TotalResults, nil
+}
+
 // listRoleAssignmentEntries fetches only the raw {type, id} assignment entries for a role
 // without expanding each entry into a full user or group object. Use this when you only
 // need to check membership rather than display full objects — it is O(1) per role instead
@@ -417,14 +498,20 @@ func (c *thunderClient) listRoleAssignmentEntries(ctx context.Context, roleID st
 	return resp.Assignments, nil
 }
 
-func (c *thunderClient) GetGroupRoles(ctx context.Context, groupID string) ([]ThunderRole, error) {
+// rolesForAssignee returns every role that has an assignment entry matching
+// assigneeType/assigneeID (e.g. "group"/groupID, "user"/userID, "agent"/
+// agentID). Thunder has no reverse-lookup endpoint for "roles assigned to
+// this assignee", so this pages through every role in the instance and
+// checks its assignment entries client-side. Shared by GetGroupRoles,
+// GetUserRoles, and GetAgentRoles.
+func (c *thunderClient) rolesForAssignee(ctx context.Context, assigneeType, assigneeID string) ([]ThunderRole, error) {
 	const pageSize = 50
 	var allRoles []ThunderRole
 	offset := 0
 	for {
 		page, total, err := c.ListRoles(ctx, "", offset, pageSize)
 		if err != nil {
-			return nil, fmt.Errorf("thunder get group roles (list): %w", err)
+			return nil, fmt.Errorf("thunder get %s roles (list): %w", assigneeType, err)
 		}
 		allRoles = append(allRoles, page...)
 		offset += len(page)
@@ -433,55 +520,95 @@ func (c *thunderClient) GetGroupRoles(ctx context.Context, groupID string) ([]Th
 		}
 	}
 
-	var groupRoles []ThunderRole
+	var assigneeRoles []ThunderRole
 	for _, role := range allRoles {
 		entries, err := c.listRoleAssignmentEntries(ctx, role.ID)
 		if err != nil {
-			return nil, fmt.Errorf("thunder get group roles (assignments for role %s): %w", role.ID, err)
+			return nil, fmt.Errorf("thunder get %s roles (assignments for role %s): %w", assigneeType, role.ID, err)
 		}
 		for _, e := range entries {
-			if e.Type == "group" && e.ID == groupID {
-				groupRoles = append(groupRoles, role)
+			if e.Type == assigneeType && e.ID == assigneeID {
+				assigneeRoles = append(assigneeRoles, role)
 				break
 			}
 		}
 	}
-	return groupRoles, nil
+	return assigneeRoles, nil
+}
+
+func (c *thunderClient) GetGroupRoles(ctx context.Context, groupID string) ([]ThunderRole, error) {
+	return c.rolesForAssignee(ctx, "group", groupID)
 }
 
 func (c *thunderClient) GetUserRoles(ctx context.Context, userID string) ([]ThunderRole, error) {
+	return c.rolesForAssignee(ctx, "user", userID)
+}
+
+// GetAgentRoles returns the roles assigned to an agent identity. Same
+// fan-out-and-filter approach as GetUserRoles/GetGroupRoles, since Thunder has
+// no reverse-lookup endpoint for "roles assigned to this assignee".
+func (c *thunderClient) GetAgentRoles(ctx context.Context, agentID string) ([]ThunderRole, error) {
+	return c.rolesForAssignee(ctx, "agent", agentID)
+}
+
+// GetAgentGroups returns the groups an agent identity belongs to, by fanning
+// out over every group in ouID and checking its member entries — Thunder has
+// no reverse-lookup endpoint for "groups this assignee belongs to".
+func (c *thunderClient) GetAgentGroups(ctx context.Context, ouID, agentID string) ([]ThunderGroup, error) {
 	const pageSize = 50
-	var allRoles []ThunderRole
+	var allGroups []ThunderGroup
 	offset := 0
 	for {
-		page, total, err := c.ListRoles(ctx, "", offset, pageSize)
+		page, total, err := c.ListGroupsByOUId(ctx, ouID, offset, pageSize)
 		if err != nil {
-			return nil, fmt.Errorf("thunder get user roles (list): %w", err)
+			return nil, fmt.Errorf("thunder get agent groups (list): %w", err)
 		}
-		allRoles = append(allRoles, page...)
+		allGroups = append(allGroups, page...)
 		offset += len(page)
 		if offset >= total || len(page) == 0 {
 			break
 		}
 	}
 
-	var userRoles []ThunderRole
-	for _, role := range allRoles {
-		entries, err := c.listRoleAssignmentEntries(ctx, role.ID)
-		if err != nil {
-			return nil, fmt.Errorf("thunder get user roles (assignments for role %s): %w", role.ID, err)
-		}
-		for _, e := range entries {
-			if e.Type == "user" && e.ID == userID {
-				userRoles = append(userRoles, role)
+	var agentGroups []ThunderGroup
+	for _, group := range allGroups {
+		const memberPageSize = 100
+		memberOffset := 0
+		for {
+			members, total, err := c.ListGroupMemberEntries(ctx, group.ID, memberOffset, memberPageSize)
+			if err != nil {
+				return nil, fmt.Errorf("thunder get agent groups (members for group %s): %w", group.ID, err)
+			}
+			matched := false
+			for _, m := range members {
+				if m.Type == "agent" && m.ID == agentID {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				agentGroups = append(agentGroups, group)
+				break
+			}
+			memberOffset += len(members)
+			if memberOffset >= total || len(members) == 0 {
 				break
 			}
 		}
 	}
-	return userRoles, nil
+	return agentGroups, nil
 }
 
 // --- Roles ---
+
+// NativeAdministratorRoleName is the role every ThunderID install seeds in its
+// default OU. It carries Thunder's built-in "system" scope (the admin-API
+// permission the amp-system-client authenticates with — see fetchSystemToken),
+// so it must never surface as an assignable agent-identity role: OU-scoped
+// ListRoles hides it, and the agent-identity controller rejects reads/writes
+// against it. Thunder enforces unique role names per OU, so post-bootstrap the
+// only role with this name in the default OU is the native one.
+const NativeAdministratorRoleName = "Administrator"
 
 // ListRoles returns roles scoped to ouID when non-empty, by fetching all pages
 // from Thunder and filtering client-side (Thunder has no OU-scoped list endpoint for roles).
@@ -517,7 +644,11 @@ func (c *thunderClient) ListRoles(ctx context.Context, ouID string, offset, limi
 			return nil, 0, fmt.Errorf("thunder list roles decode: %w", err)
 		}
 		for _, role := range wrapped.Roles {
-			if role.OuID == ouID {
+			// The exclusion happens before the client-side pagination below so
+			// offset/limit/total stay consistent. The unfiltered ouID=="" branch
+			// above deliberately keeps the native role: rolesForAssignee and the
+			// scope-cleanup sweep must still see every role in the instance.
+			if role.OuID == ouID && role.Name != NativeAdministratorRoleName {
 				all = append(all, role)
 			}
 		}
@@ -600,6 +731,21 @@ func (c *thunderClient) DeleteRole(ctx context.Context, roleID string) error {
 	return nil
 }
 
+// resolveAssignmentGroup expands a group assignment entry to the full group.
+// A group deleted from Thunder after being assigned is tolerated: it logs a
+// warning and returns ok=false rather than failing the whole listing.
+func (c *thunderClient) resolveAssignmentGroup(ctx context.Context, roleID, groupID string) (group *ThunderGroup, ok bool, err error) {
+	group, err = c.GetGroup(ctx, groupID)
+	if err != nil {
+		if IsNotFound(err) {
+			logger.GetLogger(ctx).Warn("skipping deleted role assignment group", "roleID", roleID, "groupID", groupID)
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("thunder get role assignment group %s: %w", groupID, err)
+	}
+	return group, true, nil
+}
+
 func (c *thunderClient) GetRoleAssignments(ctx context.Context, roleID string) (*RoleAssignments, error) {
 	token, err := c.getSystemToken(ctx)
 	if err != nil {
@@ -628,18 +774,42 @@ func (c *thunderClient) GetRoleAssignments(ctx context.Context, roleID string) (
 			}
 			result.Users = append(result.Users, *user)
 		case "group":
-			group, err := c.GetGroup(ctx, a.ID)
+			group, ok, err := c.resolveAssignmentGroup(ctx, roleID, a.ID)
 			if err != nil {
-				if IsNotFound(err) {
-					log.Warn("skipping deleted role assignment group", "roleID", roleID, "groupID", a.ID)
-					continue
-				}
-				return nil, fmt.Errorf("thunder get role assignment group %s: %w", a.ID, err)
+				return nil, err
 			}
-			result.Groups = append(result.Groups, *group)
+			if ok {
+				result.Groups = append(result.Groups, *group)
+			}
 		}
 	}
 
+	return result, nil
+}
+
+// GetAgentRoleAssignments returns the role's assignments with agent-identity
+// (environment Thunder) semantics; see the IdentityClient interface doc for
+// the contract.
+func (c *thunderClient) GetAgentRoleAssignments(ctx context.Context, roleID string) (*AgentRoleAssignments, error) {
+	entries, err := c.listRoleAssignmentEntries(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+	result := &AgentRoleAssignments{}
+	for _, a := range entries {
+		switch a.Type {
+		case "agent":
+			result.Agents = append(result.Agents, a)
+		case "group":
+			group, ok, err := c.resolveAssignmentGroup(ctx, roleID, a.ID)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				result.Groups = append(result.Groups, *group)
+			}
+		}
+	}
 	return result, nil
 }
 
@@ -758,33 +928,10 @@ func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermis
 		return nil, "", err
 	}
 
-	// Paginate through resource servers to find the "amp" one.
-	const rsPageSize = 20
-	var ampRSID string
-	rsOffset := 0
-	for {
-		rsURL := fmt.Sprintf("%s/resource-servers?offset=%d&limit=%d", c.baseURL, rsOffset, rsPageSize)
-		rsBody, err := c.doRequest(ctx, http.MethodGet, rsURL, token, nil)
-		if err != nil {
-			return nil, "", fmt.Errorf("thunder list resource servers: %w", err)
-		}
-		var page thunderResourceServerList
-		if err := json.Unmarshal(rsBody, &page); err != nil {
-			return nil, "", fmt.Errorf("thunder list resource servers decode: %w", err)
-		}
-		for _, rs := range page.ResourceServers {
-			if rs.Identifier == rbac.ResourceServer {
-				ampRSID = rs.ID
-				break
-			}
-		}
-		if ampRSID != "" {
-			break
-		}
-		rsOffset += len(page.ResourceServers)
-		if rsOffset >= page.Total || len(page.ResourceServers) == 0 {
-			break
-		}
+	// Find the "amp" resource server.
+	ampRSID, err := c.findResourceServerID(ctx, token, rbac.ResourceServer)
+	if err != nil {
+		return nil, "", err
 	}
 	if ampRSID == "" {
 		// Return empty list if amp resource server not found - permissions can be managed without it
@@ -840,6 +987,225 @@ func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermis
 	}
 
 	return perms, ampRSID, nil
+}
+
+// findResourceServerID paginates through resource servers and returns the ID of
+// the one whose identifier matches, or "" if none match.
+func (c *thunderClient) findResourceServerID(ctx context.Context, token, identifier string) (string, error) {
+	const rsPageSize = 20
+	rsOffset := 0
+	for {
+		rsURL := fmt.Sprintf("%s/resource-servers?offset=%d&limit=%d", c.baseURL, rsOffset, rsPageSize)
+		rsBody, err := c.doRequest(ctx, http.MethodGet, rsURL, token, nil)
+		if err != nil {
+			return "", fmt.Errorf("thunder list resource servers: %w", err)
+		}
+		var page thunderResourceServerList
+		if err := json.Unmarshal(rsBody, &page); err != nil {
+			return "", fmt.Errorf("thunder list resource servers decode: %w", err)
+		}
+		for _, rs := range page.ResourceServers {
+			if rs.Identifier == identifier {
+				return rs.ID, nil
+			}
+		}
+		rsOffset += len(page.ResourceServers)
+		if rsOffset >= page.Total || len(page.ResourceServers) == 0 {
+			return "", nil
+		}
+	}
+}
+
+// --- Per-proxy resource servers ---
+
+const (
+	// proxyResourceServerDelimiter joins the resource server's handle with a root
+	// action's handle to derive that action's permission. The scope string is
+	// "<proxy-handle>:<action>", so with handle = proxyHandle the derived permission
+	// equals the scope exactly. Proxy handles are kebab-case and never contain ":".
+	proxyResourceServerDelimiter = ":"
+	// proxyResourceServerType marks the RS as MCP, enabling Thunder's MCP
+	// handle-collision guardrails.
+	proxyResourceServerType = "MCP"
+	// thunderHandleMaxLen is Thunder's per-handle cap (RS, resource, and action
+	// handles). Over-long inputs are rejected with a clear error instead of letting
+	// Thunder reject the handle with an opaque 400.
+	thunderHandleMaxLen = 100
+)
+
+// EnsureProxyResourceServer makes sure the resource server for a proxy exists
+// (identifier = handle = proxyHandle, delimiter ":", type MCP) and that every
+// given action is registered as a root action, then returns the resource server
+// ID. Idempotent; called lazily before role writes.
+func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName string, actions []string) (string, error) {
+	if len(proxyHandle) > thunderHandleMaxLen {
+		return "", fmt.Errorf("proxy handle %q exceeds the Thunder handle limit of %d characters", proxyHandle, thunderHandleMaxLen)
+	}
+	for _, action := range actions {
+		if len(action) > thunderHandleMaxLen {
+			return "", fmt.Errorf("action %q exceeds the Thunder handle limit of %d characters", action, thunderHandleMaxLen)
+		}
+	}
+
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Avoids a TOCTOU race where concurrent callers both create a duplicate
+	// resource server or action; safe to scope per-client since clients are
+	// cached per org/env.
+	c.ensureResourceServerMu.Lock()
+	defer c.ensureResourceServerMu.Unlock()
+
+	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	if err != nil {
+		return "", err
+	}
+	if rsID == "" {
+		ouID, err := c.getDefaultOUID(ctx, token)
+		if err != nil {
+			return "", fmt.Errorf("thunder ensure proxy resource server (default ou): %w", err)
+		}
+		body, err := c.doRequest(ctx, http.MethodPost, c.baseURL+"/resource-servers", token,
+			map[string]string{
+				"name":       displayName,
+				"identifier": proxyHandle,
+				"handle":     proxyHandle,
+				"ouId":       ouID,
+				"delimiter":  proxyResourceServerDelimiter,
+				"type":       proxyResourceServerType,
+			})
+		if err != nil {
+			return "", fmt.Errorf("thunder create proxy resource server: %w", err)
+		}
+		var created ThunderResourceServer
+		if err := json.Unmarshal(body, &created); err != nil {
+			return "", fmt.Errorf("thunder create proxy resource server decode: %w", err)
+		}
+		rsID = created.ID
+	}
+
+	existing, err := c.listProxyRootActions(ctx, token, rsID)
+	if err != nil {
+		return "", err
+	}
+	for _, action := range actions {
+		if action == "" {
+			continue
+		}
+		if _, ok := existing[action]; ok {
+			continue
+		}
+		if err := c.createProxyRootAction(ctx, token, rsID, action); err != nil {
+			return "", err
+		}
+		existing[action] = "" // guard against duplicate actions in the input slice
+	}
+	return rsID, nil
+}
+
+// DeleteProxyResourceServerAction best-effort deletes a single root action from
+// the proxy's resource server. A missing resource server or missing action is
+// not an error. Returns the resource server ID ("" if the RS is absent).
+func (c *thunderClient) DeleteProxyResourceServerAction(ctx context.Context, proxyHandle, action string) (string, error) {
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	if err != nil {
+		return "", err
+	}
+	if rsID == "" {
+		return "", nil
+	}
+	actions, err := c.listProxyRootActions(ctx, token, rsID)
+	if err != nil {
+		return rsID, err
+	}
+	actionID, ok := actions[action]
+	if !ok {
+		return rsID, nil
+	}
+	if _, err := c.doRequest(ctx, http.MethodDelete, c.baseURL+"/resource-servers/"+rsID+"/actions/"+actionID, token, nil); err != nil && !IsNotFound(err) {
+		return rsID, fmt.Errorf("thunder delete proxy root action %q: %w", action, err)
+	}
+	return rsID, nil
+}
+
+// DeleteProxyResourceServer deletes every root action of the proxy's resource
+// server and then the resource server itself. Thunder blocks RS deletion while
+// actions exist, so actions are removed first. A missing resource server is not
+// an error.
+func (c *thunderClient) DeleteProxyResourceServer(ctx context.Context, proxyHandle string) error {
+	token, err := c.getSystemToken(ctx)
+	if err != nil {
+		return err
+	}
+	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	if err != nil {
+		return err
+	}
+	if rsID == "" {
+		return nil
+	}
+	actions, err := c.listProxyRootActions(ctx, token, rsID)
+	if err != nil {
+		return err
+	}
+	for action, actionID := range actions {
+		if _, err := c.doRequest(ctx, http.MethodDelete, c.baseURL+"/resource-servers/"+rsID+"/actions/"+actionID, token, nil); err != nil && !IsNotFound(err) {
+			return fmt.Errorf("thunder delete proxy root action %q: %w", action, err)
+		}
+	}
+	if _, err := c.doRequest(ctx, http.MethodDelete, c.baseURL+"/resource-servers/"+rsID, token, nil); err != nil && !IsNotFound(err) {
+		return fmt.Errorf("thunder delete proxy resource server %q: %w", proxyHandle, err)
+	}
+	return nil
+}
+
+// listProxyRootActions returns the root actions of a resource server as a map of
+// action handle to action ID, paginating through all pages.
+func (c *thunderClient) listProxyRootActions(ctx context.Context, token, rsID string) (map[string]string, error) {
+	const actPageSize = 20
+	actions := make(map[string]string)
+	offset := 0
+	for {
+		url := fmt.Sprintf("%s/resource-servers/%s/actions?offset=%d&limit=%d", c.baseURL, rsID, offset, actPageSize)
+		body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
+		if err != nil {
+			return nil, fmt.Errorf("thunder list proxy root actions: %w", err)
+		}
+		var page thunderActionList
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("thunder list proxy root actions decode: %w", err)
+		}
+		for _, a := range page.Actions {
+			if a.Handle != "" {
+				actions[a.Handle] = a.ID
+			}
+		}
+		offset += len(page.Actions)
+		if offset >= page.TotalResults || len(page.Actions) == 0 {
+			break
+		}
+	}
+	return actions, nil
+}
+
+// createProxyRootAction registers one action at the resource server root. Thunder
+// derives the action's permission by joining the RS handle and the action handle
+// with the RS delimiter (":"), so with handle = proxyHandle the derived permission
+// equals the "<proxy-handle>:<action>" scope exactly. Callers must ensure the
+// action is within thunderHandleMaxLen before invoking this.
+func (c *thunderClient) createProxyRootAction(ctx context.Context, token, rsID, action string) error {
+	_, err := c.doRequest(ctx, http.MethodPost, c.baseURL+"/resource-servers/"+rsID+"/actions", token,
+		map[string]string{"name": action, "handle": action})
+	if err != nil {
+		return fmt.Errorf("thunder create proxy root action %q: %w", action, err)
+	}
+	return nil
 }
 
 // ListUsersByOUId fetches users directly from Thunder's OU-scoped endpoint.

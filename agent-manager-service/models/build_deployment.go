@@ -27,7 +27,7 @@ type DeploymentResponse struct {
 	Environment                string                      `json:"environment"`
 	EnvironmentDisplayName     string                      `json:"environmentDisplayName"`
 	PromotionTargetEnvironment *PromotionTargetEnvironment `json:"promotionTargetEnvironment,omitempty"`
-	LastDeployedAt             time.Time                   `json:"lastDeployedAt"`
+	LastDeployedAt             *time.Time                  `json:"lastDeployedAt,omitempty"`
 	Endpoints                  []Endpoint                  `json:"endpoints"`
 }
 
@@ -119,7 +119,8 @@ type InputInterface struct {
 
 // InputInterfaceSchema represents schema configuration
 type InputInterfaceSchema struct {
-	Path string `json:"path,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
 }
 
 // BuildDetails represents detailed build information

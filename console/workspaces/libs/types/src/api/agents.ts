@@ -18,6 +18,7 @@
 
 import { type AgentPathParams, type Build, type Configurations, type ListQuery, type OrgProjPathParams, type PaginationMeta, type RepositoryConfig } from './common';
 import type { EnvProviderConfiguration, EnvironmentVariableConfig } from './agent-model-configs';
+import type { ThunderGroup, ThunderRole } from './identities';
 
 export interface ModelConfigRequest {
   providerName: string;
@@ -42,11 +43,14 @@ interface AgentRequestBase {
   inputInterface?: InputInterface;
   modelConfig?: ModelConfigRequest[];
   mcpConfig?: MCPConfigRequest[];
+  labels?: Record<string, string>;
 }
 
 interface UpdateAgentBasicInfoRequest {
   displayName: string;
   description?: string;
+  /** Omit to leave labels unchanged; send {} to clear all labels. */
+  labels?: Record<string, string>;
 }
 
 interface UpdateAgentBuildParametersRequest {
@@ -104,6 +108,7 @@ export interface AgentResponse {
   inputInterface?: InputInterface;
   uuid?: string;
   kindName?: string;
+  labels?: Record<string, string>;
 }
 
 export interface AgentListResponse extends PaginationMeta {
@@ -118,7 +123,8 @@ export type DeleteAgentPathParams = AgentPathParams;
 export type UpdateAgentPathParams = AgentPathParams;
 export type UpdateAgentBasicInfoPathParams = AgentPathParams;
 export type UpdateAgentBuildParametersPathParams = AgentPathParams;
-export type ListAgentsQuery = ListQuery;
+/** `label` entries are `key:value` selectors; repeat for AND semantics. */
+export type ListAgentsQuery = ListQuery & { label?: string[] };
 
 // Agent Token
 export interface TokenRequest {
@@ -138,4 +144,76 @@ export interface GenerateAgentTokenQuery {
   environment?: string;
 }
 
+// --- Agent identity: roles/groups (read-only) ---
+
+export type GetAgentRolesPathParams = AgentPathParams;
+export type GetAgentGroupsPathParams = AgentPathParams;
+
+export interface GetAgentRolesQuery {
+  environment: string;
+}
+
+export interface GetAgentGroupsQuery {
+  environment: string;
+}
+
+export interface AgentRolesResponse {
+  roles: ThunderRole[];
+}
+
+export interface AgentGroupsResponse {
+  groups: ThunderGroup[];
+}
+
+// --- Agent identity: AgentID lifecycle (per environment) ---
+
+export type AgentThunderStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+// One environment's AgentID binding. Never includes a secret — for an
+// externally hosted agent, use RegenerateAgentIdentitySecret to obtain one.
+export interface AgentIdentityEnvironmentView {
+  environmentName: string;
+  provisioningType: ProvisioningType;
+  status: AgentThunderStatus;
+  agentId?: string;
+  clientId?: string;
+  lastError?: string;
+  requestedBy?: string;
+}
+
+export interface AgentIdentityActionRequest {
+  environment: string;
+}
+
+export interface AgentRegenerateSecretResponse {
+  environmentName: string;
+  provisioningType: ProvisioningType;
+  clientId: string;
+  clientSecret: string;
+  status: string;
+}
+
+// Never includes clientSecret — revoke turns access off rather than rotating it.
+export interface AgentRevokeSecretResponse {
+  environmentName: string;
+  clientId: string;
+  status: string;
+}
+
+export type GetAgentIdentityPathParams = AgentPathParams;
+export interface GetAgentIdentityQuery {
+  environment?: string;
+}
+
+export type ProvisionAgentIdentityPathParams = AgentPathParams;
+export interface ProvisionAgentIdentityQuery {
+  environment: string;
+}
+
+export type RegenerateAgentIdentitySecretPathParams = AgentPathParams;
+
+export type RevokeAgentIdentitySecretPathParams = AgentPathParams;
+export interface RevokeAgentIdentitySecretQuery {
+  environment: string;
+}
 

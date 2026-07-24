@@ -115,6 +115,9 @@ func convertToInternalAgentResponse(component *models.AgentResponse) spec.AgentR
 			return &component.KindName
 		}(),
 	}
+	if len(component.Labels) > 0 {
+		response.SetLabels(component.Labels)
+	}
 	return response
 }
 
@@ -126,6 +129,12 @@ func convertToConfigurations(configs *models.Configurations) *spec.Configuration
 		EnableAutoInstrumentation: configs.EnableAutoInstrumentation,
 		EnableApiKeySecurity:      configs.EnableApiKeySecurity,
 		EnableOAuthSecurity:       configs.EnableOAuthSecurity,
+	}
+	// Surface the pinned AMP instrumentation version on reads so the deploy/promote
+	// UI shows the currently-applied version instead of falling back to the platform
+	// default. Left unset (omitted) when the agent has no pin.
+	if configs.InstrumentationVersion != nil {
+		result.InstrumentationVersion.Set(configs.InstrumentationVersion)
 	}
 	if configs.CorsConfig != nil {
 		corsConfig := spec.CORSConfig{
@@ -150,8 +159,36 @@ func convertToConfigurations(configs *models.Configurations) *spec.Configuration
 	return result
 }
 
+// PopulateConfigurationResponseFromAgentConfig fills the per-environment tracing, CORS, and
+// endpoint-authentication fields on a ConfigurationResponse from the agent_configs row. Unlike
+// GetAgent (lowest-environment only), this lets the console seed the drawer per environment. No-op
+// when cfg is nil ("no config persisted yet").
+func PopulateConfigurationResponseFromAgentConfig(resp *spec.ConfigurationResponse, cfg *models.AgentConfig) {
+	if resp == nil || cfg == nil {
+		return
+	}
+	resp.EnableAutoInstrumentation = spec.PtrBool(cfg.EnableAutoInstrumentation)
+	resp.InstrumentationVersion = cfg.InstrumentationVersion
+	resp.EnableApiKeySecurity = spec.PtrBool(cfg.EnableApiKeySecurity)
+	resp.EnableOAuthSecurity = spec.PtrBool(cfg.EnableOAuthSecurity)
+	resp.CorsConfig = &spec.CORSConfig{
+		Enabled:          spec.PtrBool(cfg.CORSEnabled),
+		AllowOrigin:      cfg.CORSAllowOrigins,
+		AllowMethods:     cfg.CORSAllowMethods,
+		AllowHeaders:     cfg.CORSAllowHeaders,
+		AllowCredentials: spec.PtrBool(cfg.CORSAllowCredentials),
+	}
+	resp.OauthConfig = &spec.OAuthConfig{
+		Issuers:          cfg.OAuthIssuers,
+		Audiences:        cfg.OAuthAudiences,
+		HeaderName:       &cfg.OAuthHeaderName,
+		AuthHeaderPrefix: &cfg.OAuthAuthHeaderPrefix,
+		ForwardToken:     &cfg.OAuthForwardToken,
+	}
+}
+
 func convertToExternalAgentResponse(component *models.AgentResponse) spec.AgentResponse {
-	return spec.AgentResponse{
+	response := spec.AgentResponse{
 		Uuid:        component.UUID,
 		Name:        component.Name,
 		DisplayName: component.DisplayName,
@@ -166,6 +203,10 @@ func convertToExternalAgentResponse(component *models.AgentResponse) spec.AgentR
 			Type: component.Type.Type,
 		},
 	}
+	if len(component.Labels) > 0 {
+		response.SetLabels(component.Labels)
+	}
+	return response
 }
 
 func ConvertToBuildResponse(build *models.BuildResponse) spec.BuildResponse {
@@ -258,8 +299,12 @@ func convertToInputInterface(input *models.InputInterface) *spec.InputInterface 
 	}
 
 	if input.Schema != nil {
-		result.Schema = &spec.InputInterfaceSchema{
-			Path: input.Schema.Path,
+		result.Schema = &spec.InputInterfaceSchema{}
+		if input.Schema.Path != "" {
+			result.Schema.Path = &input.Schema.Path
+		}
+		if input.Schema.Content != "" {
+			result.Schema.Content = &input.Schema.Content
 		}
 	}
 	if input.BasePath != "" {
@@ -424,7 +469,6 @@ func ConvertToDeploymentPipelineResponse(pipeline *models.DeploymentPipelineResp
 		Name:           pipeline.Name,
 		DisplayName:    pipeline.DisplayName,
 		Description:    pipeline.Description,
-		OrgName:        pipeline.OrgName,
 		CreatedAt:      pipeline.CreatedAt,
 		PromotionPaths: promotionPaths,
 	}
@@ -479,7 +523,6 @@ func ConvertToProjectResponse(project *models.ProjectResponse) spec.ProjectRespo
 		Description:        project.Description,
 		CreatedAt:          project.CreatedAt,
 		DeploymentPipeline: project.DeploymentPipeline,
-		OrgName:            project.OrgName,
 	}
 }
 
@@ -494,7 +537,6 @@ func ConvertToProjectListItem(project *models.ProjectResponse) spec.ProjectListI
 		DisplayName:        project.DisplayName,
 		Description:        &project.Description,
 		CreatedAt:          project.CreatedAt,
-		OrgName:            project.OrgName,
 		DeploymentPipeline: &project.DeploymentPipeline,
 	}
 }
@@ -530,32 +572,6 @@ func ConvertToLogsResponse(buildLogs models.LogsResponse) spec.LogsResponse {
 	return responses
 }
 
-func ConvertToMetricsResponse(metrics *models.MetricsResponse) *spec.MetricsResponse {
-	if metrics == nil {
-		return nil
-	}
-
-	convertDataPoints := func(points []models.TimeValuePoint) []spec.MetricDataPoint {
-		result := make([]spec.MetricDataPoint, len(points))
-		for i, p := range points {
-			result[i] = spec.MetricDataPoint{
-				Time:  p.Time,
-				Value: p.Value,
-			}
-		}
-		return result
-	}
-
-	return &spec.MetricsResponse{
-		CpuUsage:       convertDataPoints(metrics.CpuUsage),
-		CpuRequests:    convertDataPoints(metrics.CpuRequests),
-		CpuLimits:      convertDataPoints(metrics.CpuLimits),
-		Memory:         convertDataPoints(metrics.Memory),
-		MemoryRequests: convertDataPoints(metrics.MemoryRequests),
-		MemoryLimits:   convertDataPoints(metrics.MemoryLimits),
-	}
-}
-
 func ConvertToDataPlaneListResponse(dataPlanes []*models.DataPlaneResponse) []spec.DataPlane {
 	if len(dataPlanes) == 0 {
 		return []spec.DataPlane{}
@@ -565,7 +581,6 @@ func ConvertToDataPlaneListResponse(dataPlanes []*models.DataPlaneResponse) []sp
 	for i, dp := range dataPlanes {
 		responses[i] = spec.DataPlane{
 			Name:        dp.Name,
-			OrgName:     dp.OrgName,
 			DisplayName: dp.DisplayName,
 			Description: dp.Description,
 			CreatedAt:   dp.CreatedAt,
@@ -706,7 +721,6 @@ func ConvertToMonitorResponse(monitor *models.MonitorResponse) spec.MonitorRespo
 		DisplayName:     monitor.DisplayName,
 		Description:     &monitor.Description,
 		Type:            monitor.Type,
-		OrgName:         monitor.OrgName,
 		ProjectName:     monitor.ProjectName,
 		AgentName:       monitor.AgentName,
 		EnvironmentName: monitor.EnvironmentName,

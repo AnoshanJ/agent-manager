@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -37,9 +39,10 @@ import (
 // to the JSON workload object (including spec.container.image).
 const workflowRunWorkloadAnnotationKey = "openchoreo.dev/workload"
 
-func (c *openChoreoClient) TriggerBuild(ctx context.Context, orgName, projectName, componentName, commitID string) (*models.BuildResponse, error) {
+func (c *openChoreoClient) TriggerBuild(ctx context.Context, ouID, projectName, componentName, commitID string) (*models.BuildResponse, error) {
+	namespaceName := c.NamespaceFor(ouID)
 	// Get the component to find its workflow configuration
-	compResp, err := c.ocClient.GetComponentWithResponse(ctx, orgName, componentName)
+	compResp, err := c.ocClient.GetComponentWithResponse(ctx, namespaceName, componentName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get component: %w", err)
 	}
@@ -91,7 +94,7 @@ func (c *openChoreoClient) TriggerBuild(ctx context.Context, orgName, projectNam
 	apiReq := gen.CreateWorkflowRunJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:      workflowRunName,
-			Namespace: &orgName,
+			Namespace: &namespaceName,
 			Labels:    &labels,
 		},
 		Spec: &gen.WorkflowRunSpec{
@@ -103,7 +106,7 @@ func (c *openChoreoClient) TriggerBuild(ctx context.Context, orgName, projectNam
 		},
 	}
 
-	resp, err := c.ocClient.CreateWorkflowRunWithResponse(ctx, orgName, apiReq)
+	resp, err := c.ocClient.CreateWorkflowRunWithResponse(ctx, namespaceName, apiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to trigger build: %w", err)
 	}
@@ -125,8 +128,9 @@ func (c *openChoreoClient) TriggerBuild(ctx context.Context, orgName, projectNam
 	return toWorkflowRunBuild(resp.JSON201, componentName, projectName)
 }
 
-func (c *openChoreoClient) GetBuild(ctx context.Context, orgName, projectName, componentName, buildName string) (*models.BuildDetailsResponse, error) {
-	resp, err := c.ocClient.GetWorkflowRunWithResponse(ctx, orgName, buildName)
+func (c *openChoreoClient) GetBuild(ctx context.Context, ouID, projectName, componentName, buildName string) (*models.BuildDetailsResponse, error) {
+	namespaceName := c.NamespaceFor(ouID)
+	resp, err := c.ocClient.GetWorkflowRunWithResponse(ctx, namespaceName, buildName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get build: %w", err)
 	}
@@ -147,10 +151,11 @@ func (c *openChoreoClient) GetBuild(ctx context.Context, orgName, projectName, c
 	return toBuildDetailsResponse(resp.JSON200, componentName, projectName)
 }
 
-func (c *openChoreoClient) ListBuilds(ctx context.Context, orgName, projectName, componentName string) ([]*models.BuildResponse, error) {
+func (c *openChoreoClient) ListBuilds(ctx context.Context, ouID, projectName, componentName string) ([]*models.BuildResponse, error) {
+	namespaceName := c.NamespaceFor(ouID)
 	// Use label selector to filter workflow runs by component
 	labelSelector := fmt.Sprintf("%s=%s,%s=%s", LabelKeyComponentName, componentName, LabelKeyProjectName, projectName)
-	resp, err := c.ocClient.ListWorkflowRunsWithResponse(ctx, orgName, &gen.ListWorkflowRunsParams{
+	resp, err := c.ocClient.ListWorkflowRunsWithResponse(ctx, namespaceName, &gen.ListWorkflowRunsParams{
 		LabelSelector: &labelSelector,
 		Limit:         &defaultListLimit,
 	})
@@ -188,7 +193,8 @@ func (c *openChoreoClient) ListBuilds(ctx context.Context, orgName, projectName,
 	return buildResponses, nil
 }
 
-func (c *openChoreoClient) UpdateComponentBuildParameters(ctx context.Context, namespaceName, projectName, componentName string, req UpdateComponentBuildParametersRequest) error {
+func (c *openChoreoClient) UpdateComponentBuildParameters(ctx context.Context, ouID, projectName, componentName string, req UpdateComponentBuildParametersRequest) error {
+	namespaceName := c.NamespaceFor(ouID)
 	// Get the component
 	resp, err := c.ocClient.GetComponentWithResponse(ctx, namespaceName, componentName)
 	if err != nil {
@@ -487,6 +493,42 @@ func imageIDFromWorkflowRunWorkloadAnnotation(run *gen.WorkflowRun) string {
 	return extractImageFromWorkloadMap(workload)
 }
 
+// schemaContentFromWorkflowRunWorkloadAnnotation returns the resolved endpoint schema content
+// from the WorkflowRun workload annotation. The generate-workload step inlines the schema into
+// the workload endpoint spec — reading the git file at schemaFilePath for custom agents — so
+// this annotation is the per-build source of truth for schema content across both chat and
+// custom agents. Returns the content of the first endpoint that carries one.
+func schemaContentFromWorkflowRunWorkloadAnnotation(run *gen.WorkflowRun) string {
+	if run == nil || run.Metadata.Annotations == nil {
+		return ""
+	}
+	raw, ok := (*run.Metadata.Annotations)[workflowRunWorkloadAnnotationKey]
+	if !ok || raw == "" {
+		return ""
+	}
+	var workload map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &workload); err != nil {
+		slog.Warn("failed to unmarshal workload annotation for schema content", "workflowRun", run.Metadata.Name, "error", err)
+		return ""
+	}
+	endpoints, found, err := unstructured.NestedMap(workload, "spec", "endpoints")
+	if err != nil || !found {
+		slog.Warn("no endpoints found in workload annotation for schema content", "workflowRun", run.Metadata.Name, "error", err)
+		return ""
+	}
+	for _, ep := range endpoints {
+		epMap, ok := ep.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if content, ok, _ := unstructured.NestedString(epMap, "schema", "content"); ok && content != "" {
+			return content
+		}
+	}
+	slog.Warn("schema content is empty in workload annotation endpoints", "workflowRun", run.Metadata.Name)
+	return ""
+}
+
 // toBuildDetailsResponse converts a gen.WorkflowRun to models.BuildDetailsResponse
 func toBuildDetailsResponse(run *gen.WorkflowRun, componentName, projectName string) (*models.BuildDetailsResponse, error) {
 	build, err := toWorkflowRunBuild(run, componentName, projectName)
@@ -512,6 +554,19 @@ func toBuildDetailsResponse(run *gen.WorkflowRun, componentName, projectName str
 	details := &models.BuildDetailsResponse{
 		BuildResponse:  *build,
 		InputInterface: inputInterface,
+	}
+
+	// Populate schema content from the resolved workload annotation. For custom agents the
+	// WorkflowRun params carry only schemaFilePath; the generate-workload step resolves that
+	// file into the workload endpoint schema, so the annotation is the per-build content source.
+	// Chat agents already carry inline content in params, so only fill when it's missing.
+	if details.InputInterface != nil && (details.InputInterface.Schema == nil || details.InputInterface.Schema.Content == "") {
+		if content := schemaContentFromWorkflowRunWorkloadAnnotation(run); content != "" {
+			if details.InputInterface.Schema == nil {
+				details.InputInterface.Schema = &models.InputInterfaceSchema{}
+			}
+			details.InputInterface.Schema.Content = content
+		}
 	}
 
 	// Map status to build steps

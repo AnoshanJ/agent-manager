@@ -15,81 +15,115 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  type SyntheticEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   useGetMCPProxy,
+  useListEnvironments,
   useUpdateMCPProxy,
 } from "@agent-management-platform/api-client";
-import type {
-  MCPProxy,
-  MCPProxyPolicy,
+import {
+  absoluteRouteMap,
+  type MCPEndpointConfig,
+  type MCPProxy,
+  type MCPProxyEndpoint,
 } from "@agent-management-platform/types";
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   Card,
   Chip,
   Divider,
+  FormControl,
+  Grid,
   IconButton,
-  PageContent,
+  MenuItem,
+  Select,
   Skeleton,
   Stack,
   Tab,
   Tabs,
-  TextField,
+  Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { AlertTriangle, Clock, Edit } from "@wso2/oxygen-ui-icons-react";
-import { useParams } from "react-router-dom";
+import { AlertTriangle, Clock, Copy, Edit } from "@wso2/oxygen-ui-icons-react";
+import { generatePath, useParams, useSearchParams } from "react-router-dom";
 import {
   formatRelativeTime,
-  getAvatarInitials,
   normalizeVersion,
 } from "@agent-management-platform/shared-component";
+import { PageLayout } from "@agent-management-platform/views";
 import { MCPCapabilitiesView } from "../components/MCPCapabilitiesView";
-import { MCPProxyAccessControlTab } from "./MCPProxyAccessControlTab";
-import { MCPProxyAPIKeysTab } from "./MCPProxyAPIKeysTab";
+import { MCPProxyManageToolsTab } from "./MCPProxyManageToolsTab";
 import { MCPProxyConnectionTab } from "./MCPProxyConnectionTab";
 import { MCPProxyOverviewTab } from "./MCPProxyOverviewTab";
 import { MCPProxyPoliciesTab } from "./MCPProxyPoliciesTab";
 import { MCPProxyRewriteTab } from "./MCPProxyRewriteTab";
 import { MCPProxySecurityTab } from "./MCPProxySecurityTab";
+import { EditMCPProxyDrawer } from "./EditMCPProxyDrawer";
+import { useCopyWithFeedback } from "./useCopyWithFeedback";
 
-const TABS = [
-  "Overview",
-  "Capabilities",
-  "Connection",
-  "Access Control",
-  "Security",
-  "API Keys",
-  "Rewrite",
-  "Policies",
+// slug is a URL-safe stand-in for each tab, so the selected tab (and
+// environment, below) are shareable/deep-linkable and survive a page reload
+// instead of resetting to Overview/first-environment.
+const TAB_DEFS = [
+  { label: "Overview", slug: "overview" },
+  { label: "Capabilities", slug: "capabilities" },
+  { label: "Connection", slug: "connection" },
+  { label: "Manage Tools", slug: "manage-tools" },
+  { label: "Security", slug: "security" },
+  { label: "Rewrite", slug: "rewrite" },
+  { label: "Policies", slug: "policies" },
 ] as const;
 
 export function ViewMCPProxy() {
   const { orgId, proxyId } = useParams<{ orgId: string; proxyId: string }>();
   const routeProxyId = proxyId ?? "";
-  const [tabIndex, setTabIndex] = useState(0);
-  const [isEditingDetails, setIsEditingDetails] = useState(false);
-  const [name, setName] = useState("");
-  const [version, setVersion] = useState("");
-  const [context, setContext] = useState("");
-  const [description, setDescription] = useState("");
-  const [baselineDetails, setBaselineDetails] = useState({
-    context: "",
-    description: "",
-    id: "",
-    name: "",
-    version: "",
-  });
-  const [editablePolicies, setEditablePolicies] = useState<MCPProxyPolicy[]>(
-    [],
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const tabSlug = searchParams.get("tab");
+  const tabIndex = tabSlug
+    ? Math.max(0, TAB_DEFS.findIndex((tab) => tab.slug === tabSlug))
+    : 0;
+  const selectedEndpointId = searchParams.get("endpoint") ?? "";
+
+  const setSelectedEndpointId = useCallback(
+    (endpointId: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("endpoint", endpointId);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
-  const [baselinePolicies, setBaselinePolicies] = useState<MCPProxyPolicy[]>(
-    [],
+
+  const handleTabChange = useCallback(
+    (_event: SyntheticEvent, value: number) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", TAB_DEFS[value].slug);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
+
+  const [editDrawerOpen, setEditDrawerOpen] = useState(false);
+  const handleCopy = useCopyWithFeedback();
+
   const {
     data: proxy,
     isLoading,
@@ -98,368 +132,379 @@ export function ViewMCPProxy() {
     orgName: orgId,
     proxyId: routeProxyId,
   });
+  const { data: environments = [] } = useListEnvironments({
+    orgName: orgId ?? "",
+  });
   const updateMCPProxy = useUpdateMCPProxy();
 
-  // Merge-and-save callback used by self-contained tabs (e.g. Connection) that
-  // persist a slice of the proxy independently of the details/policies form.
-  const updateProxyFields = useCallback(
-    async (fields: Partial<MCPProxy>) => {
-      if (!orgId || !proxy?.id) {
-        throw new Error("MCP proxy is not loaded.");
+  const endpoints = useMemo<MCPProxyEndpoint[]>(
+    () => proxy?.endpoints ?? [],
+    [proxy?.endpoints],
+  );
+
+  // Options for the endpoint dropdown, labelled with the endpoint name (falling back to
+  // its handle).
+  const endpointOptions = useMemo(() => {
+    return endpoints.map((endpoint) => ({
+      id: endpoint.id,
+      label: endpoint.name || endpoint.id,
+    }));
+  }, [endpoints]);
+
+  // Keep the selected endpoint valid: default to the first endpoint and reset when the
+  // current selection is no longer present.
+  useEffect(() => {
+    if (endpoints.length === 0) {
+      return;
+    }
+    if (!endpoints.some((endpoint) => endpoint.id === selectedEndpointId)) {
+      setSelectedEndpointId(endpoints[0].id);
+    }
+  }, [endpoints, selectedEndpointId, setSelectedEndpointId]);
+
+  const selectedEndpoint = useMemo<MCPProxyEndpoint | undefined>(
+    () => endpoints.find((endpoint) => endpoint.id === selectedEndpointId),
+    [endpoints, selectedEndpointId],
+  );
+
+  // The selected endpoint's flat config, consumed by every config tab. Environment
+  // bindings and per-env deployment status are surfaced separately as chips.
+  const selectedConfig: MCPEndpointConfig | undefined = selectedEndpoint;
+
+  // Chips describing each environment the selected endpoint is bound to, with its
+  // per-environment deployment status.
+  const selectedEnvChips = useMemo(() => {
+    return (selectedEndpoint?.environments ?? []).map((binding) => {
+      const env = environments.find(
+        (item) => item.id === binding.environmentUuid,
+      );
+      return {
+        id: binding.environmentUuid,
+        label: env?.displayName ?? env?.name ?? binding.environmentUuid,
+        status: binding.deploymentStatus,
+      };
+    });
+  }, [selectedEndpoint, environments]);
+
+  // Merge-and-save callback used by every config tab. It merges a partial into the
+  // selected endpoint's flat config and PUTs the whole proxy with that one endpoint
+  // replaced.
+  const updateSelectedEndpointConfig = useCallback(
+    async (fields: Partial<MCPEndpointConfig>) => {
+      if (!orgId || !proxy?.id || !selectedEndpointId) {
+        throw new Error("MCP proxy or endpoint is not loaded.");
       }
+      const nextEndpoints = (proxy.endpoints ?? []).map((endpoint) =>
+        endpoint.id === selectedEndpointId
+          ? { ...endpoint, ...fields }
+          : endpoint,
+      );
       return updateMCPProxy.mutateAsync({
         params: { orgName: orgId, proxyId: proxy.id },
-        body: { ...proxy, ...fields },
+        body: { ...proxy, endpoints: nextEndpoints },
       });
     },
-    [orgId, proxy, updateMCPProxy],
+    [orgId, proxy, selectedEndpointId, updateMCPProxy],
   );
 
   const displayName = proxy?.name ?? proxy?.id ?? proxyId ?? "MCP Proxy";
-  const hasDetailsChanges =
-    name !== baselineDetails.name ||
-    version !== baselineDetails.version ||
-    context !== baselineDetails.context ||
-    description !== baselineDetails.description;
-  const hasUnsavedChanges =
-    hasDetailsChanges ||
-    JSON.stringify(editablePolicies) !== JSON.stringify(baselinePolicies);
-  const canSave = name.trim().length > 0 && version.trim().length > 0;
-
-  useEffect(() => {
-    const nextProxyId = proxy?.id ?? "";
-    const isProxyChanged = nextProxyId !== baselineDetails.id;
-    const hasPolicyDraftChanges =
-      JSON.stringify(editablePolicies) !== JSON.stringify(baselinePolicies);
-
-    if (!isProxyChanged && (isEditingDetails || hasPolicyDraftChanges)) {
-      return;
-    }
-
-    const nextPolicies = proxy?.policies ?? [];
-    setEditablePolicies(nextPolicies);
-    setBaselinePolicies(nextPolicies);
-
-    const nextDetails = {
-      context: proxy?.context ?? "",
-      description: proxy?.description ?? "",
-      id: nextProxyId,
-      name: proxy?.name ?? "",
-      version: proxy?.version ?? "",
-    };
-    setName(nextDetails.name);
-    setVersion(nextDetails.version);
-    setContext(nextDetails.context);
-    setDescription(nextDetails.description);
-    setBaselineDetails(nextDetails);
-    setIsEditingDetails(false);
-  }, [
-    baselineDetails.id,
-    baselinePolicies,
-    editablePolicies,
-    isEditingDetails,
-    proxy?.id,
-    proxy?.policies,
-    proxy?.name,
-    proxy?.version,
-    proxy?.context,
-    proxy?.description,
-  ]);
-
-  const resetDraft = () => {
-    setName(baselineDetails.name);
-    setVersion(baselineDetails.version);
-    setContext(baselineDetails.context);
-    setDescription(baselineDetails.description);
-    setEditablePolicies(baselinePolicies);
-    setIsEditingDetails(false);
-  };
-
-  const handleSave = async () => {
-    if (!orgId || !proxy?.id) return;
-
-    const updated = await updateMCPProxy.mutateAsync({
-      params: { orgName: orgId, proxyId: proxy.id },
-      body: {
-        ...proxy,
-        context: optionalString(context),
-        description: optionalString(description),
-        name: name.trim(),
-        policies: editablePolicies,
-        version: version.trim(),
-      },
-    });
-    setEditablePolicies(updated.policies ?? []);
-    setBaselinePolicies(updated.policies ?? []);
-    const nextDetails = {
-      context: updated.context ?? "",
-      description: updated.description ?? "",
-      id: updated.id ?? "",
-      name: updated.name ?? "",
-      version: updated.version ?? "",
-    };
-    setName(nextDetails.name);
-    setVersion(nextDetails.version);
-    setContext(nextDetails.context);
-    setDescription(nextDetails.description);
-    setBaselineDetails(nextDetails);
-    setIsEditingDetails(false);
-  };
-
-  if (isLoading) {
-    return (
-      <PageContent fullWidth>
-        <Stack spacing={4}>
-          <Skeleton variant="rounded" height={168} />
-          <Skeleton variant="rounded" height={360} />
-          <Skeleton variant="rounded" height={96} />
-        </Stack>
-      </PageContent>
-    );
-  }
-
-  if (error) {
-    return (
-      <PageContent fullWidth>
-        <Alert severity="error" icon={<AlertTriangle size={18} />}>
-          {error instanceof Error
-            ? error.message
-            : "Failed to load MCP proxy. Please try again."}
-        </Alert>
-      </PageContent>
-    );
-  }
+  const hasEndpoints = endpoints.length > 0;
+  // The proxy fetch's own isLoading flips to false as soon as `proxy` arrives,
+  // but selecting the first endpoint (when the URL doesn't already name one)
+  // happens in a follow-up effect — so for a render or two, endpoints exist
+  // but selectedEndpoint/selectedConfig is still undefined. Tabs that treat
+  // that as "loaded, and there's nothing here" (e.g. Manage Tools) flash an
+  // empty list before the real config shows up; folding this into the
+  // isLoading passed to every tab keeps them on their loading skeleton until
+  // the endpoint actually resolves.
+  const isResolvingEndpoint = hasEndpoints && !selectedEndpoint;
+  const isTabContentLoading = isLoading || isResolvingEndpoint;
+  const backHref = generatePath(
+    absoluteRouteMap.children.org.children.mcpProxies.path,
+    { orgId: orgId ?? "" },
+  );
 
   return (
-    <PageContent fullWidth>
-      <Stack spacing={4}>
-        <Card variant="outlined" sx={{ p: 3 }}>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={3}
-            justifyContent="space-between"
-          >
-            <Stack direction="row" spacing={3} alignItems="flex-start">
-              <Avatar
-                sx={{
-                  bgcolor: "primary.main",
-                  color: "primary.contrastText",
-                  fontSize: 28,
-                  fontWeight: 700,
-                  height: 88,
-                  width: 88,
-                }}
-              >
-                {getAvatarInitials(displayName, { fallback: "MP" })}
-              </Avatar>
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  {isEditingDetails ? (
-                    <TextField
-                      label="Name"
-                      size="small"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      error={name.trim().length === 0}
-                      helperText={
-                        name.trim().length === 0
-                          ? "Name is required."
-                          : undefined
-                      }
-                      sx={{ minWidth: { xs: "100%", sm: 320 } }}
-                    />
-                  ) : (
-                    <Typography variant="h4" fontWeight={500}>
-                      {displayName}
-                    </Typography>
-                  )}
-                  {isEditingDetails ? (
-                    <TextField
-                      label="Version"
-                      size="small"
-                      value={version}
-                      onChange={(event) => setVersion(event.target.value)}
-                      error={version.trim().length === 0}
-                      helperText={
-                        version.trim().length === 0
-                          ? "Version is required."
-                          : undefined
-                      }
-                      sx={{ minWidth: 160 }}
-                    />
-                  ) : proxy?.version ? (
-                    <Chip
-                      label={normalizeVersion(proxy.version)}
-                      size="small"
-                      variant="outlined"
-                    />
-                  ) : null}
-                  <IconButton
-                    size="small"
-                    onClick={() => setIsEditingDetails(true)}
-                    disabled={updateMCPProxy.isPending}
-                    aria-label="Edit MCP proxy details"
-                  >
-                    <Edit size={18} />
-                  </IconButton>
-                </Stack>
-                {isEditingDetails ? (
-                  <Stack spacing={1.5} sx={{ maxWidth: 560 }}>
-                    <TextField
-                      label="Context"
-                      size="small"
-                      value={context}
-                      onChange={(event) => setContext(event.target.value)}
-                      placeholder="/default/my-mcp-proxy"
-                    />
-                    <TextField
-                      label="Description"
-                      size="small"
-                      multiline
-                      minRows={3}
-                      value={description}
-                      onChange={(event) => setDescription(event.target.value)}
-                    />
-                  </Stack>
-                ) : (
-                  <>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <Typography variant="body2" color="text.secondary">
-                        Context :
-                      </Typography>
-                      <Typography variant="body2">
-                        {proxy?.context ?? "-"}
-                      </Typography>
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      {proxy?.description || "No description provided."}
-                    </Typography>
-                  </>
-                )}
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Last updated :
-                  </Typography>
-                  <Clock size={16} />
-                  <Typography variant="body2">
-                    {formatRelativeTime(proxy?.updatedAt)}
-                  </Typography>
-                </Stack>
-              </Stack>
-            </Stack>
+    <>
+      <PageLayout
+        title={displayName}
+        backHref={backHref}
+        backLabel="Back to MCP Proxies"
+        isLoading={isLoading}
+        titleTail={
+          proxy?.version ? (
+            <Chip
+              label={normalizeVersion(proxy.version)}
+              size="small"
+              variant="outlined"
+              sx={{ ml: 1 }}
+            />
+          ) : undefined
+        }
+        description={proxy ? <MCPProxyDescription proxy={proxy} /> : undefined}
+        actions={
+          proxy ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<Edit size={16} />}
+              onClick={() => setEditDrawerOpen(true)}
+            >
+              Edit MCP Proxy
+            </Button>
+          ) : undefined
+        }
+      >
+        {isLoading && (
+          <Stack spacing={3}>
+            <Skeleton variant="rounded" height={56} />
+            <Skeleton variant="rounded" height={360} />
           </Stack>
-        </Card>
+        )}
 
-        <Card variant="outlined">
-          <Tabs
-            value={tabIndex}
-            onChange={(_, value: number) => setTabIndex(value)}
-          >
-            {TABS.map((tab) => (
-              <Tab key={tab} label={tab} />
-            ))}
-          </Tabs>
-          <Divider />
-          <Box sx={{ p: 3 }}>
-            {tabIndex === 0 && (
-              <MCPProxyOverviewTab
-                proxy={proxy}
-                orgName={orgId}
-                isLoading={isLoading}
-              />
-            )}
-            {tabIndex === 1 && (
-              <MCPCapabilitiesView
-                tools={proxy?.capabilities?.tools}
-                resources={proxy?.capabilities?.resources}
-                prompts={proxy?.capabilities?.prompts}
-                sectionTitleVariant="h6"
-              />
-            )}
-            {tabIndex === 2 && (
-              <MCPProxyConnectionTab
-                proxy={proxy}
-                isLoading={isLoading}
-                onUpdate={updateProxyFields}
-                isUpdating={updateMCPProxy.isPending}
-              />
-            )}
-            {tabIndex === 3 && (
-              <MCPProxyAccessControlTab
-                proxy={proxy}
-                orgName={orgId}
-                isLoading={isLoading}
-                onUpdate={updateProxyFields}
-                isUpdating={updateMCPProxy.isPending}
-              />
-            )}
-            {tabIndex === 4 && (
-              <MCPProxySecurityTab
-                proxy={proxy}
-                isLoading={isLoading}
-                onUpdate={updateProxyFields}
-                isUpdating={updateMCPProxy.isPending}
-              />
-            )}
-            {tabIndex === 5 && (
-              <MCPProxyAPIKeysTab
-                proxy={proxy}
-                orgName={orgId}
-                isLoading={isLoading}
-              />
-            )}
-            {tabIndex === 6 && (
-              <MCPProxyRewriteTab
-                proxy={proxy}
-                orgName={orgId}
-                isLoading={isLoading}
-                onUpdate={updateProxyFields}
-                isUpdating={updateMCPProxy.isPending}
-              />
-            )}
-            {tabIndex === 7 && (
-              <MCPProxyPoliciesTab
-                orgName={orgId}
-                policies={editablePolicies}
-                onPoliciesChange={setEditablePolicies}
-              />
-            )}
-          </Box>
-        </Card>
-
-        {hasUnsavedChanges ? (
-          <Card variant="outlined" sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" spacing={1}>
-              <Typography variant="body2" color="warning.main" fontWeight={600}>
-                You have unsaved changes.
-              </Typography>
-              <Stack direction="row" justifyContent="flex-end" spacing={1}>
-                <Button
-                  variant="outlined"
-                  disabled={updateMCPProxy.isPending}
-                  onClick={resetDraft}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="contained"
-                  disabled={!canSave || updateMCPProxy.isPending}
-                  onClick={handleSave}
-                >
-                  {updateMCPProxy.isPending ? "Saving..." : "Save"}
-                </Button>
-              </Stack>
-            </Stack>
-          </Card>
+        {error ? (
+          <Alert severity="error" icon={<AlertTriangle size={18} />}>
+            {error instanceof Error
+              ? error.message
+              : "Failed to load MCP proxy. Please try again."}
+          </Alert>
         ) : null}
-      </Stack>
-    </PageContent>
+
+        {proxy && !error && (
+          <Stack spacing={4}>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
+                  <Stack spacing={0.5}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontWeight: 500 }}
+                    >
+                      Context
+                    </Typography>
+                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: "monospace",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {proxy.context || "—"}
+                      </Typography>
+                      {proxy.context && (
+                        <Tooltip title="Copy Context">
+                          <IconButton
+                            size="small"
+                            aria-label="Copy Context"
+                            onClick={() =>
+                              handleCopy(proxy.context as string, "Context")
+                            }
+                          >
+                            <Copy size={14} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Card>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
+                  <Stack spacing={0.5}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontWeight: 500 }}
+                    >
+                      MCP Spec Version
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: "monospace" }}
+                    >
+                      {proxy.mcpSpecVersion || "—"}
+                    </Typography>
+                  </Stack>
+                </Card>
+              </Grid>
+            </Grid>
+
+            {hasEndpoints && (
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                justifyContent="flex-end"
+                flexWrap="wrap"
+                useFlexGap
+              >
+                <FormControl size="small" sx={{ minWidth: 260 }}>
+                  <Select
+                    value={selectedEndpointId}
+                    onChange={(event) =>
+                      setSelectedEndpointId(event.target.value as string)
+                    }
+                    renderValue={(value) => {
+                      const option = endpointOptions.find(
+                        (o) => o.id === value,
+                      );
+                      return `${option?.label ?? value} Endpoint`;
+                    }}
+                  >
+                    {endpointOptions.map((option) => (
+                      <MenuItem key={option.id} value={option.id}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+            )}
+
+            {hasEndpoints ? (
+              <Card variant="outlined">
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  sx={{ pr: 2 }}
+                >
+                  <Tabs value={tabIndex} onChange={handleTabChange}>
+                    {TAB_DEFS.map((tab) => (
+                      <Tab key={tab.slug} label={tab.label} />
+                    ))}
+                  </Tabs>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ whiteSpace: "nowrap" }}
+                  >
+                    Showing{" "}
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ fontWeight: 600 }}
+                    >
+                      {selectedEndpoint?.name || selectedEndpoint?.id}
+                    </Typography>
+                  </Typography>
+                </Stack>
+                <Divider />
+                <Box sx={{ p: 3 }}>
+                  {tabIndex === 0 && (
+                    <MCPProxyOverviewTab
+                      proxy={proxy}
+                      config={selectedConfig}
+                      envChips={selectedEnvChips}
+                      isLoading={isTabContentLoading}
+                    />
+                  )}
+                  {tabIndex === 1 && (
+                    <MCPCapabilitiesView
+                      tools={selectedConfig?.capabilities?.tools}
+                      resources={selectedConfig?.capabilities?.resources}
+                      prompts={selectedConfig?.capabilities?.prompts}
+                      sectionTitleVariant="h6"
+                    />
+                  )}
+                  {tabIndex === 2 && (
+                    <MCPProxyConnectionTab
+                      config={selectedConfig}
+                      selectedEndpointId={selectedEndpointId}
+                      isLoading={isTabContentLoading}
+                      onUpdate={updateSelectedEndpointConfig}
+                      isUpdating={updateMCPProxy.isPending}
+                    />
+                  )}
+                  {tabIndex === 3 && (
+                    <MCPProxyManageToolsTab
+                      config={selectedConfig}
+                      selectedEndpointId={selectedEndpointId}
+                      orgName={orgId}
+                      isLoading={isTabContentLoading}
+                      onUpdate={updateSelectedEndpointConfig}
+                      isUpdating={updateMCPProxy.isPending}
+                    />
+                  )}
+                  {tabIndex === 4 && (
+                    <MCPProxySecurityTab
+                      config={selectedConfig}
+                      selectedEndpointId={selectedEndpointId}
+                      orgName={orgId}
+                      proxyId={routeProxyId}
+                      isLoading={isTabContentLoading}
+                      onUpdate={updateSelectedEndpointConfig}
+                      isUpdating={updateMCPProxy.isPending}
+                    />
+                  )}
+                  {tabIndex === 5 && (
+                    <MCPProxyRewriteTab
+                      config={selectedConfig}
+                      selectedEndpointId={selectedEndpointId}
+                      orgName={orgId}
+                      isLoading={isTabContentLoading}
+                      onUpdate={updateSelectedEndpointConfig}
+                      isUpdating={updateMCPProxy.isPending}
+                    />
+                  )}
+                  {tabIndex === 6 && (
+                    <MCPProxyPoliciesTab
+                      config={selectedConfig}
+                      selectedEndpointId={selectedEndpointId}
+                      orgName={orgId}
+                      onUpdate={updateSelectedEndpointConfig}
+                      isUpdating={updateMCPProxy.isPending}
+                    />
+                  )}
+                </Box>
+              </Card>
+            ) : (
+              <Card variant="outlined" sx={{ p: 3 }}>
+                <Alert severity="info">
+                  This MCP proxy has no endpoints configured. Use &quot;Edit MCP
+                  Proxy&quot; above to add one.
+                </Alert>
+              </Card>
+            )}
+          </Stack>
+        )}
+      </PageLayout>
+
+      {proxy && orgId && (
+        <EditMCPProxyDrawer
+          open={editDrawerOpen}
+          onClose={() => setEditDrawerOpen(false)}
+          proxy={proxy}
+          orgId={orgId}
+          environments={environments}
+        />
+      )}
+    </>
   );
 }
 
-function optionalString(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+function MCPProxyDescription({ proxy }: { proxy: MCPProxy }) {
+  return (
+    <Stack spacing={0.75}>
+      <Typography variant="body2" color="text.secondary">
+        {proxy.description || "No description provided."}
+      </Typography>
+      {!proxy.description && (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            Last updated:
+          </Typography>
+          <Clock size={16} />
+          <Typography variant="body2">
+            {formatRelativeTime(proxy.updatedAt)}
+          </Typography>
+        </Stack>
+      )}
+    </Stack>
+  );
 }
 
 export default ViewMCPProxy;

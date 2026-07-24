@@ -50,7 +50,6 @@ func MakeHTTPHandler(params *wiring.AppParams, extraAPIRoutes func(*http.ServeMu
 		InfraResourceManager:     params.InfraResourceManager,
 		AgentManagerService:      params.AgentManagerService,
 		AgentTokenManagerService: params.AgentTokenManagerService,
-		TraceObserverSvcClient:   params.TraceObserverSvcClient,
 	}, params.AuthMiddleware)
 
 	// Create a sub-mux for API v1 routes (JWT-authenticated)
@@ -75,11 +74,12 @@ func MakeHTTPHandler(params *wiring.AppParams, extraAPIRoutes func(*http.ServeMu
 	RegisterAgentAPIKeyRoutes(rr, params.AgentAPIKeyController)
 	RegisterLLMProxyDeploymentRoutes(rr, params.LLMProxyDeploymentController)
 	RegisterMCPProxyRoutes(rr, params.MCPProxyController)
-	RegisterMCPProxyAPIKeyRoutes(rr, params.MCPProxyAPIKeyController)
 	RegisterAgentConfigRoutes(rr, params.AgentConfigurationController)
 	RegisterMonitorPublisherRoutes(rr, params.MonitorScoresPublisherController)
 	RegisterGitSecretRoutes(rr, params.GitSecretController)
 	registerIdentityRoutes(rr, params.IdentityController)
+	registerMCPProxyScopeRoutes(rr, params.MCPProxyScopeController)
+	registerAgentIdentityRoutes(rr, params.AgentIdentityController)
 
 	if extraAPIRoutes != nil {
 		extraAPIRoutes(apiMux, params)

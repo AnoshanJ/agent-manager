@@ -3,8 +3,8 @@ name: Nightly Dev Build
 run-name: Nightly Dev Build #${{ github.run_number }}
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # midnight UTC
+  # schedule:
+  #   - cron: '0 0 * * *' # midnight UTC
   workflow_dispatch: {}
 
 concurrency:
@@ -45,7 +45,7 @@ jobs:
         package:
           - amp-api
           - amp-console
-          - amp-traces-observer
+          - amp-observer
           - amp-quick-start
           - amp-evaluation-monitor
           - wso2-agent-manager
@@ -55,7 +55,55 @@ jobs:
           - wso2-amp-evaluation-extension
           - wso2-amp-api-platform-gateway-extension
     steps:
+      # The package may not exist yet (e.g. right after an image is renamed,
+      # before its first build/push creates the GHCR package), in which case
+      # ghcr-cleanup-action 404s and fails the job. Probe existence first so
+      # we can skip cleanup in that specific case without masking real
+      # failures (auth errors, GHCR outages) from the cleanup step itself.
+      - name: Check if package ${{ matrix.package }} exists
+        id: check-package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          err=$(mktemp)
+          if gh api "orgs/${REGISTRY_ORG}/packages/container/${PACKAGE}" >/dev/null 2>"$err"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q "HTTP 404" "$err"; then
+            echo "::warning::Package ${PACKAGE} not found yet — skipping cleanup."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Failed to check package ${PACKAGE}:"
+            cat "$err" >&2
+            exit 1
+          fi
+
+      # GHCR refuses to delete a package's last remaining tagged version
+      # ("You must delete the package instead"). A package that has only
+      # ever had nightly dev builds (e.g. right after a rename, before its
+      # first real release) has no other tag to fall back on, so deleting
+      # its sole 0.0.0-dev-* tag would hit that error. Detect this case and
+      # skip cleanup for it instead of failing the job.
+      - name: Check tagged versions for ${{ matrix.package }}
+        id: check-tags
+        if: steps.check-package.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          tags=$(gh api "orgs/${REGISTRY_ORG}/packages/container/${PACKAGE}/versions" \
+            --paginate --jq '.[].metadata.container.tags[]?')
+          total=$(printf '%s\n' "$tags" | grep -c . || true)
+          dev_only=$(printf '%s\n' "$tags" | grep -c '^0\.0\.0-dev-' || true)
+          if [ "$total" -gt 0 ] && [ "$total" -eq "$dev_only" ]; then
+            echo "::warning::${PACKAGE} has no tagged version besides its nightly dev tag(s) yet; GHCR won't allow deleting the last tagged version, so skipping cleanup until a real release tag exists."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Delete previous 0.0.0-dev-* tags for ${{ matrix.package }}
+        if: steps.check-package.outputs.exists == 'true' && steps.check-tags.outputs.skip != 'true'
         uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -250,7 +298,10 @@ jobs:
     name: E2E
     needs: [compute-version, package-charts, update-dev-tag]
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Bumped from 60 to accommodate the reduced test parallelism below: with
+    # --procs=1 (was -p, i.e. one proc per vCPU) suites run serially, so
+    # wall-clock grows even though no suite thrashes on CPU any more.
+    timeout-minutes: 120
     permissions:
       contents: read
       checks: write
@@ -296,7 +347,15 @@ jobs:
           CHART_VERSION: ${{ needs.compute-version.outputs.dev-version }}
         run: |
           set -o pipefail
-          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v -p --timeout 45m \
+          # --procs=1 (was -p, which auto-picks one proc per vCPU = 4 on the
+          # ubuntu-24.04 runner). The single-node k3d cluster cannot fit
+          # multiple concurrent per-environment stacks (each env = its own
+          # Thunder + isolated API Platform Gateway controller/runtime + agent
+          # runtime pods); the node ran out of CPU, leaving pods Pending
+          # ("Insufficient cpu") and gateway bootstrap Jobs timing out. Running
+          # suites serially keeps the footprint to one environment at a time.
+          # --timeout raised to 90m to match the longer serial wall-clock.
+          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v --procs=1 --timeout 90m \
             --poll-progress-after=600s --keep-going --junit-report=report.xml \
             ./tests/... 2>&1 | tee e2e-output.log
 
@@ -306,7 +365,7 @@ jobs:
           mkdir -p /tmp/pod-logs
           kubectl logs deployment/amp-api -n wso2-amp --tail=500 --all-containers=true > /tmp/pod-logs/amp-api.txt 2>&1 || true
           kubectl logs deployment/openchoreo-api -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-api.txt 2>&1 || true
-          kubectl logs deployment/amp-traces-observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/amp-traces-observer.txt 2>&1 || true
+          kubectl logs deployment/amp-observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/amp-observer.txt 2>&1 || true
           kubectl logs deployment/observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/observer.txt 2>&1 || true
           # openchoreo reconciler (drives data-plane Release/ReleaseBinding rollout)
           kubectl logs deployment/controller-manager -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-controller-manager.txt 2>&1 || true
@@ -323,6 +382,24 @@ jobs:
             for pod in $(kubectl get pods -n "$ns" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
               kubectl logs "$pod" -n "$ns" --all-containers=true --tail=500 > "/tmp/pod-logs/dp-${ns}-${pod}.txt" 2>&1 || true
             done
+          done
+          # Per-env API Platform Gateway + Thunder pods. Each environment's gateway
+          # stack lives in its own "<org>-<env>" namespace and its Thunder in
+          # "amp-thunder-<org>-<env>"; the gateway's Helm pre-install bootstrap Job
+          # runs there. Capturing these makes "failed pre-install: timed out
+          # waiting for the condition" debuggable (the bootstrap Job pod log is the
+          # only place the actual healthz/IDP/registration error appears). Also
+          # describe non-Running pods to surface exit reasons and scheduling events.
+          for ns in $(kubectl get ns --no-headers -o custom-columns=":metadata.name" 2>/dev/null \
+              | grep -E '^(default-|amp-thunder-)' || true); do
+            for pod in $(kubectl get pods -n "$ns" --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
+              kubectl logs "$pod" -n "$ns" --all-containers=true --tail=200 > "/tmp/pod-logs/ns-${ns}--${pod}.txt" 2>&1 || true
+            done
+            kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+              | awk '$3 != "Running" && $3 != "Completed" { print $1 }' \
+              | while read -r p; do
+                  kubectl describe pod "$p" -n "$ns" > "/tmp/pod-logs/describe-${ns}--${p}.txt" 2>&1 || true
+                done
           done
 
       - name: Upload pod logs

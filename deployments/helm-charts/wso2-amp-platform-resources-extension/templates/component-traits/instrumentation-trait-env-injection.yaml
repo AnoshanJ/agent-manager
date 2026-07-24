@@ -81,21 +81,33 @@ spec:
   # are unaffected.
   patches:
     - target:
-        kind: Deployment
-        group: apps
-        version: v1
+        kind: SandboxTemplate
+        group: extensions.agents.x-k8s.io
+        version: v1alpha1
         where: |
           ${has(environmentConfigs.envInjectionEnabled) ? environmentConfigs.envInjectionEnabled : parameters.envInjectionEnabled}
       operations:
         - op: add
-          path: /spec/template/spec/containers/0/env/-
+          path: /spec/podTemplate/spec/containers/0/env/-
           value:
             name: ${parameters.otelEndpointEnvName}
-            # Derived from the apiGatewayName helper convention ("api-platform-<org>-<env>")
-            # + the gateway runtime in-cluster Service.
-            value: "http://api-platform-${metadata.componentNamespace}-${metadata.environmentName}-gateway-gateway-runtime.openchoreo-data-plane:22893/otel"
+            # In-cluster gateway runtime Service (per-org-env namespace): the
+            # sandboxed agent reaches the runtime directly at
+            # "api-platform-<org>-<env>-gw-gateway-gateway-runtime.<org>-<env>:22893/otel".
+            # Derived from the apiGatewayName convention ("api-platform-<org>-<env>")
+            # + the per-env gateway namespace ("<org>-<env>"), matching the
+            # API-management trait's runtime backend. This in-cluster path is what
+            # the sandbox NetworkPolicy egress allows (namespace label
+            # amp.wso2.com/api-platform-gateway=true, port 22893) and avoids the
+            # host-hairpin vhost, which a sandboxed pod cannot reach.
+            #
+            # otelEndpointOverride replaces the whole URL when set (e.g. a VM
+            # install fronts a single public gateway host on :443, where the
+            # per-env in-cluster Service does not apply). Leave empty for the
+            # default in-cluster runtime endpoint.
+            value: {{ if .Values.apiPlatformGatewayVhost.otelEndpointOverride }}{{ .Values.apiPlatformGatewayVhost.otelEndpointOverride | quote }}{{ else }}"http://api-platform-${metadata.componentNamespace}-${metadata.environmentName}-gw-gateway-gateway-runtime.${metadata.componentNamespace}-${metadata.environmentName}:22893/otel"{{ end }}
         - op: add
-          path: /spec/template/spec/containers/0/env/-
+          path: /spec/podTemplate/spec/containers/0/env/-
           value:
             name: ${parameters.apiKeyEnvName}
             valueFrom:

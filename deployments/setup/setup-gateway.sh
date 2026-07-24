@@ -18,6 +18,17 @@ ORG_NAME="${ORG_NAME:-default}"
 ENV_NAME="${ENV_NAME:-default}"
 GATEWAY_VHOST_PORT="${GATEWAY_VHOST_PORT:-19080}"
 GATEWAY_VHOST="${GATEWAY_VHOST:-http://${ENV_NAME}-${ORG_NAME}.gateway.localhost:${GATEWAY_VHOST_PORT}}"
+IDP_SKIP_TLS_VERIFY="${IDP_SKIP_TLS_VERIFY:-true}"
+case "$IDP_SKIP_TLS_VERIFY" in
+    true|false) ;;
+    *)
+        echo "❌ IDP_SKIP_TLS_VERIFY must be 'true' or 'false' (got '${IDP_SKIP_TLS_VERIFY}')"
+        exit 1
+        ;;
+esac
+
+# shellcheck source=../scripts/thunder-naming.sh
+source "${SCRIPT_DIR}/../scripts/thunder-naming.sh"
 
 echo "=== Installing API Platform Gateway ==="
 
@@ -37,20 +48,61 @@ until curl -sf "$AGENT_MANAGER_HEALTH_URL" > /dev/null 2>&1; do
 done
 echo "✅ Agent Manager is healthy"
 
+# Per-org-env namespace isolation: the gateway stack lives in its own
+# "<org>-<env>" namespace (see add-environment.sh). apiGateway.namespace must
+# match --namespace — it drives where the chart renders the APIGateway CR,
+# config, RestApis, kgateway backendRef and token secret.
+GATEWAY_NAMESPACE="${GATEWAY_NAMESPACE:-${ORG_NAME}-${ENV_NAME}}"
+
+# Wire the gateway's ThunderKeyManager to this environment's own Thunder instance
+# when it exists, mirroring the THUNDER_PROVISIONED logic in add-environment.sh.
+THUNDER_RELEASE="$(thunder_release_name "${ORG_NAME}" "${ENV_NAME}")"
+HELM_ARGS=(
+    upgrade --install "api-platform-${ORG_NAME}-${ENV_NAME}"
+    "${SCRIPT_DIR}/../helm-charts/wso2-amp-api-platform-gateway-extension"
+    --namespace "${GATEWAY_NAMESPACE}"
+    --create-namespace
+    --set apiGateway.namespace="${GATEWAY_NAMESPACE}"
+    --set agentManager.orgName="${ORG_NAME}"
+    --set gateway.environment="${ENV_NAME}"
+    --set gateway.vhost="${GATEWAY_VHOST}"
+    --set agentManager.apiUrl="http://host.docker.internal:9000/api/v1"
+    --set apiGateway.controlPlane.host="host.docker.internal:9243"
+    -f "${SCRIPT_DIR}/../helm-charts/wso2-amp-api-platform-gateway-extension/values-dev.yaml"
+)
+if helm status "${THUNDER_RELEASE}" --namespace "${THUNDER_RELEASE}" > /dev/null 2>&1; then
+    echo "✅ Env-Thunder instance found (Helm release: ${THUNDER_RELEASE}) — wiring gateway to it"
+    THUNDER_ISSUER="$(thunder_issuer "${ORG_NAME}" "${ENV_NAME}")"
+    THUNDER_INTERNAL_JWKS="http://${THUNDER_RELEASE}-service.${THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
+    HELM_ARGS+=(
+        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager"
+        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${THUNDER_ISSUER}"
+        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${THUNDER_INTERNAL_JWKS}"
+        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
+        # Name must match keymanagers[].name, which is always "ThunderKeyManager" (set above).
+        --set "bootstrap.identityProviders[0].name=ThunderKeyManager"
+        --set "bootstrap.identityProviders[0].issuer=${THUNDER_ISSUER}"
+        --set "bootstrap.identityProviders[0].jwksUri=${THUNDER_INTERNAL_JWKS}"
+        --set "bootstrap.identityProviders[0].skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
+    )
+else
+    echo "ℹ️  No env-Thunder instance found for '${ENV_NAME}' — gateway will use values-dev.yaml's platform Thunder default"
+fi
+
 echo ""
 echo "🌐 Installing gateway chart..."
-helm upgrade --install "api-platform-${ORG_NAME}-${ENV_NAME}" \
-    "${SCRIPT_DIR}/../helm-charts/wso2-amp-api-platform-gateway-extension" \
-    --namespace openchoreo-data-plane \
-    --set agentManager.orgName="${ORG_NAME}" \
-    --set gateway.environment="${ENV_NAME}" \
-    --set gateway.vhost="${GATEWAY_VHOST}" \
-    --set agentManager.apiUrl="http://host.docker.internal:9000/api/v1" \
-    --set apiGateway.controlPlane.host="host.docker.internal:9243" \
-    -f "${SCRIPT_DIR}/../helm-charts/wso2-amp-api-platform-gateway-extension/values-dev.yaml"
+
+# Ensure the gateway namespace exists and carries the label the sandbox
+# NetworkPolicy (agent-api ComponentType) matches for agent telemetry egress.
+# Without it, agents in this (default) environment cannot reach the gateway's
+# OTEL or managed LLM/MCP endpoints when it runs outside openchoreo-data-plane.
+kubectl create namespace "${GATEWAY_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+kubectl label namespace "${GATEWAY_NAMESPACE}" "amp.wso2.com/api-platform-gateway=true" --overwrite > /dev/null
+
+helm "${HELM_ARGS[@]}"
 
 echo "⏳ Waiting for Gateway to be ready..."
-if kubectl wait --for=condition=Programmed "apigateway/api-platform-${ORG_NAME}-${ENV_NAME}" -n openchoreo-data-plane --timeout=180s; then
+if kubectl wait --for=condition=Programmed "apigateway/api-platform-${ORG_NAME}-${ENV_NAME}" -n "${GATEWAY_NAMESPACE}" --timeout=180s; then
     echo "✅ Gateway is programmed"
 else
     echo "⚠️  Gateway did not become ready in time"
@@ -65,11 +117,11 @@ fi
 OTEL_RESTAPI="api-platform-${ORG_NAME}-${ENV_NAME}-otel-restapi"
 
 echo "⏳ Waiting for OTEL ingest RestApi to be programmed..."
-if kubectl wait --for=condition=Programmed "restapi/${OTEL_RESTAPI}" -n openchoreo-data-plane --timeout=300s; then
+if kubectl wait --for=condition=Programmed "restapi/${OTEL_RESTAPI}" -n "${GATEWAY_NAMESPACE}" --timeout=300s; then
     echo "✅ OTEL ingest RestApi is programmed"
 else
     echo "❌ RestApi ${OTEL_RESTAPI} did not become Programmed in time"
-    kubectl describe "restapi/${OTEL_RESTAPI}" -n openchoreo-data-plane || true
+    kubectl describe "restapi/${OTEL_RESTAPI}" -n "${GATEWAY_NAMESPACE}" || true
     exit 1
 fi
 

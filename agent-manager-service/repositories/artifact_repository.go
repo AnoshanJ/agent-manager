@@ -36,6 +36,7 @@ type ArtifactRepository interface {
 	UpdateCatalogStatus(tx *gorm.DB, uuid, organizationUUID string, inCatalog bool) error
 	Exists(kind, handle, orgUUID string) (bool, error)
 	GetByHandle(handle, orgUUID string) (*models.Artifact, error)
+	GetByUUID(artifactUUID, orgUUID string) (*models.Artifact, error)
 	CountByKindAndOrg(kind, orgUUID string) (int, error)
 }
 
@@ -83,7 +84,7 @@ func (r *ArtifactRepo) Update(tx *gorm.DB, artifact *models.Artifact) error {
 	}
 
 	result := tx.Model(&models.Artifact{}).
-		Where("uuid = ? AND organization_name = ?", artifact.UUID, artifact.OrganizationName).
+		Where("uuid = ? AND ou_id = ?", artifact.UUID, artifact.OUID).
 		Updates(updates)
 
 	if result.Error != nil {
@@ -99,7 +100,7 @@ func (r *ArtifactRepo) Update(tx *gorm.DB, artifact *models.Artifact) error {
 func (r *ArtifactRepo) Exists(kind, handle, orgUUID string) (bool, error) {
 	var count int64
 	err := r.db.Model(&models.Artifact{}).
-		Where("kind = ? AND handle = ? AND organization_name = ?", kind, handle, orgUUID).
+		Where("kind = ? AND handle = ? AND ou_id = ?", kind, handle, orgUUID).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -110,7 +111,22 @@ func (r *ArtifactRepo) Exists(kind, handle, orgUUID string) (bool, error) {
 // GetByHandle retrieves an artifact by handle and organization
 func (r *ArtifactRepo) GetByHandle(handle, orgUUID string) (*models.Artifact, error) {
 	var artifact models.Artifact
-	err := r.db.Where("handle = ? AND organization_name = ?", handle, orgUUID).
+	err := r.db.Where("handle = ? AND ou_id = ?", handle, orgUUID).
+		First(&artifact).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrArtifactNotFound
+		}
+		return nil, err
+	}
+	return &artifact, nil
+}
+
+// GetByUUID retrieves an artifact by its stable UUID and organization. Returns
+// utils.ErrArtifactNotFound when no matching row exists.
+func (r *ArtifactRepo) GetByUUID(artifactUUID, orgUUID string) (*models.Artifact, error) {
+	var artifact models.Artifact
+	err := r.db.Where("uuid = ? AND ou_id = ?", artifactUUID, orgUUID).
 		First(&artifact).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -125,7 +141,7 @@ func (r *ArtifactRepo) GetByHandle(handle, orgUUID string) (*models.Artifact, er
 func (r *ArtifactRepo) CountByKindAndOrg(kind, orgUUID string) (int, error) {
 	var count int64
 	err := r.db.Model(&models.Artifact{}).
-		Where("kind = ? AND organization_name = ?", kind, orgUUID).
+		Where("kind = ? AND ou_id = ?", kind, orgUUID).
 		Count(&count).Error
 	return int(count), err
 }
@@ -133,7 +149,7 @@ func (r *ArtifactRepo) CountByKindAndOrg(kind, orgUUID string) (int, error) {
 // UpdateCatalogStatus updates the in_catalog field for an artifact
 func (r *ArtifactRepo) UpdateCatalogStatus(tx *gorm.DB, uuid, organizationUUID string, inCatalog bool) error {
 	result := tx.Model(&models.Artifact{}).
-		Where("uuid = ? AND organization_name = ?", uuid, organizationUUID).
+		Where("uuid = ? AND ou_id = ?", uuid, organizationUUID).
 		Updates(map[string]interface{}{
 			"in_catalog": inCatalog,
 			"updated_at": time.Now(),

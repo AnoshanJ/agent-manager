@@ -134,11 +134,22 @@ export interface UpstreamEndpoint {
   url?: string;
   ref?: string;
   auth?: UpstreamAuth;
+  /**
+   * Environment UUIDs this endpoint serves. UUIDs (not names) are stored so the
+   * mapping survives environment renames. Used by MCP proxies that configure a
+   * separate upstream per environment; empty for the classic main/sandbox shape.
+   */
+  environments?: string[];
 }
 
 export interface UpstreamConfig {
   main?: UpstreamEndpoint;
   sandbox?: UpstreamEndpoint;
+  /**
+   * Per-environment upstream endpoints. When present, `main` is derived from these
+   * server-side for backwards compatibility.
+   */
+  endpoints?: UpstreamEndpoint[];
 }
 
 export type AccessControlMode = "allow_all" | "deny_all";
@@ -164,6 +175,22 @@ export interface LLMPolicy {
   version: string;
   paths: LLMPolicyPath[];
 }
+
+export interface LLMPolicyDefinition {
+  name: string;
+  version: string;
+  displayName?: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  systemParameters?: Record<string, unknown>;
+}
+
+export interface LLMPolicyAvailabilityResponse {
+  count: number;
+  list: LLMPolicyDefinition[];
+}
+
+export type ListAvailableLLMPoliciesPathParams = OrgPathParams;
 
 export interface RateLimitingLimitConfig {
   request?: RequestRateLimit;
@@ -222,9 +249,22 @@ export interface APIKeySecurity {
   in?: APIKeyLocation;
 }
 
+/**
+ * Agent Identity security — callers present a JWT issued by the environment's
+ * IdP. v1 pins the issuer to the ThunderKeyManager key manager.
+ */
+export interface IdentitySecurity {
+  enabled?: boolean;
+}
+
+/**
+ * Exactly one variant is active: apiKey or identity (both omitted /
+ * enabled=false means no security).
+ */
 export interface SecurityConfig {
   enabled?: boolean;
   apiKey?: APIKeySecurity;
+  identity?: IdentitySecurity;
 }
 
 /**

@@ -450,7 +450,7 @@ jobs:
         package-charts,
       ]
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
       checks: write
@@ -496,7 +496,7 @@ jobs:
           CHART_VERSION: ${{ inputs.target_version }}
         run: |
           set -o pipefail
-          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v -p --timeout 45m \
+          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v --procs=2 --timeout 70m \
             --poll-progress-after=600s --keep-going --junit-report=report.xml \
             ./tests/... 2>&1 | tee e2e-output.log
 
@@ -506,7 +506,7 @@ jobs:
           mkdir -p /tmp/pod-logs
           kubectl logs deployment/amp-api -n wso2-amp --tail=500 --all-containers=true > /tmp/pod-logs/amp-api.txt 2>&1 || true
           kubectl logs deployment/openchoreo-api -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-api.txt 2>&1 || true
-          kubectl logs deployment/amp-traces-observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/amp-traces-observer.txt 2>&1 || true
+          kubectl logs deployment/amp-observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/amp-observer.txt 2>&1 || true
           kubectl logs deployment/observer -n openchoreo-observability-plane --tail=500 --all-containers=true > /tmp/pod-logs/observer.txt 2>&1 || true
           kubectl logs deployment/cluster-agent-workflowplane -n openchoreo-workflow-plane --tail=500 --all-containers=true > /tmp/pod-logs/cluster-agent-workflowplane.txt 2>&1 || true
           for pod in $(kubectl get pods -n workflows-default --no-headers -o custom-columns=":metadata.name" 2>/dev/null); do
@@ -600,6 +600,13 @@ jobs:
             echo ""
             echo "### CLI (amctl)"
             echo "Prebuilt \`amctl\` binaries (Linux, macOS, Windows) and \`checksums.txt\` are attached to this release."
+
+            echo ""
+            echo "### VM install bundle"
+            echo "\`amp-vm-bundle-${VERSION}.tar.gz\` and \`bootstrap.sh\` are attached for the one-command VM install:"
+            echo '```'
+            echo "curl -fsSL https://github.com/${REGISTRY_ORG}/agent-manager/releases/download/amp/v${VERSION}/bootstrap.sh | sudo bash -s -- simple --host <PUBLIC_IP> --version ${VERSION}"
+            echo '```'
           } > /tmp/release-body.md
 
           {
@@ -616,6 +623,15 @@ jobs:
         with:
           name: amctl-dist
           path: dist/
+
+      - name: Package VM install bundle
+        run: |
+          bash .github/scripts/build-vm-bundle.sh \
+            "$TARGET_RELEASE" \
+            dist/
+        env:
+          TARGET_RELEASE: ${{ inputs.target_version }}
+        shell: bash
 
       - name: Create GitHub release
         id: create-release

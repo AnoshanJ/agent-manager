@@ -89,7 +89,7 @@ func envVarValue(envVars []client.EnvVar, key string) string {
 func seedReadyAgentIdentityRow(t *testing.T, orgName, projectName, agentName, envName string) {
 	t.Helper()
 	binding := &models.AgentThunderClient{
-		OrgName:          orgName,
+		OUID:             orgName,
 		ProjectName:      projectName,
 		AgentName:        agentName,
 		EnvironmentName:  envName,
@@ -127,7 +127,12 @@ func TestPromoteAgent(t *testing.T) {
 	// aren't blocked by it. Seeded once (not per-subtest) because the table
 	// has a unique constraint on (org, project, agent, env) and every
 	// subtest shares this same agentName/org/env combination.
-	seedReadyAgentIdentityRow(t, testPromoteOrgName, "my-project", agentName, "production")
+	//
+	// Seeded under jwtassertion.MockOUID, not testPromoteOrgName: the mock
+	// middleware always mints tokens with OUID=MockOUID regardless of the
+	// org handle in the URL path (see its doc comment), and PromoteAgent's
+	// identity lookup is keyed by that token OUID — not the path org.
+	seedReadyAgentIdentityRow(t, jwtassertion.MockOUID, "my-project", agentName, "production")
 
 	promoteURL := func(org string) string {
 		return fmt.Sprintf("/api/v1/orgs/%s/projects/my-project/agents/%s/promote", org, agentName)
@@ -141,7 +146,7 @@ func TestPromoteAgent(t *testing.T) {
 		ocClient.GetEnvironmentFunc = func(ctx context.Context, namespaceName, environmentName string) (*models.EnvironmentResponse, error) {
 			return &models.EnvironmentResponse{UUID: uuid.New().String(), Name: environmentName}, nil
 		}
-		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}) error {
+		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error {
 			return nil
 		}
 		app := apitestutils.MakeAppClientWithDeps(t, wiring.TestClients{OpenChoreoClient: ocClient}, authMiddleware)
@@ -168,13 +173,21 @@ func TestPromoteAgent(t *testing.T) {
 			return &models.EnvironmentResponse{UUID: uuid.New().String(), Name: environmentName}, nil
 		}
 		// The source env's workload overrides are what get cloned to the target.
+		// Also includes a source-environment AgentID client ID — simulating a
+		// stale/leaked identity value sitting in the source's own overrides —
+		// so this test can prove the clone path strips it rather than carrying
+		// it over to the target environment's pod.
+		const leakedSourceClientID = "leaked-source-client-id"
 		ocClient.GetSourceEnvWorkloadOverridesFunc = func(ctx context.Context, namespaceName, componentName, sourceEnvironment string) ([]client.EnvVar, []client.FileVar, error) {
-			return []client.EnvVar{{Key: "FROM_SOURCE", Value: "src-value"}},
+			return []client.EnvVar{
+					{Key: "FROM_SOURCE", Value: "src-value"},
+					{Key: client.EnvVarAgentIDClientID, Value: leakedSourceClientID},
+				},
 				[]client.FileVar{{Key: "config.yaml", MountPath: "/etc/config.yaml", Value: "k: v"}}, nil
 		}
 		var capturedEnv []client.EnvVar
 		var capturedFiles []client.FileVar
-		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}) error {
+		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error {
 			capturedEnv = envOverrides
 			capturedFiles = fileOverrides
 			return nil
@@ -200,6 +213,11 @@ func TestPromoteAgent(t *testing.T) {
 		require.Equal(t, "src-value", envVarValue(capturedEnv, "FROM_SOURCE"))
 		require.Len(t, capturedFiles, 1)
 		require.Equal(t, "config.yaml", capturedFiles[0].Key)
+		gotClientID := envVarValue(capturedEnv, client.EnvVarAgentIDClientID)
+		require.NotEqual(t, leakedSourceClientID, gotClientID,
+			"the clone path must strip a stale AgentID identity value carried in the source environment's own overrides, not forward it to the target")
+		require.NotEmpty(t, gotClientID,
+			"the target environment's own freshly-injected AgentID client ID must still be present after stripping the source's")
 	})
 
 	t.Run("with useConfigFromSourceEnv=false forwards the provided env overrides", func(t *testing.T) {
@@ -210,7 +228,7 @@ func TestPromoteAgent(t *testing.T) {
 			return &models.EnvironmentResponse{UUID: uuid.New().String(), Name: environmentName}, nil
 		}
 		var capturedEnv []client.EnvVar
-		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}) error {
+		ocClient.PromoteComponentFunc = func(ctx context.Context, namespaceName, projectName, componentName, sourceEnvironment, targetEnvironment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error {
 			capturedEnv = envOverrides
 			return nil
 		}
@@ -322,7 +340,7 @@ func TestPromoteAgent(t *testing.T) {
 
 	t.Run("returns 404 when the organization is not found", func(t *testing.T) {
 		ocClient := apitestutils.CreateMockOpenChoreoClient()
-		app := apitestutils.MakeAppClientWithDeps(t, wiring.TestClients{OpenChoreoClient: ocClient}, authMiddleware)
+		app := apitestutils.MakeAppClientWithDeps(t, wiring.TestClients{OpenChoreoClient: ocClient}, jwtassertion.NewMockMiddlewareWithOUID(t, "nonexistent-org"))
 
 		payload := spec.PromoteAgentRequest{SourceEnvironment: "development", TargetEnvironment: "production"}
 		body, _ := json.Marshal(payload)
@@ -336,6 +354,12 @@ func TestPromoteAgent(t *testing.T) {
 	})
 
 	t.Run("returns 400 when target environment AgentID is not ready", func(t *testing.T) {
+		// The hard block only fires when the pipeline's lowest environment
+		// ("development") actually has a real credential to leak, so it must
+		// be seeded here — otherwise promotion proceeds and panics on the
+		// unconfigured PromoteComponentFunc mock below.
+		seedReadyAgentIdentityRow(t, jwtassertion.MockOUID, "my-project", agentName, "development")
+
 		ocClient := apitestutils.CreateMockOpenChoreoClient()
 		stubReadyAgentIdentitySecretReference(ocClient)
 		ocClient.GetProjectDeploymentPipelineFunc = pipelineWithPath("development", "unready-env")

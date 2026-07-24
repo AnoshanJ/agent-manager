@@ -17,6 +17,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,19 +25,20 @@ import (
 )
 
 type AgentResponse struct {
-	UUID           string          `json:"uuid"`
-	Name           string          `json:"name"`
-	DisplayName    string          `json:"displayName,omitempty"`
-	Description    string          `json:"description,omitempty"`
-	ProjectName    string          `json:"projectName"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	Status         string          `json:"status,omitempty"`
-	Provisioning   Provisioning    `json:"provisioning,omitempty"`
-	Type           AgentType       `json:"type,omitempty"`
-	Build          *Build          `json:"build,omitempty"`
-	InputInterface *InputInterface `json:"inputInterface,omitempty"`
-	Configurations *Configurations `json:"configurations,omitempty"`
-	KindName       string          `json:"kindName,omitempty"`
+	UUID           string            `json:"uuid"`
+	Name           string            `json:"name"`
+	DisplayName    string            `json:"displayName,omitempty"`
+	Description    string            `json:"description,omitempty"`
+	ProjectName    string            `json:"projectName"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	Status         string            `json:"status,omitempty"`
+	Provisioning   Provisioning      `json:"provisioning,omitempty"`
+	Type           AgentType         `json:"type,omitempty"`
+	Build          *Build            `json:"build,omitempty"`
+	InputInterface *InputInterface   `json:"inputInterface,omitempty"`
+	Configurations *Configurations   `json:"configurations,omitempty"`
+	KindName       string            `json:"kindName,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
 }
 
 // Configurations contains runtime configurations for an agent
@@ -81,10 +83,16 @@ var SystemIdentityProviderNames = map[string]bool{
 	"ThunderKeyManager": true,
 }
 
+// EnvThunderIdentityProviderPrefix matches the env-Thunder release names
+// (amp-thunder-<org>-<env>) that the gateway bootstrap job seeds as identity
+// providers. Must stay in sync with thundersvc.ThunderReleaseName and
+// deployments/scripts/thunder-naming.sh.
+const EnvThunderIdentityProviderPrefix = "amp-thunder-"
+
 // IsSystemIdentityProvider reports whether the given identity provider name is a
 // platform-seeded system provider.
 func IsSystemIdentityProvider(name string) bool {
-	return SystemIdentityProviderNames[name]
+	return SystemIdentityProviderNames[name] || strings.HasPrefix(name, EnvThunderIdentityProviderPrefix)
 }
 
 type OAuthConfig struct {

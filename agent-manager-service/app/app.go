@@ -43,6 +43,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/wiring"
 
 	"go.uber.org/automaxprocs/maxprocs"
+	"gorm.io/gorm"
 )
 
 // Options holds the configuration options for running the application.
@@ -60,6 +61,16 @@ type Options struct {
 	// default) preserves the script-driven behavior; cloud deployments inject an
 	// implementation. See services.GatewayConfigApplier.
 	GatewayConfigApplier services.GatewayConfigApplier
+	// AgentThunderProvisioning is the deployment-specific AgentID provisioning
+	// implementation. A factory because the open-source impl is DB-backed and the
+	// DB is initialized inside Run. nil disables provisioning (identity endpoints
+	// report it unavailable, reconciler not started, no secret backend required).
+	// secretMgmtClient is built by Run itself (see the call site) and handed in —
+	// the same secret backend seam LLM/MCP/publisher secrets use (for per-agent
+	// credentials). encryptionKey is the platform ENCRYPTION_KEY, used to decrypt
+	// the env-Thunder system-client credential from AMS's own Postgres — that one
+	// is not read back from a key vault.
+	AgentThunderProvisioning func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, encryptionKey []byte) services.AgentThunderProvisioningService
 }
 
 // Run starts the application with the provided providers and options.
@@ -96,10 +107,52 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 
 	// Get the raw DB instance without context - repositories will add context per-operation
 	database := db.GetDB()
-	dependencies, err := wiring.InitializeAppParams(cfg, database, authProvider, secretProvider, opts.GatewayConfigApplier)
+
+	// Deployment-specific AgentID provisioning; nil disables it.
+	var agentThunderProvisioning services.AgentThunderProvisioningService
+	if opts.AgentThunderProvisioning != nil {
+		// Built once here (not inside wiring.InitializeAppParams, which builds
+		// its own separate instance below for every other secret-backed
+		// service) because agentThunderProvisioning must exist before
+		// InitializeAppParams runs — see SetWorkloadInjector's doc comment for
+		// why. Both instances point at the same secret backend, so this
+		// duplication is harmless (occlient/secretmanagersvc clients are
+		// stateless wrappers, not connections).
+		ocClientForProvisioning, err := wiring.ProvideOCClient(*cfg, authProvider)
+		if err != nil {
+			slog.Error("failed to create OpenChoreo client for AgentID provisioning", "error", err)
+			os.Exit(1)
+		}
+		secretMgmtClientForProvisioning, err := wiring.ProvideSecretManagementClient(*cfg, secretProvider, ocClientForProvisioning)
+		if err != nil {
+			slog.Error("failed to create secret management client for AgentID provisioning", "error", err)
+			os.Exit(1)
+		}
+		encryptionKey, err := wiring.ProvideEncryptionKey(*cfg)
+		if err != nil {
+			slog.Error("failed to load encryption key for AgentID provisioning", "error", err)
+			os.Exit(1)
+		}
+		agentThunderProvisioning = opts.AgentThunderProvisioning(database, secretMgmtClientForProvisioning, encryptionKey)
+	}
+
+	dependencies, err := wiring.InitializeAppParams(cfg, database, authProvider, secretProvider, opts.GatewayConfigApplier, agentThunderProvisioning)
 	if err != nil {
 		slog.Error("failed to initialize app dependencies", "error", err)
 		os.Exit(1)
+	}
+
+	// Backfill the real AgentIdentityInjectionService into agentThunderProvisioning
+	// now that it exists (agentThunderProvisioning is built above, before
+	// InitializeAppParams constructs the OpenChoreo client this service depends
+	// on). Must happen before the reconciler and HTTP server start below — see
+	// services.WorkloadInjectorSetter's doc comment for why that ordering makes
+	// this race-free. Type-asserted rather than a method on
+	// AgentThunderProvisioningService itself: an alternative deployment's
+	// provisioning implementation that does no workload injection simply
+	// doesn't implement this optional interface.
+	if setter, ok := agentThunderProvisioning.(services.WorkloadInjectorSetter); ok {
+		setter.SetWorkloadInjector(dependencies.AgentIdentityInjectionService)
 	}
 
 	// Start monitor scheduler with background context
@@ -109,11 +162,14 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		os.Exit(1)
 	}
 
-	// Start the AgentID provisioning retry reconciler with its own background context
+	// Start the AgentID provisioning retry reconciler, but only when provisioning
+	// is enabled — otherwise there is nothing to reconcile.
 	agentThunderReconcilerCtx, agentThunderReconcilerCancel := context.WithCancel(context.Background())
-	if err := dependencies.AgentThunderReconciler.Start(agentThunderReconcilerCtx); err != nil {
-		slog.Error("failed to start agent thunder provisioning reconciler", "error", err)
-		os.Exit(1)
+	if agentThunderProvisioning != nil {
+		if err := dependencies.AgentThunderReconciler.Start(agentThunderReconcilerCtx); err != nil {
+			slog.Error("failed to start agent thunder provisioning reconciler", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	// Load built-in LLM provider templates into memory
@@ -157,8 +213,10 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		}
 
 		agentThunderReconcilerCancel()
-		if err := dependencies.AgentThunderReconciler.Stop(); err != nil {
-			slog.Error("error stopping agent thunder provisioning reconciler", "error", err)
+		if agentThunderProvisioning != nil {
+			if err := dependencies.AgentThunderReconciler.Stop(); err != nil {
+				slog.Error("error stopping agent thunder provisioning reconciler", "error", err)
+			}
 		}
 
 		// Shutdown WebSocket manager in a goroutine since it blocks

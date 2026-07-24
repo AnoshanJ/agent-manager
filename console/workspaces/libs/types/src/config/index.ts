@@ -17,13 +17,16 @@
  */
 
 import type { AsgardeoProviderProps } from "@asgardeo/react";
-import { TraceListTimeRange } from '../api/traces';
-import  { type Duration, sub } from 'date-fns';
+import { TraceListTimeRange } from "../api/traces";
+import { type Duration, sub } from "date-fns";
 export interface AppConfig {
   authConfig: AsgardeoProviderProps;
   apiBaseUrl: string;
-  /** Base URL for the traces-observer-service (default: http://localhost:9098). */
-  obsApiBaseUrl?: string;
+  /**
+   * Base URL for the unauthenticated GET /api/v1/config discovery request that
+   * runs at app bootstrap (before the user has a token)
+   */
+  configDiscoveryBaseUrl?: string;
   /** Gateway control plane URL (default: http://localhost:9243). Used for gateway setup commands. */
   gatewayControlPlaneUrl?: string;
   /** Gateway version used in setup commands (default: v0.9.0). */
@@ -71,7 +74,29 @@ export interface AppConfig {
     /** Path to the AMP instrumentation version mapping section. */
     versionMapping?: string;
   };
+  /** Feature flags. All default to false (disabled) unless explicitly enabled. */
+  featureFlags?: FeatureFlags;
 }
+
+export type FeatureFlags = {
+  /** Shows the private Git repository option when building agents from source. */
+  enablePrivateRepoSupport?: boolean;
+  /**
+   * When true, identity provider management calls the REST API directly instead of
+   * rendering the self-hosted manage-identity-provider.sh script snippet.
+   */
+  enableIdentityProviderManagedMode?: boolean;
+  /**
+   * When false, the Profile Settings text fields and Save Changes button are
+   * hidden/disabled, and the Change Password tab is disabled.
+   */
+  enableProfileManagement?: boolean;
+  /**
+   * When false, the Add User, Invite User, Create Role, and Create Group
+   * buttons on the Settings page are disabled.
+   */
+  enableUserManagement?: boolean;
+};
 
 export type GuardrailCapabilities = {
   /** Unlocks: aws-bedrock-guardrail */
@@ -85,7 +110,6 @@ export type GuardrailCapabilities = {
   /** Unlocks: semantic-prompt-guard, semantic-cache */
   semanticGuardrails?: boolean;
 };
-
 
 // Extend the Window interface to include our config
 declare global {
@@ -128,4 +152,4 @@ export const getTimeRange = (timeRange: TraceListTimeRange) => {
     case TraceListTimeRange.THIRTY_DAYS:
       return buildRange({ days: 30 });
   }
-}
+};

@@ -43,10 +43,14 @@ type AgentThunderClientRepository interface {
 	Upsert(ctx context.Context, client *models.AgentThunderClient) error
 
 	// FindByAgent returns every binding for the given agent, across all environments.
-	FindByAgent(ctx context.Context, orgName, projectName, agentName string) ([]models.AgentThunderClient, error)
+	FindByAgent(ctx context.Context, ouID, projectName, agentName string) ([]models.AgentThunderClient, error)
+
+	// FindByOuAndEnvironment returns every binding row for the org (ou_id)+environment,
+	// the source for the agent-identity assignment picker (name, status, ThunderAgentID).
+	FindByOuAndEnvironment(ctx context.Context, ouID, environmentName string) ([]models.AgentThunderClient, error)
 
 	// Get returns the binding for a specific agent in a specific environment.
-	Get(ctx context.Context, orgName, projectName, agentName, environmentName string) (*models.AgentThunderClient, error)
+	Get(ctx context.Context, ouID, projectName, agentName, environmentName string) (*models.AgentThunderClient, error)
 
 	// FindDue returns up to limit bindings ready for an attempt: PENDING rows
 	// whose next retry time has arrived (or was never set — the write-ahead row
@@ -68,30 +72,44 @@ type AgentThunderClientRepository interface {
 	// time (nil once the binding is COMPLETED or FAILED).
 	UpdateAfterAttempt(ctx context.Context, id uuid.UUID, fields AgentThunderAttemptUpdate) error
 
-	// MarkClaimed atomically marks an external agent's transient secret as
-	// retrieved, but only if it hasn't been claimed already (compare-and-swap on
-	// claimed_at IS NULL). claimed=false means a concurrent caller already won
-	// the claim — the caller must not read or return the secret in that case.
-	MarkClaimed(ctx context.Context, id uuid.UUID, claimedAt time.Time) (claimed bool, err error)
-
 	// UpdateSecretRef updates only the stored secret location, without touching
-	// status or retry bookkeeping. Used by regenerate (new path) and revoke
-	// (cleared to "" — there is no currently valid stored secret).
+	// status or retry bookkeeping. Used by regenerate (new path, internal
+	// agents only) and revoke (cleared to "" — there is no currently valid
+	// stored secret).
 	UpdateSecretRef(ctx context.Context, id uuid.UUID, secretRefPath string) error
-
-	// ClearClaim resets claimed_at to NULL — used by regenerate immediately
-	// after storing a brand-new secret, so that new secret is eligible for the
-	// one-time claim again (MarkClaimed from a previous secret must not carry
-	// over and make a *different*, never-yet-seen secret look already-claimed).
-	ClearClaim(ctx context.Context, id uuid.UUID) error
 
 	// DeleteByAgent removes every binding for the given agent. Test-cleanup use
 	// only — production deletion goes through DeleteByIDs so a concurrent
 	// recreate of the same agent name can't have its fresh rows swept up too.
-	DeleteByAgent(ctx context.Context, orgName, projectName, agentName string) error
+	DeleteByAgent(ctx context.Context, ouID, projectName, agentName string) error
 
 	// DeleteByIDs removes exactly the given binding rows. No-op if ids is empty.
 	DeleteByIDs(ctx context.Context, ids []uuid.UUID) error
+
+	// FindRecentlyCompletedInternal returns up to limit COMPLETED internal
+	// bindings created at/after createdAfter that still hold a valid secret —
+	// the candidates the injection reconciler sweeps. Bounded on the existing
+	// created_at column (no schema change). Used two ways: the periodic
+	// per-tick sweep passes a recent cutoff (see identityInjectionReconcileWindow)
+	// since steady-state sync is owned by the deploy/promote/rotation/MCP-change
+	// paths; the one-time startup backfill passes the zero time to cover every
+	// completed internal binding regardless of age (see
+	// runInitialIdentityInjectionBackfill).
+	//
+	// Ordered by (created_at, id) — created_at alone is not a unique key, so id
+	// breaks ties deterministically. after is nil for the first page; passing
+	// the previous page's last row back in (see ReconcileCursor) continues
+	// strictly past it, letting a caller page through every eligible row
+	// (not just the oldest limit of them) via keyset pagination.
+	FindRecentlyCompletedInternal(ctx context.Context, createdAfter time.Time, after *ReconcileCursor, limit int) ([]models.AgentThunderClient, error)
+}
+
+// ReconcileCursor identifies the last row returned by a previous
+// FindRecentlyCompletedInternal page, so the next call can continue strictly
+// after it instead of re-selecting the same oldest page every time.
+type ReconcileCursor struct {
+	CreatedAt time.Time
+	ID        uuid.UUID
 }
 
 // AgentThunderAttemptUpdate carries the fields written after one provisioning
@@ -135,7 +153,7 @@ func (r *AgentThunderClientRepo) Upsert(ctx context.Context, c *models.AgentThun
 	// this binding" rather than assume c now reflects a real row.
 	if err := r.db.WithContext(ctx).Select("*").Clauses(clause.OnConflict{
 		Columns: []clause.Column{
-			{Name: "org_name"}, {Name: "project_name"}, {Name: "agent_name"}, {Name: "environment_name"},
+			{Name: "ou_id"}, {Name: "project_name"}, {Name: "agent_name"}, {Name: "environment_name"},
 		},
 		DoNothing: true,
 	}).Create(c).Error; err != nil {
@@ -144,19 +162,30 @@ func (r *AgentThunderClientRepo) Upsert(ctx context.Context, c *models.AgentThun
 	return nil
 }
 
-func (r *AgentThunderClientRepo) FindByAgent(ctx context.Context, orgName, projectName, agentName string) ([]models.AgentThunderClient, error) {
+func (r *AgentThunderClientRepo) FindByAgent(ctx context.Context, ouID, projectName, agentName string) ([]models.AgentThunderClient, error) {
 	var rows []models.AgentThunderClient
-	if err := r.db.WithContext(ctx).Where("org_name = ? AND project_name = ? AND agent_name = ?", orgName, projectName, agentName).
+	if err := r.db.WithContext(ctx).Where("ou_id = ? AND project_name = ? AND agent_name = ?", ouID, projectName, agentName).
 		Order("environment_name").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("find agent thunder clients by agent: %w", err)
 	}
 	return rows, nil
 }
 
-func (r *AgentThunderClientRepo) Get(ctx context.Context, orgName, projectName, agentName, environmentName string) (*models.AgentThunderClient, error) {
+func (r *AgentThunderClientRepo) FindByOuAndEnvironment(ctx context.Context, ouID, environmentName string) ([]models.AgentThunderClient, error) {
+	var rows []models.AgentThunderClient
+	if err := r.db.WithContext(ctx).
+		Where("ou_id = ? AND environment_name = ?", ouID, environmentName).
+		Order("project_name asc, agent_name asc").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to list agent thunder bindings for %s/%s: %w", ouID, environmentName, err)
+	}
+	return rows, nil
+}
+
+func (r *AgentThunderClientRepo) Get(ctx context.Context, ouID, projectName, agentName, environmentName string) (*models.AgentThunderClient, error) {
 	var c models.AgentThunderClient
-	err := r.db.WithContext(ctx).Where("org_name = ? AND project_name = ? AND agent_name = ? AND environment_name = ?",
-		orgName, projectName, agentName, environmentName).First(&c).Error
+	err := r.db.WithContext(ctx).Where("ou_id = ? AND project_name = ? AND agent_name = ? AND environment_name = ?",
+		ouID, projectName, agentName, environmentName).First(&c).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrAgentThunderClientNotFound
@@ -222,16 +251,6 @@ func (r *AgentThunderClientRepo) UpdateAfterAttempt(ctx context.Context, id uuid
 	return nil
 }
 
-func (r *AgentThunderClientRepo) MarkClaimed(ctx context.Context, id uuid.UUID, claimedAt time.Time) (bool, error) {
-	result := r.db.WithContext(ctx).Model(&models.AgentThunderClient{}).
-		Where("id = ? AND claimed_at IS NULL", id).
-		Update("claimed_at", claimedAt)
-	if result.Error != nil {
-		return false, fmt.Errorf("mark agent thunder client claimed: %w", result.Error)
-	}
-	return result.RowsAffected > 0, nil
-}
-
 func (r *AgentThunderClientRepo) UpdateSecretRef(ctx context.Context, id uuid.UUID, secretRefPath string) error {
 	if err := r.db.WithContext(ctx).Model(&models.AgentThunderClient{}).Where("id = ?", id).
 		Updates(map[string]interface{}{
@@ -243,16 +262,8 @@ func (r *AgentThunderClientRepo) UpdateSecretRef(ctx context.Context, id uuid.UU
 	return nil
 }
 
-func (r *AgentThunderClientRepo) ClearClaim(ctx context.Context, id uuid.UUID) error {
-	if err := r.db.WithContext(ctx).Model(&models.AgentThunderClient{}).Where("id = ?", id).
-		Update("claimed_at", nil).Error; err != nil {
-		return fmt.Errorf("clear agent thunder client claim: %w", err)
-	}
-	return nil
-}
-
-func (r *AgentThunderClientRepo) DeleteByAgent(ctx context.Context, orgName, projectName, agentName string) error {
-	if err := r.db.WithContext(ctx).Where("org_name = ? AND project_name = ? AND agent_name = ?", orgName, projectName, agentName).
+func (r *AgentThunderClientRepo) DeleteByAgent(ctx context.Context, ouID, projectName, agentName string) error {
+	if err := r.db.WithContext(ctx).Where("ou_id = ? AND project_name = ? AND agent_name = ?", ouID, projectName, agentName).
 		Delete(&models.AgentThunderClient{}).Error; err != nil {
 		return fmt.Errorf("delete agent thunder clients by agent: %w", err)
 	}
@@ -267,4 +278,27 @@ func (r *AgentThunderClientRepo) DeleteByIDs(ctx context.Context, ids []uuid.UUI
 		return fmt.Errorf("delete agent thunder clients by ids: %w", err)
 	}
 	return nil
+}
+
+func (r *AgentThunderClientRepo) FindRecentlyCompletedInternal(ctx context.Context, createdAfter time.Time, after *ReconcileCursor, limit int) ([]models.AgentThunderClient, error) {
+	q := r.db.WithContext(ctx).Where(
+		"status = ? AND provisioning_type = ? AND secret_ref_path != '' AND created_at >= ?",
+		models.AgentThunderStatusCompleted, models.AgentProvisioningTypeInternal, createdAfter,
+	)
+	if after != nil {
+		// (created_at, id) > (after.CreatedAt, after.ID), expressed without tuple
+		// comparison for portability: strictly later timestamp, OR the same
+		// timestamp with a strictly greater id (the deterministic tie-breaker
+		// matching the ORDER BY below).
+		q = q.Where("(created_at > ?) OR (created_at = ? AND id > ?)", after.CreatedAt, after.CreatedAt, after.ID)
+	}
+
+	var rows []models.AgentThunderClient
+	if err := q.
+		Order("created_at, id").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("find recently completed internal agent thunder clients: %w", err)
+	}
+	return rows, nil
 }

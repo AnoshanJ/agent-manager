@@ -23,27 +23,34 @@ import {
   useState,
 } from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
+  Card,
   Chip,
   Collapse,
+  List,
+  ListItemButton,
+  ListItemText,
   Skeleton,
   Stack,
   Switch,
-  TextField,
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { ChevronDown, ChevronUp } from "@wso2/oxygen-ui-icons-react";
+import { ChevronDown } from "@wso2/oxygen-ui-icons-react";
 import { useMCPPoliciesCatalog } from "@agent-management-platform/api-client";
 import type {
+  MCPEndpointConfig,
   MCPProxy,
   MCPProxyPolicy,
 } from "@agent-management-platform/types";
+import { TextInput } from "@agent-management-platform/views";
 import { REWRITE_POLICY_NAME } from "../constants";
-
-type CapabilityKind = "tool" | "resource" | "prompt";
+import type { CapabilityKind } from "./mcpEndpoints";
 
 const KIND_LABEL: Record<CapabilityKind, string> = {
   tool: "Tool",
@@ -112,13 +119,13 @@ function getBackendId(
 }
 
 function buildDefaultsFromCapabilities(
-  proxy: MCPProxy | null | undefined,
+  config: MCPEndpointConfig | undefined,
 ): { state: RewriteState; meta: ItemMeta[] } {
   const state: RewriteState = { tool: {}, resource: {}, prompt: {} };
   const meta: ItemMeta[] = [];
-  const tools = proxy?.capabilities?.tools ?? [];
-  const resources = proxy?.capabilities?.resources ?? [];
-  const prompts = proxy?.capabilities?.prompts ?? [];
+  const tools = config?.capabilities?.tools ?? [];
+  const resources = config?.capabilities?.resources ?? [];
+  const prompts = config?.capabilities?.prompts ?? [];
 
   tools.forEach((raw) => {
     const id = getBackendId("tool", raw);
@@ -329,15 +336,17 @@ function buildPolicyParams(
 }
 
 export type MCPProxyRewriteTabProps = {
-  proxy: MCPProxy | null | undefined;
+  config: MCPEndpointConfig | undefined;
+  selectedEndpointId: string;
   orgName: string | undefined;
   isLoading?: boolean;
-  onUpdate: (fields: Partial<MCPProxy>) => Promise<MCPProxy>;
+  onUpdate: (fields: Partial<MCPEndpointConfig>) => Promise<MCPProxy>;
   isUpdating: boolean;
 };
 
 export function MCPProxyRewriteTab({
-  proxy,
+  config,
+  selectedEndpointId,
   orgName,
   isLoading = false,
   onUpdate,
@@ -372,10 +381,10 @@ export function MCPProxyRewriteTab({
   );
 
   useEffect(() => {
-    if (!proxy) return;
+    if (!config || !selectedEndpointId) return;
     const { state: defaults, meta: defaultsMeta } =
-      buildDefaultsFromCapabilities(proxy);
-    const existing = proxy.policies?.find(
+      buildDefaultsFromCapabilities(config);
+    const existing = config.policies?.find(
       (p) => p.name === REWRITE_POLICY_NAME,
     );
     const merged = mergeExistingPolicy(defaults, existing);
@@ -394,7 +403,7 @@ export function MCPProxyRewriteTab({
       const first = defaultsMeta[0];
       return first ? `${first.kind}::${first.backendId}` : null;
     });
-  }, [proxy]);
+  }, [config, selectedEndpointId]);
 
   const selected = useMemo(() => {
     if (!selectedKey) return null;
@@ -460,8 +469,8 @@ export function MCPProxyRewriteTab({
   );
 
   const handleSave = useCallback(async () => {
-    if (!proxy) return;
-    const existingPolicies = proxy.policies ?? [];
+    if (!config) return;
+    const existingPolicies = config.policies ?? [];
 
     let nextPolicies: MCPProxyPolicy[];
     if (enabled) {
@@ -510,7 +519,7 @@ export function MCPProxyRewriteTab({
         severity: "error",
       });
     }
-  }, [proxy, enabled, availableRewritePolicy, state, meta, onUpdate]);
+  }, [config, enabled, availableRewritePolicy, state, meta, onUpdate]);
 
   const handleDiscard = useCallback(() => {
     const saved = lastSavedRef.current;
@@ -600,120 +609,74 @@ export function MCPProxyRewriteTab({
           alignItems: "flex-start",
         }}
       >
-        <Box
-          sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
-            p: 1.5,
-            maxHeight: "calc(100vh - 520px)",
-            overflowY: "auto",
-          }}
+        <Stack
+          spacing={1}
+          sx={{ maxHeight: "calc(100vh - 520px)", overflowY: "auto", pr: 0.5 }}
         >
           {(["tool", "resource", "prompt"] as CapabilityKind[]).map((kind) => {
             const items = meta.filter((m) => m.kind === kind);
             if (!items.length) return null;
-            const isOpen = openSections[kind];
             return (
-              <Box key={kind} sx={{ mb: 1 }}>
-                <Box
-                  onClick={() =>
-                    setOpenSections((prev) => ({ ...prev, [kind]: !isOpen }))
-                  }
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1,
-                    px: 1,
-                    py: 0.75,
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                    borderRadius: 1,
-                  }}
-                >
-                  {isOpen ? (
-                    <ChevronUp size={16} />
-                  ) : (
-                    <ChevronDown size={16} />
-                  )}
-                  <Typography variant="subtitle2" fontWeight={600}>
-                    {KIND_LABEL[kind]}s
-                  </Typography>
-                  <Chip
-                    label={items.length}
-                    size="small"
-                    variant="outlined"
-                    sx={{ ml: "auto" }}
-                  />
-                </Box>
-                <Collapse in={isOpen}>
-                  <Stack spacing={0.5} sx={{ pl: 1, pt: 0.5 }}>
+              <Accordion
+                key={kind}
+                variant="outlined"
+                disableGutters
+                expanded={openSections[kind]}
+                onChange={(_, isExpanded) =>
+                  setOpenSections((prev) => ({ ...prev, [kind]: isExpanded }))
+                }
+              >
+                <AccordionSummary expandIcon={<ChevronDown size={18} />}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      {KIND_LABEL[kind]}s
+                    </Typography>
+                    <Chip label={items.length} size="small" variant="outlined" />
+                  </Stack>
+                </AccordionSummary>
+                <AccordionDetails sx={{ p: 0 }}>
+                  <List disablePadding>
                     {items.map((m) => {
                       const key = `${m.kind}::${m.backendId}`;
                       const isSelected = selectedKey === key;
                       return (
-                        <Box
+                        <ListItemButton
                           key={key}
+                          selected={isSelected}
                           onClick={() => setSelectedKey(key)}
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                            px: 1,
-                            py: 0.75,
-                            borderRadius: 1,
-                            cursor: "pointer",
-                            border: "1px solid",
-                            borderColor: isSelected
-                              ? "primary.main"
-                              : "transparent",
-                            bgcolor: isSelected
-                              ? "action.selected"
-                              : "transparent",
-                            "&:hover": { bgcolor: "action.hover" },
-                          }}
+                          sx={{ gap: 1 }}
                         >
                           <Chip
                             label={KIND_LABEL[m.kind]}
                             size="small"
                             color={KIND_CHIP_COLOR[m.kind]}
-                            variant="outlined"
+                            variant={isSelected ? "filled" : "outlined"}
                             sx={{ minWidth: 72, justifyContent: "center" }}
                           />
-                          <Tooltip title={m.label} arrow placement="right">
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                flex: 1,
-                                minWidth: 0,
-                                fontFamily: "monospace",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {m.label}
-                            </Typography>
-                          </Tooltip>
-                        </Box>
+                          <ListItemText
+                            primary={
+                              <Tooltip title={m.label} arrow placement="right">
+                                <Typography
+                                  variant="body2"
+                                  noWrap
+                                  sx={{ fontFamily: "monospace" }}
+                                >
+                                  {m.label}
+                                </Typography>
+                              </Tooltip>
+                            }
+                          />
+                        </ListItemButton>
                       );
                     })}
-                  </Stack>
-                </Collapse>
-              </Box>
+                  </List>
+                </AccordionDetails>
+              </Accordion>
             );
           })}
-        </Box>
+        </Stack>
 
-        <Box
-          sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
-            p: 2,
-            minHeight: 240,
-          }}
-        >
+        <Card variant="outlined" sx={{ p: 2, minHeight: 240 }}>
           {selected ? (
             <RewriteFieldsForm
               meta={selected}
@@ -738,7 +701,7 @@ export function MCPProxyRewriteTab({
               </Typography>
             </Stack>
           )}
-        </Box>
+        </Card>
       </Box>
       )}
 
@@ -820,7 +783,7 @@ function RewriteFieldsForm({
 
       {meta.kind === "tool" && (
         <>
-          <TextField
+          <TextInput
             label="Name"
             size="small"
             fullWidth
@@ -829,7 +792,7 @@ function RewriteFieldsForm({
               onChangeTool(meta.backendId, { name: e.target.value })
             }
           />
-          <TextField
+          <TextInput
             label="Description"
             size="small"
             fullWidth
@@ -840,7 +803,7 @@ function RewriteFieldsForm({
               onChangeTool(meta.backendId, { description: e.target.value })
             }
           />
-          <TextField
+          <TextInput
             label="Input Schema"
             size="small"
             fullWidth
@@ -852,24 +815,21 @@ function RewriteFieldsForm({
             }
             sx={{ "& .MuiInputBase-input": { fontFamily: "monospace" } }}
           />
-          <Box>
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              startIcon={
-                advancedOpen ? (
-                  <ChevronUp size={16} />
-                ) : (
-                  <ChevronDown size={16} />
-                )
-              }
-            >
-              Advanced
-            </Button>
-            <Collapse in={advancedOpen}>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                <TextField
+          <Stack>
+          <Accordion
+            variant="outlined"
+            disableGutters
+            expanded={advancedOpen}
+            onChange={(_, isExpanded) => setAdvancedOpen(isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ChevronDown size={16} />}>
+              <Typography variant="body2" fontWeight={600} color="primary.main">
+                Advanced
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={2}>
+                <TextInput
                   label="Output Schema"
                   size="small"
                   fullWidth
@@ -885,7 +845,7 @@ function RewriteFieldsForm({
                     "& .MuiInputBase-input": { fontFamily: "monospace" },
                   }}
                 />
-                <TextField
+                <TextInput
                   label="Target"
                   size="small"
                   fullWidth
@@ -899,14 +859,15 @@ function RewriteFieldsForm({
                   }}
                 />
               </Stack>
-            </Collapse>
-          </Box>
+            </AccordionDetails>
+          </Accordion>
+        </Stack>
         </>
       )}
 
       {meta.kind === "resource" && (
         <>
-          <TextField
+          <TextInput
             label="URI"
             size="small"
             fullWidth
@@ -916,7 +877,7 @@ function RewriteFieldsForm({
             }
             sx={{ "& .MuiInputBase-input": { fontFamily: "monospace" } }}
           />
-          <TextField
+          <TextInput
             label="Description"
             size="small"
             fullWidth
@@ -927,24 +888,20 @@ function RewriteFieldsForm({
               onChangeResource(meta.backendId, { description: e.target.value })
             }
           />
-          <Box>
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              startIcon={
-                advancedOpen ? (
-                  <ChevronUp size={16} />
-                ) : (
-                  <ChevronDown size={16} />
-                )
-              }
-            >
-              Advanced
-            </Button>
-            <Collapse in={advancedOpen}>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                <TextField
+          <Accordion
+            variant="outlined"
+            disableGutters
+            expanded={advancedOpen}
+            onChange={(_, isExpanded) => setAdvancedOpen(isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ChevronDown size={16} />}>
+              <Typography variant="body2" fontWeight={600}>
+                Advanced
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={2}>
+                <TextInput
                   label="Target"
                   size="small"
                   fullWidth
@@ -960,14 +917,14 @@ function RewriteFieldsForm({
                   }}
                 />
               </Stack>
-            </Collapse>
-          </Box>
+            </AccordionDetails>
+          </Accordion>
         </>
       )}
 
       {meta.kind === "prompt" && (
         <>
-          <TextField
+          <TextInput
             label="Name"
             size="small"
             fullWidth
@@ -976,7 +933,7 @@ function RewriteFieldsForm({
               onChangePrompt(meta.backendId, { name: e.target.value })
             }
           />
-          <TextField
+          <TextInput
             label="Description"
             size="small"
             fullWidth
@@ -987,24 +944,20 @@ function RewriteFieldsForm({
               onChangePrompt(meta.backendId, { description: e.target.value })
             }
           />
-          <Box>
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              startIcon={
-                advancedOpen ? (
-                  <ChevronUp size={16} />
-                ) : (
-                  <ChevronDown size={16} />
-                )
-              }
-            >
-              Advanced
-            </Button>
-            <Collapse in={advancedOpen}>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                <TextField
+          <Accordion
+            variant="outlined"
+            disableGutters
+            expanded={advancedOpen}
+            onChange={(_, isExpanded) => setAdvancedOpen(isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ChevronDown size={16} />}>
+              <Typography variant="body2" fontWeight={600}>
+                Advanced
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={2}>
+                <TextInput
                   label="Target"
                   size="small"
                   fullWidth
@@ -1018,8 +971,8 @@ function RewriteFieldsForm({
                   }}
                 />
               </Stack>
-            </Collapse>
-          </Box>
+            </AccordionDetails>
+          </Accordion>
         </>
       )}
     </Stack>
