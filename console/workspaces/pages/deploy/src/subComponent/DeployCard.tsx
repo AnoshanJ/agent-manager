@@ -388,10 +388,16 @@ export function DeployCard(props: DeployCardProps) {
   // "Configurations and Secrets" drawer (EditDeployConfigDrawer).
   const [actionsMenuAnchor, setActionsMenuAnchor] = useState<null | HTMLElement>(null);
 
-  const authMode: "none" | "apikey" | "oauth" = agent?.configurations
-    ?.enableOAuthSecurity
+  // Per-environment config drives the overview chips. GetAgent returns only the lowest
+  // environment's values, so every env's card would otherwise show the same CORS/Auth/Tracing.
+  const { data: envConfig } = useGetAgentConfigurations(
+    { orgName: orgId, projName: projectId, agentName: agentId },
+    { environment: currentEnvironment.name },
+  );
+
+  const authMode: "none" | "apikey" | "oauth" = envConfig?.enableOAuthSecurity
     ? "oauth"
-    : agent?.configurations?.enableApiKeySecurity
+    : envConfig?.enableApiKeySecurity
       ? "apikey"
       : "none";
   const authLabel =
@@ -401,15 +407,8 @@ export function DeployCard(props: DeployCardProps) {
         ? "API key"
         : "None";
 
-  // Keep the configurations query mounted so its cache invalidates after
-  // deploy-settings / configuration mutations finish.
-  useGetAgentConfigurations(
-    { orgName: orgId, projName: projectId, agentName: agentId },
-    { environment: currentEnvironment.name },
-  );
-
-  const corsEnabled = agent?.configurations?.corsConfig?.enabled ?? false;
-  const corsOrigins = agent?.configurations?.corsConfig?.allowOrigin ?? [];
+  const corsEnabled = envConfig?.corsConfig?.enabled ?? false;
+  const corsOrigins = envConfig?.corsConfig?.allowOrigin ?? [];
   const corsDetail = corsEnabled
     ? corsOrigins.includes("*") ? "All origins" : `${corsOrigins.length} origin${corsOrigins.length !== 1 ? "s" : ""}`
     : "Disabled";
@@ -691,8 +690,8 @@ export function DeployCard(props: DeployCardProps) {
                       <Typography variant="body2">Tracing - Instrumentation</Typography>
                       <Chip
                         size="small"
-                        label={agent?.configurations?.enableAutoInstrumentation ? "On" : "Off"}
-                        color={agent?.configurations?.enableAutoInstrumentation ? "success" : "default"}
+                        label={envConfig?.enableAutoInstrumentation ? "On" : "Off"}
+                        color={envConfig?.enableAutoInstrumentation ? "success" : "default"}
                         variant="outlined"
                         sx={{ height: 18, fontSize: "0.65rem", cursor: "default" }}
                       />

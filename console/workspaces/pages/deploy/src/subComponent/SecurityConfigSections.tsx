@@ -20,7 +20,10 @@ import {
   useGetAgent,
   useListEnvironmentIdentityProviders,
 } from "@agent-management-platform/api-client";
-import type { UpdateAgentDeploySettingsRequest } from "@agent-management-platform/types";
+import type {
+  ConfigurationResponse,
+  UpdateAgentDeploySettingsRequest,
+} from "@agent-management-platform/types";
 import {
   Accordion,
   AccordionDetails,
@@ -65,6 +68,10 @@ interface SecurityConfigSectionsProps {
   environment: string;
   open: boolean;
   disabled?: boolean;
+  // Per-environment configuration used to seed CORS + Endpoint Authentication. Must be the
+  // env-scoped GET /configurations response (NOT GetAgent, which returns only the lowest
+  // environment's values and would paint every env the same).
+  configurations?: ConfigurationResponse;
   // Fires whenever validity changes so the parent can enable/disable its Apply button reactively
   // (the imperative validate() alone can't drive re-renders).
   onValidityChange?: (valid: boolean) => void;
@@ -74,7 +81,12 @@ interface SecurityConfigSectionsProps {
 // "Configurations and Secrets" drawer. Owns its own draft state; the parent collects the payload
 // via the imperative handle on Apply.
 export const SecurityConfigSections = forwardRef<SecurityConfigHandle, SecurityConfigSectionsProps>(
-  ({ orgName, projName, agentName, environment, open, disabled, onValidityChange }, ref) => {
+  (
+    { orgName, projName, agentName, environment, open, disabled, configurations, onValidityChange },
+    ref,
+  ) => {
+    // GetAgent is used only for the env-independent agent type; CORS + Auth are seeded from the
+    // env-scoped `configurations` prop below.
     const { data: agent } = useGetAgent({ orgName, projName, agentName });
     const isApiAgent = agent?.agentType?.type === "agent-api";
 
@@ -106,11 +118,11 @@ export const SecurityConfigSections = forwardRef<SecurityConfigHandle, SecurityC
     ]);
     const [corsAllowCredentials, setCorsAllowCredentials] = useState(false);
 
-    // Seed CORS from agent config on open; reset to defaults when no persisted config exists so
-    // stale edits from a previous open don't leak across reopens.
+    // Seed CORS from the env-scoped config on open; reset to defaults when no persisted config
+    // exists so stale edits from a previous open don't leak across reopens.
     useEffect(() => {
       if (!open) return;
-      const cors = agent?.configurations?.corsConfig;
+      const cors = configurations?.corsConfig;
       if (!cors) {
         setCorsEnabled(false);
         setCorsAllowAll(true);
@@ -129,12 +141,12 @@ export const SecurityConfigSections = forwardRef<SecurityConfigHandle, SecurityC
       if (cors.allowMethods !== undefined) setCorsMethods(cors.allowMethods);
       if (cors.allowHeaders !== undefined) setCorsHeaders(cors.allowHeaders);
       if (cors.allowCredentials !== undefined) setCorsAllowCredentials(cors.allowCredentials);
-    }, [open, agent?.configurations?.corsConfig]);
+    }, [open, configurations?.corsConfig]);
 
-    // Seed Endpoint Authentication from agent config on open.
+    // Seed Endpoint Authentication from the env-scoped config on open.
     useEffect(() => {
       if (!open) return;
-      const cfg = agent?.configurations;
+      const cfg = configurations;
       if (cfg?.enableOAuthSecurity) {
         setAuthMode("oauth");
       } else if (cfg?.enableApiKeySecurity) {
@@ -150,14 +162,14 @@ export const SecurityConfigSections = forwardRef<SecurityConfigHandle, SecurityC
       setOauthHeaderName(oauth?.headerName || "Authorization");
       setOauthHeaderPrefix(oauth?.authHeaderPrefix || "Bearer");
       setOauthForwardToken(oauth?.forwardToken ?? true);
-      // Seed on open from the specific auth fields; depending on the whole `agent.configurations`
+      // Seed on open from the specific auth fields; depending on the whole `configurations`
       // object would re-seed on unrelated config changes.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
       open,
-      agent?.configurations?.enableApiKeySecurity,
-      agent?.configurations?.enableOAuthSecurity,
-      agent?.configurations?.oauthConfig,
+      configurations?.enableApiKeySecurity,
+      configurations?.enableOAuthSecurity,
+      configurations?.oauthConfig,
     ]);
 
     const hasWildcardOrigin = corsAllowAll || corsOrigins.includes("*");

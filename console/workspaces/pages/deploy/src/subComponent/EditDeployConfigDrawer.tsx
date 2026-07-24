@@ -334,6 +334,7 @@ export function EditDeployConfigDrawer({
               environment={environment}
               open={open}
               disabled={isPending}
+              configurations={configurations}
               onValidityChange={setSecurityValid}
             />
           )}

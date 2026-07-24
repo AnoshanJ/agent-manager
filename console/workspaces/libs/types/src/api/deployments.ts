@@ -135,6 +135,10 @@ export interface ConfigurationResponse {
   environment: string;
   enableAutoInstrumentation?: boolean;
   instrumentationVersion?: string;
+  enableApiKeySecurity?: boolean;
+  enableOAuthSecurity?: boolean;
+  corsConfig?: CorsConfig;
+  oauthConfig?: OAuthConfig;
   configurations: ConfigurationData;
 }
 
