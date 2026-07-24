@@ -12228,6 +12228,20 @@ components:
         instrumentationVersion:
           type: string
           description: AMP instrumentation version pinned for this environment, if any
+        enableApiKeySecurity:
+          type: boolean
+          description: Whether API key security is enabled for this environment's agent endpoint
+        enableOAuthSecurity:
+          type: boolean
+          description: Whether OAuth security is enabled for this environment's agent endpoint
+        corsConfig:
+          $ref: "#/components/schemas/CORSConfig"
+          nullable: true
+          description: CORS configuration for this environment's agent endpoint
+        oauthConfig:
+          $ref: "#/components/schemas/OAuthConfig"
+          nullable: true
+          description: OAuth configuration for this environment's agent endpoint
         configurations:
           type: object
           description: Configuration data containing env vars and file mounts

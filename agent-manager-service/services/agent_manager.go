@@ -55,7 +55,7 @@ type AgentManagerService interface {
 	GetAgentEndpoints(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (map[string]models.EndpointsResponse, error)
 	GetAgentConfigurations(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.EnvVars, error)
 	GetAgentFileMounts(ctx context.Context, ouID string, projectName string, agentName string, environment string) ([]models.FileMountEntry, error)
-	GetAgentEnvTracingConfig(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*models.AgentConfig, error)
+	GetAgentEnvConfig(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*models.AgentConfig, error)
 	GenerateName(ctx context.Context, ouID string, payload spec.ResourceNameRequest) (string, error)
 	GetAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string) (*spec.AgentResourceConfigsResponse, error)
 	UpdateAgentResourceConfigs(ctx context.Context, ouID string, projectName string, agentName string, environment string, req *spec.UpdateAgentResourceConfigsRequest) (*spec.AgentResourceConfigsResponse, error)
@@ -4718,17 +4718,17 @@ func (s *agentManagerService) GetAgentFileMounts(ctx context.Context, ouID strin
 	return fileMounts, nil
 }
 
-// GetAgentEnvTracingConfig returns the per-environment tracing/instrumentation settings from the
-// agent_configs row for (agent, environment), or nil when none is persisted yet. Unlike GetAgent
-// (which reads only the lowest environment's config), this is scoped to the requested environment
-// so the console seeds the correct per-env values.
-func (s *agentManagerService) GetAgentEnvTracingConfig(_ context.Context, ouID, projectName, agentName, environment string) (*models.AgentConfig, error) {
+// GetAgentEnvConfig returns the full per-environment agent_configs row for (agent, environment)
+// — tracing/instrumentation plus CORS and endpoint-authentication settings — or nil when none is
+// persisted yet. Unlike GetAgent (which reads only the lowest environment's config), this is scoped
+// to the requested environment so the console seeds the correct per-env values.
+func (s *agentManagerService) GetAgentEnvConfig(_ context.Context, ouID, projectName, agentName, environment string) (*models.AgentConfig, error) {
 	cfg, err := s.agentConfigRepo.Get(ouID, projectName, agentName, environment)
 	if errors.Is(err, repositories.ErrAgentConfigNotFound) {
 		return nil, nil //nolint:nilnil // "no config yet" is a valid, expected state distinct from an error
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent env tracing config: %w", err)
+		return nil, fmt.Errorf("failed to get agent env config: %w", err)
 	}
 	return cfg, nil
 }

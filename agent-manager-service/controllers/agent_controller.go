@@ -941,14 +941,16 @@ func (c *agentController) GetAgentConfigurations(w http.ResponseWriter, r *http.
 		},
 	}
 
-	// Per-environment tracing settings (best-effort): seeds the console's Auto-Instrumentation
-	// controls for THIS environment, rather than the lowest-environment values GetAgent returns.
-	if tracingCfg, tErr := c.agentService.GetAgentEnvTracingConfig(ctx, ouID, projName, agentName, environment); tErr != nil {
-		log.Warn("GetAgentConfigurations: failed to read per-env tracing config", "error", tErr)
-	} else if tracingCfg != nil {
-		configurationsResponse.EnableAutoInstrumentation = spec.PtrBool(tracingCfg.EnableAutoInstrumentation)
-		configurationsResponse.InstrumentationVersion = tracingCfg.InstrumentationVersion
+	// Per-environment config: seeds the console's Auto-Instrumentation, CORS, and Endpoint
+	// Authentication controls for THIS environment, rather than the lowest-environment values
+	// GetAgent returns. nil (no config persisted yet) leaves the fields unset.
+	envCfg, err := c.agentService.GetAgentEnvConfig(ctx, ouID, projName, agentName, environment)
+	if err != nil {
+		log.Error("GetAgentConfigurations: failed to read per-env config", "error", err)
+		handleCommonErrors(w, err, "Failed to get configurations")
+		return
 	}
+	utils.PopulateConfigurationResponseFromAgentConfig(&configurationsResponse, envCfg)
 
 	utils.WriteSuccessResponse(w, http.StatusOK, configurationsResponse)
 }

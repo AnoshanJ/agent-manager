@@ -2018,15 +2018,25 @@ type ConfigurationResponse struct {
 		// Files List of file mount configurations
 		Files []FileMount `json:"files"`
 	} `json:"configurations"`
+	CorsConfig *CORSConfig `json:"corsConfig,omitempty"`
+
+	// EnableApiKeySecurity Whether API key security is enabled for this environment's agent endpoint
+	EnableApiKeySecurity *bool `json:"enableApiKeySecurity,omitempty"`
 
 	// EnableAutoInstrumentation Whether auto-instrumentation (tracing) is enabled for this environment
 	EnableAutoInstrumentation *bool `json:"enableAutoInstrumentation,omitempty"`
+
+	// EnableOAuthSecurity Whether OAuth security is enabled for this environment's agent endpoint
+	EnableOAuthSecurity *bool `json:"enableOAuthSecurity,omitempty"`
 
 	// Environment Environment name
 	Environment string `json:"environment"`
 
 	// InstrumentationVersion AMP instrumentation version pinned for this environment, if any
 	InstrumentationVersion *string `json:"instrumentationVersion,omitempty"`
+
+	// OauthConfig OAuth security configuration for the agent endpoint. Callers authenticate with a standard Authorization Bearer token validated by the gateway.
+	OauthConfig *OAuthConfig `json:"oauthConfig,omitempty"`
 
 	// ProjectName Name of the project
 	ProjectName string `json:"projectName"`
