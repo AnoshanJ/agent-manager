@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { NoDataFound, PageLayout } from "@agent-management-platform/views";
+import { MarkdownView, NoDataFound, PageLayout } from "@agent-management-platform/views";
 import {
   useDeleteProject,
   useListDeploymentPipelines,
@@ -101,6 +101,7 @@ function ProjectCard(props: {
           flexDirection: "column",
           p: 2,
           boxSizing: "border-box",
+          overflow: "hidden",
         }}
       >
         {/* Top: avatar + name + description */}
@@ -117,25 +118,51 @@ function ProjectCard(props: {
             <Package size={26} />
           </Avatar>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h5" noWrap sx={{ lineHeight: 1.3, mb: 0.4 }}>
-              {project.displayName}
-            </Typography>
-            <Tooltip title={rawDesc || ""} placement="bottom-start" disableHoverListener={!rawDesc}>
+            <Tooltip title={project.displayName} placement="top-start">
               <Typography
-                variant="caption"
-                color={rawDesc ? "text.secondary" : "text.disabled"}
+                variant="h5"
                 sx={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
+                  lineHeight: 1.3,
+                  mb: 0.4,
                   overflow: "hidden",
-                  fontStyle: rawDesc ? "normal" : "italic",
-                  lineHeight: 1.5,
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                  maxWidth:"80%",
                 }}
               >
-                {rawDesc || "No description"}
+                {project.displayName}
               </Typography>
             </Tooltip>
+            {rawDesc ? (
+              <Tooltip
+                placement="bottom-start"
+                title={
+                  <Box sx={{ maxWidth: 320, maxHeight: 400, overflow: "auto" }}>
+                    <MarkdownView content={rawDesc} />
+                  </Box>
+                }
+              >
+                <Box
+                  sx={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  <MarkdownView content={rawDesc} />
+                </Box>
+              </Tooltip>
+            ) : (
+              <Typography
+                variant="caption"
+                color="text.disabled"
+                sx={{ fontStyle: "italic", lineHeight: 1.5 }}
+              >
+                No description
+              </Typography>
+            )}
           </Box>
         </Box>
 
