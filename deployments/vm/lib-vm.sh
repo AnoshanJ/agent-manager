@@ -125,13 +125,23 @@ build_gateway_helm_args() {
 # issuer is the public Thunder URL too. jwksUrl stays on the in-cluster service.
 # observability_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER and
 # AMP_HOST_OBSERVER.
+#
+# auth.audience is restated rather than left at the chart default because the
+# default's last entry is this service's own publicUrl, which publicUrl above
+# has just moved. An observer MCP token carries the RFC 8707 resource
+# identifier (publicUrl plus a trailing slash) as its `aud`, so leaving the
+# default in place means the observer rejects every token it mints for itself.
+# The first three entries mirror the chart and must stay: console and amctl
+# tokens arrive with aud amp or amp-api-client. Commas are escaped because
+# helm's --set otherwise splits the value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
     "--set" "amObserver.auth.issuer=https://${AMP_HOST_THUNDER}" \
     "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
-    "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}"
+    "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}" \
+    "--set" "amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.
@@ -219,7 +229,8 @@ build_platform_resources_helm_args() {
 
 # build_thunder_helm_args <ip>
 # Prints helm args, one token per line.
-# thunder_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER, AMP_HOST_CONSOLE.
+# thunder_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER, AMP_HOST_CONSOLE,
+# AMP_HOST_API, AMP_HOST_OBSERVER.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 thunder_helm_args() {
   printf '%s\n' \
@@ -230,6 +241,23 @@ thunder_helm_args() {
     "--set" "thunder.configuration.gateClient.scheme=https" \
     "--set" "thunder.configuration.gateClient.port=443" \
     "--set" "thunder.configuration.cors.allowedOrigins[0]=https://${AMP_HOST_CONSOLE}"
+
+  # RFC 8707 resource indicators for the two MCP endpoints. Thunder matches the
+  # authorize request's `resource` parameter against these identifiers verbatim
+  # and answers invalid_target on any mismatch, so they must be the hosts an MCP
+  # client actually dials — not the chart's localhost defaults, which describe a
+  # k3d install. Both MCP endpoints are served by services already exposed here:
+  # the agent-manager one by amp-api (chart default http://localhost:9000/) and
+  # the observer one by the observer itself (default the observability
+  # extension's amObserver.publicUrl). Keep the trailing slash: clients send the
+  # canonical origin with one, and the comparison is exact.
+  #
+  # Indices are positional, so they track the order of thunder.bootstrap
+  # .mcpResourceServers in wso2-amp-thunder-extension/values.yaml — agent-manager
+  # first, observer second. Reordering that list silently retargets these.
+  printf '%s\n' \
+    "--set" "thunder.bootstrap.mcpResourceServers[0].identifier=https://${AMP_HOST_API}/" \
+    "--set" "thunder.bootstrap.mcpResourceServers[1].identifier=https://${AMP_HOST_OBSERVER}/"
 
   # The console client's registered redirect URI lives under `setup` (<=main) and
   # was renamed to `bootstrap` (>=0.15.0, which is what the registration template
@@ -244,9 +272,11 @@ thunder_helm_args() {
 # build_thunder_helm_args <ip> — sslip.io-from-IP wrapper.
 build_thunder_helm_args() {
   local ip="$1"
-  local AMP_HOST_THUNDER AMP_HOST_CONSOLE
+  local AMP_HOST_THUNDER AMP_HOST_CONSOLE AMP_HOST_API AMP_HOST_OBSERVER
   AMP_HOST_THUNDER="$(vm_host thunder "$ip")"
   AMP_HOST_CONSOLE="$(vm_host console "$ip")"
+  AMP_HOST_API="$(vm_host api "$ip")"
+  AMP_HOST_OBSERVER="$(vm_host observer "$ip")"
   thunder_helm_args
 }
 

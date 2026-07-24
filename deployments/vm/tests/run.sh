@@ -128,6 +128,12 @@ assert_eq "observability publicUrl -> public observer host" \
 assert_eq "observability oauth authorizationServers -> public thunder" \
   "amObserver.oauth.authorizationServers=https://thunder.amp.203.0.113.10.sslip.io" \
   "$(grep -F 'amObserver.oauth.authorizationServers' <<<"$obs")"
+# The observer mints MCP tokens whose aud is its own public URL plus a trailing
+# slash, so the audience list has to follow publicUrl off the chart's localhost
+# default. Commas stay escaped or helm splits the value into a list.
+assert_eq "observability audience carries the public observer URL" \
+  'amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.203.0.113.10.sslip.io/' \
+  "$(grep -F 'amObserver.auth.audience' <<<"$obs")"
 
 # --- render_dataplane_external_ingress: public host on :443, both http+https entries
 #     bound to the internal http listener (amp-api advertises the https variant) ---
@@ -175,6 +181,15 @@ assert_eq "thunder console redirectUri (bootstrap key)" \
 assert_eq "thunder console redirectUri (legacy setup key)" \
   "thunder.setup.ampConsoleClient.redirectUris[0]=https://console.amp.203.0.113.10.sslip.io/login" \
   "$(grep -F 'thunder.setup.ampConsoleClient.redirectUris' <<<"$th")"
+# RFC 8707 resource indicators. Thunder compares the authorize request's
+# `resource` verbatim, so these must name the hosts an MCP client dials, with the
+# trailing slash the client sends. Index 0 is agent-manager, index 1 the observer.
+assert_eq "thunder MCP resource identifier (agent-manager)" \
+  "thunder.bootstrap.mcpResourceServers[0].identifier=https://api.amp.203.0.113.10.sslip.io/" \
+  "$(grep -F 'mcpResourceServers[0].identifier' <<<"$th")"
+assert_eq "thunder MCP resource identifier (observer)" \
+  "thunder.bootstrap.mcpResourceServers[1].identifier=https://observer.amp.203.0.113.10.sslip.io/" \
+  "$(grep -F 'mcpResourceServers[1].identifier' <<<"$th")"
 
 # --- render_k3d_vm_config ---
 k3d_in="$(printf '%s\n' \
@@ -353,6 +368,19 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core thunder jwt.issuer" \
     "thunder.configuration.jwt.issuer=https://thunder.amp.example.com" \
     "$(grep -F 'jwt.issuer' <<<"$core_th")"
+  # The advanced path reaches the same core, so the MCP resource indicators must
+  # follow the configured domain here too.
+  assert_eq "core thunder MCP resource identifier (agent-manager)" \
+    "thunder.bootstrap.mcpResourceServers[0].identifier=https://api.amp.example.com/" \
+    "$(grep -F 'mcpResourceServers[0].identifier' <<<"$core_th")"
+  assert_eq "core thunder MCP resource identifier (observer)" \
+    "thunder.bootstrap.mcpResourceServers[1].identifier=https://observer.amp.example.com/" \
+    "$(grep -F 'mcpResourceServers[1].identifier' <<<"$core_th")"
+
+  core_obs="$(observability_helm_args)"
+  assert_eq "core observability audience carries the public observer URL" \
+    'amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.example.com/' \
+    "$(grep -F 'amObserver.auth.audience' <<<"$core_obs")"
 
   core_gw="$(gateway_helm_args)"
   assert_eq "core gateway vhost" \
