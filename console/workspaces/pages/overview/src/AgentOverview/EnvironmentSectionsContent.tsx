@@ -19,6 +19,7 @@
 import type { Configurations } from "@agent-management-platform/types";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
 import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
+import { EnvConfigsSection } from "./EnvConfigsSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 
@@ -49,6 +50,12 @@ export function EnvironmentSectionsContent({
                 envId={envId}
                 configurations={configurations}
                 external={external}
+            />
+            <EnvConfigsSection
+                orgId={orgId}
+                projectId={projectId}
+                agentId={agentId}
+                envId={envId}
             />
             <EnvAgentRolesGroupsSection
                 orgId={orgId}
