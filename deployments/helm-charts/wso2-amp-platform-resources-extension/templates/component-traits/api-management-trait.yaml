@@ -109,7 +109,7 @@ spec:
     # The restapi-target label matches the gateway's apiSelector matchLabels (which the chart
     # sets to the same "api-platform-<org>-<env>" string via the apiGatewayName helper).
     - template:
-        apiVersion: gateway.api-platform.wso2.com/v1alpha1
+        apiVersion: gateway.api-platform.wso2.com/v1
         kind: RestApi
         metadata:
           name: ${metadata.name}
