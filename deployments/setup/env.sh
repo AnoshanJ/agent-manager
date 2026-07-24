@@ -4,8 +4,9 @@ CLUSTER_NAME="${CLUSTER_NAME:-openchoreo-local-setup}"
 CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
 
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.7.0"
-GATEWAY_CHART_VERSION="1.1.0"
+GATEWAY_OPERATOR_VERSION="0.10.0"
+GATEWAY_CHART_VERSION="1.2.0-alpha"
+GATEWAY_IMAGE_VERSION="1.2.0-alpha2"
 
 # OpenChoreo community module versions compatible with OpenChoreo 1.1.1
 OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.4.1"

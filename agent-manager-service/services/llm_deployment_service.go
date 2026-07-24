@@ -36,7 +36,7 @@ import (
 const (
 	deploymentLimitBuffer = 5
 	maxDeploymentsPerAPI  = 20
-	apiVersionLLMProvider = "gateway.api-platform.wso2.com/v1alpha1"
+	apiVersionLLMProvider = "gateway.api-platform.wso2.com/v1"
 	kindLLMProvider       = "LlmProvider"
 
 	// Policy names and versions

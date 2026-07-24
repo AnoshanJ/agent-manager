@@ -147,7 +147,7 @@ func loadEnvs() {
 	config.DefaultGatewayPort = int(r.readOptionalInt64("DEFAULT_GATEWAY_PORT", 19080))
 	config.GatewayRuntime = GatewayRuntimeConfig{
 		NamePrefix:    r.readOptionalString("GATEWAY_RUNTIME_NAME_PREFIX", "api-platform-"),
-		ServiceSuffix: r.readOptionalString("GATEWAY_RUNTIME_SERVICE_SUFFIX", "-gateway-gateway-runtime"),
+		ServiceSuffix: r.readOptionalString("GATEWAY_RUNTIME_SERVICE_SUFFIX", "-gw-gateway-gateway-runtime"),
 		Port:          int(r.readOptionalInt64("GATEWAY_RUNTIME_PORT", 22893)),
 	}
 	config.KeyManagerConfigurations = KeyManagerConfigurations{

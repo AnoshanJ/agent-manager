@@ -1142,13 +1142,13 @@ func GenerateCandidateName(displayName string) string {
 // MaxEnvNameLength returns the maximum environment name length for a given org.
 // The constraint comes from the gateway runtime Service name shape:
 //
-//	api-platform-<org>-<env>-gateway-gateway-runtime  ≤ 63 chars (k8s metadata.name)
+//	api-platform-<org>-<env>-gw-gateway-gateway-runtime  ≤ 63 chars (k8s metadata.name)
 //
-// Fixed portion: len("api-platform-") + len("-") + len("-gateway-gateway-runtime") = 13 + 1 + 24 = 38
-// So: len(env) ≤ 63 - 38 - len(org) = 25 - len(org).
+// Fixed portion: len("api-platform-") + len("-") + len("-gw-gateway-gateway-runtime") = 13 + 1 + 27 = 41
+// So: len(env) ≤ 63 - 41 - len(org) = 22 - len(org).
 // The returned value is never less than 1.
 func MaxEnvNameLength(orgName string) int {
-	maxLen := 25 - len(orgName)
+	maxLen := 22 - len(orgName)
 	if maxLen < 1 {
 		return 1
 	}

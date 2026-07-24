@@ -69,7 +69,7 @@ services:
       - AMP_VERSION=v0.8.0
       # In-cluster API Platform gateway runtime Service URL convention.
       - GATEWAY_RUNTIME_NAME_PREFIX=api-platform-
-      - GATEWAY_RUNTIME_SERVICE_SUFFIX=-gateway-gateway-runtime
+      - GATEWAY_RUNTIME_SERVICE_SUFFIX=-gw-gateway-gateway-runtime
       - GATEWAY_RUNTIME_PORT=22893
       - OPEN_CHOREO_BASE_URL=http://api.openchoreo.localhost:8195
       # OpenBao/Vault Secret Management Configuration

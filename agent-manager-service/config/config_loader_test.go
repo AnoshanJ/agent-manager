@@ -110,7 +110,7 @@ func TestValidateGatewayRuntimeConfig(t *testing.T) {
 			name: "valid configuration",
 			config: GatewayRuntimeConfig{
 				NamePrefix:    "api-platform-",
-				ServiceSuffix: "-gateway-gateway-runtime",
+				ServiceSuffix: "-gw-gateway-gateway-runtime",
 				Port:          22893,
 			},
 		},

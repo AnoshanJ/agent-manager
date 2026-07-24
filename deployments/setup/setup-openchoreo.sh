@@ -510,7 +510,15 @@ else
         --create-namespace \
         --set logging.level=debug \
         --set gatewayApi.installStandardCRDs=false \
-        --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}"
+        --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}" \
+        --set "gateway.values.gateway.controller.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.controller.image.repository=ghcr.io/wso2/api-platform/gateway-controller \
+        --set "gateway.values.gateway.gatewayRuntime.image.tag=${GATEWAY_IMAGE_VERSION}" \
+        --set gateway.values.gateway.gatewayRuntime.image.repository=ghcr.io/wso2/api-platform/gateway-runtime \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.livenessProbe.httpGet.port=admin \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.path=/api/admin/v1/health \
+        --set gateway.values.gateway.controller.deployment.readinessProbe.httpGet.port=admin
     echo "✅ Gateway Operator installed successfully"
 fi
 echo ""

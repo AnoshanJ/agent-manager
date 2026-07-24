@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	apiVersionMCPProxy              = "gateway.api-platform.wso2.com/v1alpha1"
+	apiVersionMCPProxy              = "gateway.api-platform.wso2.com/v1"
 	kindMCPProxy                    = "Mcp"
 	mcpSetHeadersPolicyName         = "set-headers"
 	mcpRemoveHeadersPolicyName      = "remove-headers"
