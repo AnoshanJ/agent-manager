@@ -693,40 +693,6 @@ else
     exit 1
 fi
 
-# The rewrite rules above (openchoreo.override, amp.override, etc.) all route
-# matched hostnames to host.k3d.internal. k3d normally injects that hostname
-# into CoreDNS's NodeHosts on cluster creation, but it can be left out after
-# certain restart/recreate paths (observed: NodeHosts held only the server
-# node's own entry) — when that happens every one of those rewrite rules
-# silently resolves to NXDOMAIN even though the rewrite itself is correct,
-# breaking anything that calls another in-cluster component by its
-# *.localhost name (e.g. the Observer's own authz check against
-# api.openchoreo.localhost, which otherwise fails build-log queries with a
-# "failed to query upstream observer" error). Patch it in defensively so a
-# fresh install is never silently broken by this.
-if ! kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' 2>/dev/null | grep -q "host.k3d.internal"; then
-    log_warning "host.k3d.internal missing from CoreDNS NodeHosts — patching it in..."
-    if command_exists jq; then
-        K3D_GATEWAY_IP="$(docker network inspect "k3d-${CLUSTER_NAME}" --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)"
-        if [[ -n "${K3D_GATEWAY_IP}" ]]; then
-            EXISTING_NODEHOSTS="$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' 2>/dev/null)"
-            PATCH_JSON="$(jq -n --arg nh "${EXISTING_NODEHOSTS}
-${K3D_GATEWAY_IP} host.k3d.internal" '{"data":{"NodeHosts":$nh}}')"
-            if kubectl patch configmap coredns -n kube-system --type merge -p "${PATCH_JSON}" &>/dev/null; then
-                log_success "host.k3d.internal added to CoreDNS NodeHosts (-> ${K3D_GATEWAY_IP})"
-            else
-                log_warning "Failed to patch CoreDNS NodeHosts — host.k3d.internal may not resolve in-cluster"
-            fi
-        else
-            log_warning "Could not determine k3d network gateway IP — host.k3d.internal may not resolve in-cluster"
-        fi
-    else
-        log_warning "jq not found — skipping automatic host.k3d.internal fix; install may still work if k3d already provisioned it"
-    fi
-else
-    log_success "host.k3d.internal already present in CoreDNS NodeHosts"
-fi
-
 # CoreDNS's reload plugin can miss the override files if the configmap is mounted
 # after the pod's initial parse. Restart CoreDNS so the rewrite rules take effect
 # before any client caches a wrong resolution.
