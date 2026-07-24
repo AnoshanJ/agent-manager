@@ -310,17 +310,17 @@ Rather than grant scopes one at a time, AMP ships four predefined roles. Each bu
 | Gateways | Full | — | — | Full |
 | Deployment pipelines | Full | View | View | Full |
 | Git secrets | Full | Full | — | — |
-| LLM providers & templates | Full | Read / connect | Full | Read / configure |
-| MCP servers | Full | Read / connect | Full | Read / configure |
+| LLM providers & templates | Full | Read; connect, configure guardrail | Full | Provider read, configure guardrail (no templates) |
+| MCP servers | Full | Read, connect, configure guardrail, manage API keys | Full | Read, configure guardrail |
 | LLM proxies | Full | Full | — | — |
 | Evaluators | Full | View | Full | — |
-| Agents (lifecycle) | Full | Create, build, deploy (non-prod) | Read, build, deploy (non-prod) | Build, deploy (all), promote, rollback, suspend |
-| Monitors | Full | Create / run | View | View |
+| Agents (lifecycle) | Full | Create, read, update, delete, build, deploy (non-prod), manage tokens & API keys | Read, build, deploy (non-prod), manage API keys | Read, build, deploy (all), promote, rollback, suspend, manage API keys |
+| Monitors | Full | Create, read, update, delete, run, read scores | View | View |
 | Observability | All reads | All reads | Traces, metrics | Logs, build logs, metrics |
 | Roles & groups | Full | — | — | — |
 | Agent identities | Full | — | — | — |
 
-"Full" means every action in that area. This table summarizes the intent of each role; the authoritative, exhaustive scope-per-role mapping lives in `agent-manager-service/rbac/predefined_roles.go`.
+"Full" means every action in that capability area; "View" means read-only access. This table summarizes each role; the authoritative, exhaustive scope-per-role mapping lives in `agent-manager-service/rbac/predefined_roles.go`.
 
 ## REST and MCP share the model
 
