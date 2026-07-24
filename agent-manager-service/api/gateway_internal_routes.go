@@ -35,15 +35,6 @@ func RegisterGatewayInternalRoutes(mux *http.ServeMux, ctrl controllers.GatewayI
 
 	// Deployment sync endpoint (gateway-controller reconciles its local cache
 	// against this on connect and periodically).
-	//
-	// Intentionally registered with raw mux.HandleFunc rather than
-	// RouteRegistrar.HandleFuncWithValidationAndAuthz: that helper's
-	// RequirePermission middleware checks JWT scopes and is a no-op when
-	// RBAC_ENABLED=false, neither of which fits this route. Callers here are
-	// gateway-controller instances authenticating with an api-key header, not
-	// JWT-bearing org users, so the unconditional api-key check inside
-	// ctrl.GetDeployments (matching every other handler in this file) is the
-	// correct enforcement point, not a route-level gap.
 	mux.HandleFunc("GET /deployments", ctrl.GetDeployments)
 
 	// AI applications endpoint (bulk-sync for per-consumer rate limiting)
