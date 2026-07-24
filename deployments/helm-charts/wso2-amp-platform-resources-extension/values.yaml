@@ -185,6 +185,14 @@ authz:
     clientId: amp-api-client
     # Role to assign (admin grants full access to OpenChoreo APIs)
     role: admin
+  # AM Observer Client authorization binding
+  amObserverClient:
+    # Client ID used by agent-manager-observer's outbound calls to the
+    # OpenChoreo observer (must match Thunder OAuth client_id seeded by
+    # wso2-amp-thunder-extension's amObserverClient)
+    clientId: am-observer-client
+    # Minimal read-only role for observability data (traces/logs/metrics)
+    role: amp-observer-reader
 
 # Gateway TLS certificate configuration
 gatewayTls:

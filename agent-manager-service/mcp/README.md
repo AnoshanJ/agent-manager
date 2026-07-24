@@ -89,7 +89,7 @@ The relevant env vars on `agent-manager-service` are already set:
 The same values live in `wso2-agent-manager/values.yaml` under
 `keyManager.audience` and `serverPublicURL`. The OAuth client itself is
 registered by `wso2-amp-thunder-extension/templates/amp-thunder-bootstrap.yaml`
-(script `58-am-mcp-client.sh`).
+(script `59-am-mcp-client.sh`).
 
 ## Adding a new tool
 
