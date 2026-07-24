@@ -30,9 +30,7 @@ import {
 } from "@agent-management-platform/shared-component";
 import { InstrumentationDrawer } from "./InstrumentationDrawer";
 import { NoDataFound } from "@agent-management-platform/views";
-import { EnvMonitorsSection } from "./EnvMonitorsSection";
-import { EnvObservabilitySection } from "./EnvObservabilitySection";
-import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
+import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
 import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
@@ -57,9 +55,11 @@ export const ExternalAgentOverview = () => {
   // Per-env OTEL endpoint. The gateway mapped to the selected environment carries
   // the externally-reachable vhost; the OTEL RestApi is published at `<vhost>/otel`.
   // Falls back to globalConfig only when the gateway lookup hasn't resolved yet
-  // (e.g. before an env is selected).
+  // (e.g. before an env is selected). useListGateways has no `enabled` option, so
+  // orgName is withheld until an environment is selected to avoid firing a
+  // throwaway `environment: ""` request that'd otherwise be discarded moments later.
   const { data: envGatewayList } = useListGateways(
-    { orgName: orgId ?? "" },
+    { orgName: selectedEnvironmentId ? (orgId ?? "") : "" },
     { environment: selectedEnvironmentId },
   );
   const envGatewayVhost = envGatewayList?.gateways?.[0]?.vhost;
@@ -134,28 +134,14 @@ export const ExternalAgentOverview = () => {
                 </Button>
               }
               bottomContent={
-                <>
-                  <EnvAgentRolesGroupsSection
-                    orgId={orgId}
-                    projectId={projectId}
-                    agentId={agentId}
-                    envId={selectedEnvironment.name}
-                  />
-                  <EnvMonitorsSection
-                    orgId={orgId}
-                    projectId={projectId}
-                    agentId={agentId}
-                    envId={selectedEnvironment.name}
-                  />
-                  <EnvObservabilitySection
-                    orgId={orgId}
-                    projectId={projectId}
-                    agentId={agentId}
-                    envId={selectedEnvironment.name}
-                    hideMetrics
-                    external
-                  />
-                </>
+                <EnvironmentSectionsContent
+                  orgId={orgId}
+                  projectId={projectId}
+                  agentId={agentId}
+                  envId={selectedEnvironment.name}
+                  hideMetrics
+                  external
+                />
               }
             />
           )

@@ -21,7 +21,6 @@ import {
     Box,
     Card,
     CardContent,
-    Divider,
     Grid,
     Skeleton,
     Stack,
@@ -42,7 +41,7 @@ import {
 } from "@agent-management-platform/types";
 import { format } from "date-fns";
 import { generatePath } from "react-router-dom";
-import { DonutIcon, DonutColor } from "./DonutIcon";
+import { DonutIcon, DonutColor, getDonutColorForPercent } from "./DonutIcon";
 import { SectionHeader } from "./SectionHeader";
 
 interface EnvObservabilitySectionProps {
@@ -317,10 +316,7 @@ export const EnvObservabilitySection: React.FC<EnvObservabilitySectionProps> = (
     const successRate = traces.length
         ? (traces.filter((t) => (t.status?.errorCount ?? 0) === 0).length / traces.length) * 100
         : null;
-    const successRateColor: DonutColor = successRate === null ? "primary"
-        : successRate >= 70 ? "success"
-            : successRate >= 40 ? "warning"
-                : "error";
+    const successRateColor: DonutColor = getDonutColorForPercent(successRate);
 
     const tracesHref = generatePath(
         absoluteRouteMap.children.org.children.projects.children.agents
@@ -341,7 +337,6 @@ export const EnvObservabilitySection: React.FC<EnvObservabilitySectionProps> = (
 
     return (
         <>
-            <Divider sx={{ mt: 2, mb: 1 }} />
             <SectionHeader title="Recent Traces" viewAllHref={tracesHref} />
             <Grid container spacing={1.5}>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -392,8 +387,7 @@ export const EnvObservabilitySection: React.FC<EnvObservabilitySectionProps> = (
                 />
             ) : (
                 <>
-                    <Divider sx={{ mt: 1.5, mb: 1 }} />
-                    <SectionHeader title="System Metrics" viewAllHref={metricsHref} mb={1} />
+                    <SectionHeader title="System Metrics" viewAllHref={metricsHref} mb={1} mt={1.5} />
                     <Stack direction="row" spacing={0.75} sx={{ maxWidth: 400 }}>
                         <SimpleMetricCard
                             label="CPU"

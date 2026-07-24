@@ -33,6 +33,7 @@ import { ExternalLink, Tag } from "@wso2/oxygen-ui-icons-react";
 import { formatDistanceToNow } from "date-fns";
 import React from "react";
 import { generatePath, Link } from "react-router-dom";
+import { UppercaseCaptionLabel } from "./SectionHeader";
 
 interface KindInfoCardProps {
     orgId: string;
@@ -80,10 +81,9 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                 <Box display="flex" gap={2} minWidth={0}>
 
                     <Box flex={1} minWidth={0}>
-                        <Typography variant="caption" color="text.secondary" fontWeight={600}
-                            sx={{ textTransform: "uppercase", letterSpacing: "0.05em", display: "block", mb: 0.75 }}>
+                        <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
                             Description
-                        </Typography>
+                        </UppercaseCaptionLabel>
                         {isLoading ? (
                             <Skeleton variant="text" width={200} />
                         ) : kind?.description ? (
@@ -108,10 +108,9 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                     <Divider orientation="vertical" flexItem />
 
                     <Box flex={1} minWidth={0}>
-                        <Typography variant="caption" color="text.secondary" fontWeight={600}
-                            sx={{ textTransform: "uppercase", letterSpacing: "0.05em", display: "block", mb: 0.75 }}>
+                        <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
                             Latest Release
-                        </Typography>
+                        </UppercaseCaptionLabel>
                         {isLoading ? (
                             <Skeleton variant="rounded" height={28} />
                         ) : !latestVersionData ? (

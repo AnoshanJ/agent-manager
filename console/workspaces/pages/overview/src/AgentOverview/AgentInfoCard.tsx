@@ -39,6 +39,7 @@ import {
 import { parseGitHubUrl } from "@agent-management-platform/shared-component";
 import { formatDistanceToNow } from "date-fns";
 import { generatePath, Link } from "react-router-dom";
+import { UppercaseCaptionLabel } from "./SectionHeader";
 
 interface AgentInfoCardProps {
     orgId: string;
@@ -95,14 +96,7 @@ function SourceInfo({
 }: SourceInfoProps) {
     return (
         <>
-            <Typography
-                variant="caption"
-                color="text.secondary"
-                fontWeight={600}
-                sx={{ textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}
-            >
-                Source
-            </Typography>
+            <UppercaseCaptionLabel sx={{ flexShrink: 0 }}>Source</UppercaseCaptionLabel>
 
             <GitHub size={14} style={{ flexShrink: 0 }} />
 

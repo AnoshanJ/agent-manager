@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import { Box, Divider, Skeleton } from "@wso2/oxygen-ui";
+import { Box, Skeleton } from "@wso2/oxygen-ui";
 import { useAgentIdentityBinding } from "@agent-management-platform/api-client";
 import {
   RolesGroupsChips,
@@ -59,7 +59,6 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
 
   return (
     <>
-      <Divider sx={{ mt: 2, mb: 1 }} />
       <SectionHeader
         title="Agent Identity"
         viewAllHref={buildManageIdentityHref(orgId, projectId, agentId, envId)}

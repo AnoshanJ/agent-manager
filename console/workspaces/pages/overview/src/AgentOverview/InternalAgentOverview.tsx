@@ -32,10 +32,8 @@ import {
     usePipelineEnvironments,
 } from "@agent-management-platform/shared-component";
 import { KindInfoCard } from "./KindInfoCard";
-import { EnvMonitorsSection } from "./EnvMonitorsSection";
-import { EnvObservabilitySection } from "./EnvObservabilitySection";
 import { AgentInfoCard } from "./AgentInfoCard";
-import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
+import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
 import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
@@ -121,26 +119,12 @@ export const InternalAgentOverview = () => {
                         />
                     }
                     bottomContent={
-                        <>
-                            <EnvAgentRolesGroupsSection
-                                orgId={orgId}
-                                projectId={projectId}
-                                agentId={agentId}
-                                envId={selectedEnvironment.name}
-                            />
-                            <EnvMonitorsSection
-                                orgId={orgId}
-                                projectId={projectId}
-                                agentId={agentId}
-                                envId={selectedEnvironment.name}
-                            />
-                            <EnvObservabilitySection
-                                orgId={orgId}
-                                projectId={projectId}
-                                agentId={agentId}
-                                envId={selectedEnvironment.name}
-                            />
-                        </>
+                        <EnvironmentSectionsContent
+                            orgId={orgId}
+                            projectId={projectId}
+                            agentId={agentId}
+                            envId={selectedEnvironment.name}
+                        />
                     }
                 />
             )}

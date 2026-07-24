@@ -16,6 +16,7 @@
  * under the License.
  */
 
+import { useMemo } from "react";
 import {
   useGetAgent,
   useGetAgentBuilds,
@@ -195,19 +196,21 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
     (b) => b.status === "Succeeded" || b.status === "Completed"
   ) ?? false;
 
-  const deployedVersion = (() => {
+  const deployedVersion = useMemo(() => {
     if (!currentDeployment?.imageId || !kindName) return null;
     const matched = kindVersions?.find((v) => v.imageId === currentDeployment.imageId);
     return matched?.version ?? null;
-  })();
+  }, [currentDeployment?.imageId, kindName, kindVersions]);
 
   const deployedVersionLabel = deployedVersion ? `v${deployedVersion}` : null;
 
-  const latestKindVersion = kindVersions?.length
-    ? [...kindVersions].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )[0]
-    : undefined;
+  const latestKindVersion = useMemo(() => (
+    kindVersions?.length
+      ? [...kindVersions].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )[0]
+      : undefined
+  ), [kindVersions]);
 
   const isKindOutdated =
     !!kindName &&

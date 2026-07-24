@@ -15,40 +15,56 @@
  * under the License.
  */
 
-import { Box, Button, Typography } from "@wso2/oxygen-ui";
+import { Box, Button, Divider, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
 import { ChevronRight } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
+
+interface UppercaseCaptionLabelProps {
+  children: React.ReactNode;
+  sx?: SxProps<Theme>;
+}
+
+/** Small bold uppercase caption used to label a field/section across the overview cards. */
+export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ children, sx }) => (
+  <Typography
+    variant="caption"
+    color="text.secondary"
+    fontWeight={600}
+    sx={{ textTransform: "uppercase", letterSpacing: "0.05em", ...sx }}
+  >
+    {children}
+  </Typography>
+);
 
 interface SectionHeaderProps {
   title: string;
   viewAllHref: string;
   mb?: number;
+  mt?: number;
 }
 
 /**
- * Uppercase caption + "View all" link, shared by every EnvironmentCard
- * section (Agent Identity, Agent Performance, Recent Traces, System Metrics)
- * that links out to its own full listing page.
+ * Divider + uppercase caption + "View all" link, marking the boundary before
+ * every EnvironmentCard section (Agent Identity, Agent Performance, Recent
+ * Traces, System Metrics) that links out to its own full listing page.
  */
-export const SectionHeader: React.FC<SectionHeaderProps> = ({ title, viewAllHref, mb = 0.5 }) => (
-  <Box display="flex" justifyContent="space-between" alignItems="center" mb={mb}>
-    <Typography
-      variant="caption"
-      color="text.secondary"
-      fontWeight={600}
-      sx={{ textTransform: "uppercase", letterSpacing: "0.05em" }}
-    >
-      {title}
-    </Typography>
-    <Button
-      size="small"
-      variant="text"
-      endIcon={<ChevronRight size={14} />}
-      component={Link}
-      to={viewAllHref}
-      sx={{ minWidth: 0, fontSize: "0.75rem" }}
-    >
-      View all
-    </Button>
-  </Box>
+export const SectionHeader: React.FC<SectionHeaderProps> = ({
+  title, viewAllHref, mb = 0.5, mt = 2,
+}) => (
+  <>
+    <Divider sx={{ mt, mb: 1 }} />
+    <Box display="flex" justifyContent="space-between" alignItems="center" mb={mb}>
+      <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
+      <Button
+        size="small"
+        variant="text"
+        endIcon={<ChevronRight size={14} />}
+        component={Link}
+        to={viewAllHref}
+        sx={{ minWidth: 0, fontSize: "0.75rem" }}
+      >
+        View all
+      </Button>
+    </Box>
+  </>
 );
