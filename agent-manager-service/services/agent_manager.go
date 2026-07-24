@@ -819,18 +819,53 @@ func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projec
 		return "", "", fmt.Errorf("failed to store agent API key in secret store: %w", err)
 	}
 
+	key, property, err = s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		return "", "", err
+	}
+	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
+		"secretRefName", secretRefName, "remoteKey", key)
+	return key, property, nil
+}
+
+// resolveAgentAPIKeySecretRef returns the remote KV key/property of an environment's agent API key
+// WITHOUT minting or storing anything — it derives the deterministic SecretReference name from the
+// location and reads the existing reference. Used by the deploy-settings rebuild to re-attach the
+// per-env secret ref that would otherwise be dropped when trait configs are replaced.
+func (s *agentManagerService) resolveAgentAPIKeySecretRef(ctx context.Context, ouID, projectName, agentName, envName string) (key string, property string, err error) {
+	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
+	secretRefName := location.SecretRefName()
 	secretRef, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to resolve agent API key secret reference %q: %w", secretRefName, err)
 	}
 	for _, ds := range secretRef.Data {
 		if ds.SecretKey == secretmanagersvc.SecretKeyAPIKey {
-			s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
-				"secretRefName", secretRefName, "remoteKey", ds.RemoteRef.Key)
 			return ds.RemoteRef.Key, ds.RemoteRef.Property, nil
 		}
 	}
 	return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+}
+
+// injectAgentAPIKeySecretRef adds the env-injection trait's per-environment agentApiKeySecretRef
+// (and property) into a traitEnvConfigs map, preserving any config already set for that trait
+// instance. buildTraitEnvConfigs omits this field, and UpdateReleaseBindingTraitConfigs REPLACES
+// the binding's trait configs wholesale — so without re-injecting here, a promoted environment
+// loses its per-env key ref and the env-injection trait falls back to the base (lowest env's) ref.
+func injectAgentAPIKeySecretRef(traitEnvConfigs map[string]interface{}, agentName, secretRef, secretProperty string) {
+	if secretRef == "" {
+		return
+	}
+	envInjKey := agentName + "-" + string(client.TraitEnvInjection)
+	envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
+	if envInjCfg == nil {
+		envInjCfg = map[string]interface{}{}
+	}
+	envInjCfg["agentApiKeySecretRef"] = secretRef
+	if secretProperty != "" {
+		envInjCfg["agentApiKeySecretProperty"] = secretProperty
+	}
+	traitEnvConfigs[envInjKey] = envInjCfg
 }
 
 // TracingTokenRotationResult is the outcome of a tracing-token regeneration. The raw JWT is never
@@ -3687,18 +3722,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		} else if apiKeySecretRef, apiKeySecretProperty, storeErr := s.storeAgentAPIKey(ctx, ouID, projectName, agentName, req.TargetEnvironment, apiKey); storeErr != nil {
 			s.logger.Warn("Failed to store agent API key for promotion", "agentName", agentName, "environment", req.TargetEnvironment, "error", storeErr)
 		} else {
-			envInjKey := agentName + "-" + string(client.TraitEnvInjection)
-			// Preserve any env config buildTraitEnvConfigs already set (e.g.
-			// envInjectionEnabled for Ballerina) instead of overwriting it.
-			envInjCfg, _ := traitEnvConfigs[envInjKey].(map[string]interface{})
-			if envInjCfg == nil {
-				envInjCfg = map[string]interface{}{}
-			}
-			envInjCfg["agentApiKeySecretRef"] = apiKeySecretRef
-			if apiKeySecretProperty != "" {
-				envInjCfg["agentApiKeySecretProperty"] = apiKeySecretProperty
-			}
-			traitEnvConfigs[envInjKey] = envInjCfg
+			injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
 		}
 
 		// Persist config for the target environment
@@ -3917,6 +3941,17 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 		return resolveErr
 	}
 	traitEnvConfigs := buildTraitEnvConfigs(agentName, policies, artifact.UUID.String(), isPythonBuildpack, isBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, instrumentationImage)
+
+	// Re-attach the per-env agent API key secret ref. buildTraitEnvConfigs omits it and the update
+	// below REPLACES the binding's trait configs, so without this a non-lowest env falls back to the
+	// base (lowest env's) ref and never sees its own key — including after a regenerate. Resolving is
+	// read-only (no new key minted); it heals bindings whose ref was previously dropped.
+	if apiKeySecretRef, apiKeySecretProperty, resolveErr := s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, req.EnvironmentName); resolveErr != nil {
+		s.logger.Warn("Failed to resolve agent API key secret ref for deploy settings; env-injection trait will fall back to the base ref",
+			"agentName", agentName, "environment", req.EnvironmentName, "error", resolveErr)
+	} else {
+		injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
+	}
 
 	// Apply to the release binding (atomic: trait configs + component-type configs + restartedAt in a single update).
 	settingsCTConfigs := buildComponentTypeEnvConfigs(targetEnv)
