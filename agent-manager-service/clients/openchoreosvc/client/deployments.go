@@ -323,7 +323,7 @@ func bumpRestartedAt(rb *gen.ReleaseBinding) {
 		overrides := make(map[string]interface{})
 		rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
 	}
-	(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+	(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339Nano)
 }
 
 // setRestartedAt updates restartedAt on the ReleaseBinding for the given environment to trigger a pod rollout.
@@ -429,7 +429,7 @@ func (c *openChoreoClient) EnsureReleaseBindingRuntimeClass(ctx context.Context,
 		}
 		// Bump restartedAt so the SandboxTemplate re-renders and the warm pods roll onto the
 		// isolation node. Only runs on correction (current != desired), so there is no restart loop.
-		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339Nano)
 	})
 }
 
