@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { Box } from "@wso2/oxygen-ui";
+import { Box, Typography } from "@wso2/oxygen-ui";
 import { CollapsibleSection } from "@agent-management-platform/shared-component";
 import type { AgentModelConfigListItem } from "@agent-management-platform/types";
 import { SectionHeader } from "./SectionHeader";
@@ -59,7 +59,9 @@ interface EnvConfigGroupProps {
 export const EnvConfigGroup: React.FC<EnvConfigGroupProps> = ({
     orgId, projectId, agentId, envId, configs, title, viewAllHref, previewLimit, CardComponent,
 }) => {
-    const { visible, reportResolved, isSettled } = useEnvFilteredConfigs(configs, previewLimit);
+    const {
+        visible, reportResolved, isSettled, extraCount,
+    } = useEnvFilteredConfigs(configs, previewLimit);
 
     if (configs.length === 0) {
         return null;
@@ -71,7 +73,7 @@ export const EnvConfigGroup: React.FC<EnvConfigGroupProps> = ({
     return (
         <CollapsibleSection show={show}>
             <SectionHeader title={title} viewAllHref={viewAllHref} />
-            <Box display="flex" flexDirection="column" gap={1} sx={{ mb: 1.5 }}>
+            <Box display="flex" flexDirection="column" gap={1} sx={{ mb: extraCount > 0 ? 0.5 : 1.5 }}>
                 {activeConfigs.map((config) => (
                     <CardComponent
                         key={config.uuid}
@@ -85,6 +87,11 @@ export const EnvConfigGroup: React.FC<EnvConfigGroupProps> = ({
                     />
                 ))}
             </Box>
+            {extraCount > 0 && (
+                <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 1.5 }}>
+                    +{extraCount} more
+                </Typography>
+            )}
         </CollapsibleSection>
     );
 };

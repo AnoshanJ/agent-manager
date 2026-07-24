@@ -28,6 +28,10 @@ import type { AgentModelConfigListItem } from "@agent-management-platform/types"
  * order) that resolved as applicable to the current environment, so a config
  * that isn't deployed there never shows on that environment's card — no
  * falling back to another environment's data.
+ *
+ * Waits for every candidate to resolve (rather than stopping as soon as
+ * `previewLimit` are found) so `extraCount` — the applicable configs beyond
+ * the preview — is an accurate total, not just "at least previewLimit".
  */
 export function useEnvFilteredConfigs(
     candidates: AgentModelConfigListItem[],
@@ -41,13 +45,18 @@ export function useEnvFilteredConfigs(
         ));
     }, []);
 
-    const visible = useMemo(
-        () => candidates.filter((c) => resolved[c.uuid]).slice(0, previewLimit),
-        [candidates, resolved, previewLimit],
+    const applicableConfigs = useMemo(
+        () => candidates.filter((c) => resolved[c.uuid]),
+        [candidates, resolved],
     );
 
-    const allResolved = candidates.length > 0 && candidates.every((c) => c.uuid in resolved);
-    const isSettled = allResolved || visible.length >= previewLimit;
+    const visible = useMemo(
+        () => applicableConfigs.slice(0, previewLimit),
+        [applicableConfigs, previewLimit],
+    );
 
-    return { visible, reportResolved, isSettled };
+    const isSettled = candidates.length > 0 && candidates.every((c) => c.uuid in resolved);
+    const extraCount = isSettled ? Math.max(0, applicableConfigs.length - previewLimit) : 0;
+
+    return { visible, reportResolved, isSettled, extraCount };
 }
