@@ -58,27 +58,15 @@ interface StatusPillProps {
     active: boolean;
 }
 
-/** Compact "LABEL ● value" badge shared by the Auth and CORS summaries below Invoke URL. */
+/** Chip badge shared by the Auth and CORS summaries below Invoke URL. */
 const StatusPill: React.FC<StatusPillProps> = ({ label, value, tooltip, active }) => (
     <Tooltip title={tooltip}>
-        <Box
-            display="flex"
-            alignItems="center"
-            gap={0.75}
-            sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1, py: 0.5 }}
-        >
-            <UppercaseCaptionLabel>{label}</UppercaseCaptionLabel>
-            <Box
-                sx={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    bgcolor: active ? "success.main" : "text.disabled",
-                    flexShrink: 0,
-                }}
-            />
-            <Typography variant="body2" noWrap>{value}</Typography>
-        </Box>
+        <Chip
+            variant="outlined"
+            size="small"
+            color={active ? "success" : "default"}
+            label={`${label}: ${value}`}
+        />
     </Tooltip>
 );
 

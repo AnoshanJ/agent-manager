@@ -17,7 +17,7 @@
  */
 
 import { globalConfig } from '@agent-management-platform/types';
-import { Box, Button, Skeleton } from "@wso2/oxygen-ui";
+import { Box, Button, Skeleton, Typography } from "@wso2/oxygen-ui";
 import { Settings } from "@wso2/oxygen-ui-icons-react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
@@ -93,6 +93,9 @@ export const ExternalAgentOverview = () => {
   return (
     <>
       <Box display="flex" flexDirection="column" gap={2}>
+        <Typography variant="overline" color="text.secondary">
+          Environments
+        </Typography>
         {isEnvironmentsLoading ? (
           <Box display="flex" flexDirection="column" gap={2}>
             <Skeleton variant="rounded" height={100} />

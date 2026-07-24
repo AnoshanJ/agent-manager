@@ -23,6 +23,7 @@ import {
 } from "@agent-management-platform/api-client";
 import {
     Box,
+    Typography,
 } from "@wso2/oxygen-ui";
 import { useParams } from "react-router-dom";
 
@@ -102,32 +103,37 @@ export const InternalAgentOverview = () => {
             )}
 
             {selectedEnvironment && orgId && projectId && agentId && (
-                <EnvironmentCard
-                    key={selectedEnvironment.name}
-                    orgId={orgId}
-                    projectId={projectId}
-                    agentId={agentId}
-                    environment={selectedEnvironment}
-                    isFirstEnvironment={sortedEnvironmentList[0]?.name === selectedEnvironment.name}
-                    showIsolationTier={sortedEnvironmentList.length > 1}
-                    tabsHeader={
-                        <EnvironmentTabsBar
-                            environments={sortedEnvironmentList}
-                            selectedName={selectedEnvironment.name}
-                            onSelect={selectEnvironment}
-                            dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
-                        />
-                    }
-                    bottomContent={
-                        <EnvironmentSectionsContent
-                            orgId={orgId}
-                            projectId={projectId}
-                            agentId={agentId}
-                            envId={selectedEnvironment.name}
-                            configurations={agent?.configurations}
-                        />
-                    }
-                />
+                <Box display="flex" flexDirection="column" gap={1.5}>
+                    <Typography variant="overline" color="text.secondary">
+                        Environments
+                    </Typography>
+                    <EnvironmentCard
+                        key={selectedEnvironment.name}
+                        orgId={orgId}
+                        projectId={projectId}
+                        agentId={agentId}
+                        environment={selectedEnvironment}
+                        isFirstEnvironment={sortedEnvironmentList[0]?.name === selectedEnvironment.name}
+                        showIsolationTier={sortedEnvironmentList.length > 1}
+                        tabsHeader={
+                            <EnvironmentTabsBar
+                                environments={sortedEnvironmentList}
+                                selectedName={selectedEnvironment.name}
+                                onSelect={selectEnvironment}
+                                dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
+                            />
+                        }
+                        bottomContent={
+                            <EnvironmentSectionsContent
+                                orgId={orgId}
+                                projectId={projectId}
+                                agentId={agentId}
+                                envId={selectedEnvironment.name}
+                                configurations={agent?.configurations}
+                            />
+                        }
+                    />
+                </Box>
             )}
         </Box>
     );

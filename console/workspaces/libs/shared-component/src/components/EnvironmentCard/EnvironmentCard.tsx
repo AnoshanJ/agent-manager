@@ -232,7 +232,7 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
   });
 
   const currentDeployment = deployments?.[environment?.name ?? ""];
-  const envTitle = `${environment?.displayName ?? environment?.name ?? "Environment"} Environment`;
+  const envTitle = environment?.displayName ?? environment?.name ?? "Environment";
 
   const { data: buildsData } = useGetAgentBuilds({
     orgName: !isExternal ? orgId : "",
@@ -295,7 +295,18 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
               {actions}
             </Box>
           </Box>
-          {bottomContent}
+          <Divider />
+          <Box
+            sx={{
+              // See the matching rule in the deployed-agent render below —
+              // Capabilities never renders for external agents, so whichever
+              // section renders first here draws its own leading divider
+              // right under the one above. Suppressed the same way.
+              "& hr:first-of-type": { display: "none" },
+            }}
+          >
+            {bottomContent}
+          </Box>
         </CardContent>
       </Card>
     );
@@ -349,7 +360,7 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
           <Box display="flex" flexDirection="row" gap={1} alignItems="center">
             {tabsHeader ?? (
               <Typography variant="h6">
-                {environment?.displayName} Environment
+                {environment?.displayName}
               </Typography>
             )}
           </Box>
@@ -396,13 +407,6 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
         </Box>
         <Divider />
         <Box
-          display="flex"
-          width="100%"
-          justifyContent="center"
-          flexDirection="column"
-          gap={1}
-          pt={2}
-          alignItems="center"
           sx={{
             // The Divider above already closes off the header/tabs row. Every
             // section in bottomContent is built on pages/overview's
@@ -414,26 +418,88 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
             // with the Divider above. Hiding the first `hr` descendant here,
             // rather than each section knowing whether it's first, sidesteps
             // needing to lift each section's null/non-null render decision
-            // back up to this component.
-            "& > hr:first-of-type": { display: "none" },
+            // back up to this component. A descendant (not direct-child)
+            // selector, since CollapsibleSection wraps sections in MUI's
+            // Collapse, nesting each section's own leading divider a few
+            // levels deeper than a direct child.
+            "& hr:first-of-type": { display: "none" },
           }}
         >
-          {currentDeployment.status === DeploymentStatus.INACTIVE && (
-            <NoDataFound
-              disableBackground
-              message="Not Deployed"
-              icon={<RocketLaunchOutlined size={32} />}
-              subtitle={
-                hasSuccessfulBuild
-                  ? isFirstEnvironment
-                    ? "A successful build is available. Deploy it to get started."
-                    : "Promote a deployment from the previous environment to get started."
-                  : "No successful build found. Build the agent before deploying."
-              }
-              action={
-                hasSuccessfulBuild && (
+          <Box
+            display="flex"
+            width="100%"
+            justifyContent="center"
+            flexDirection="column"
+            gap={1}
+            pt={2}
+            alignItems="center"
+          >
+            {currentDeployment.status === DeploymentStatus.INACTIVE && (
+              <NoDataFound
+                disableBackground
+                message="Not Deployed"
+                icon={<RocketLaunchOutlined size={32} />}
+                subtitle={
+                  hasSuccessfulBuild
+                    ? isFirstEnvironment
+                      ? "A successful build is available. Deploy it to get started."
+                      : "Promote a deployment from the previous environment to get started."
+                    : "No successful build found. Build the agent before deploying."
+                }
+                action={
+                  hasSuccessfulBuild && (
+                    <Button
+                      startIcon={<RocketLaunchOutlined size={16} />}
+                      variant="outlined"
+                      component={Link}
+                      to={generatePath(
+                        absoluteRouteMap.children.org.children.projects.children
+                          .agents.children.deployment.path,
+                        { orgId, projectId, agentId }
+                      )}
+                      size="small"
+                    >
+                      {isFirstEnvironment ? "Go to Deployment" : "Promote"}
+                    </Button>
+                  )
+                }
+              />
+            )}
+            {currentDeployment.status === DeploymentStatus.DEPLOYING && (
+              <NoDataFound disableBackground message="Deploying..." icon={<CircularProgress size={32} />} />
+            )}
+            {(currentDeployment.status === DeploymentStatus.ERROR ||
+              currentDeployment.status === DeploymentStatus.FAILED) && (
+                <Alert
+                  severity="error"
+                  sx={{ width: "100%" }}
+                  action={
+                    <Button
+                      component={Link}
+                      to={generatePath(
+                        absoluteRouteMap.children.org.children.projects.children
+                          .agents.children.deployment.path,
+                        { orgId, projectId, agentId }
+                      )}
+                      color="inherit"
+                      size="small"
+                    >
+                      View Deployment
+                    </Button>
+                  }
+                >
+                  Deployment failed. Check the deployment page for more details.
+                </Alert>
+              )}
+            {currentDeployment.status === DeploymentStatus.SUSPENDED && (
+              <NoDataFound
+                disableBackground
+                message="Suspended"
+                icon={<PauseCircle size={32} />}
+                subtitle="This deployment is currently suspended. Resume it from the deployment page to make the agent available again."
+                action={
                   <Button
-                    startIcon={<RocketLaunchOutlined size={16} />}
+                    startIcon={<Play size={16} />}
                     variant="outlined"
                     component={Link}
                     to={generatePath(
@@ -443,69 +509,20 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
                     )}
                     size="small"
                   >
-                    {isFirstEnvironment ? "Go to Deployment" : "Promote"}
-                  </Button>
-                )
-              }
-            />
-          )}
-          {currentDeployment.status === DeploymentStatus.DEPLOYING && (
-            <NoDataFound disableBackground message="Deploying..." icon={<CircularProgress size={32} />} />
-          )}
-          {(currentDeployment.status === DeploymentStatus.ERROR ||
-            currentDeployment.status === DeploymentStatus.FAILED) && (
-              <Alert
-                severity="error"
-                sx={{ width: "100%" }}
-                action={
-                  <Button
-                    component={Link}
-                    to={generatePath(
-                      absoluteRouteMap.children.org.children.projects.children
-                        .agents.children.deployment.path,
-                      { orgId, projectId, agentId }
-                    )}
-                    color="inherit"
-                    size="small"
-                  >
-                    View Deployment
+                    Go to Deployment
                   </Button>
                 }
-              >
-                Deployment failed. Check the deployment page for more details.
+              />
+            )}
+            {currentDeployment.status === DeploymentStatus.ACTIVE && isKindOutdated && (
+              <Alert severity="warning" sx={{ width: "100%" }}>
+                A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
+                Currently deployed: <strong>v{deployedVersion}</strong>.
               </Alert>
             )}
-          {currentDeployment.status === DeploymentStatus.SUSPENDED && (
-            <NoDataFound
-              disableBackground
-              message="Suspended"
-              icon={<PauseCircle size={32} />}
-              subtitle="This deployment is currently suspended. Resume it from the deployment page to make the agent available again."
-              action={
-                <Button
-                  startIcon={<Play size={16} />}
-                  variant="outlined"
-                  component={Link}
-                  to={generatePath(
-                    absoluteRouteMap.children.org.children.projects.children
-                      .agents.children.deployment.path,
-                    { orgId, projectId, agentId }
-                  )}
-                  size="small"
-                >
-                  Go to Deployment
-                </Button>
-              }
-            />
-          )}
-          {currentDeployment.status === DeploymentStatus.ACTIVE && isKindOutdated && (
-            <Alert severity="warning" sx={{ width: "100%" }}>
-              A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
-              Currently deployed: <strong>v{deployedVersion}</strong>.
-            </Alert>
-          )}
+          </Box>
+          {showObservability && bottomContent}
         </Box>
-        {showObservability && bottomContent}
       </CardContent>
     </Card>
   );

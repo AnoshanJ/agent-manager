@@ -68,7 +68,7 @@ export function EnvironmentTabsBar({
                   flexShrink: 0,
                 }}
               />
-              {`${env.displayName ?? env.name} Environment`}
+              {env.displayName ?? env.name}
             </Box>
           }
         />
