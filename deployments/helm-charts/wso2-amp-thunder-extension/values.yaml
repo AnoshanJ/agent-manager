@@ -513,15 +513,27 @@ thunder:
     # re-run the bootstrap job (it automatically replaces MCP resource servers
     # created by an older bootstrap with a non-empty handle); a helm upgrade
     # alone will not re-seed.
+    #
+    # Each resource server's identifier is derived by the bootstrap template from
+    # the base URL named in baseUrlValue, with the trailing slash appended. The
+    # base URLs live as their own scalars below rather than inline here so a
+    # deployment can override just the host: `helm --set` merges a scalar, but
+    # `--set mcpResourceServers[0].identifier=...` REPLACES the whole list element
+    # and silently drops name/handle/description/permissionSet. Point each base
+    # URL at the externally reachable origin of its MCP endpoint's service — the
+    # same value as agent-manager's serverPublicURL and the observability
+    # extension's amObserver.publicUrl. Defaults suit a k3d/local install.
+    agentManagerMcpBaseUrl: "http://localhost:9000"
+    observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
         handle: ""
-        identifier: "http://localhost:9000/"
+        baseUrlValue: "agentManagerMcpBaseUrl"
         description: "Resource identifier for the agent-manager MCP endpoint"
         permissionSet: "amp-minus-observability"
       - name: "AMP Observer MCP"
         handle: ""
-        identifier: "http://traces.amp.localhost:11080/"
+        baseUrlValue: "observerMcpBaseUrl"
         description: "Resource identifier for the observer MCP endpoint"
         permissionSet: "observability-only"
     # AMP Console Client configuration
