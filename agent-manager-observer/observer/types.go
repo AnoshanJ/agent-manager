@@ -62,6 +62,11 @@ type TracesQueryResponse struct {
 	TookMs int         `json:"tookMs"`
 }
 
+type SpanStatus struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 // SpanInfo represents a single span in TraceSpansQueryResponse.
 // Kind and Status are always returned by the observer; Attributes and
 // ResourceAttributes are populated only when the request set
@@ -75,7 +80,7 @@ type SpanInfo struct {
 	EndTime            time.Time              `json:"endTime"`
 	DurationNs         int64                  `json:"durationNs"`
 	Kind               string                 `json:"spanKind,omitempty"`
-	Status             string                 `json:"status,omitempty"`
+	Status             *SpanStatus            `json:"status,omitempty"`
 	Attributes         map[string]interface{} `json:"attributes,omitempty"`
 	ResourceAttributes map[string]interface{} `json:"resourceAttributes,omitempty"`
 }
@@ -105,7 +110,7 @@ type SpanDetailsResponse struct {
 	EndTime            time.Time              `json:"endTime"`
 	DurationNs         int64                  `json:"durationNs"`
 	Kind               string                 `json:"kind,omitempty"`
-	Status             string                 `json:"status,omitempty"`
+	Status             *SpanStatus            `json:"status,omitempty"`
 	Attributes         map[string]interface{} `json:"attributes"`
 	ResourceAttributes map[string]interface{} `json:"resourceAttributes"`
 }

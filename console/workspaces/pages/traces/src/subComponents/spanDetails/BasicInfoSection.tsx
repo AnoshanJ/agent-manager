@@ -24,7 +24,7 @@ import {
   RetrieverData,
   EvaluatorScoreWithMonitor,
 } from "@agent-management-platform/types";
-import { Chip, Stack, Tooltip } from "@wso2/oxygen-ui";
+import { Chip, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
 import {
   Brain,
   Check,
@@ -103,11 +103,15 @@ export function BasicInfoSection({ span, evaluatorScores }: BasicInfoSectionProp
     return hasDuplicate ? `${ev.monitorName}/${ev.evaluatorName}` : ev.evaluatorName;
   };
 
+  const statusMessage = span.ampAttributes?.status?.message;
+
   return (
+    <Stack spacing={1}>
     <Stack spacing={1} direction="row" flexWrap="wrap" useFlexGap alignItems="center">
         {span.ampAttributes?.status?.error && (
           <Tooltip
             title={
+              statusMessage ||
               span.ampAttributes?.status?.errorType ||
               "Failed to execute the span"
             }
@@ -234,5 +238,15 @@ export function BasicInfoSection({ span, evaluatorScores }: BasicInfoSectionProp
             );
           })}
       </Stack>
+      {statusMessage && (
+        <Typography
+          variant="body2"
+          color={span.ampAttributes?.status?.error ? "error" : "text.secondary"}
+          sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        >
+          {statusMessage}
+        </Typography>
+      )}
+    </Stack>
   );
 }
