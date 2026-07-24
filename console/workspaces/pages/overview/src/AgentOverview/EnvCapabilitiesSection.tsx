@@ -185,8 +185,12 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                         sx={{
                             border: "1px solid",
                             borderColor: "divider",
-                            borderRadius: 1,
-                            px: 1,
+                            borderRadius: "999px",
+                            // The Chip already carries its own pill padding on the
+                            // left, so a smaller pl here (vs. pr, which backs onto
+                            // plain unpadded text) keeps the inset even on both ends.
+                            pl: 0.5,
+                            pr: 1.25,
                             py: 0.5,
                         }}
                     >
@@ -195,7 +199,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                             size="small"
                             variant="outlined"
                             color={METHOD_COLOR[resource.method] ?? "default"}
-                            sx={{ height: 20, fontSize: "0.6875rem", fontWeight: 600 }}
+                            sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
                         />
                         <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
                             {resource.path}
