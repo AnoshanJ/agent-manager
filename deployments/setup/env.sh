@@ -1,5 +1,5 @@
 # Shared cluster environment variables — sourced by all scripts in this directory.
-OPENCHOREO_VERSION="1.1.1"
+OPENCHOREO_VERSION="1.2.0-rc.2"
 CLUSTER_NAME="${CLUSTER_NAME:-openchoreo-local-setup}"
 CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
 
@@ -12,9 +12,9 @@ GATEWAY_IMAGE_VERSION="1.2.0-beta"
 GATEWAY_ENCRYPTION_SECRET_NAME="gateway-encryption-keys"
 GATEWAY_ENCRYPTION_SECRET_KEY="default-aesgcm256-v1.bin"
 
-# OpenChoreo community module versions compatible with OpenChoreo 1.1.1
-OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.4.1"
-OBSERVABILITY_TRACING_OPENSEARCH_VERSION="0.4.1"
+# OpenChoreo community module versions compatible with OpenChoreo 1.2.0-rc.2
+OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.5.3"
+OBSERVABILITY_TRACING_OPENSEARCH_VERSION="0.5.0"
 OBSERVABILITY_METRICS_PROMETHEUS_VERSION="0.6.1"
 
 # Agent Sandbox community module
