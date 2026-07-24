@@ -28,7 +28,7 @@ import {
 } from "@agent-management-platform/api-client";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
 import {
-  ArrowUpFromLine,
+  ArrowRightFromLine,
   Clock,
   Cpu,
   ExternalLink,
@@ -791,7 +791,7 @@ export function DeployCard(props: DeployCardProps) {
                     <Button
                       variant="contained"
                       size="small"
-                      startIcon={<ArrowUpFromLine size={16} />}
+                      startIcon={<ArrowRightFromLine size={16} />}
                       onClick={handleOpenPromoteDrawer}
                       disabled={!isEnvironmentActive}
                     >
