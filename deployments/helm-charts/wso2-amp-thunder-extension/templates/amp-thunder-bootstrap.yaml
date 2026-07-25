@@ -1569,7 +1569,8 @@ data:
     # authorization checks expect.
     log_info "Registering MCP resource servers..."
     {{- range .Values.thunder.bootstrap.mcpResourceServers }}
-    {{- $identifier := printf "%s/" (index $.Values.thunder.bootstrap .baseUrlValue) }}
+    {{- $base := index $.Values.thunder.bootstrap .baseUrlValue | required (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}
+    {{- $identifier := printf "%s/" (trimSuffix "/" $base) }}
     MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ $identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
     log_info "MCP resource server '{{ $identifier }}' ready (id: $MCP_RS_ID)"
 
