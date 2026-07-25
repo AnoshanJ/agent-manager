@@ -37,7 +37,6 @@ import {
   CircularProgress,
   Divider,
   Skeleton,
-  Tooltip,
   Typography,
   useTheme,
 } from "@wso2/oxygen-ui";
@@ -45,16 +44,54 @@ import {
   CheckCircle as CheckCircleRounded,
   Circle as CircleOutlined,
   Rocket as RocketLaunchOutlined,
-  Link as LinkOutlined,
   PauseCircle,
   Play,
   Tag,
-  XCircle,
 } from "@wso2/oxygen-ui-icons-react";
 import { NoDataFound } from "@agent-management-platform/views";
 import { generatePath, Link } from "react-router-dom";
-import { formatRelativeTime } from "../../utils/format";
-import { IsolationTierChip } from "../IsolationTierIndicator";
+
+// Every section in bottomContent is built on pages/overview's SectionHeader,
+// which draws its own leading divider (marked with
+// `data-section-leading-divider`) to separate it from the section before it.
+// Whichever section ends up rendering first — usually Capabilities, but any
+// section can be first if earlier ones are empty (e.g. EnvDeploymentStatusSection
+// for external agents, since EnvCapabilitiesSection never renders for them) —
+// would otherwise double up with the header/tabs divider this card already
+// draws above bottomContent. Scoped to `:first-child` (not just
+// `hr:first-of-type`) so it only touches the very first top-level section,
+// not every section's own leading divider, and keyed off the data attribute
+// (not a plain `hr` selector) so it can't catch an unrelated Divider a
+// section renders further down in its own content (e.g.
+// EnvCapabilitiesSection's Invoke URL divider). Two alternatives, since the
+// marked divider sits at different depths depending on the section: sections
+// wrapped in CollapsibleSection nest it a few levels inside their Collapse
+// wrapper (the descendant form matches), while a section like
+// EnvDeploymentStatusSection that isn't collapsible renders it as the
+// literal first child (the direct-match form matches). Hidden via
+// `visibility: hidden` rather than `display: none` — the latter also
+// collapses the divider's own `mt` margin, leaving the first section's title
+// jammed against the header divider with no breathing room above it.
+const HIDE_FIRST_SECTION_DIVIDER_SX = {
+  "& > :first-child[data-section-leading-divider], & > :first-child [data-section-leading-divider]":
+    { visibility: "hidden" },
+} as const;
+
+/** The divider + suppression wrapper shared by every render branch below that shows `bottomContent`. */
+const BottomContent = ({ children }: { children: React.ReactNode }) => (
+  <>
+    <Divider />
+    <Box sx={HIDE_FIRST_SECTION_DIVIDER_SX}>{children}</Box>
+  </>
+);
+
+/** The agent's Deploy page — shared by every "Go to Deployment" / "Promote" / "View Deployment" link on this card, and by EnvDeploymentStatusSection's "View Deployment" section link. */
+export function getAgentDeploymentPath(orgId: string, projectId: string, agentId: string): string {
+  return generatePath(
+    absoluteRouteMap.children.org.children.projects.children.agents.children.deployment.path,
+    { orgId, projectId, agentId },
+  );
+}
 
 export enum DeploymentStatus {
   ACTIVE = "active",
@@ -72,10 +109,15 @@ export interface EnvironmentCardProps {
   agentId: string;
   actions?: React.ReactNode;
   /**
-   * Rendered below the deployment status area. This card no longer lists
-   * `currentDeployment.endpoints` itself (see EnvironmentCard.tsx history) —
-   * a caller that wants endpoint/invoke-URL visibility must render it here,
-   * as pages/overview's EnvCapabilitiesSection does.
+   * Rendered below the header/tabs divider, in every render branch
+   * (external, not-yet-deployed, deployed) regardless of deployment status.
+   * This card no longer lists `currentDeployment.endpoints` itself (see
+   * EnvironmentCard.tsx history) — a caller that wants endpoint/invoke-URL
+   * visibility must render it here, as pages/overview's
+   * EnvCapabilitiesSection does. Individual sections (Capabilities, Configs,
+   * Agent Identity, Deployment Status, Monitors, Traces) each decide for
+   * themselves whether they have anything to show; Monitors/Traces already
+   * hide themselves while there's no live deployment traffic to report on.
    */
   bottomContent?: React.ReactNode;
   /**
@@ -87,8 +129,8 @@ export interface EnvironmentCardProps {
   isFirstEnvironment?: boolean;
   /** Replaces the environment name heading, e.g. a tab strip switching between sibling envs. */
   tabsHeader?: React.ReactNode;
-  /** Shows the sandbox/isolation tier chip next to the status, alongside tabsHeader. */
-  showIsolationTier?: boolean;
+  /** Suppresses the environment name heading entirely (no tabsHeader, no fallback title) — e.g. when there's only one environment and naming it adds no information. */
+  hideEnvTitle?: boolean;
 }
 
 export const EnvStatus = ({
@@ -156,48 +198,6 @@ export const EnvStatus = ({
   }
 };
 
-interface DeploymentStatusLinkProps {
-  icon: React.ReactNode;
-  label: string;
-  color?: string;
-  to: string;
-  tooltip?: string;
-}
-
-/**
- * Icon + label, styled and linked like AgentInfoCard's "Last Build" status
- * (plain text over a Chip, hover:action.hover, links out) — used for the
- * deployment statuses here so clicking any of them jumps to the Deploy page.
- */
-const DeploymentStatusLink = ({ icon, label, color, to, tooltip }: DeploymentStatusLinkProps) => {
-  const content = (
-    <Box display="flex" alignItems="center" gap={0.5} sx={{ color }}>
-      {icon}
-      <Typography variant="body2" fontWeight={600} color="inherit">
-        {label}
-      </Typography>
-    </Box>
-  );
-  return (
-    <Box
-      component={Link}
-      to={to}
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        textDecoration: "none",
-        color: "inherit",
-        px: 1,
-        py: 0.5,
-        borderRadius: 1,
-        "&:hover": { bgcolor: "action.hover" },
-      }}
-    >
-      {tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content}
-    </Box>
-  );
-};
-
 export const EnvironmentCard = (props: EnvironmentCardProps) => {
   const {
     environment,
@@ -208,9 +208,8 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
     bottomContent,
     isFirstEnvironment = true,
     tabsHeader,
-    showIsolationTier,
+    hideEnvTitle,
   } = props;
-  const theme = useTheme();
   const { data: agent, isLoading: isAgentLoading } = useGetAgent({
     orgName: orgId,
     projName: projectId,
@@ -277,36 +276,13 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
         <CardContent>
           <Box display="flex" flexDirection="row" gap={1} justifyContent="space-between" alignItems="center">
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-              {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
+              {!hideEnvTitle && (tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>)}
             </Box>
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
-              <Tooltip title={formatRelativeTime(agent?.createdAt)}>
-                <Chip
-                  icon={
-                    <LinkOutlined size={16} color={theme.vars?.palette?.success?.main} />
-                  }
-                  variant="outlined"
-                  size="small"
-                  label="Registered"
-                  color="success"
-                />
-              </Tooltip>
               {actions}
             </Box>
           </Box>
-          <Divider />
-          <Box
-            sx={{
-              // See the matching rule in the deployed-agent render below —
-              // Capabilities never renders for external agents, so whichever
-              // section renders first here draws its own leading divider
-              // right under the one above. Suppressed the same way.
-              "& hr:first-of-type": { display: "none" },
-            }}
-          >
-            {bottomContent}
-          </Box>
+          <BottomContent>{bottomContent}</BottomContent>
         </CardContent>
       </Card>
     );
@@ -319,34 +295,92 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
         <CardContent>
           <Box display="flex" flexDirection="row" gap={1} justifyContent="space-between" alignItems="center">
             <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-              {tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>}
-            </Box>
-            <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-              {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
-              <EnvStatus status={DeploymentStatus.INACTIVE} />
+              {!hideEnvTitle && (tabsHeader ?? <Typography variant="h6">{envTitle}</Typography>)}
             </Box>
           </Box>
+          <BottomContent>{bottomContent}</BottomContent>
         </CardContent>
       </Card>
     );
   }
 
   // ── Internal agent — deployment exists ────────────────────────────────────
-  const deploymentStatus = currentDeployment.status as DeploymentStatus;
-  const deploymentPath = generatePath(
-    absoluteRouteMap.children.org.children.projects.children.agents
-      .children.deployment.path,
-    { orgId, projectId, agentId }
-  );
-  const deployedTimeTooltip = formatRelativeTime(currentDeployment?.lastDeployed);
-  // Metrics/traces and monitor sections only carry meaningful data while the
-  // deployment is serving traffic (active) or has failed while running (error).
-  // For idle/transitional states (deploying, suspended) there is nothing live
-  // to show, so we hide them and surface an empty state instead.
-  const showObservability =
-    deploymentStatus === DeploymentStatus.ACTIVE ||
-    deploymentStatus === DeploymentStatus.ERROR ||
-    deploymentStatus === DeploymentStatus.FAILED;
+  // The status-message block below bottomContent — computed once (rather
+  // than a separate `hasStatusMessage` boolean re-deriving the same status
+  // union) so the "is there anything to show" check and the render can never
+  // drift apart. A plain active, up-to-date deployment resolves to null, so
+  // the divider before it is skipped too.
+  const statusMessage =
+    currentDeployment.status === DeploymentStatus.INACTIVE ? (
+      <NoDataFound
+        disableBackground
+        message="Not Deployed"
+        icon={<RocketLaunchOutlined size={32} />}
+        subtitle={
+          hasSuccessfulBuild
+            ? isFirstEnvironment
+              ? "A successful build is available. Deploy it to get started."
+              : "Promote a deployment from the previous environment to get started."
+            : "No successful build found. Build the agent before deploying."
+        }
+        action={
+          hasSuccessfulBuild && (
+            <Button
+              startIcon={<RocketLaunchOutlined size={16} />}
+              variant="outlined"
+              component={Link}
+              to={getAgentDeploymentPath(orgId, projectId, agentId)}
+              size="small"
+            >
+              {isFirstEnvironment ? "Go to Deployment" : "Promote"}
+            </Button>
+          )
+        }
+      />
+    ) : currentDeployment.status === DeploymentStatus.DEPLOYING ? (
+      <NoDataFound disableBackground message="Deploying..." icon={<CircularProgress size={32} />} />
+    ) : currentDeployment.status === DeploymentStatus.ERROR ||
+      currentDeployment.status === DeploymentStatus.FAILED ? (
+      <Alert
+        severity="error"
+        sx={{ width: "100%" }}
+        action={
+          <Button
+            component={Link}
+            to={getAgentDeploymentPath(orgId, projectId, agentId)}
+            color="inherit"
+            size="small"
+          >
+            View Deployment
+          </Button>
+        }
+      >
+        Deployment failed. Check the deployment page for more details.
+      </Alert>
+    ) : currentDeployment.status === DeploymentStatus.SUSPENDED ? (
+      <NoDataFound
+        disableBackground
+        message="Suspended"
+        icon={<PauseCircle size={32} />}
+        subtitle="This deployment is currently suspended. Resume it from the deployment page to make the agent available again."
+        action={
+          <Button
+            startIcon={<Play size={16} />}
+            variant="outlined"
+            component={Link}
+            to={getAgentDeploymentPath(orgId, projectId, agentId)}
+            size="small"
+          >
+            Go to Deployment
+          </Button>
+        }
+      />
+    ) : currentDeployment.status === DeploymentStatus.ACTIVE && isKindOutdated ? (
+      <Alert severity="warning" sx={{ width: "100%" }}>
+        A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
+        Currently deployed: <strong>v{deployedVersion}</strong>.
+      </Alert>
+    ) : null;
   return (
     <Card variant="outlined">
       <CardContent>
@@ -358,42 +392,15 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
           alignItems="center"
         >
           <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-            {tabsHeader ?? (
-              <Typography variant="h6">
-                {environment?.displayName}
-              </Typography>
+            {!hideEnvTitle && (
+              tabsHeader ?? (
+                <Typography variant="h6">
+                  {environment?.displayName}
+                </Typography>
+              )
             )}
           </Box>
           <Box display="flex" flexDirection="row" gap={1} alignItems="center">
-            {showIsolationTier && <IsolationTierChip tier={environment?.isolationTier} />}
-            {currentDeployment?.status === DeploymentStatus.ACTIVE && (
-              <DeploymentStatusLink
-                icon={<CheckCircleRounded size={16} />}
-                label="Deployed"
-                color={theme.vars?.palette?.success?.main}
-                to={deploymentPath}
-                tooltip={deployedTimeTooltip}
-              />
-            )}
-            {(currentDeployment?.status === DeploymentStatus.ERROR ||
-              currentDeployment?.status === DeploymentStatus.FAILED) && (
-                <DeploymentStatusLink
-                  icon={<XCircle size={16} />}
-                  label="Error"
-                  color={theme.vars?.palette?.error?.main}
-                  to={deploymentPath}
-                  tooltip={deployedTimeTooltip}
-                />
-              )}
-            {currentDeployment?.status === DeploymentStatus.SUSPENDED && (
-              <DeploymentStatusLink
-                icon={<PauseCircle size={16} />}
-                label="Suspended"
-                color={theme.vars?.palette?.text?.secondary}
-                to={deploymentPath}
-                tooltip={deployedTimeTooltip}
-              />
-            )}
             {deployedVersionLabel && (
               <Chip
                 icon={<Tag size={14} />}
@@ -405,124 +412,23 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
             {currentDeployment?.status === DeploymentStatus.ACTIVE && actions}
           </Box>
         </Box>
-        <Divider />
-        <Box
-          sx={{
-            // The Divider above already closes off the header/tabs row. Every
-            // section in bottomContent is built on pages/overview's
-            // SectionHeader, which unconditionally draws its own leading
-            // <Divider> (an intentional boundary marker when a section isn't
-            // first — see SectionHeader.tsx). Whichever section ends up
-            // rendering first — usually Capabilities, but any section can be
-            // first if earlier ones render null — would otherwise double up
-            // with the Divider above. Hiding the first `hr` descendant here,
-            // rather than each section knowing whether it's first, sidesteps
-            // needing to lift each section's null/non-null render decision
-            // back up to this component. A descendant (not direct-child)
-            // selector, since CollapsibleSection wraps sections in MUI's
-            // Collapse, nesting each section's own leading divider a few
-            // levels deeper than a direct child.
-            "& hr:first-of-type": { display: "none" },
-          }}
-        >
-          <Box
-            display="flex"
-            width="100%"
-            justifyContent="center"
-            flexDirection="column"
-            gap={1}
-            pt={2}
-            alignItems="center"
-          >
-            {currentDeployment.status === DeploymentStatus.INACTIVE && (
-              <NoDataFound
-                disableBackground
-                message="Not Deployed"
-                icon={<RocketLaunchOutlined size={32} />}
-                subtitle={
-                  hasSuccessfulBuild
-                    ? isFirstEnvironment
-                      ? "A successful build is available. Deploy it to get started."
-                      : "Promote a deployment from the previous environment to get started."
-                    : "No successful build found. Build the agent before deploying."
-                }
-                action={
-                  hasSuccessfulBuild && (
-                    <Button
-                      startIcon={<RocketLaunchOutlined size={16} />}
-                      variant="outlined"
-                      component={Link}
-                      to={generatePath(
-                        absoluteRouteMap.children.org.children.projects.children
-                          .agents.children.deployment.path,
-                        { orgId, projectId, agentId }
-                      )}
-                      size="small"
-                    >
-                      {isFirstEnvironment ? "Go to Deployment" : "Promote"}
-                    </Button>
-                  )
-                }
-              />
-            )}
-            {currentDeployment.status === DeploymentStatus.DEPLOYING && (
-              <NoDataFound disableBackground message="Deploying..." icon={<CircularProgress size={32} />} />
-            )}
-            {(currentDeployment.status === DeploymentStatus.ERROR ||
-              currentDeployment.status === DeploymentStatus.FAILED) && (
-                <Alert
-                  severity="error"
-                  sx={{ width: "100%" }}
-                  action={
-                    <Button
-                      component={Link}
-                      to={generatePath(
-                        absoluteRouteMap.children.org.children.projects.children
-                          .agents.children.deployment.path,
-                        { orgId, projectId, agentId }
-                      )}
-                      color="inherit"
-                      size="small"
-                    >
-                      View Deployment
-                    </Button>
-                  }
-                >
-                  Deployment failed. Check the deployment page for more details.
-                </Alert>
-              )}
-            {currentDeployment.status === DeploymentStatus.SUSPENDED && (
-              <NoDataFound
-                disableBackground
-                message="Suspended"
-                icon={<PauseCircle size={32} />}
-                subtitle="This deployment is currently suspended. Resume it from the deployment page to make the agent available again."
-                action={
-                  <Button
-                    startIcon={<Play size={16} />}
-                    variant="outlined"
-                    component={Link}
-                    to={generatePath(
-                      absoluteRouteMap.children.org.children.projects.children
-                        .agents.children.deployment.path,
-                      { orgId, projectId, agentId }
-                    )}
-                    size="small"
-                  >
-                    Go to Deployment
-                  </Button>
-                }
-              />
-            )}
-            {currentDeployment.status === DeploymentStatus.ACTIVE && isKindOutdated && (
-              <Alert severity="warning" sx={{ width: "100%" }}>
-                A newer version of this Agent Kind is available: <strong>v{latestKindVersion!.version}</strong>.{" "}
-                Currently deployed: <strong>v{deployedVersion}</strong>.
-              </Alert>
-            )}
-          </Box>
-          {showObservability && bottomContent}
-        </Box>
+        <BottomContent>{bottomContent}</BottomContent>
+        {statusMessage && (
+          <>
+            <Divider />
+            <Box
+              display="flex"
+              width="100%"
+              justifyContent="center"
+              flexDirection="column"
+              gap={1}
+              pt={2}
+              alignItems="center"
+            >
+              {statusMessage}
+            </Box>
+          </>
+        )}
       </CardContent>
     </Card>
   );

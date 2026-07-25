@@ -84,7 +84,7 @@ export function AgentOverview() {
                 ) : (
                     <Box display="flex" flexDirection="column" gap={2}>
                         {agent?.description && (
-                            <DescriptionCard title="Agent Description" content={agent.description} />
+                            <DescriptionCard content={agent.description} />
                         )}
                         {agent?.provisioning?.type === "internal" && <InternalAgentOverview />}
                         {agent?.provisioning?.type === "external" && <ExternalAgentOverview />}

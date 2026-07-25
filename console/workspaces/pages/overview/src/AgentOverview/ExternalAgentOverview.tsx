@@ -17,7 +17,7 @@
  */
 
 import { globalConfig } from '@agent-management-platform/types';
-import { Box, Button, Skeleton, Typography } from "@wso2/oxygen-ui";
+import { Box, Button, Skeleton } from "@wso2/oxygen-ui";
 import { Settings } from "@wso2/oxygen-ui-icons-react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
@@ -32,6 +32,7 @@ import { InstrumentationDrawer } from "./InstrumentationDrawer";
 import { NoDataFound } from "@agent-management-platform/views";
 import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
+import { UppercaseCaptionLabel } from "./SectionHeader";
 import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
 export const ExternalAgentOverview = () => {
@@ -90,12 +91,16 @@ export const ExternalAgentOverview = () => {
     );
   };
 
+  // Once loaded, a single environment doesn't need a "which environment" tab
+  // strip or section label — only shown when there's more than one, or while
+  // still loading (before we know how many there are).
+  const showEnvironmentsHeader = isEnvironmentsLoading || sortedEnvironmentList.length !== 1;
+  const hasMultipleEnvironments = sortedEnvironmentList.length > 1;
+
   return (
     <>
       <Box display="flex" flexDirection="column" gap={2}>
-        <Typography variant="overline" color="text.secondary">
-          Environments
-        </Typography>
+        {showEnvironmentsHeader && <UppercaseCaptionLabel>Environments</UppercaseCaptionLabel>}
         {isEnvironmentsLoading ? (
           <Box display="flex" flexDirection="column" gap={2}>
             <Skeleton variant="rounded" height={100} />
@@ -117,14 +122,21 @@ export const ExternalAgentOverview = () => {
               projectId={projectId}
               agentId={agentId}
               environment={selectedEnvironment}
-              showIsolationTier={sortedEnvironmentList.length > 1}
               tabsHeader={
-                <EnvironmentTabsBar
-                  environments={sortedEnvironmentList}
-                  selectedName={selectedEnvironment.name}
-                  onSelect={selectEnvironment}
-                  dotColor={() => "success.main"}
-                />
+                hasMultipleEnvironments
+                  ? (
+                    <EnvironmentTabsBar
+                      environments={sortedEnvironmentList}
+                      selectedName={selectedEnvironment.name}
+                      onSelect={selectEnvironment}
+                      dotColor={() => "success.main"}
+                    />
+                  )
+                  // A single environment doesn't need its name called out at
+                  // all — an empty fragment (not undefined) so
+                  // EnvironmentCard's `tabsHeader ?? <envName>` fallback
+                  // doesn't kick back in.
+                  : <></>
               }
               actions={
                 <Button
@@ -144,6 +156,9 @@ export const ExternalAgentOverview = () => {
                   envId={selectedEnvironment.name}
                   configurations={agent?.configurations}
                   external
+                  registeredAt={agent?.createdAt}
+                  isolationTier={selectedEnvironment.isolationTier}
+                  showIsolationTier={hasMultipleEnvironments}
                 />
               }
             />

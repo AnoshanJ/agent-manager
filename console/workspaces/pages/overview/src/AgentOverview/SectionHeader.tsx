@@ -38,11 +38,11 @@ export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ ch
 
 interface SectionHeaderProps {
   title: string;
-  viewAllHref: string;
+  /** Omit when a section has nowhere to link out to (e.g. no deployment page for external agents) — the "View all" button is skipped entirely. */
+  viewAllHref?: string;
   viewAllLabel?: string;
   mb?: number;
   mt?: number;
-  hideDivider?: boolean;
 }
 
 /**
@@ -51,26 +51,30 @@ interface SectionHeaderProps {
  * Performance, Recent Traces, System Metrics) that links out to its own full
  * listing page. Whichever section renders first draws this divider right
  * after EnvironmentCard's own header divider — EnvironmentCard.tsx hides that
- * redundant leading `hr` via a CSS rule; look there if this divider ever
+ * redundant leading divider via a CSS rule keyed off `data-section-leading-divider`
+ * (not a plain `hr` selector, so it can't catch an unrelated Divider a section
+ * renders further down in its own content); look there if this divider ever
  * seems to double up or vanish unexpectedly.
  */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
-  title, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2, hideDivider = false,
+  title, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2,
 }) => (
   <>
-    {!hideDivider && <Divider sx={{ mt, mb: 1 }} />}
+    <Divider data-section-leading-divider="" sx={{ mt, mb: 1 }} />
     <Box display="flex" justifyContent="space-between" alignItems="center" mb={mb}>
       <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
-      <Button
-        size="small"
-        variant="text"
-        endIcon={<ChevronRight size={14} />}
-        component={Link}
-        to={viewAllHref}
-        sx={{ minWidth: 0, fontSize: "0.75rem" }}
-      >
-        {viewAllLabel}
-      </Button>
+      {viewAllHref && (
+        <Button
+          size="small"
+          variant="text"
+          endIcon={<ChevronRight size={14} />}
+          component={Link}
+          to={viewAllHref}
+          sx={{ minWidth: 0, fontSize: "0.75rem" }}
+        >
+          {viewAllLabel}
+        </Button>
+      )}
     </Box>
   </>
 );

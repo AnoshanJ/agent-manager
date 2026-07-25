@@ -20,17 +20,22 @@ import { Card, CardContent, CardHeader, Divider, type SxProps, type Theme } from
 import { MarkdownView } from '../MarkdownView';
 
 export interface DescriptionCardProps {
-  title: string;
+  /** Omit to render just the description content, with no header. */
+  title?: string;
   content: string;
   sx?: SxProps<Theme>;
 }
 
-/** An outlined card with a titled header rendering a markdown description below it. */
+/** An outlined card rendering a markdown description, with an optional titled header above it. */
 export function DescriptionCard({ title, content, sx }: DescriptionCardProps) {
   return (
     <Card variant="outlined" sx={sx}>
-      <CardHeader title={title} />
-      <Divider />
+      {title && (
+        <>
+          <CardHeader title={title} />
+          <Divider />
+        </>
+      )}
       <CardContent sx={{ '&:last-child': { pb: 2 } }}>
         <MarkdownView content={content} />
       </CardContent>

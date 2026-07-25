@@ -23,7 +23,6 @@ import {
 } from "@agent-management-platform/api-client";
 import {
     Box,
-    Typography,
 } from "@wso2/oxygen-ui";
 import { useParams } from "react-router-dom";
 
@@ -36,6 +35,7 @@ import { KindInfoCard } from "./KindInfoCard";
 import { AgentInfoCard } from "./AgentInfoCard";
 import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
+import { UppercaseCaptionLabel } from "./SectionHeader";
 import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
 const DOT_COLOR_BY_STATUS: Record<DeploymentStatus, string> = {
@@ -73,9 +73,13 @@ export const InternalAgentOverview = () => {
         { enabled: !!orgId && !!projectId && !!agentId },
     );
     const { selectedEnvironment, selectEnvironment } =
-        useSelectedEnvironmentParam(sortedEnvironmentList);
+        useSelectedEnvironmentParam(
+            sortedEnvironmentList,
+            (env) => statusOf(deployments, env.name) !== DeploymentStatus.INACTIVE,
+        );
 
     const isKindAgent = !!agent?.kindName;
+    const hasMultipleEnvironments = sortedEnvironmentList.length > 1;
 
     return (
         <Box display="flex" flexDirection="column" gap={2}>
@@ -104,9 +108,9 @@ export const InternalAgentOverview = () => {
 
             {selectedEnvironment && orgId && projectId && agentId && (
                 <Box display="flex" flexDirection="column" gap={1.5}>
-                    <Typography variant="overline" color="text.secondary">
-                        Environments
-                    </Typography>
+                    {hasMultipleEnvironments && (
+                        <UppercaseCaptionLabel>Environments</UppercaseCaptionLabel>
+                    )}
                     <EnvironmentCard
                         key={selectedEnvironment.name}
                         orgId={orgId}
@@ -114,14 +118,21 @@ export const InternalAgentOverview = () => {
                         agentId={agentId}
                         environment={selectedEnvironment}
                         isFirstEnvironment={sortedEnvironmentList[0]?.name === selectedEnvironment.name}
-                        showIsolationTier={sortedEnvironmentList.length > 1}
                         tabsHeader={
-                            <EnvironmentTabsBar
-                                environments={sortedEnvironmentList}
-                                selectedName={selectedEnvironment.name}
-                                onSelect={selectEnvironment}
-                                dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
-                            />
+                            hasMultipleEnvironments
+                                ? (
+                                    <EnvironmentTabsBar
+                                        environments={sortedEnvironmentList}
+                                        selectedName={selectedEnvironment.name}
+                                        onSelect={selectEnvironment}
+                                        dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
+                                    />
+                                )
+                                // A single environment doesn't need its name called
+                                // out at all — an empty fragment (not undefined)
+                                // so EnvironmentCard's `tabsHeader ?? <envName>`
+                                // fallback doesn't kick back in.
+                                : <></>
                         }
                         bottomContent={
                             <EnvironmentSectionsContent
@@ -130,6 +141,9 @@ export const InternalAgentOverview = () => {
                                 agentId={agentId}
                                 envId={selectedEnvironment.name}
                                 configurations={agent?.configurations}
+                                deploymentStatus={statusOf(deployments, selectedEnvironment.name)}
+                                isolationTier={selectedEnvironment.isolationTier}
+                                showIsolationTier={hasMultipleEnvironments}
                             />
                         }
                     />

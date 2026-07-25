@@ -55,16 +55,14 @@ interface StatusPillProps {
     label: string;
     value: string;
     tooltip: string;
-    active: boolean;
 }
 
 /** Chip badge shared by the Auth and CORS summaries below Invoke URL. */
-const StatusPill: React.FC<StatusPillProps> = ({ label, value, tooltip, active }) => (
+const StatusPill: React.FC<StatusPillProps> = ({ label, value, tooltip }) => (
     <Tooltip title={tooltip}>
         <Chip
             variant="outlined"
             size="small"
-            color={active ? "success" : "default"}
             label={`${label}: ${value}`}
         />
     </Tooltip>
@@ -158,43 +156,57 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
         { orgId, projectId, agentId, envId },
     );
 
-    const show = !isLoading && resources.length > 0;
+    // Resources need a parsed OpenAPI schema; invokeUrl only needs the
+    // endpoint itself to have resolved a URL. A kind-type agent can have one
+    // without the other (e.g. schema not registered yet) — show whichever is
+    // actually available instead of hiding invokeUrl behind resources.
+    const show = !isLoading && (resources.length > 0 || !!invokeUrl);
 
     return (
         <CollapsibleSection show={show}>
-            <SectionHeader title="Capabilities" viewAllHref={tryItHref} viewAllLabel="Try It" hideDivider />
-            <Box display="flex" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
-                {resources.map((resource) => (
-                    <Box
-                        key={`${resource.method} ${resource.path}`}
-                        display="flex"
-                        alignItems="center"
-                        gap={0.75}
-                        sx={{
-                            border: "1px solid",
-                            borderColor: "divider",
-                            borderRadius: "999px",
-                            // The Chip already carries its own pill padding on the
-                            // left, so a smaller pl here (vs. pr, which backs onto
-                            // plain unpadded text) keeps the inset even on both ends.
-                            pl: 0.5,
-                            pr: 1.25,
-                            py: 0.5,
-                        }}
-                    >
-                        <Chip
-                            label={METHOD_LABEL[resource.method] ?? resource.method}
-                            size="small"
-                            variant="outlined"
-                            color={METHOD_COLOR[resource.method] ?? "default"}
-                            sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
-                        />
-                        <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
-                            {resource.path}
-                        </Typography>
-                    </Box>
-                ))}
-            </Box>
+            <SectionHeader title="Capabilities" viewAllHref={tryItHref} viewAllLabel="Try It" />
+            {resources.length === 0 ? (
+                <Typography
+                    variant="caption"
+                    color="text.disabled"
+                    sx={{ display: "block", fontStyle: "italic", mb: 1.5 }}
+                >
+                    Unable to find API schema
+                </Typography>
+            ) : (
+                <Box display="flex" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
+                    {resources.map((resource) => (
+                        <Box
+                            key={`${resource.method} ${resource.path}`}
+                            display="flex"
+                            alignItems="center"
+                            gap={0.75}
+                            sx={{
+                                border: "1px solid",
+                                borderColor: "divider",
+                                borderRadius: "999px",
+                                // The Chip already carries its own pill padding on the
+                                // left, so a smaller pl here (vs. pr, which backs onto
+                                // plain unpadded text) keeps the inset even on both ends.
+                                pl: 0.5,
+                                pr: 1.25,
+                                py: 0.5,
+                            }}
+                        >
+                            <Chip
+                                label={METHOD_LABEL[resource.method] ?? resource.method}
+                                size="small"
+                                variant="outlined"
+                                color={METHOD_COLOR[resource.method] ?? "default"}
+                                sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
+                            />
+                            <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
+                                {resource.path}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Box>
+            )}
             {invokeUrl && (
                 <Box sx={{ mb: 1.5 }}>
                     <Divider sx={{ mb: 1.5 }} />
@@ -213,13 +225,11 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                             label="Auth"
                             value={authLabel}
                             tooltip={authTooltip}
-                            active={authMode !== "none"}
                         />
                         <StatusPill
                             label="CORS"
                             value={corsLabel}
                             tooltip={corsTooltip}
-                            active={corsEnabled}
                         />
                     </Box>
                 </Box>

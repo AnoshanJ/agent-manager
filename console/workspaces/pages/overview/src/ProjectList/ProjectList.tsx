@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { MarkdownView, NoDataFound, PageLayout } from "@agent-management-platform/views";
+import { NoDataFound, PageLayout } from "@agent-management-platform/views";
 import {
   useDeleteProject,
   useListDeploymentPipelines,
@@ -51,7 +51,7 @@ import {
 import { type MouseEvent, useCallback, useMemo, useState } from "react";
 import { useConfirmationDialog } from "@agent-management-platform/shared-component";
 
-const CARD_HEIGHT = 148;
+const CARD_HEIGHT = 116;
 
 const projectGridTemplate = {
   xs: "repeat(1, minmax(0, 1fr))",
@@ -75,7 +75,6 @@ function ProjectCard(props: {
     { orgId, projectId: project.name }
   );
 
-  const rawDesc = project.description?.trim() ?? "";
   const createdAtText = project.createdAt
     ? formatRelativeTime(new Date(project.createdAt))
     : "—";
@@ -100,12 +99,19 @@ function ProjectCard(props: {
           display: "flex",
           flexDirection: "column",
           p: 2,
+          pt: 3,
           boxSizing: "border-box",
           overflow: "hidden",
         }}
       >
-        {/* Top: avatar + name + description */}
-        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, minWidth: 0 }}>
+        {/* Top: avatar + name + pipeline */}
+        {/* Form.CardButton's own base style defaults alignItems to
+            "flex-start", so its flex children are never stretched to the
+            card's full width — without an explicit width here, this row
+            (and the title inside it) would size to fit its content and get
+            hard-clipped by the card's overflow:hidden instead of the title's
+            own ellipsis ever kicking in. */}
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, width: "100%", minWidth: 0 }}>
           <Avatar
             sx={{
               bgcolor: "secondary.main",
@@ -128,65 +134,36 @@ function ProjectCard(props: {
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                   minWidth: 0,
-                  maxWidth:"80%",
                 }}
               >
                 {project.displayName}
               </Typography>
             </Tooltip>
-            {rawDesc ? (
-              <Tooltip
-                placement="bottom-start"
-                title={
-                  <Box sx={{ maxWidth: 320, maxHeight: 400, overflow: "auto" }}>
-                    <MarkdownView content={rawDesc} />
-                  </Box>
-                }
-              >
-                <Box
-                  sx={{
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden" }}>
+              <GitBranch size={13} style={{ opacity: 0.5, flexShrink: 0 }} />
+              {pipeline ? (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
                 >
-                  <MarkdownView content={rawDesc} />
-                </Box>
-              </Tooltip>
-            ) : (
-              <Typography
-                variant="caption"
-                color="text.disabled"
-                sx={{ fontStyle: "italic", lineHeight: 1.5 }}
-              >
-                No description
-              </Typography>
-            )}
+                  {pipeline.displayName || pipeline.name}
+                </Typography>
+              ) : (
+                <Typography variant="caption" color="text.disabled" sx={{ fontStyle: "italic" }}>
+                  No pipeline
+                </Typography>
+              )}
+            </Box>
           </Box>
         </Box>
 
+        <Box sx={{ flex: 1 }} />
+
         <Divider sx={{ mb: 1 }} />
 
-        {/* Bottom: pipeline + time */}
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 0 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden" }}>
-            <GitBranch size={13} style={{ opacity: 0.5, flexShrink: 0 }} />
-            {pipeline ? (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                noWrap
-              >
-                {pipeline.displayName || pipeline.name}
-              </Typography>
-            ) : (
-              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: "italic" }}>
-                No pipeline
-              </Typography>
-            )}
-          </Box>
-
+        {/* Bottom: time */}
+        <Box sx={{ width: "100%", minWidth: 0 }}>
           {/* Time — always visible */}
           <Typography
             variant="caption"
@@ -222,6 +199,7 @@ function SkeletonCard() {
         display: "flex",
         flexDirection: "column",
         p: 2,
+        pt: 3,
         boxSizing: "border-box",
         pointerEvents: "none",
       }}
@@ -229,17 +207,13 @@ function SkeletonCard() {
       <Box sx={{ display: "flex", alignItems: "flex-start", width: '100%', gap: 1.5 }}>
         <Skeleton variant="circular" width={44} height={44} />
         <Box sx={{ flex: 1 }}>
-          <Skeleton variant="text" width="55%" height={22} sx={{ mb: 0.5 }} />
-          <Skeleton variant="text" width="90%" height={14} />
+          <Skeleton variant="text" width="55%" height={22} sx={{ mb: 0.4 }} />
           <Skeleton variant="text" width="70%" height={14} />
         </Box>
       </Box>
       <Box sx={{ flex: 1 }} />
       <Divider sx={{ mb: 1 }} />
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-        <Skeleton variant="text" width={90} height={16} />
-        <Skeleton variant="text" width={70} height={16} />
-      </Box>
+      <Skeleton variant="text" width={90} height={16} />
     </Form.CardButton>
   );
 }
