@@ -8,6 +8,8 @@ The MCP server is exposed by `agent-manager-service` at the `/mcp` path on the p
 
 A single OAuth client (`am-mcp`) is pre-registered in Thunder out of the box, so most users do not need to provision their own client to get started.
 
+Each tool is authorized against the same `amp:*` scopes as its REST API equivalent — for example, `build_agent` requires `amp:agent:build`. See [Authorization](./authorization.mdx) for the full scope catalog, the predefined roles, and how the model applies across the Console, REST API, and MCP servers.
+
 ## Available Tools
 
 The MCP server provides **12 tools** organized into four toolsets covering the agent lifecycle — from creating a project through deploying an agent. Trace, log, and metrics tools live on a separate server; see [Observer MCP Server](./observer-mcp-server.mdx).

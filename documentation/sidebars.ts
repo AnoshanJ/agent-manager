@@ -85,6 +85,7 @@ const sidebars: SidebarsConfig = {
       label: 'Reference',
       collapsed: false,
       items: [
+        'reference/authorization',
         'reference/mcp-server',
         'reference/observer-mcp-server',
         {
@@ -120,6 +121,7 @@ const sidebars: SidebarsConfig = {
         'tutorials/configure-cors-for-agent-endpoints',
         'tutorials/configure-agent-llm-configuration',
         'tutorials/configure-agent-mcp-proxies',
+        'tutorials/authorize-agent-access-to-mcp-tools',
         'tutorials/use-agentid-in-platform-hosted-agents',
         'tutorials/retrieve-agentid-for-externally-hosted-agents'
       ],
