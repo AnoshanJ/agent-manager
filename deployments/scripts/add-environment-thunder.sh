@@ -564,6 +564,20 @@ main() {
   secret_name="${release}-system-client"
   thunder_port=8090
 
+  # gateClient controls the scheme/port Thunder's own login ("gate") flow bakes
+  # into its sign-in redirect URLs — it does NOT automatically follow TLS_ENABLED
+  # the way thunder_issuer() above does, so it must be derived the same way here,
+  # or every sign-in link keeps pointing at plain HTTP:8080 even once TLS_ENABLED
+  # has switched the issuer/publicUrl over to HTTPS.
+  local gate_client_port gate_client_scheme
+  if [ "${TLS_ENABLED:-false}" = "true" ]; then
+    gate_client_port=443
+    gate_client_scheme=https
+  else
+    gate_client_port=8080
+    gate_client_scheme=http
+  fi
+
   local persistence_size="${PERSISTENCE_SIZE:-1Gi}"
   local storage_class="${STORAGE_CLASS:-}"
   local wait_timeout="${WAIT_TIMEOUT:-180s}"
@@ -573,6 +587,19 @@ main() {
   pt_issuer="${PLATFORM_THUNDER_ISSUER:-$(platform_thunder_issuer)}"
   pt_jwks="${PLATFORM_THUNDER_JWKS_URL:-$(platform_thunder_jwks_url)}"
   pt_audience="${PLATFORM_THUNDER_TOKEN_AUDIENCE:-amp}"
+
+  # CORS origins for the AMP console reaching env-Thunder's own APIs directly
+  # from the browser. localhost:3000/console.amp.localhost:8080 are quick-setup
+  # (Rancher Desktop / amp-install-rancher.sh) console addresses — they don't
+  # exist in a real deployment, so TLS_ENABLED=true (on-your-environment.mdx's
+  # production flow) drops them and allows only the real platform Thunder
+  # origin.
+  local cors_origins
+  if [ "${TLS_ENABLED:-false}" = "true" ]; then
+    cors_origins="{${pt_issuer}}"
+  else
+    cors_origins="{http://localhost:3000,http://console.amp.localhost:8080,${pt_issuer}}"
+  fi
 
   echo "=== Provisioning Thunder ID for environment '${ENV_NAME}' (org '${org}') ==="
   echo ""
@@ -655,15 +682,17 @@ main() {
     --set "configuration.server.httpOnly=true"
     --set-string "configuration.jwt.issuer=${issuer}"
     --set-string "configuration.gateClient.hostname=${host}"
-    --set "configuration.gateClient.port=8080"
-    --set-string "configuration.gateClient.scheme=http"
+    --set "configuration.gateClient.port=${gate_client_port}"
+    --set-string "configuration.gateClient.scheme=${gate_client_scheme}"
     --set "configuration.database.config.type=sqlite"
     --set "configuration.database.runtime.type=sqlite"
     --set "configuration.database.user.type=sqlite"
     --set "configuration.consent.database.type=sqlite"
     --set "configuration.cache.disabled=false"
-    # CORS: allow the platform Thunder origin so its console can reach env-Thunder APIs.
-    --set "configuration.cors.allowedOrigins={http://localhost:3000,http://console.amp.localhost:8080,${pt_issuer}}"
+    # CORS: allow the platform Thunder origin so its console can reach env-Thunder APIs
+    # (plus quick-setup's local console addresses, only outside TLS_ENABLED — see
+    # cors_origins above).
+    --set "configuration.cors.allowedOrigins=${cors_origins}"
     --set "persistence.enabled=true"
     --set "persistence.size=${persistence_size}"
     # Native ThunderID superadmin (distinct from the AMP product's own admin user on
