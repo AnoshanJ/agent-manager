@@ -30,22 +30,34 @@ echo ""
 # ============================================================================
 
 # Helm does NOT update a chart's crds/ directory on `helm upgrade` — only on the
-# first install. A version bump that adds or changes CRDs (e.g. 1.1.1 -> 1.2.0
-# adds ProjectReleaseBinding) therefore leaves the cluster with stale CRDs, and
-# the new controllers crash-loop setting up indexes for kinds that aren't
-# registered. Apply the chart's CRDs explicitly (server-side, idempotent) so
-# upgrades stay reproducible.
+# first install.
 sync_chart_crds() {
     local chart="$1"
-    local tmp
-    tmp="$(mktemp -d)"
-    if helm pull "oci://ghcr.io/openchoreo/helm-charts/${chart}" \
-        --version "${OPENCHOREO_VERSION}" --untar --untardir "$tmp" >/dev/null 2>&1 \
-        && ls "$tmp/${chart}"/crds/*.yaml >/dev/null 2>&1; then
-        echo "   Syncing ${chart} CRDs to ${OPENCHOREO_VERSION} (helm upgrade does not update crds/)..."
-        kubectl apply --server-side --force-conflicts -f "$tmp/${chart}/crds/" >/dev/null
+    local tmp rc=0
+    if ! tmp="$(mktemp -d)"; then
+        echo "❌ Failed to create temp dir for ${chart} CRD synchronization" >&2
+        return 1
     fi
+    _sync_chart_crds_body "$chart" "$tmp" || rc=$?
     rm -rf "$tmp"
+    return "$rc"
+}
+
+_sync_chart_crds_body() {
+    local chart="$1"
+    local tmp="$2"
+    if ! helm pull "oci://ghcr.io/openchoreo/helm-charts/${chart}" \
+        --version "${OPENCHOREO_VERSION}" --untar --untardir "$tmp" >/dev/null 2>&1; then
+        echo "❌ Failed to download ${chart} chart for CRD synchronization" >&2
+        return 1
+    fi
+    if compgen -G "$tmp/${chart}/crds/*.yaml" >/dev/null; then
+        echo "   Syncing ${chart} CRDs to ${OPENCHOREO_VERSION} (helm upgrade does not update crds/)..."
+        if ! kubectl apply --server-side --force-conflicts -f "$tmp/${chart}/crds/" >/dev/null; then
+            echo "❌ Failed to apply ${chart} CRDs" >&2
+            return 1
+        fi
+    fi
 }
 
 # Function to install Control Plane
