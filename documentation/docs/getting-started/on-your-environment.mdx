@@ -1045,7 +1045,15 @@ PLATFORM_THUNDER_CA_PEM="$(echo | openssl s_client -connect "${THUNDER_PUBLIC_HO
 
 ```bash
 CURL_CA_BUNDLE="$(mktemp)"
-cat /etc/ssl/cert.pem > "${CURL_CA_BUNDLE}"   # macOS; e.g. /etc/ssl/certs/ca-certificates.crt on Debian/Ubuntu
+if [ -f /etc/ssl/cert.pem ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/cert.pem                        # macOS
+elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt       # Debian/Ubuntu
+else
+  echo "Could not find a system CA bundle at /etc/ssl/cert.pem or /etc/ssl/certs/ca-certificates.crt. Find yours and set SYSTEM_CA_BUNDLE to it manually." >&2
+  exit 1
+fi
+cat "${SYSTEM_CA_BUNDLE}" > "${CURL_CA_BUNDLE}"
 echo "${PLATFORM_THUNDER_CA_PEM}" >> "${CURL_CA_BUNDLE}"
 export CURL_CA_BUNDLE
 ```
@@ -1082,7 +1090,15 @@ And just like the Corporate CA case, this only covers env-Thunder's own pod. The
 
 ```bash
 CURL_CA_BUNDLE="$(mktemp)"
-cat /etc/ssl/cert.pem > "${CURL_CA_BUNDLE}"   # macOS; e.g. /etc/ssl/certs/ca-certificates.crt on Debian/Ubuntu
+if [ -f /etc/ssl/cert.pem ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/cert.pem                        # macOS
+elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt       # Debian/Ubuntu
+else
+  echo "Could not find a system CA bundle at /etc/ssl/cert.pem or /etc/ssl/certs/ca-certificates.crt. Find yours and set SYSTEM_CA_BUNDLE to it manually." >&2
+  exit 1
+fi
+cat "${SYSTEM_CA_BUNDLE}" > "${CURL_CA_BUNDLE}"
 echo "${PLATFORM_THUNDER_CA_PEM}" >> "${CURL_CA_BUNDLE}"
 export CURL_CA_BUNDLE
 ```
