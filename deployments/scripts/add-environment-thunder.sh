@@ -588,6 +588,23 @@ main() {
   pt_jwks="${PLATFORM_THUNDER_JWKS_URL:-$(platform_thunder_jwks_url)}"
   pt_audience="${PLATFORM_THUNDER_TOKEN_AUDIENCE:-amp}"
 
+  # pt_issuer feeds both cors_origins below and trustedIssuer.issuer further down.
+  # If TLS_ENABLED=true but PLATFORM_THUNDER_ISSUER was never explicitly set,
+  # pt_issuer silently falls back to platform_thunder_issuer()'s plain-http
+  # local-dev default, wiring an insecure origin/issuer into an otherwise
+  # TLS-enabled install. That mismatch doesn't fail at startup, it just makes
+  # every real token's iss claim silently stop matching later. Only check for
+  # the unset case, not the scheme of an explicitly-passed value: a caller can
+  # legitimately pass a plain-http PLATFORM_THUNDER_ISSUER alongside
+  # TLS_ENABLED=true (e.g. platform Thunder reachable only via a local
+  # port-forward while env-Thunder's own gateway routing still uses TLS).
+  if [ "${TLS_ENABLED:-false}" = "true" ] && [ -z "${PLATFORM_THUNDER_ISSUER:-}" ]; then
+    echo "❌ TLS_ENABLED=true but PLATFORM_THUNDER_ISSUER was not set — refusing to fall back to the"
+    echo "   local-dev default ('$(platform_thunder_issuer)')."
+    echo "   Set PLATFORM_THUNDER_ISSUER explicitly to platform Thunder's real issuer."
+    exit 1
+  fi
+
   # CORS origins for the AMP console reaching env-Thunder's own APIs directly
   # from the browser. localhost:3000/console.amp.localhost:8080 are quick-setup
   # (Rancher Desktop / amp-install-rancher.sh) console addresses — they don't
