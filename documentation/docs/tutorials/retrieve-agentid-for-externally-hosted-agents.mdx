@@ -5,80 +5,44 @@ sidebar_position: 13
 # Retrieve AgentID Credentials for an Externally-Hosted Agent
 
 An Externally-Hosted agent runs outside WSO2 Agent Manager, so the platform has no pod to
-inject its [AgentID](../concepts/agentid.mdx) credential into. Instead, you retrieve the
-credential once through the API and configure your agent with it yourself. This guide walks
-through retrieving, using, and rotating that credential.
+inject its [AgentID](../concepts/agentid.mdx) credential into. Instead, you generate the
+credential from the console and configure your agent with it yourself. This guide walks through
+generating, using, and rotating that credential.
 
 ## Prerequisites
 
 - An Externally-Hosted agent, registered in a project.
 - The agent deployed (promoted) to at least one environment, so its AgentID has had a chance to
   provision.
-- An Agent Manager access token with permission to update the agent, used to call the API
-  examples below.
+- Console access with permission to update the agent.
 
-## Step 1: Check the Identity Status
+## Step 1: Open the Agent's Overview Page
 
-Before claiming a secret, confirm the agent's identity has finished provisioning for the
-environment you care about. This call is safe to repeat and never exposes the secret itself.
+Navigate to **Projects → &lt;your project&gt; → Agents → &lt;your agent&gt;**. Each environment
+the agent is deployed to appears as its own card, with an **Agent Identity** section showing the
+status of that environment's AgentID:
 
-```bash
-curl -s -X GET \
-  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
+- **Provisioning in progress**: the identity is still being created. This clears on its own
+  within a few minutes; no action is needed.
+- **Provisioning failed**: check the identity settings for details, or re-open this page later;
+  provisioning retries automatically for a while before giving up.
+- **A Client ID**: provisioning has completed. This is the only value visible by default; the
+  console never displays a secret unless you explicitly ask for one.
 
-A completed identity looks like this:
+## Step 2: Generate the Secret
 
-```json
-[
-  {
-    "environmentName": "production",
-    "provisioningType": "external",
-    "status": "completed",
-    "agentId": "3fa2c8e1-...",
-    "clientId": "9c1b7a44-...",
-    "hasUnclaimedSecret": true
-  }
-]
-```
+Once the Client ID is showing, click **Generate Secret** in the environment card's header. The
+new `client_id`/`client_secret` pair appears immediately in a warning banner on that card.
 
-`hasUnclaimedSecret` tells you whether a secret is currently available to claim. It is `true`
-right after provisioning completes or after a regenerate, and `false` once you have claimed it.
-
-## Step 2: Claim the Secret
-
-Claiming is a one-time operation: the first successful call returns the `clientSecret` and
-permanently clears it from storage. If you call this again afterward, it fails, because there is
-nothing left to claim. Store the result immediately, since it cannot be retrieved a second time
-this way.
-
-```bash
-curl -s -X DELETE \
-  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities/secrets?environment=<env>" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-```json
-{
-  "environmentName": "production",
-  "agentId": "3fa2c8e1-...",
-  "clientId": "9c1b7a44-...",
-  "clientSecret": "a1b2c3d4e5f6...",
-  "status": "completed"
-}
-```
-
-:::note
-The claim endpoint uses `DELETE` because calling it consumes the secret. This keeps it distinct
-from the identity status check in Step 1, which is always safe to repeat.
-:::
+Copy both values now. The banner is your only chance to see this secret; Agent Manager never
+stores it anywhere: the environment's ThunderID instance mints it fresh for this one response,
+and there is nothing left to retrieve afterward. If you navigate away before copying it, generate
+a new one; the old one still works until you do.
 
 ## Step 3: Configure Your Agent
 
-Set the retrieved values as configuration or environment variables for your externally-hosted
-agent process, in whatever form your deployment uses. The values you need are the same four
-described in [Use AgentID in a Platform-Hosted Agent](./use-agentid-in-platform-hosted-agents.mdx#what-gets-injected):
+Set the values from Step 2 as configuration or environment variables for your externally-hosted
+agent process, in whatever form your deployment uses:
 
 - `clientId` and `clientSecret` from Step 2.
 - A token endpoint of `<environment ThunderID base URL>/oauth2/token`. You can find the
@@ -93,47 +57,18 @@ for the exact request shape and a caching example.
 
 ## Rotating the Credential
 
-If you need a new secret, for example because the old one may have leaked, regenerate it:
-
-```bash
-curl -s -X POST \
-  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-This immediately invalidates the previous secret and returns the new one directly in the
-response body, so you do not need a separate claim call afterward:
-
-```json
-{
-  "environmentName": "production",
-  "provisioningType": "external",
-  "clientId": "9c1b7a44-...",
-  "clientSecret": "f6e5d4c3b2a1...",
-  "status": "completed"
-}
-```
+If you need a new secret, for example because the old one may have leaked, click
+**Generate Secret** again. This works at any time, not just the first time, and it immediately
+invalidates the previous secret and shows you the new pair the same way as Step 2.
 
 Update your agent's configuration with the new secret and restart it. Tokens minted with the old
 secret before the rotation remain valid until they expire, since Thunder cannot invalidate a
 token it has already issued.
 
-## Revoking the Credential
-
-To disable the agent's ability to mint new tokens without immediately issuing a replacement:
-
-```bash
-curl -s -X DELETE \
-  "$AMP_API_URL/orgs/<org>/projects/<project>/agents/<agent>/identities?environment=<env>" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-Call the regenerate endpoint from the previous section when you are ready to restore access.
-
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| `404` on claim, with "no unclaimed secret currently available" | The secret was already claimed. Call regenerate to obtain a new one. |
-| `404` on any identity call, with "identity not yet provisioned" | Provisioning has not completed for this environment yet. Check the status from Step 1, or confirm the agent has been deployed to that environment. |
-| Token request fails with `invalid_client` | The claimed `clientId`/`clientSecret` pair no longer matches what is stored, most likely because someone regenerated it after you claimed the original. Claim or regenerate again. |
+| The environment card shows "Provisioning in progress" for a long time | Provisioning retries automatically for a while before failing. If it does not clear within about fifteen minutes, check the identity settings for an error. |
+| **Generate Secret** fails | The agent's identity has not finished provisioning for this environment yet, or provisioning failed. Wait for the status to show a Client ID, or check the identity settings for details. |
+| Token request fails with `invalid_client` | The `clientId`/`clientSecret` pair in your agent's configuration is stale, most likely because someone generated a new one afterward. Generate a fresh pair and update your agent's configuration. |
