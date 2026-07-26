@@ -122,7 +122,12 @@ only which credential rides along with the call.
 headers = {
     "Authorization": f"Bearer {get_agent_access_token()}",
 }
-response = requests.post(llm_or_mcp_gateway_url, headers=headers, json=payload)
+response = requests.post(
+    llm_or_mcp_gateway_url,
+    headers=headers,
+    json=payload,
+    timeout=10,
+)
 ```
 
 ## Rotation and Revocation
