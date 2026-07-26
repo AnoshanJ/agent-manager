@@ -33,7 +33,7 @@ import { NoDataFound } from "@agent-management-platform/views";
 import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
 import { UppercaseCaptionLabel } from "./SectionHeader";
-import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
+import { ENV_SEARCH_PARAM, useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
 export const ExternalAgentOverview = () => {
   const { agentId, orgId, projectId } = useParams();
@@ -68,11 +68,15 @@ export const ExternalAgentOverview = () => {
     ? `${envGatewayVhost.replace(/\/$/, "")}/otel`
     : (globalConfig.instrumentationUrl || "http://default-default.gateway.localhost:19080/otel");
 
+  // Sets both the selected environment and setup=true in one functional
+  // update — two separate setSearchParams calls in the same handler would
+  // each independently compute `next` from `prev`, so the second call risks
+  // clobbering the first's change instead of building on it.
   const handleSetupAgent = (environmentName: string) => {
-    selectEnvironment(environmentName);
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
+        next.set(ENV_SEARCH_PARAM, environmentName);
         next.set("setup", "true");
         return next;
       },
@@ -122,21 +126,16 @@ export const ExternalAgentOverview = () => {
               projectId={projectId}
               agentId={agentId}
               environment={selectedEnvironment}
+              hideEnvTitle={!hasMultipleEnvironments}
               tabsHeader={
-                hasMultipleEnvironments
-                  ? (
-                    <EnvironmentTabsBar
-                      environments={sortedEnvironmentList}
-                      selectedName={selectedEnvironment.name}
-                      onSelect={selectEnvironment}
-                      dotColor={() => "success.main"}
-                    />
-                  )
-                  // A single environment doesn't need its name called out at
-                  // all — an empty fragment (not undefined) so
-                  // EnvironmentCard's `tabsHeader ?? <envName>` fallback
-                  // doesn't kick back in.
-                  : <></>
+                hasMultipleEnvironments && (
+                  <EnvironmentTabsBar
+                    environments={sortedEnvironmentList}
+                    selectedName={selectedEnvironment.name}
+                    onSelect={selectEnvironment}
+                    dotColor={() => "success.main"}
+                  />
+                )
               }
               actions={
                 <Button

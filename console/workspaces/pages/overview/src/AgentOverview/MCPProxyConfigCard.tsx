@@ -29,6 +29,7 @@ import type {
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
+import type { ConfigResolution } from "./useEnvFilteredConfigs";
 
 interface MCPProxyConfigCardProps {
     orgId: string;
@@ -40,7 +41,7 @@ interface MCPProxyConfigCardProps {
      * confirmed applicable to envId and ranks within the preview limit). */
     visible: boolean;
     /** Reports whether this config is actually deployed to envId, once known. */
-    onResolved: (configId: string, applicable: boolean) => void;
+    onResolved: (configId: string, resolution: ConfigResolution) => void;
 }
 
 // Mirrors ViewMCPServer.Component.tsx's private getMCPProxyName — the config's
@@ -73,7 +74,9 @@ function getToolName(raw: Record<string, unknown>): string | undefined {
 export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
     orgId, projectId, agentId, envId, config, visible, onResolved,
 }) => {
-    const { data: fullConfig, isLoading: isLoadingConfig } = useGetAgentMCPConfig({
+    const {
+        data: fullConfig, isLoading: isLoadingConfig, isError: isConfigError,
+    } = useGetAgentMCPConfig({
         orgName: orgId,
         projName: projectId,
         agentName: agentId,
@@ -81,12 +84,16 @@ export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
     });
 
     const envMapping = useConfigEnvMapping(
-        fullConfig?.envMappings, isLoadingConfig, envId, config.uuid, onResolved,
+        fullConfig?.envMappings, isLoadingConfig, isConfigError, envId, config.uuid, onResolved,
     );
     const proxyName = getMCPProxyName(envMapping?.configuration);
 
-    const { data: environments } = useListEnvironments({ orgName: orgId });
-    const { data: proxy, isLoading: isLoadingProxy } = useGetMCPProxy({
+    const {
+        data: environments, isLoading: isLoadingEnvironments, isError: isEnvironmentsError,
+    } = useListEnvironments({ orgName: orgId });
+    const {
+        data: proxy, isLoading: isLoadingProxy, isError: isProxyError,
+    } = useGetMCPProxy({
         orgName: orgId,
         proxyId: proxyName ?? "",
     });
@@ -108,10 +115,17 @@ export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
         return names;
     }, [endpoint]);
 
-    const isLoading = isLoadingConfig || isLoadingProxy;
-    const subtitle = toolNames.length > 0
-        ? `Tools: ${toolNames.join(", ")}`
-        : "No tools exposed";
+    // "No tools exposed" is only a meaningful answer once config, environments,
+    // and proxy have all actually settled — otherwise an in-flight environments
+    // lookup (envUuid still undefined) would make the endpoint match fail and
+    // read as "no tools" before we've actually found the right one.
+    const isLoading = isLoadingConfig || isLoadingProxy || isLoadingEnvironments;
+    const hasLoadError = isConfigError || isProxyError || isEnvironmentsError;
+    const subtitle = hasLoadError
+        ? "Unable to load tools"
+        : toolNames.length > 0
+            ? `Tools: ${toolNames.join(", ")}`
+            : "No tools exposed";
 
     if (!visible) {
         return null;

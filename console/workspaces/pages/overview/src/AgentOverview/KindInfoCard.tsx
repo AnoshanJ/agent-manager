@@ -71,6 +71,7 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                                 component={Link}
                                 to={kindHref}
                                 sx={{ p: 0.25, flexShrink: 0 }}
+                                aria-label="View Agent Kind details"
                             >
                                 <ExternalLink size={12} />
                             </IconButton>
@@ -137,6 +138,7 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                                     size="small"
                                     component={Link}
                                     to={kindHref}
+                                    aria-label="View Agent Kind's latest release details"
                                 >
                                     <ExternalLink size={12} />
                                 </IconButton>

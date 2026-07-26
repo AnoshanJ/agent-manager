@@ -20,6 +20,11 @@ import {
     useListAgentMCPConfigs,
     useListAgentModelConfigs,
 } from "@agent-management-platform/api-client";
+import type {
+    AgentModelConfigListResponse,
+    ListAgentModelConfigsPathParams,
+    ListAgentModelConfigsQuery,
+} from "@agent-management-platform/types";
 import { buildConfigureTabHref } from "./configureTabLink";
 import { EnvConfigGroup } from "./EnvConfigGroup";
 import { LLMProviderConfigCard } from "./LLMProviderConfigCard";
@@ -34,10 +39,45 @@ interface EnvConfigsSectionProps {
 
 const PREVIEW_LIMIT = 2;
 // Configs are agent-wide but only some are deployed to any given environment
-// (see useEnvFilteredConfigs), so more candidates than the preview limit are
-// fetched to have enough headroom to find PREVIEW_LIMIT that actually apply
-// to this environment.
-const CANDIDATE_LIMIT = 10;
+// (see useEnvFilteredConfigs), so the applicable ones for this environment
+// could be anywhere in the full list — an arbitrary first-page cap risks
+// missing them entirely if they happen to sort past it. FIRST_PAGE_LIMIT is
+// just the initial page size; useAllConfigs below escalates to fetch the
+// true total once the first page reveals it, so every config is considered
+// and PREVIEW_LIMIT only ever caps what's *displayed*.
+const FIRST_PAGE_LIMIT = 10;
+
+type ListConfigsHook = (
+    params: ListAgentModelConfigsPathParams,
+    query?: ListAgentModelConfigsQuery,
+) => { data?: AgentModelConfigListResponse; isError: boolean };
+
+/**
+ * Fetches every config (not just the first page) by escalating to a second
+ * request sized to the true total once the first page reveals it — at most
+ * 2 requests, and only 1 when everything already fit on the first page. The
+ * second call is disabled (via the same empty-orgName trick used elsewhere
+ * to skip a query without touching the shared hook) whenever it isn't
+ * needed.
+ */
+function useAllConfigs(
+    useListConfigs: ListConfigsHook,
+    orgId: string,
+    projectId: string,
+    agentId: string,
+) {
+    const firstPage = useListConfigs(
+        { orgName: orgId, projName: projectId, agentName: agentId },
+        { limit: FIRST_PAGE_LIMIT, offset: 0 },
+    );
+    const total = firstPage.data?.pagination.count ?? 0;
+    const needsMore = total > FIRST_PAGE_LIMIT;
+    const fullList = useListConfigs(
+        { orgName: needsMore ? orgId : "", projName: projectId, agentName: agentId },
+        { limit: total, offset: 0 },
+    );
+    return needsMore ? fullList : firstPage;
+}
 
 /**
  * Compact preview of the agent's Model Configs and MCP Proxies, rendered
@@ -53,13 +93,11 @@ const CANDIDATE_LIMIT = 10;
 export const EnvConfigsSection: React.FC<EnvConfigsSectionProps> = ({
     orgId, projectId, agentId, envId,
 }) => {
-    const { data: modelData } = useListAgentModelConfigs(
-        { orgName: orgId, projName: projectId, agentName: agentId },
-        { limit: CANDIDATE_LIMIT, offset: 0 },
+    const { data: modelData, isError: isModelListError } = useAllConfigs(
+        useListAgentModelConfigs, orgId, projectId, agentId,
     );
-    const { data: mcpData } = useListAgentMCPConfigs(
-        { orgName: orgId, projName: projectId, agentName: agentId },
-        { limit: CANDIDATE_LIMIT, offset: 0 },
+    const { data: mcpData, isError: isMcpListError } = useAllConfigs(
+        useListAgentMCPConfigs, orgId, projectId, agentId,
     );
 
     return (
@@ -70,6 +108,7 @@ export const EnvConfigsSection: React.FC<EnvConfigsSectionProps> = ({
                 agentId={agentId}
                 envId={envId}
                 configs={modelData?.configs ?? []}
+                listError={isModelListError}
                 title="LLM Providers"
                 viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "llm")}
                 previewLimit={PREVIEW_LIMIT}
@@ -81,6 +120,7 @@ export const EnvConfigsSection: React.FC<EnvConfigsSectionProps> = ({
                 agentId={agentId}
                 envId={envId}
                 configs={mcpData?.configs ?? []}
+                listError={isMcpListError}
                 title="MCP Proxies"
                 viewAllHref={buildConfigureTabHref(orgId, projectId, agentId, "tools")}
                 previewLimit={PREVIEW_LIMIT}

@@ -121,6 +121,7 @@ function SourceInfo({
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     sx={{ p: 0.25, flexShrink: 0 }}
+                    aria-label="Open source repository"
                 >
                     <ExternalLink size={13} />
                 </IconButton>

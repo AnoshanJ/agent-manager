@@ -77,7 +77,10 @@ const HIDE_FIRST_SECTION_DIVIDER_SX = {
     { visibility: "hidden" },
 } as const;
 
-/** The divider + suppression wrapper shared by every render branch below that shows `bottomContent`. */
+/**
+ * The divider + suppression wrapper shared by every render branch below that
+ * shows `bottomContent`.
+ */
 const BottomContent = ({ children }: { children: React.ReactNode }) => (
   <>
     <Divider />
@@ -85,7 +88,11 @@ const BottomContent = ({ children }: { children: React.ReactNode }) => (
   </>
 );
 
-/** The agent's Deploy page — shared by every "Go to Deployment" / "Promote" / "View Deployment" link on this card, and by EnvDeploymentStatusSection's "View Deployment" section link. */
+/**
+ * The agent's Deploy page — shared by every "Go to Deployment" / "Promote" /
+ * "View Deployment" link on this card, and by EnvDeploymentStatusSection's
+ * "View Deployment" section link.
+ */
 export function getAgentDeploymentPath(orgId: string, projectId: string, agentId: string): string {
   return generatePath(
     absoluteRouteMap.children.org.children.projects.children.agents.children.deployment.path,
@@ -129,7 +136,11 @@ export interface EnvironmentCardProps {
   isFirstEnvironment?: boolean;
   /** Replaces the environment name heading, e.g. a tab strip switching between sibling envs. */
   tabsHeader?: React.ReactNode;
-  /** Suppresses the environment name heading entirely (no tabsHeader, no fallback title) — e.g. when there's only one environment and naming it adds no information. */
+  /**
+   * Suppresses the environment name heading entirely (no tabsHeader, no
+   * fallback title) — e.g. when there's only one environment and naming it
+   * adds no information.
+   */
   hideEnvTitle?: boolean;
 }
 
@@ -395,7 +406,7 @@ export const EnvironmentCard = (props: EnvironmentCardProps) => {
             {!hideEnvTitle && (
               tabsHeader ?? (
                 <Typography variant="h6">
-                  {environment?.displayName}
+                  {envTitle}
                 </Typography>
               )
             )}

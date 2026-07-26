@@ -146,6 +146,7 @@ function ProjectCard(props: {
                   variant="caption"
                   color="text.secondary"
                   noWrap
+                  sx={{ minWidth: 0 }}
                 >
                   {pipeline.displayName || pipeline.name}
                 </Typography>

@@ -20,7 +20,7 @@ import { Box, Typography } from "@wso2/oxygen-ui";
 import { CollapsibleSection } from "@agent-management-platform/shared-component";
 import type { AgentModelConfigListItem } from "@agent-management-platform/types";
 import { SectionHeader } from "./SectionHeader";
-import { useEnvFilteredConfigs } from "./useEnvFilteredConfigs";
+import { useEnvFilteredConfigs, type ConfigResolution } from "./useEnvFilteredConfigs";
 
 export interface ConfigCardProps {
     orgId: string;
@@ -29,7 +29,7 @@ export interface ConfigCardProps {
     envId: string;
     config: AgentModelConfigListItem;
     visible: boolean;
-    onResolved: (configId: string, applicable: boolean) => void;
+    onResolved: (configId: string, resolution: ConfigResolution) => void;
 }
 
 interface EnvConfigGroupProps {
@@ -38,6 +38,12 @@ interface EnvConfigGroupProps {
     agentId: string;
     envId: string;
     configs: AgentModelConfigListItem[];
+    /**
+     * Whether the config *list* fetch itself failed (distinct from an
+     * individual config's own detail fetch failing, tracked via
+     * useEnvFilteredConfigs' hasError).
+     */
+    listError?: boolean;
     title: string;
     viewAllHref: string;
     previewLimit: number;
@@ -54,43 +60,55 @@ interface EnvConfigGroupProps {
  * inapplicable, or ranked past the preview limit, unmount instead of
  * lingering forever, so their per-config queries stop refetching in the
  * background. A group with nothing applicable to this environment simply
- * never expands.
+ * never expands. A genuine failure (the list itself, or any candidate's own
+ * detail fetch) surfaces as an explicit error instead of looking the same as
+ * "nothing applies here".
  */
 export const EnvConfigGroup: React.FC<EnvConfigGroupProps> = ({
-    orgId, projectId, agentId, envId, configs, title, viewAllHref, previewLimit, CardComponent,
+    orgId, projectId, agentId, envId, configs, listError,
+    title, viewAllHref, previewLimit, CardComponent,
 }) => {
     const {
-        visible, reportResolved, isSettled, extraCount,
+        visible, reportResolved, isSettled, extraCount, hasError,
     } = useEnvFilteredConfigs(configs, previewLimit);
 
-    if (configs.length === 0) {
+    if (!listError && configs.length === 0) {
         return null;
     }
 
+    const hasAnyError = listError || hasError;
     const activeConfigs = isSettled ? visible : configs;
-    const show = isSettled && visible.length > 0;
+    const show = hasAnyError || (isSettled && visible.length > 0);
 
     return (
         <CollapsibleSection show={show}>
             <SectionHeader title={title} viewAllHref={viewAllHref} />
-            <Box display="flex" flexDirection="column" gap={1} sx={{ mb: extraCount > 0 ? 0.5 : 1.5 }}>
-                {activeConfigs.map((config) => (
-                    <CardComponent
-                        key={config.uuid}
-                        orgId={orgId}
-                        projectId={projectId}
-                        agentId={agentId}
-                        envId={envId}
-                        config={config}
-                        visible={visible.some((c) => c.uuid === config.uuid)}
-                        onResolved={reportResolved}
-                    />
-                ))}
-            </Box>
-            {extraCount > 0 && (
-                <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 1.5 }}>
-                    +{extraCount} more
+            {hasAnyError ? (
+                <Typography variant="body2" color="error" sx={{ mb: 1.5 }}>
+                    Unable to load {title.toLowerCase()}. Try again later.
                 </Typography>
+            ) : (
+                <>
+                    <Box display="flex" flexDirection="column" gap={1} sx={{ mb: extraCount > 0 ? 0.5 : 1.5 }}>
+                        {activeConfigs.map((config) => (
+                            <CardComponent
+                                key={config.uuid}
+                                orgId={orgId}
+                                projectId={projectId}
+                                agentId={agentId}
+                                envId={envId}
+                                config={config}
+                                visible={visible.some((c) => c.uuid === config.uuid)}
+                                onResolved={reportResolved}
+                            />
+                        ))}
+                    </Box>
+                    {extraCount > 0 && (
+                        <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 1.5 }}>
+                            +{extraCount} more
+                        </Typography>
+                    )}
+                </>
             )}
         </CollapsibleSection>
     );

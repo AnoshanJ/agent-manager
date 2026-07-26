@@ -16,11 +16,11 @@
  * under the License.
  */
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Box, FormHelperText, FormLabel, IconButton, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Bold, Heading2, Italic, Link2, List, Quote } from "@wso2/oxygen-ui-icons-react";
 import { MarkdownView } from "@agent-management-platform/views";
-import { type EditResult, type Selection, insertLink, prefixLines, wrapSelection } from "./textEditActions";
+import { type EditResult, type TextSelection, insertLink, prefixLines, wrapSelection } from "./textEditActions";
 
 type MarkdownEditorTab = "write" | "preview";
 
@@ -29,31 +29,31 @@ const TOOLBAR_ACTIONS = [
     key: "heading",
     label: "Heading",
     Icon: Heading2,
-    apply: (sel: Selection, end: number) => prefixLines(sel, end, "### "),
+    apply: (sel: TextSelection, end: number) => prefixLines(sel, end, "### "),
   },
   {
     key: "bold",
     label: "Bold",
     Icon: Bold,
-    apply: (sel: Selection, end: number) => wrapSelection(sel, end, "**", "**", "bold text"),
+    apply: (sel: TextSelection, end: number) => wrapSelection(sel, end, "**", "**", "bold text"),
   },
   {
     key: "italic",
     label: "Italic",
     Icon: Italic,
-    apply: (sel: Selection, end: number) => wrapSelection(sel, end, "*", "*", "italic text"),
+    apply: (sel: TextSelection, end: number) => wrapSelection(sel, end, "*", "*", "italic text"),
   },
   {
     key: "quote",
     label: "Quote",
     Icon: Quote,
-    apply: (sel: Selection, end: number) => prefixLines(sel, end, "> "),
+    apply: (sel: TextSelection, end: number) => prefixLines(sel, end, "> "),
   },
   {
     key: "list",
     label: "Bulleted list",
     Icon: List,
-    apply: (sel: Selection, end: number) => prefixLines(sel, end, "- "),
+    apply: (sel: TextSelection, end: number) => prefixLines(sel, end, "- "),
   },
   {
     key: "link",
@@ -97,21 +97,34 @@ export const MarkdownEditor = ({
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [pendingSelection, setPendingSelection] =
+    useState<{ start: number; end: number } | null>(null);
 
-  const handleToolbarAction = (apply: (sel: Selection, end: number) => EditResult) => {
+  const handleToolbarAction = (apply: (sel: TextSelection, end: number) => EditResult) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     const start = textarea.selectionStart ?? value.length;
     const end = textarea.selectionEnd ?? value.length;
     const result = apply({ text: value, start }, end);
     onChange(result.text);
-    // The textarea re-renders with the new `value` on the next tick, so the
-    // selection can only be restored once that render lands.
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
-    });
+    // `value` is a controlled prop owned by the caller, so the textarea only
+    // reflects the new text once it flows back down as a re-render — an
+    // effect keyed on `value` (rather than guessing the timing with
+    // requestAnimationFrame) restores the selection right after that render
+    // actually commits, however many ticks it takes.
+    setPendingSelection({ start: result.selectionStart, end: result.selectionEnd });
   };
+
+  useEffect(() => {
+    if (!pendingSelection) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(pendingSelection.start, pendingSelection.end);
+    setPendingSelection(null);
+    // Re-runs on every new pending selection, keyed on `value` so it fires
+    // after the textarea's DOM actually reflects the edited text.
+  }, [value, pendingSelection]);
 
   return (
     <Box sx={{ width: "100%" }}>
@@ -151,7 +164,7 @@ export const MarkdownEditor = ({
                       size="small"
                       disabled={disabled}
                       onClick={() => handleToolbarAction(apply)}
-                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
                     >
                       <Icon size={15} />
                     </IconButton>

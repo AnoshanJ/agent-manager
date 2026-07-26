@@ -27,6 +27,7 @@ import type { AgentModelConfigListItem } from "@agent-management-platform/types"
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
+import type { ConfigResolution } from "./useEnvFilteredConfigs";
 
 interface LLMProviderConfigCardProps {
     orgId: string;
@@ -38,7 +39,7 @@ interface LLMProviderConfigCardProps {
      * confirmed applicable to envId and ranks within the preview limit). */
     visible: boolean;
     /** Reports whether this config is actually deployed to envId, once known. */
-    onResolved: (configId: string, applicable: boolean) => void;
+    onResolved: (configId: string, resolution: ConfigResolution) => void;
 }
 
 /**
@@ -53,7 +54,9 @@ interface LLMProviderConfigCardProps {
 export const LLMProviderConfigCard: React.FC<LLMProviderConfigCardProps> = ({
     orgId, projectId, agentId, envId, config, visible, onResolved,
 }) => {
-    const { data: fullConfig, isLoading: isLoadingConfig } = useGetAgentModelConfig({
+    const {
+        data: fullConfig, isLoading: isLoadingConfig, isError: isConfigError,
+    } = useGetAgentModelConfig({
         orgName: orgId,
         projName: projectId,
         agentName: agentId,
@@ -79,7 +82,7 @@ export const LLMProviderConfigCard: React.FC<LLMProviderConfigCardProps> = ({
     }, [catalog]);
 
     const envMapping = useConfigEnvMapping(
-        fullConfig?.envMappings, isLoadingConfig, envId, config.uuid, onResolved,
+        fullConfig?.envMappings, isLoadingConfig, isConfigError, envId, config.uuid, onResolved,
     );
 
     const guardrailNames = useMemo(() => {

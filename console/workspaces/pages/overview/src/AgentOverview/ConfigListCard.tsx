@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { Avatar, Box, Card, CardContent, Skeleton, Typography } from "@wso2/oxygen-ui";
+import { Avatar, Box, Card, CardContent, Skeleton, Typography, useTheme } from "@wso2/oxygen-ui";
 
 interface ConfigListCardProps {
     avatarLabel: string;
@@ -42,12 +42,23 @@ interface ConfigListCardProps {
  */
 export const ConfigListCard: React.FC<ConfigListCardProps> = ({
     avatarLabel, avatarColor, avatarSrc, title, providerLabel, subtitle, isLoadingSubtitle,
-}) => (
+}) => {
+    const theme = useTheme();
+    const avatarBgcolor = avatarSrc ? theme.palette.grey[100] : avatarColor;
+    const avatarTextColor = theme.palette.getContrastText(avatarBgcolor);
+
+    return (
     <Card variant="outlined">
         <CardContent sx={{ display: "flex", alignItems: "center", gap: 1.5, "&:last-child": { pb: 2 } }}>
             <Avatar
                 src={avatarSrc}
-                sx={{ bgcolor: avatarSrc ? "grey.100" : avatarColor, color: "#fff", width: 36, height: 36, fontSize: 14 }}
+                sx={{
+                    bgcolor: avatarBgcolor,
+                    color: avatarTextColor,
+                    width: 36,
+                    height: 36,
+                    fontSize: 14,
+                }}
             >
                 {avatarLabel}
             </Avatar>
@@ -72,4 +83,5 @@ export const ConfigListCard: React.FC<ConfigListCardProps> = ({
             </Box>
         </CardContent>
     </Card>
-);
+    );
+};

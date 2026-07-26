@@ -38,11 +38,13 @@ export function useSelectedEnvironmentParam(
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedName = searchParams.get(ENV_SEARCH_PARAM);
-  const defaultEnvironment = isDeployed
-    ? [...environments].reverse().find(isDeployed) ?? environments[0]
-    : environments[0];
+  // `??` short-circuits, so the reverse-scan for a default only actually runs
+  // when the requested (or no) param fails to resolve directly — the common
+  // case, once a selection is in the URL, skips it entirely.
   const selectedEnvironment =
-    environments.find((env) => env.name === requestedName) ?? defaultEnvironment;
+    environments.find((env) => env.name === requestedName) ??
+    (isDeployed ? [...environments].reverse().find(isDeployed) : undefined) ??
+    environments[0];
 
   const selectEnvironment = (name: string) => {
     setSearchParams(

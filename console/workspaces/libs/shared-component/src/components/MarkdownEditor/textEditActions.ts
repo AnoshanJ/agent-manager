@@ -16,7 +16,8 @@
  * under the License.
  */
 
-export interface Selection {
+// Named to avoid colliding with the DOM's global `Selection` type.
+export interface TextSelection {
   text: string;
   start: number;
 }
@@ -29,7 +30,7 @@ export interface EditResult {
 
 /** Wraps the selection with `prefix`/`suffix` (bold, italic); falls back to `placeholder`. */
 export function wrapSelection(
-  { text, start }: Selection,
+  { text, start }: TextSelection,
   end: number,
   prefix: string,
   suffix: string,
@@ -48,7 +49,7 @@ export function wrapSelection(
 
 /** Prefixes every line touched by the selection with `prefix` (heading, quote, list markers). */
 export function prefixLines(
-  { text, start }: Selection,
+  { text, start }: TextSelection,
   end: number,
   prefix: string,
 ): EditResult {
@@ -67,7 +68,7 @@ export function prefixLines(
   };
 }
 
-export function insertLink({ text, start }: Selection, end: number): EditResult {
+export function insertLink({ text, start }: TextSelection, end: number): EditResult {
   const linkText = text.slice(start, end) || "link text";
   const before = text.slice(0, start);
   const after = text.slice(end);

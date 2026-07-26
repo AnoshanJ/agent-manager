@@ -49,8 +49,13 @@ const DOT_COLOR_BY_STATUS: Record<DeploymentStatus, string> = {
 
 type DeploymentMap = Record<string, { status: string; lastDeployed: string }>;
 
+const KNOWN_DEPLOYMENT_STATUSES = new Set<string>(Object.values(DeploymentStatus));
+
 function statusOf(deployments: DeploymentMap | undefined, envName: string): DeploymentStatus {
-    return (deployments?.[envName]?.status as DeploymentStatus) ?? DeploymentStatus.INACTIVE;
+    const status = deployments?.[envName]?.status;
+    return status && KNOWN_DEPLOYMENT_STATUSES.has(status)
+        ? (status as DeploymentStatus)
+        : DeploymentStatus.INACTIVE;
 }
 
 export const InternalAgentOverview = () => {
@@ -117,22 +122,21 @@ export const InternalAgentOverview = () => {
                         projectId={projectId}
                         agentId={agentId}
                         environment={selectedEnvironment}
-                        isFirstEnvironment={sortedEnvironmentList[0]?.name === selectedEnvironment.name}
+                        isFirstEnvironment={
+                            sortedEnvironmentList[0]?.name === selectedEnvironment.name
+                        }
+                        hideEnvTitle={!hasMultipleEnvironments}
                         tabsHeader={
-                            hasMultipleEnvironments
-                                ? (
-                                    <EnvironmentTabsBar
-                                        environments={sortedEnvironmentList}
-                                        selectedName={selectedEnvironment.name}
-                                        onSelect={selectEnvironment}
-                                        dotColor={(env) => DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]}
-                                    />
-                                )
-                                // A single environment doesn't need its name called
-                                // out at all — an empty fragment (not undefined)
-                                // so EnvironmentCard's `tabsHeader ?? <envName>`
-                                // fallback doesn't kick back in.
-                                : <></>
+                            hasMultipleEnvironments && (
+                                <EnvironmentTabsBar
+                                    environments={sortedEnvironmentList}
+                                    selectedName={selectedEnvironment.name}
+                                    onSelect={selectEnvironment}
+                                    dotColor={(env) => (
+                                        DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]
+                                    )}
+                                />
+                            )
                         }
                         bottomContent={
                             <EnvironmentSectionsContent
