@@ -18,14 +18,14 @@ the environment.
 
 AgentID is built on two pieces working together.
 
-1. **A dedicated identity provider for every environment.** When you create an environment,
-   Agent Manager also provisions a dedicated ThunderID instance for that environment. This
-   instance is completely separate from every other environment's ThunderID instance, and from
-   the Thunder identity provider that Agent Manager itself uses for console and API login.
-2. **One OAuth 2.0 identity per agent, per environment.** For every agent deployed to an
-   environment, Agent Manager creates an OAuth 2.0 `client_credentials` application inside that
-   environment's ThunderID instance. This is the agent's AgentID: a `client_id` and
-   `client_secret` the agent can exchange for an access token whenever it needs to call the
+1. **A dedicated identity provider for every environment.** Every environment gets its own
+   ThunderID instance, created as part of setting up that environment. This instance is
+   completely separate from every other environment's ThunderID instance, and from the Thunder
+   identity provider that Agent Manager itself uses for console and API login.
+2. **One OAuth 2.0 identity per agent, per environment.** When an agent is created, Agent Manager
+   provisions this identity for every environment already in its organization; promoting the
+   agent to a new environment provisions it there too. This is the agent's AgentID: a `client_id`
+   and `client_secret` the agent can exchange for an access token whenever it needs to call the
    gateway.
 
 ```mermaid
@@ -71,8 +71,9 @@ for the environment variables involved and the code your agent needs to mint and
 ### Externally-Hosted Agents
 
 For an agent that runs outside the platform, Agent Manager has no workload to inject
-credentials into. Instead, the agent's operator retrieves the `client_id` and `client_secret`
-once through the API, and configures the agent with them directly. See
+credentials into. Instead, the agent's operator generates the credential from the agent's page
+in the console: the `client_id` and a freshly minted `client_secret` are shown once, ready to
+copy into the agent's own configuration. See
 [Retrieve AgentID Credentials for an Externally-Hosted Agent](../tutorials/retrieve-agentid-for-externally-hosted-agents.mdx)
 for the retrieval flow.
 
@@ -94,18 +95,29 @@ and `failed`.
 
 ## Where Credentials Are Stored
 
-The `client_id` is stored in Agent Manager's own database. The `client_secret` is stored in
-OpenBao, the same secret store Agent Manager uses for other runtime secrets, and it is never
-written to Agent Manager's database or logs in plain text.
+The `client_id` is stored in Agent Manager's own database for both agent types. Where the
+`client_secret` lives depends on the agent type:
+
+- **Platform-Hosted agents** need their secret available again on every deploy, promote, and pod
+  restart, so it is stored in Agent Manager's secret store, the same pluggable backend used for
+  other runtime secrets like LLM and MCP credentials, and never written to Agent Manager's
+  database or logs in plain text.
+- **Externally-Hosted agents** have no running workload for Agent Manager to keep a secret in
+  sync with, so nothing is stored at all. Each time you generate a secret from the console,
+  Agent Manager asks the environment's ThunderID instance to mint a fresh one and hands it
+  straight back to you. It exists only for that one response.
 
 ## Rotating and Revoking Credentials
 
 You can regenerate an agent's AgentID secret for a specific environment at any time.
 Regenerating issues a new secret immediately and invalidates the old one.
 
-- For a Platform-Hosted agent, the running pod is automatically restarted with the new secret.
-- For an Externally-Hosted agent, you retrieve the new secret the same way you retrieved the
-  original one, and update the agent's own configuration yourself.
+- For a Platform-Hosted agent, Agent Manager also triggers a rollout of the running pod so it
+  picks up the new secret. This is best-effort: if the rollout itself fails, the response tells
+  you so, but until then the pod keeps running with its old, now-invalidated secret. Restart it
+  yourself if that happens.
+- For an Externally-Hosted agent, generate a new one from the console the same way you generated
+  the original, and update the agent's own configuration yourself.
 
 You can also revoke a credential without immediately issuing a new one, which stops the agent
 from minting new tokens with it. A revoked credential does not invalidate tokens that were
