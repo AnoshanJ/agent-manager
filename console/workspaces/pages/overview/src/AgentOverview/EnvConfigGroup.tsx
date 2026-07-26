@@ -70,7 +70,7 @@ export const EnvConfigGroup: React.FC<EnvConfigGroupProps> = ({
 }) => {
     const {
         visible, reportResolved, isSettled, extraCount, hasError,
-    } = useEnvFilteredConfigs(configs, previewLimit);
+    } = useEnvFilteredConfigs(configs, previewLimit, envId);
 
     if (!listError && configs.length === 0) {
         return null;

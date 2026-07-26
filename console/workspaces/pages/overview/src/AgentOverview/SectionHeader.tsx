@@ -38,7 +38,10 @@ export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ ch
 
 interface SectionHeaderProps {
   title: string;
-  /** Omit when a section has nowhere to link out to (e.g. no deployment page for external agents) — the "View all" button is skipped entirely. */
+  /**
+   * Omit when a section has nowhere to link out to (e.g. no deployment page
+   * for external agents) — the "View all" button is skipped entirely.
+   */
   viewAllHref?: string;
   viewAllLabel?: string;
   mb?: number;

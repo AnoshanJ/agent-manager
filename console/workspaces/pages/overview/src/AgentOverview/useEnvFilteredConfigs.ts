@@ -45,8 +45,21 @@ export type ConfigResolution = "applicable" | "inapplicable" | "error";
 export function useEnvFilteredConfigs(
     candidates: AgentModelConfigListItem[],
     previewLimit: number,
+    envId: string,
 ) {
     const [resolved, setResolved] = useState<Record<string, ConfigResolution>>({});
+    const [resolvedEnvId, setResolvedEnvId] = useState(envId);
+
+    // Configs are agent-wide and keep the same uuid across environments, so a
+    // switched tab must throw away the previous environment's resolutions
+    // rather than reusing them — otherwise the new tab would briefly (or
+    // permanently, for configs the new card never re-resolves) show the old
+    // environment's applicability. Resetting during render (rather than in a
+    // useEffect) avoids painting the stale results for a frame first.
+    if (envId !== resolvedEnvId) {
+        setResolvedEnvId(envId);
+        setResolved({});
+    }
 
     const reportResolved = useCallback((configId: string, resolution: ConfigResolution) => {
         setResolved((prev) => (

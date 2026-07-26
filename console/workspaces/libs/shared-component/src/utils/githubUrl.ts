@@ -27,13 +27,13 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
   if (!url) return null;
 
   // Handle HTTPS URLs: https://github.com/owner/repo or https://github.com/owner/repo.git
-  const httpsMatch = url.match(/github\.com\/([^/]+)\/([^/.]+)/);
+  const httpsMatch = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
   if (httpsMatch) {
     return { owner: httpsMatch[1], repo: httpsMatch[2] };
   }
 
   // Handle SSH URLs: git@github.com:owner/repo.git
-  const sshMatch = url.match(/github\.com:([^/]+)\/([^/.]+)/);
+  const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
   if (sshMatch) {
     return { owner: sshMatch[1], repo: sshMatch[2] };
   }
