@@ -157,7 +157,6 @@ export const ExternalAgentOverview = () => {
                   external
                   registeredAt={agent?.createdAt}
                   isolationTier={selectedEnvironment.isolationTier}
-                  showIsolationTier={hasMultipleEnvironments}
                 />
               }
             />

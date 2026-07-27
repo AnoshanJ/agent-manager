@@ -17,6 +17,7 @@
  */
 
 import {
+    useDeployedAgentKindVersion,
     useGetAgent,
     useGetAgentBuilds,
     useListAgentDeployments,
@@ -86,6 +87,13 @@ export const InternalAgentOverview = () => {
     const isKindAgent = !!agent?.kindName;
     const hasMultipleEnvironments = sortedEnvironmentList.length > 1;
 
+    const { deployedVersion } = useDeployedAgentKindVersion({
+        orgName: orgId,
+        kindName: agent?.kindName,
+        imageId: selectedEnvironment ? deployments?.[selectedEnvironment.name]?.imageId : undefined,
+    });
+    const deployedVersionLabel = deployedVersion ? `v${deployedVersion}` : null;
+
     return (
         <Box display="flex" flexDirection="column" gap={2}>
             {isKindAgent ? (
@@ -147,7 +155,7 @@ export const InternalAgentOverview = () => {
                                 configurations={agent?.configurations}
                                 deploymentStatus={statusOf(deployments, selectedEnvironment.name)}
                                 isolationTier={selectedEnvironment.isolationTier}
-                                showIsolationTier={hasMultipleEnvironments}
+                                deployedVersionLabel={deployedVersionLabel}
                             />
                         }
                     />

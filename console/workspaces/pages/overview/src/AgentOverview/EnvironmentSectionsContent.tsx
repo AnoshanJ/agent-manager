@@ -35,7 +35,7 @@ interface EnvironmentSectionsContentProps {
     deploymentStatus?: DeploymentStatus;
     registeredAt?: string;
     isolationTier?: string;
-    showIsolationTier?: boolean;
+    deployedVersionLabel?: string | null;
 }
 
 /**
@@ -48,7 +48,7 @@ interface EnvironmentSectionsContentProps {
  */
 export function EnvironmentSectionsContent({
     orgId, projectId, agentId, envId, configurations, external,
-    deploymentStatus, registeredAt, isolationTier, showIsolationTier,
+    deploymentStatus, registeredAt, isolationTier, deployedVersionLabel,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
@@ -68,7 +68,7 @@ export function EnvironmentSectionsContent({
                 status={deploymentStatus}
                 registeredAt={registeredAt}
                 isolationTier={isolationTier}
-                showIsolationTier={showIsolationTier}
+                deployedVersionLabel={deployedVersionLabel}
             />
             <EnvConfigsSection
                 orgId={orgId}

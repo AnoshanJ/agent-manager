@@ -48,7 +48,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Info } from "@wso2/oxygen-ui-icons-react";
+import { ShieldX } from "@wso2/oxygen-ui-icons-react";
 import {
   type AuthenticationType,
   getAuthenticationTypeLabel,
@@ -560,7 +560,7 @@ export function MCPProxySecurityTab({
                           {blockedToolIds.has(row.tool) && (
                             <Tooltip title="Blocked by Manage Tools">
                               <Stack color="warning.main" direction="row" alignItems="center">
-                                <Info size={14} />
+                                <ShieldX size={14} />
                               </Stack>
                             </Tooltip>
                           )}

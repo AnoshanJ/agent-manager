@@ -17,7 +17,7 @@
  */
 
 import { Box, Chip, Tooltip } from "@wso2/oxygen-ui";
-import { Link as LinkOutlined } from "@wso2/oxygen-ui-icons-react";
+import { Link as LinkOutlined, Tag } from "@wso2/oxygen-ui-icons-react";
 import {
     DeploymentStatus,
     EnvStatus,
@@ -35,12 +35,13 @@ interface EnvDeploymentStatusSectionProps {
     status?: DeploymentStatus;
     registeredAt?: string;
     isolationTier?: string;
-    showIsolationTier?: boolean;
+    /** Deployed Agent Kind version (e.g. "v3"), relocated from EnvironmentCard's header. */
+    deployedVersionLabel?: string | null;
 }
 
 /**
- * Deployment-status and sandbox-tier chips, relocated here from
- * EnvironmentCard's own header — a standalone section like Capabilities/
+ * Deployment-status, deployed-version and sandbox-tier chips, relocated here
+ * from EnvironmentCard's own header — a standalone section like Capabilities/
  * Configs/Roles, rendered unconditionally regardless of the deployment's
  * actual status (unlike `bottomContent`'s other sections, which self-gate
  * based on whether a deployment is live). "View Deployment" links out for
@@ -48,7 +49,7 @@ interface EnvDeploymentStatusSectionProps {
  * platform, so there's no deploy page to send them to.
  */
 export const EnvDeploymentStatusSection: React.FC<EnvDeploymentStatusSectionProps> = ({
-    orgId, projectId, agentId, external, status, registeredAt, isolationTier, showIsolationTier,
+    orgId, projectId, agentId, external, status, registeredAt, isolationTier, deployedVersionLabel,
 }) => {
     const deploymentPath = !external
         ? getAgentDeploymentPath(orgId, projectId, agentId)
@@ -75,7 +76,15 @@ export const EnvDeploymentStatusSection: React.FC<EnvDeploymentStatusSectionProp
                 ) : (
                     <EnvStatus status={status} />
                 )}
-                {showIsolationTier && <IsolationTierChip tier={isolationTier} />}
+                {deployedVersionLabel && (
+                    <Chip
+                        icon={<Tag size={14} />}
+                        label={deployedVersionLabel}
+                        size="small"
+                        variant="outlined"
+                    />
+                )}
+                {!external && <IsolationTierChip tier={isolationTier} />}
             </Box>
         </>
     );

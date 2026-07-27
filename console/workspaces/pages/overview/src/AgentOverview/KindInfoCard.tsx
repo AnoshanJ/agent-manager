@@ -58,94 +58,82 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
     return (
         <Card variant="outlined">
             <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Box display="flex" alignItems="center" gap={0.5} pb={1} minWidth={0}>
+                <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    flexWrap="wrap"
+                    gap={1.5}
+                    pb={1}
+                    minWidth={0}
+                >
                     {isLoading ? (
                         <Skeleton variant="text" width={160} />
                     ) : (
                         <>
-                            <Typography variant="h6" noWrap>
-                                {kind?.displayName ?? kindName}
-                            </Typography>
-                            <IconButton
-                                size="small"
-                                component={Link}
-                                to={kindHref}
-                                sx={{ p: 0.25, flexShrink: 0 }}
-                                aria-label="View Agent Kind details"
-                            >
-                                <ExternalLink size={12} />
-                            </IconButton>
-                        </>
-                    )}
-                </Box>
-                <Divider sx={{ mb: 1.5 }} />
-                <Box display="flex" gap={2} minWidth={0}>
-
-                    <Box flex={1} minWidth={0}>
-                        <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
-                            Description
-                        </UppercaseCaptionLabel>
-                        {isLoading ? (
-                            <Skeleton variant="text" width={200} />
-                        ) : kind?.description ? (
-                            <Tooltip title={kind.description} placement="bottom-start">
-                                <Box
-                                    sx={{
-                                        overflow: "hidden",
-                                        display: "-webkit-box",
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: "vertical",
-                                    }}>
-                                    <MarkdownView content={kind.description} />
-                                </Box>
-                            </Tooltip>
-                        ) : (
-                            <Typography variant="body2" color="text.secondary">
-                                No description provided.
-                            </Typography>
-                        )}
-                    </Box>
-
-                    <Divider orientation="vertical" flexItem />
-
-                    <Box flex={1} minWidth={0}>
-                        <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
-                            Latest Release
-                        </UppercaseCaptionLabel>
-                        {isLoading ? (
-                            <Skeleton variant="rounded" height={28} />
-                        ) : !latestVersionData ? (
-                            <Typography variant="body2" color="text.secondary">No versions yet.</Typography>
-                        ) : (
-                            <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
-                                <Box display="flex" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
-                                    <Tag size={13} />
-                                    <Typography variant="body2" color="text.secondary" noWrap>
-                                        v{latestVersionData.version}
-                                    </Typography>
-                                </Box>
-                                <Typography variant="body2" color="text.secondary" noWrap flex={1}>
-                                    {formatDistanceToNow(
-                                        new Date(latestVersionData.createdAt), { addSuffix: true },
-                                    )}
+                            <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
+                                <Typography variant="h6" noWrap>
+                                    Kind: {kind?.displayName ?? kindName}
                                 </Typography>
-                                {(framework || model) && (
-                                    <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
-                                        {`Agent Type: ${[framework, model].filter(Boolean).join("/")}`}
-                                    </Typography>
-                                )}
                                 <IconButton
                                     size="small"
                                     component={Link}
                                     to={kindHref}
-                                    aria-label="View Agent Kind's latest release details"
+                                    sx={{ p: 0.25, flexShrink: 0 }}
+                                    aria-label="View Agent Kind details"
                                 >
                                     <ExternalLink size={12} />
                                 </IconButton>
                             </Box>
-                        )}
-                    </Box>
 
+                            {latestVersionData && (
+                                <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
+                                    <Box display="flex" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
+                                        <Tag size={13} />
+                                        <Typography variant="body2" color="text.secondary" noWrap>
+                                            v{latestVersionData.version}
+                                        </Typography>
+                                    </Box>
+                                    <Typography variant="body2" color="text.secondary" noWrap>
+                                        {formatDistanceToNow(
+                                            new Date(latestVersionData.createdAt),
+                                            { addSuffix: true },
+                                        )}
+                                    </Typography>
+                                    {(framework || model) && (
+                                        <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
+                                            {`Agent Type: ${[framework, model].filter(Boolean).join("/")}`}
+                                        </Typography>
+                                    )}
+                                </Box>
+                            )}
+                        </>
+                    )}
+                </Box>
+                <Divider sx={{ mb: 1.5 }} />
+                <Box minWidth={0}>
+                    <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
+                        Description
+                    </UppercaseCaptionLabel>
+                    {isLoading ? (
+                        <Skeleton variant="text" width={200} />
+                    ) : kind?.description ? (
+                        <Tooltip title={kind.description} placement="bottom-start">
+                            <Box
+                                sx={{
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                }}>
+                                <MarkdownView content={kind.description} />
+                            </Box>
+                        </Tooltip>
+                    ) : (
+                        <Typography variant="body2" color="text.secondary">
+                            No description provided.
+                        </Typography>
+                    )}
                 </Box>
             </CardContent>
         </Card>
