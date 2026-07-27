@@ -103,6 +103,40 @@ func (c *agentIdentityController) envClient(w http.ResponseWriter, r *http.Reque
 
 // --- Groups ---
 
+// managedGroup fetches the group and treats Thunder's native Administrators
+// group as nonexistent (404, matching its exclusion from ListGroups): its
+// members inherit NativeAdministratorRoleName and with it Thunder's built-in
+// "system" scope, so adding an agent to that group is a second route to
+// env-Thunder admin that walks around the managedRole guard entirely — see
+// thundersvc.NativeAdministratorsGroupName. Writes the error response itself
+// when ok=false.
+//
+// Note the deliberate asymmetry with managedRole, which leaves
+// RemoveRoleAssignees and the read-only assignment lookups unguarded so an
+// existing mis-assignment can be cleaned up through the same API. This guard
+// covers every group operation including GetGroupMembers and
+// RemoveGroupMembers, matching the org-identity controller's
+// validateSystemGroup: an agent already mis-added to the native group must be
+// removed with direct Thunder admin access, not through AMP.
+func (c *agentIdentityController) managedGroup(w http.ResponseWriter, r *http.Request, client thundersvc.EnvIdentityClient, groupID string) (*thundersvc.ThunderGroup, bool) {
+	ctx := r.Context()
+	group, err := client.GetGroup(ctx, groupID)
+	if err != nil {
+		if thundersvc.IsNotFound(err) {
+			utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
+			return nil, false
+		}
+		logger.GetLogger(ctx).Error("agent-identity: get group failed", "groupID", groupID, "error", err)
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to get group")
+		return nil, false
+	}
+	if group.Name == thundersvc.NativeAdministratorsGroupName {
+		utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
+		return nil, false
+	}
+	return group, true
+}
+
 func (c *agentIdentityController) ListGroups(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
@@ -119,8 +153,9 @@ func (c *agentIdentityController) ListGroups(w http.ResponseWriter, r *http.Requ
 	}
 
 	offset, limit := paginationParams(r)
-	// Unlike the org-identity controller, env-Thunder groups are all user-created
-	// and agent-scoped: there is no Administrators group to filter out here.
+	// The OU-scoped listing hides Thunder's native Administrators group
+	// (thundersvc.NativeAdministratorsGroupName) and paginates after that
+	// exclusion, so offset/limit/total need no adjustment here.
 	groups, total, err := client.ListGroupsByOUId(ctx, ouID, offset, limit)
 	if err != nil {
 		log.Error("agent-identity ListGroups failed", "error", err)
@@ -141,6 +176,9 @@ func (c *agentIdentityController) CreateGroup(w http.ResponseWriter, r *http.Req
 	}
 	if body.Name == "" {
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !validateReservedGroupName(w, body.Name) {
 		return
 	}
 
@@ -169,22 +207,14 @@ func (c *agentIdentityController) CreateGroup(w http.ResponseWriter, r *http.Req
 }
 
 func (c *agentIdentityController) GetGroup(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.GetLogger(ctx)
 	groupID := r.PathValue(utils.PathParamGroupID)
 
 	client, ok := c.envClient(w, r)
 	if !ok {
 		return
 	}
-	group, err := client.GetGroup(ctx, groupID)
-	if err != nil {
-		if thundersvc.IsNotFound(err) {
-			utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
-			return
-		}
-		log.Error("agent-identity GetGroup failed", "groupID", groupID, "error", err)
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to get group")
+	group, ok := c.managedGroup(w, r, client, groupID)
+	if !ok {
 		return
 	}
 	utils.WriteSuccessResponse(w, http.StatusOK, group)
@@ -200,19 +230,17 @@ func (c *agentIdentityController) UpdateGroup(w http.ResponseWriter, r *http.Req
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	// An empty name leaves the current one in place, so only a rename needs the guard.
+	if body.Name != "" && !validateReservedGroupName(w, body.Name) {
+		return
+	}
 
 	client, ok := c.envClient(w, r)
 	if !ok {
 		return
 	}
-	current, err := client.GetGroup(ctx, groupID)
-	if err != nil {
-		if thundersvc.IsNotFound(err) {
-			utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
-			return
-		}
-		log.Error("agent-identity UpdateGroup: get group failed", "groupID", groupID, "error", err)
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to update group")
+	current, ok := c.managedGroup(w, r, client, groupID)
+	if !ok {
 		return
 	}
 	var namePtr *string
@@ -243,6 +271,9 @@ func (c *agentIdentityController) DeleteGroup(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if _, ok := c.managedGroup(w, r, client, groupID); !ok {
+		return
+	}
 	if err := client.DeleteGroup(ctx, groupID); err != nil {
 		if thundersvc.IsNotFound(err) {
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
@@ -262,6 +293,9 @@ func (c *agentIdentityController) GetGroupMembers(w http.ResponseWriter, r *http
 
 	client, ok := c.envClient(w, r)
 	if !ok {
+		return
+	}
+	if _, ok := c.managedGroup(w, r, client, groupID); !ok {
 		return
 	}
 	offset, limit := paginationParams(r)
@@ -295,6 +329,9 @@ func (c *agentIdentityController) AddGroupMembers(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
+	if _, ok := c.managedGroup(w, r, client, groupID); !ok {
+		return
+	}
 	if err := client.AddGroupMemberEntries(ctx, groupID, agentMemberEntries(body.AgentIds)); err != nil {
 		log.Error("agent-identity AddGroupMembers failed", "groupID", groupID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to add group members")
@@ -322,6 +359,9 @@ func (c *agentIdentityController) RemoveGroupMembers(w http.ResponseWriter, r *h
 	if !ok {
 		return
 	}
+	if _, ok := c.managedGroup(w, r, client, groupID); !ok {
+		return
+	}
 	if err := client.RemoveGroupMemberEntries(ctx, groupID, agentMemberEntries(body.AgentIds)); err != nil {
 		log.Error("agent-identity RemoveGroupMembers failed", "groupID", groupID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to remove group members")
@@ -337,6 +377,9 @@ func (c *agentIdentityController) GetGroupRoles(w http.ResponseWriter, r *http.R
 
 	client, ok := c.envClient(w, r)
 	if !ok {
+		return
+	}
+	if _, ok := c.managedGroup(w, r, client, groupID); !ok {
 		return
 	}
 	roles, err := client.GetGroupRoles(ctx, groupID)
@@ -396,6 +439,9 @@ func (c *agentIdentityController) CreateRole(w http.ResponseWriter, r *http.Requ
 	}
 	if body.Name == "" {
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !validateReservedRoleName(w, body.Name) {
 		return
 	}
 	scopes := body.Scopes
@@ -517,6 +563,11 @@ func (c *agentIdentityController) UpdateRole(w http.ResponseWriter, r *http.Requ
 	var body spec.AgentIdentityRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	// An empty name leaves the current one in place, so only a rename needs the
+	// guard; managedRole below blocks editing the native Administrator role itself.
+	if body.Name != "" && !validateReservedRoleName(w, body.Name) {
 		return
 	}
 	// scopes, when present, fully replaces the role's permissions. Decoding tells
