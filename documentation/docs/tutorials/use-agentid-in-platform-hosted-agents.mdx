@@ -149,16 +149,16 @@ curl -s -X POST "$AMP_AGENTID_TOKEN_ENDPOINT" \
 
 ## Step 3: Call the Gateway with the Token
 
-Attach the token as a bearer token on every call your agent makes through the gateway, whether
-it is calling an LLM provider or an MCP tool. This does not change which URL your agent calls,
-only which credential rides along with the call.
+Attach the token as a bearer token on every call your agent makes to an MCP tool through the
+gateway. This does not change which URL your agent calls, only which credential rides along
+with the call.
 
 ```python
 headers = {
     "Authorization": f"Bearer {get_agent_access_token()}",
 }
 response = requests.post(
-    llm_or_mcp_gateway_url,
+    mcp_gateway_url,
     headers=headers,
     json=payload,
     timeout=10,

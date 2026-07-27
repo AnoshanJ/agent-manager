@@ -4,15 +4,10 @@ sidebar_position: 3
 
 # AgentID
 
-Every agent that calls an LLM provider or an MCP tool through WSO2 Agent Manager does so
-through a gateway, and that gateway needs to know who is calling. Until now, that identity was
-shared: every agent in an environment presented the same LLM proxy key or the same MCP proxy
-key, so the gateway could tell that some agent made a call, but not which one.
-
-AgentID gives every agent its own identity instead. Each agent gets a dedicated OAuth 2.0
-`client_credentials` identity in every environment it runs in, so it can request its own access
-token and use it to call the gateway, rather than sharing a static key with every other agent in
-the environment.
+Every agent that calls an MCP tool through WSO2 Agent Manager does so through a gateway, and
+that gateway needs to know who is calling. AgentID is what gives each agent its own identity for
+this: a dedicated OAuth 2.0 `client_credentials` identity in every environment it runs in, so it
+can request its own access token and use it to call the gateway.
 
 ## Overview
 
@@ -100,7 +95,7 @@ The `client_id` is stored in Agent Manager's own database for both agent types. 
 
 - **Platform-Hosted agents** need their secret available again on every deploy, promote, and pod
   restart, so it is stored in Agent Manager's secret store, the same pluggable backend used for
-  other runtime secrets like LLM and MCP credentials, and never written to Agent Manager's
+  other runtime secrets like MCP proxy credentials, and never written to Agent Manager's
   database or logs in plain text.
 - **Externally-Hosted agents** have no running workload for Agent Manager to keep a secret in
   sync with, so nothing is stored at all. Each time you generate a secret from the console,

@@ -12,15 +12,16 @@ generating, using, and rotating that credential.
 ## Prerequisites
 
 - An Externally-Hosted agent, registered in a project.
-- The agent deployed (promoted) to at least one environment, so its AgentID has had a chance to
-  provision.
 - Console access with permission to update the agent.
+
+Unlike Platform-Hosted agents, an Externally-Hosted agent has no deploy or promote step: AgentID
+provisioning starts for every environment in your organization as soon as the agent is created.
 
 ## Step 1: Open the Agent's Overview Page
 
 Navigate to **Projects → &lt;your project&gt; → Agents → &lt;your agent&gt;**. Each environment
-the agent is deployed to appears as its own card, with an **Agent Identity** section showing the
-status of that environment's AgentID:
+appears as its own card, with an **Agent Identity** section showing the status of that
+environment's AgentID:
 
 - **Provisioning in progress**: the identity is still being created. This clears on its own
   within a few minutes; no action is needed.
