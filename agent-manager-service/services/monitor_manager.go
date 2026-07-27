@@ -1370,6 +1370,26 @@ func (s *monitorManagerService) resolveMonitorSecretRef(ctx context.Context, ouI
 	return "", "", fmt.Errorf("SecretReference %s has no \"LLM_API_KEY\" data source (found %d sources)", secretRefName, len(ref.Data))
 }
 
+// monitorProxyName derives the LLM proxy name (and handle) for a monitor's
+// provider. Monitor names are unique only per agent
+// (UNIQUE(name, ou_id, project_name, agent_name)), so a handle built from just
+// name+provider collides when two agents have a monitor of the same name and
+// provider, and provisioning fails with "LLM proxy already exists". Including the
+// monitor UUID makes the handle unique to the monitor. The name is capped at 52
+// chars so that appending "-deployment" (11 chars) never exceeds the Kubernetes
+// 63-char name limit; when capping, the unique suffix is kept and the readable
+// prefix is trimmed.
+func monitorProxyName(monitorID uuid.UUID, monitorName, providerName string) string {
+	const monitorSuffixLen = 8
+	monitorSuffix := strings.ReplaceAll(monitorID.String(), "-", "")[:monitorSuffixLen]
+	readable := fmt.Sprintf("%s-%s", sanitizeForK8sName(monitorName), sanitizeForK8sName(providerName))
+	// Reserve room for "-<suffix>-proxy".
+	if maxReadable := 52 - 1 - monitorSuffixLen - len("-proxy"); len(readable) > maxReadable {
+		readable = strings.TrimRight(readable[:maxReadable], "-")
+	}
+	return fmt.Sprintf("%s-%s-proxy", readable, monitorSuffix)
+}
+
 func (s *monitorManagerService) provisionLLMProxy(
 	ctx context.Context,
 	ouID string,
@@ -1378,17 +1398,7 @@ func (s *monitorManagerService) provisionLLMProxy(
 	gateway *models.Gateway,
 	projectUUID uuid.UUID,
 ) (*models.MonitorLLMMapping, ProxyRollbackState, string, error) {
-	// Cap the full proxy name to 52 chars so that appending "-deployment" (11 chars)
-	// never exceeds the Kubernetes 63-char name limit. When truncation is needed,
-	// append the first 8 hex chars of the monitor UUID to avoid collisions between
-	// monitors whose names share a long common prefix.
-	rawProxyName := fmt.Sprintf("%s-%s-proxy", sanitizeForK8sName(monitor.Name), sanitizeForK8sName(provRef.ProviderName))
-	proxyName := rawProxyName
-	if len(proxyName) > 52 {
-		const suffixLen = 8
-		monitorSuffix := strings.ReplaceAll(monitor.ID.String(), "-", "")[:suffixLen]
-		proxyName = strings.TrimRight(rawProxyName[:52-1-suffixLen], "-") + "-" + monitorSuffix
-	}
+	proxyName := monitorProxyName(monitor.ID, monitor.Name, provRef.ProviderName)
 
 	provisioned, err := s.llmProvisioner.ProvisionProxy(ctx, ProvisionProxyParams{
 		OrgName:        ouID,
