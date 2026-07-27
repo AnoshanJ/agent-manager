@@ -149,7 +149,7 @@ export function ThunderInstancesTable() {
 
   const toolbar = (
     <SearchBar
-      placeholder="Search identity providers..."
+      placeholder="Search agent identities..."
       size="small"
       fullWidth
       value={searchQuery}
@@ -198,7 +198,7 @@ export function ThunderInstancesTable() {
   if (error) {
     return (
       <Alert severity="error" icon={<AlertTriangle size={18} />}>
-        Failed to load identity providers. Please try again.
+        Failed to load agent identities. Please try again.
       </Alert>
     );
   }
@@ -208,7 +208,7 @@ export function ThunderInstancesTable() {
       <ListingTable.Container>
         <ListingTable.EmptyState
           illustration={<KeyRound size={64} />}
-          title="No identity providers"
+          title="No agent identities"
           description="Add an environment first. Each environment automatically gets a Thunder identity provider."
         />
       </ListingTable.Container>
@@ -225,7 +225,7 @@ export function ThunderInstancesTable() {
         <ListingTable.Container>
           <ListingTable.EmptyState
             illustration={<Search size={64} />}
-            title="No identity providers found"
+            title="No agent identities found"
             description="Try a different keyword or clear the search filter."
           />
         </ListingTable.Container>

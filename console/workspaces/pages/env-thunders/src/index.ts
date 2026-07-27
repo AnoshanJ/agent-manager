@@ -21,7 +21,7 @@ import { thunderInstancesMetadata } from "./metadata";
 
 export const thunderInstancesMetaData: PageMetadata = {
   title: thunderInstancesMetadata.title,
-  description: "Environment-scoped agent identity providers for agent authentication",
+  description: "Environment-scoped agent identities for agent authentication",
   icon: thunderInstancesMetadata.icon,
   path: "/thunder-instances",
   component: ThunderInstancesOrganization,

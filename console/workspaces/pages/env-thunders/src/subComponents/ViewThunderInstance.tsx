@@ -153,8 +153,8 @@ export const ViewThunderInstance: React.FC = () => {
       <PageLayout
         title={displayName}
         backHref={backHref}
-        backLabel="Back to Identity Providers"
-        description={`The system identity provider used to manage agents, users, roles, and groups for the ${envName} environment.`}
+        backLabel="Back to Agent Identity"
+        description={`The agent identity used to manage agents, users, roles, and groups for the ${envName} environment.`}
         disableIcon
         isLoading={isLoading}
         titleTail={
@@ -196,13 +196,13 @@ export const ViewThunderInstance: React.FC = () => {
 
         {!!error && (
           <Alert severity="error" icon={<AlertTriangle size={18} />}>
-            Failed to load identity provider. Please try again.
+            Failed to load agent identity. Please try again.
           </Alert>
         )}
 
         {!isLoading && !error && !instance && (
           <Alert severity="warning" icon={<AlertTriangle size={18} />}>
-            Identity provider for environment &quot;{envName}&quot; was not found.
+            Agent identity for environment &quot;{envName}&quot; was not found.
           </Alert>
         )}
 
