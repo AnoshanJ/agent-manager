@@ -999,6 +999,146 @@ helm upgrade amp-platform-resources oci://${HELM_CHART_REGISTRY}/wso2-amp-platfo
   --set environment.gateway.https.port=443
 ```
 
+### Provision Thunder Identity Provider for the Default Environment
+
+Every Environment needs its own dedicated Thunder ID instance. This is separate from the platform Thunder installed in Phase 1, which only handles console and API login. This instance is what issues each agent its own OAuth2 credential (AgentID) in that Environment. Run this once for the default Environment: agents can still be created without it, but they will never get an AgentID there, since there is no Thunder instance to provision one against, and Agent Manager will keep retrying and failing in the background. Run it after Agent Manager (`amp`) is installed and reachable at `API_PUBLIC_URL`, since this step registers the generated credential with the Agent Manager API.
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/scripts/add-environment-thunder.sh" \
+  -o add-environment-thunder.sh
+```
+
+Pick the same tab you used in [Step 3](#step-3-setup-tls-issuer) — the CA trust setting below only differs by that choice, nothing else changes.
+
+<Tabs>
+  <TabItem value="letsencrypt" label="Let's Encrypt (DNS-01)" default>
+
+Platform Thunder's certificate comes from a real, publicly-trusted CA, so env-Thunder's container trust store already trusts it — no custom CA bundle needs to be fetched or mounted.
+
+```bash
+ENV_NAME=default \
+DISPLAY_NAME="Default" \
+ORG_NAME=default \
+WAIT_TIMEOUT=300s \
+AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
+IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
+PLATFORM_THUNDER_ISSUER="${THUNDER_PUBLIC_URL}" \
+PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
+THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
+TLS_ENABLED=true \
+SKIP_CA_BUNDLE_TRUST=true \
+bash add-environment-thunder.sh
+```
+
+  </TabItem>
+  <TabItem value="corporate" label="Corporate CA">
+
+`SKIP_CA_BUNDLE_TRUST` does **not** apply here — that flag only skips the fetch when omitted, it doesn't mount your own CA. Pass your CA directly instead, extracted live from the running certificate rather than guessed from a secret name (the `corporate-ca-secret` you created in Step 3 stores only `tls.crt`/`tls.key`, not a separate `ca.crt` key):
+
+```bash
+PLATFORM_THUNDER_CA_PEM="$(echo | openssl s_client -connect "${THUNDER_PUBLIC_HOST}:443" \
+  -servername "${THUNDER_PUBLIC_HOST}" -showcerts 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}')"
+```
+
+`PLATFORM_THUNDER_CA_PEM` only gets mounted into env-Thunder's own pod, for its in-cluster JWKS check. It does nothing for the `curl` call this script itself makes from **your** machine to `IDP_TOKEN_URL` a moment later, and that call is just as HTTPS as everything else here. Trust the CA locally too, or that call fails with the same "unable to get local issuer certificate" error a browser would show:
+
+```bash
+CURL_CA_BUNDLE="$(mktemp)"
+if [ -f /etc/ssl/cert.pem ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/cert.pem                        # macOS
+elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt       # Debian/Ubuntu
+else
+  echo "Could not find a system CA bundle at /etc/ssl/cert.pem or /etc/ssl/certs/ca-certificates.crt. Find yours and set SYSTEM_CA_BUNDLE to it manually." >&2
+  exit 1
+fi
+cat "${SYSTEM_CA_BUNDLE}" > "${CURL_CA_BUNDLE}"
+echo "${PLATFORM_THUNDER_CA_PEM}" >> "${CURL_CA_BUNDLE}"
+export CURL_CA_BUNDLE
+```
+
+Keeping your system bundle in there too (rather than only the one CA) matters because this script also fetches a public CA bundle from `curl.se` over plain HTTPS, and pointing `CURL_CA_BUNDLE` at just your corporate CA would break that unrelated call.
+
+```bash
+ENV_NAME=default \
+DISPLAY_NAME="Default" \
+ORG_NAME=default \
+WAIT_TIMEOUT=300s \
+AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
+IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
+PLATFORM_THUNDER_ISSUER="${THUNDER_PUBLIC_URL}" \
+PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
+PLATFORM_THUNDER_CA_PEM="${PLATFORM_THUNDER_CA_PEM}" \
+THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
+TLS_ENABLED=true \
+bash add-environment-thunder.sh
+```
+
+  </TabItem>
+  <TabItem value="selfsigned" label="Self-signed (evaluation only)">
+
+Same as the Corporate CA case — `SKIP_CA_BUNDLE_TRUST` doesn't mount anything, and the script's own auto-detect looks for a different, local-dev-specific secret name than the `openchoreo-ca-secret` this guide's [nip.io appendix](#appendix-installing-without-a-domain-nipio) creates. Extract the CA live instead:
+
+```bash
+PLATFORM_THUNDER_CA_PEM="$(echo | openssl s_client -connect "${THUNDER_PUBLIC_HOST}:443" \
+  -servername "${THUNDER_PUBLIC_HOST}" -showcerts 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}')"
+```
+
+And just like the Corporate CA case, this only covers env-Thunder's own pod. The `curl` call this script makes from **your** machine to `IDP_TOKEN_URL` needs the same CA trusted locally, or it fails with "unable to get local issuer certificate":
+
+```bash
+CURL_CA_BUNDLE="$(mktemp)"
+if [ -f /etc/ssl/cert.pem ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/cert.pem                        # macOS
+elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  SYSTEM_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt       # Debian/Ubuntu
+else
+  echo "Could not find a system CA bundle at /etc/ssl/cert.pem or /etc/ssl/certs/ca-certificates.crt. Find yours and set SYSTEM_CA_BUNDLE to it manually." >&2
+  exit 1
+fi
+cat "${SYSTEM_CA_BUNDLE}" > "${CURL_CA_BUNDLE}"
+echo "${PLATFORM_THUNDER_CA_PEM}" >> "${CURL_CA_BUNDLE}"
+export CURL_CA_BUNDLE
+```
+
+```bash
+ENV_NAME=default \
+DISPLAY_NAME="Default" \
+ORG_NAME=default \
+WAIT_TIMEOUT=300s \
+AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
+IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
+PLATFORM_THUNDER_ISSUER="${THUNDER_PUBLIC_URL}" \
+PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
+PLATFORM_THUNDER_CA_PEM="${PLATFORM_THUNDER_CA_PEM}" \
+THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
+TLS_ENABLED=true \
+bash add-environment-thunder.sh
+```
+
+  </TabItem>
+</Tabs>
+
+:::info
+Only the Let's Encrypt path can use `SKIP_CA_BUNDLE_TRUST=true` — it's specifically for a certificate that's already backed by a CA every trust store already knows. For a Corporate or self-signed CA, that flag doesn't help you: setting it to `true` skips the fetch outright, and simply omitting it falls back to the script's own auto-detect, which looks for a secret named `amp-local-root-ca-secret` — a name neither of those tabs in Step 3 ever creates. `PLATFORM_THUNDER_CA_PEM` sidesteps that entirely by pulling whatever certificate is actually being served, live, regardless of what you named things, but it only solves trust *inside the cluster*. The `CURL_CA_BUNDLE` step in each tab above is a separate fix for trust on **your own machine**, where this script's own `curl` calls run.
+:::
+
+:::tip Verify
+```bash
+kubectl get pods -n amp-thunder-default-default
+# All pods should be Running
+
+kubectl get secret amp-thunder-default-default-admin-credentials \
+  -n amp-thunder-default-default -o jsonpath='{.data.password}' | base64 -d
+# Prints the env-Thunder console admin password for this Environment — save it,
+# it is not shown again
+```
+:::
+
+Safe to re-run: the system-client secret and admin password are reused, never rotated.
+
 ---
 
 ## Verify and Access the Platform
