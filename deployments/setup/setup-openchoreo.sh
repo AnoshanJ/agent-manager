@@ -60,6 +60,25 @@ _sync_chart_crds_body() {
     fi
 }
 
+# verify_agent_logs prints a plane's cluster-agent logs as a post-setup sanity
+# check.
+verify_agent_logs() {
+    local ns="$1"
+    local out
+    if out=$(kubectl logs -n "$ns" -l app=cluster-agent --tail=10 2>&1); then
+        echo "$out"
+        return 0
+    fi
+    if printf '%s' "$out" | grep -qiE "ContainerCreating|waiting to start|PodInitializing"; then
+        echo "⚠️  cluster-agent logs not available yet in ${ns} (pod still starting):"
+        printf '   %s\n' "$out"
+        return 0
+    fi
+    echo "❌ Failed to read cluster-agent logs in ${ns}:" >&2
+    printf '%s\n' "$out" >&2
+    return 1
+}
+
 # Function to install Control Plane
 install_control_plane() {
     echo "📦 Installing/Upgrading OpenChoreo Control Plane..."
@@ -186,7 +205,7 @@ install_data_plane() {
     kubectl get clusterdataplane -n default
     # Non-fatal: a freshly-rolled agent pod may still be ContainerCreating, which
     # makes `kubectl logs` return BadRequest and abort the script under `set -e`.
-    kubectl logs -n openchoreo-data-plane -l app=cluster-agent --tail=10 || true
+    verify_agent_logs openchoreo-data-plane
     echo "✅ OpenChoreo Data Plane registered and verified"
 }
 
@@ -223,7 +242,7 @@ install_workflow_plane() {
     echo ""
     echo "🔍 Verifying WorkflowPlane ..."
     kubectl get clusterworkflowplane -n default
-    kubectl logs -n openchoreo-workflow-plane -l app=cluster-agent --tail=10 || true
+    verify_agent_logs openchoreo-workflow-plane
     echo "✅ OpenChoreo Workflow Plane ready"
 }
 
@@ -380,7 +399,7 @@ install_observability_plane() {
     echo ""
     echo "🔍 Verifying ObservabilityPlane ..."
     kubectl get observabilityplane -n default
-    kubectl logs -n openchoreo-observability-plane -l app=cluster-agent --tail=10 || true
+    verify_agent_logs openchoreo-observability-plane
     echo "✅ OpenChoreo Observability Plane ready"
 }
 
