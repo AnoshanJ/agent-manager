@@ -1380,11 +1380,12 @@ func (s *monitorManagerService) resolveMonitorSecretRef(ctx context.Context, ouI
 // 63-char name limit; when capping, the unique suffix is kept and the readable
 // prefix is trimmed.
 func monitorProxyName(monitorID uuid.UUID, monitorName, providerName string) string {
-	const monitorSuffixLen = 8
-	monitorSuffix := strings.ReplaceAll(monitorID.String(), "-", "")[:monitorSuffixLen]
+	// Use the full dashless UUID (not a truncated prefix): a shortened suffix
+	// could still collide when two monitor UUIDs share their leading hex digits.
+	monitorSuffix := strings.ReplaceAll(monitorID.String(), "-", "")
 	readable := fmt.Sprintf("%s-%s", sanitizeForK8sName(monitorName), sanitizeForK8sName(providerName))
 	// Reserve room for "-<suffix>-proxy".
-	if maxReadable := 52 - 1 - monitorSuffixLen - len("-proxy"); len(readable) > maxReadable {
+	if maxReadable := 52 - 1 - len(monitorSuffix) - len("-proxy"); len(readable) > maxReadable {
 		readable = strings.TrimRight(readable[:maxReadable], "-")
 	}
 	return fmt.Sprintf("%s-%s-proxy", readable, monitorSuffix)

@@ -31,7 +31,9 @@ import (
 // it <=63).
 func TestMonitorProxyName(t *testing.T) {
 	id1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	id2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	// id2 deliberately shares id1's first eight hex digits and differs only
+	// afterwards, so a suffix built from a truncated UUID prefix would collide.
+	id2 := uuid.MustParse("11111111-1111-1111-1111-111111111112")
 
 	t.Run("includes the monitor uuid, ends in -proxy, within budget", func(t *testing.T) {
 		name := monitorProxyName(id1, "monitor-1", "openai")
