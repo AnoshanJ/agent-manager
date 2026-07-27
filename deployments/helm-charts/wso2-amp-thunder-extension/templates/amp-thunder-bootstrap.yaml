@@ -1569,8 +1569,10 @@ data:
     # authorization checks expect.
     log_info "Registering MCP resource servers..."
     {{- range .Values.thunder.bootstrap.mcpResourceServers }}
-    MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ .identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
-    log_info "MCP resource server '{{ .identifier }}' ready (id: $MCP_RS_ID)"
+    {{- $base := index $.Values.thunder.bootstrap .baseUrlValue | required (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}
+    {{- $identifier := printf "%s/" (trimSuffix "/" $base) }}
+    MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ $identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
+    log_info "MCP resource server '{{ $identifier }}' ready (id: $MCP_RS_ID)"
 
     # Remediation: a resource server seeded by an older bootstrap carries a
     # non-empty handle. The handle is immutable and would prefix every derived
@@ -1587,7 +1589,7 @@ data:
     fi
     MCP_RS_HANDLE=$(echo "$BODY" | grep -o '"handle":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [[ -n "$MCP_RS_HANDLE" ]]; then
-      log_warning "Resource server '{{ .identifier }}' has legacy handle '$MCP_RS_HANDLE'; deleting and recreating it with an empty handle..."
+      log_warning "Resource server '{{ $identifier }}' has legacy handle '$MCP_RS_HANDLE'; deleting and recreating it with an empty handle..."
       RESPONSE=$(api_call DELETE "/resource-servers/${MCP_RS_ID}")
       HTTP_CODE="${RESPONSE: -3}"
       BODY="${RESPONSE%???}"
@@ -1595,12 +1597,12 @@ data:
         log_error "Failed to delete legacy resource server ${MCP_RS_ID} (HTTP $HTTP_CODE): $BODY"
         exit 1
       fi
-      MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ .identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
-      log_info "MCP resource server '{{ .identifier }}' recreated (id: $MCP_RS_ID)"
+      MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ $identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
+      log_info "MCP resource server '{{ $identifier }}' recreated (id: $MCP_RS_ID)"
     fi
     MCP_AMP_ROOT=$(create_or_get_resource "$MCP_RS_ID" "Agent Manager" "amp" "Root of the amp permission tree")
     register_amp_permissions "$MCP_RS_ID" "{{ .permissionSet }}" "$MCP_AMP_ROOT"
-    log_info "MCP resource server '{{ .identifier }}': '{{ .permissionSet }}' permission set registered."
+    log_info "MCP resource server '{{ $identifier }}': '{{ .permissionSet }}' permission set registered."
     {{- end }}
     log_success "MCP resource servers registered."
 

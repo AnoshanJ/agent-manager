@@ -184,12 +184,17 @@ assert_eq "thunder console redirectUri (legacy setup key)" \
 # RFC 8707 resource indicators. Thunder compares the authorize request's
 # `resource` verbatim, so these must name the hosts an MCP client dials, with the
 # trailing slash the client sends. Index 0 is agent-manager, index 1 the observer.
-assert_eq "thunder MCP resource identifier (agent-manager)" \
-  "thunder.bootstrap.mcpResourceServers[0].identifier=https://api.amp.203.0.113.10.sslip.io/" \
-  "$(grep -F 'mcpResourceServers[0].identifier' <<<"$th")"
-assert_eq "thunder MCP resource identifier (observer)" \
-  "thunder.bootstrap.mcpResourceServers[1].identifier=https://observer.amp.203.0.113.10.sslip.io/" \
-  "$(grep -F 'mcpResourceServers[1].identifier' <<<"$th")"
+# MCP base URLs are set as mergeable scalars (not list-element overrides, which
+# helm --set would replace whole, dropping name/handle/permissionSet). No trailing
+# slash — the bootstrap template appends it.
+assert_eq "thunder MCP base URL (agent-manager)" \
+  "thunder.bootstrap.agentManagerMcpBaseUrl=https://api.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'agentManagerMcpBaseUrl' <<<"$th")"
+assert_eq "thunder MCP base URL (observer)" \
+  "thunder.bootstrap.observerMcpBaseUrl=https://observer.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'observerMcpBaseUrl' <<<"$th")"
+assert_eq "thunder no fragile mcpResourceServers list override" "no" \
+  "$(has "$th" 'mcpResourceServers[')"
 
 # --- render_k3d_vm_config ---
 k3d_in="$(printf '%s\n' \
@@ -370,12 +375,12 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
     "$(grep -F 'jwt.issuer' <<<"$core_th")"
   # The advanced path reaches the same core, so the MCP resource indicators must
   # follow the configured domain here too.
-  assert_eq "core thunder MCP resource identifier (agent-manager)" \
-    "thunder.bootstrap.mcpResourceServers[0].identifier=https://api.amp.example.com/" \
-    "$(grep -F 'mcpResourceServers[0].identifier' <<<"$core_th")"
-  assert_eq "core thunder MCP resource identifier (observer)" \
-    "thunder.bootstrap.mcpResourceServers[1].identifier=https://observer.amp.example.com/" \
-    "$(grep -F 'mcpResourceServers[1].identifier' <<<"$core_th")"
+  assert_eq "core thunder MCP base URL (agent-manager)" \
+    "thunder.bootstrap.agentManagerMcpBaseUrl=https://api.amp.example.com" \
+    "$(grep -F 'agentManagerMcpBaseUrl' <<<"$core_th")"
+  assert_eq "core thunder MCP base URL (observer)" \
+    "thunder.bootstrap.observerMcpBaseUrl=https://observer.amp.example.com" \
+    "$(grep -F 'observerMcpBaseUrl' <<<"$core_th")"
 
   core_obs="$(observability_helm_args)"
   assert_eq "core observability audience carries the public observer URL" \

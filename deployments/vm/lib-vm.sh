@@ -243,21 +243,23 @@ thunder_helm_args() {
     "--set" "thunder.configuration.cors.allowedOrigins[0]=https://${AMP_HOST_CONSOLE}"
 
   # RFC 8707 resource indicators for the two MCP endpoints. Thunder matches the
-  # authorize request's `resource` parameter against these identifiers verbatim
-  # and answers invalid_target on any mismatch, so they must be the hosts an MCP
-  # client actually dials — not the chart's localhost defaults, which describe a
-  # k3d install. Both MCP endpoints are served by services already exposed here:
-  # the agent-manager one by amp-api (chart default http://localhost:9000/) and
-  # the observer one by the observer itself (default the observability
-  # extension's amObserver.publicUrl). Keep the trailing slash: clients send the
-  # canonical origin with one, and the comparison is exact.
+  # authorize request's `resource` parameter against each resource server's
+  # identifier verbatim and answers invalid_target on any mismatch, so the
+  # identifiers must be the hosts an MCP client actually dials — not the chart's
+  # localhost defaults, which describe a k3d install. Both MCP endpoints are
+  # served by services already exposed here: the agent-manager one by amp-api and
+  # the observer one by the observer itself.
   #
-  # Indices are positional, so they track the order of thunder.bootstrap
-  # .mcpResourceServers in wso2-amp-thunder-extension/values.yaml — agent-manager
-  # first, observer second. Reordering that list silently retargets these.
+  # The bootstrap template builds each identifier from a base-URL scalar and
+  # appends the trailing slash, so override those two scalars rather than the
+  # mcpResourceServers list. A scalar --set merges; --set on a list element
+  # replaces the whole element and would drop its name/handle/description/
+  # permissionSet, which makes Thunder reject the resource server (empty name)
+  # and the bootstrap fail. Pass the base URL without a trailing slash — the
+  # template adds it.
   printf '%s\n' \
-    "--set" "thunder.bootstrap.mcpResourceServers[0].identifier=https://${AMP_HOST_API}/" \
-    "--set" "thunder.bootstrap.mcpResourceServers[1].identifier=https://${AMP_HOST_OBSERVER}/"
+    "--set" "thunder.bootstrap.agentManagerMcpBaseUrl=https://${AMP_HOST_API}" \
+    "--set" "thunder.bootstrap.observerMcpBaseUrl=https://${AMP_HOST_OBSERVER}"
 
   # The console client's registered redirect URI lives under `setup` (<=main) and
   # was renamed to `bootstrap` (>=0.15.0, which is what the registration template
