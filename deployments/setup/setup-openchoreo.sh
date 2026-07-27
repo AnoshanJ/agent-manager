@@ -311,19 +311,26 @@ install_observability_plane() {
         sleep 4
     done
     if [ -z "$obs_auth_claim" ]; then
-        echo "❌ observer-auth-config has no service-account 'sub' claim after waiting"
-        return 1
+        # Distinguish a genuinely-absent configmap (skip) from one that is present
+        # but whose service-account claim never surfaced (fail) so the outcome is
+        # not misleading.
+        if kubectl get configmap observer-auth-config -n openchoreo-observability-plane &>/dev/null; then
+            echo "❌ observer-auth-config present but its service-account claim never surfaced after waiting"
+            return 1
+        fi
+        echo "⚠️  observer-auth-config not found — skipping observer claim patch"
+    else
+        patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
+            | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
+        if ! echo "$patched_obs_yaml" | grep -qE "claim:[[:space:]]*['\"]?client_id['\"]?"; then
+            echo "❌ Failed to patch observer-auth-config entitlement claim to client_id"
+            return 1
+        fi
+        echo "$patched_obs_yaml" | kubectl apply --server-side --field-manager=helm --force-conflicts -f -
+        kubectl rollout restart deployment/observer -n openchoreo-observability-plane
+        kubectl rollout status deployment/observer -n openchoreo-observability-plane --timeout=120s
+        echo "✅ observer-auth-config patched (client_id claim)"
     fi
-    patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
-        | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
-    if ! echo "$patched_obs_yaml" | grep -q "claim: client_id"; then
-        echo "❌ Failed to patch observer-auth-config entitlement claim to client_id"
-        return 1
-    fi
-    echo "$patched_obs_yaml" | kubectl apply --server-side --field-manager=helm --force-conflicts -f -
-    kubectl rollout restart deployment/observer -n openchoreo-observability-plane
-    kubectl rollout status deployment/observer -n openchoreo-observability-plane --timeout=120s
-    echo "✅ observer-auth-config patched (client_id claim)"
 
     # Registering the Observability Plane with the control plane
     echo "🔗 Registering Observability Plane..."
