@@ -236,17 +236,55 @@ func (c *thunderClient) GetUserGroups(ctx context.Context, userID string) ([]Thu
 // with this name in the default OU is the native one.
 const NativeAdministratorsGroupName = "Administrators"
 
+// isVisibleGroup reports whether a group may be surfaced through the identity
+// APIs. It is the single place the native-group exclusion is decided, so every
+// filtered read path stays in agreement.
+func isVisibleGroup(g ThunderGroup) bool {
+	return g.Name != NativeAdministratorsGroupName
+}
+
+// fetchAllGroups pages endpoint to exhaustion and returns the groups keep
+// accepts. Filtering during the sweep rather than after pagination is what lets
+// callers apply offset/limit to the visible set only.
+func (c *thunderClient) fetchAllGroups(ctx context.Context, token, endpoint, errLabel string,
+	keep func(ThunderGroup) bool,
+) ([]ThunderGroup, error) {
+	const fetchSize = 100
+	var all []ThunderGroup
+	fetchOffset := 0
+	for {
+		url := fmt.Sprintf("%s?offset=%d&limit=%d", endpoint, fetchOffset, fetchSize)
+		body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", errLabel, err)
+		}
+		var wrapped thunderGroupList
+		if err := json.Unmarshal(body, &wrapped); err != nil {
+			return nil, fmt.Errorf("%s decode: %w", errLabel, err)
+		}
+		for _, g := range wrapped.Groups {
+			if keep(g) {
+				all = append(all, g)
+			}
+		}
+		fetchOffset += len(wrapped.Groups)
+		if fetchOffset >= wrapped.TotalResults || len(wrapped.Groups) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
 // ListGroups returns groups scoped to ouID when non-empty, by fetching all pages
-// from Thunder and filtering client-side (Thunder has no OU-scoped list endpoint for groups).
+// from Thunder and filtering client-side (the instance-wide endpoint cannot scope
+// by OU). The ouID=="" branch is the raw instance-wide view and keeps the native
+// Administrators group; it has no production caller today.
 func (c *thunderClient) ListGroups(ctx context.Context, ouID string, offset, limit int) ([]ThunderGroup, int, error) {
 	token, err := c.getSystemToken(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 	if ouID == "" {
-		// The unfiltered instance-wide path deliberately keeps the native
-		// Administrators group: it is the raw view, and a caller sweeping every
-		// group in the instance must still see it.
 		url := fmt.Sprintf("%s/groups?offset=%d&limit=%d", c.baseURL, offset, limit)
 		body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
 		if err != nil {
@@ -259,68 +297,25 @@ func (c *thunderClient) ListGroups(ctx context.Context, ouID string, offset, lim
 		return wrapped.Groups, wrapped.TotalResults, nil
 	}
 
-	const fetchSize = 100
-	var all []ThunderGroup
-	fetchOffset := 0
-	for {
-		url := fmt.Sprintf("%s/groups?offset=%d&limit=%d", c.baseURL, fetchOffset, fetchSize)
-		body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
-		if err != nil {
-			return nil, 0, fmt.Errorf("thunder list groups: %w", err)
-		}
-		var wrapped thunderGroupList
-		if err := json.Unmarshal(body, &wrapped); err != nil {
-			return nil, 0, fmt.Errorf("thunder list groups decode: %w", err)
-		}
-		for _, g := range wrapped.Groups {
-			// Both exclusions happen before paginateGroups runs, so
-			// offset/limit/total describe only the visible groups.
-			if g.OuID == ouID && g.Name != NativeAdministratorsGroupName {
-				all = append(all, g)
-			}
-		}
-		fetchOffset += len(wrapped.Groups)
-		if fetchOffset >= wrapped.TotalResults || len(wrapped.Groups) == 0 {
-			break
-		}
+	all, err := c.fetchAllGroups(ctx, token, c.baseURL+"/groups", "thunder list groups",
+		func(g ThunderGroup) bool { return g.OuID == ouID && isVisibleGroup(g) })
+	if err != nil {
+		return nil, 0, err
 	}
-	return paginateGroups(all, offset, limit)
+	groups, total := paginate(all, offset, limit)
+	return groups, total, nil
 }
 
-// listGroupsInOU returns every group in ouID from Thunder's OU-scoped endpoint,
-// excluding NativeAdministratorsGroupName. It is the single filtered source for
-// ListGroupsByOUId and GetAgentGroups, so the native group cannot leak through
-// either surface.
+// listGroupsInOU returns every visible group in ouID from Thunder's OU-scoped
+// endpoint. It is the single filtered source for ListGroupsByOUId and
+// GetAgentGroups, so the native group cannot leak through either surface.
 func (c *thunderClient) listGroupsInOU(ctx context.Context, ouID string) ([]ThunderGroup, error) {
 	token, err := c.getSystemToken(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	const fetchSize = 100
-	var all []ThunderGroup
-	fetchOffset := 0
-	for {
-		url := fmt.Sprintf("%s/organization-units/%s/groups?offset=%d&limit=%d", c.baseURL, ouID, fetchOffset, fetchSize)
-		body, err := c.doRequest(ctx, http.MethodGet, url, token, nil)
-		if err != nil {
-			return nil, fmt.Errorf("thunder list groups by ou id: %w", err)
-		}
-		var wrapped thunderGroupList
-		if err := json.Unmarshal(body, &wrapped); err != nil {
-			return nil, fmt.Errorf("thunder list groups by ou id decode: %w", err)
-		}
-		for _, g := range wrapped.Groups {
-			if g.Name != NativeAdministratorsGroupName {
-				all = append(all, g)
-			}
-		}
-		fetchOffset += len(wrapped.Groups)
-		if fetchOffset >= wrapped.TotalResults || len(wrapped.Groups) == 0 {
-			break
-		}
-	}
-	return all, nil
+	return c.fetchAllGroups(ctx, token, c.baseURL+"/organization-units/"+ouID+"/groups",
+		"thunder list groups by ou id", isVisibleGroup)
 }
 
 // ListGroupsByOUId returns groups in ouID from Thunder's OU-scoped endpoint with
@@ -333,24 +328,26 @@ func (c *thunderClient) ListGroupsByOUId(ctx context.Context, ouID string, offse
 	if err != nil {
 		return nil, 0, err
 	}
-	return paginateGroups(all, offset, limit)
+	groups, total := paginate(all, offset, limit)
+	return groups, total, nil
 }
 
-// paginateGroups applies offset/limit to an already-filtered group slice and
-// reports the post-filter total.
-func paginateGroups(all []ThunderGroup, offset, limit int) ([]ThunderGroup, int, error) {
+// paginate applies offset/limit to an already-filtered slice and reports the
+// post-filter total, so a caller that excludes reserved principals before
+// paginating keeps offset/limit/total consistent with what it returns.
+func paginate[T any](all []T, offset, limit int) ([]T, int) {
 	total := len(all)
 	if offset < 0 {
 		offset = 0
 	}
 	if offset >= total {
-		return []ThunderGroup{}, total, nil
+		return []T{}, total
 	}
 	end := offset + limit
 	if end > total {
 		end = total
 	}
-	return all[offset:end], total, nil
+	return all[offset:end], total
 }
 
 func (c *thunderClient) GetGroup(ctx context.Context, groupID string) (*ThunderGroup, error) {
@@ -697,18 +694,8 @@ func (c *thunderClient) ListRoles(ctx context.Context, ouID string, offset, limi
 			break
 		}
 	}
-	total := len(all)
-	if offset < 0 {
-		offset = 0
-	}
-	if offset >= total {
-		return []ThunderRole{}, total, nil
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-	return all[offset:end], total, nil
+	roles, total := paginate(all, offset, limit)
+	return roles, total, nil
 }
 
 func (c *thunderClient) GetRole(ctx context.Context, roleID string) (*ThunderRole, error) {

@@ -104,20 +104,14 @@ func (c *agentIdentityController) envClient(w http.ResponseWriter, r *http.Reque
 // --- Groups ---
 
 // managedGroup fetches the group and treats Thunder's native Administrators
-// group as nonexistent (404, matching its exclusion from ListGroups): its
-// members inherit NativeAdministratorRoleName and with it Thunder's built-in
-// "system" scope, so adding an agent to that group is a second route to
-// env-Thunder admin that walks around the managedRole guard entirely — see
-// thundersvc.NativeAdministratorsGroupName. Writes the error response itself
-// when ok=false.
+// group as nonexistent, matching its exclusion from the OU-scoped listing — see
+// thundersvc.NativeAdministratorsGroupName for why that group grants admin.
+// Writes the error response itself when ok=false.
 //
-// Note the deliberate asymmetry with managedRole, which leaves
-// RemoveRoleAssignees and the read-only assignment lookups unguarded so an
-// existing mis-assignment can be cleaned up through the same API. This guard
-// covers every group operation including GetGroupMembers and
-// RemoveGroupMembers, matching the org-identity controller's
-// validateSystemGroup: an agent already mis-added to the native group must be
-// removed with direct Thunder admin access, not through AMP.
+// Unlike managedRole, which leaves RemoveRoleAssignees and the read-only
+// assignment lookups open so a mis-assignment can be cleaned up through the
+// same API, this guards every group operation: an agent already mis-added to
+// the native group must be removed with direct Thunder admin access.
 func (c *agentIdentityController) managedGroup(w http.ResponseWriter, r *http.Request, client thundersvc.EnvIdentityClient, groupID string) (*thundersvc.ThunderGroup, bool) {
 	ctx := r.Context()
 	group, err := client.GetGroup(ctx, groupID)
@@ -130,8 +124,7 @@ func (c *agentIdentityController) managedGroup(w http.ResponseWriter, r *http.Re
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to get group")
 		return nil, false
 	}
-	if group.Name == thundersvc.NativeAdministratorsGroupName {
-		utils.WriteErrorResponse(w, http.StatusNotFound, "Group not found")
+	if !validateSystemGroup(w, group.Name) {
 		return nil, false
 	}
 	return group, true
@@ -153,9 +146,8 @@ func (c *agentIdentityController) ListGroups(w http.ResponseWriter, r *http.Requ
 	}
 
 	offset, limit := paginationParams(r)
-	// The OU-scoped listing hides Thunder's native Administrators group
-	// (thundersvc.NativeAdministratorsGroupName) and paginates after that
-	// exclusion, so offset/limit/total need no adjustment here.
+	// ListGroupsByOUId excludes the native Administrators group before paginating,
+	// so offset/limit/total need no adjustment here.
 	groups, total, err := client.ListGroupsByOUId(ctx, ouID, offset, limit)
 	if err != nil {
 		log.Error("agent-identity ListGroups failed", "error", err)
@@ -230,8 +222,7 @@ func (c *agentIdentityController) UpdateGroup(w http.ResponseWriter, r *http.Req
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	// An empty name leaves the current one in place, so only a rename needs the guard.
-	if body.Name != "" && !validateReservedGroupName(w, body.Name) {
+	if !validateReservedGroupName(w, body.Name) {
 		return
 	}
 
@@ -565,9 +556,8 @@ func (c *agentIdentityController) UpdateRole(w http.ResponseWriter, r *http.Requ
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	// An empty name leaves the current one in place, so only a rename needs the
-	// guard; managedRole below blocks editing the native Administrator role itself.
-	if body.Name != "" && !validateReservedRoleName(w, body.Name) {
+	// managedRole below blocks editing the native Administrator role itself.
+	if !validateReservedRoleName(w, body.Name) {
 		return
 	}
 	// scopes, when present, fully replaces the role's permissions. Decoding tells

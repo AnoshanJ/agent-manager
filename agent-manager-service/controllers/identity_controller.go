@@ -560,8 +560,7 @@ func (c *identityController) UpdateGroup(w http.ResponseWriter, r *http.Request)
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	// A nil/empty name leaves the current one in place, so only a rename needs the guard.
-	if body.Name != nil && *body.Name != "" && !validateReservedGroupName(w, *body.Name) {
+	if !validateReservedGroupName(w, derefString(body.Name)) {
 		return
 	}
 
@@ -961,9 +960,7 @@ func (c *identityController) UpdateRole(w http.ResponseWriter, r *http.Request) 
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	// validatePredefinedRole above only checked the role's current name; this stops
-	// an ordinary role being renamed into the native Administrator role's name.
-	if body.Name != nil && *body.Name != "" && !validateReservedRoleName(w, *body.Name) {
+	if !validateReservedRoleName(w, derefString(body.Name)) {
 		return
 	}
 
@@ -1476,28 +1473,29 @@ func validateSystemGroup(w http.ResponseWriter, groupName string) bool {
 	return true
 }
 
-// validateReservedGroupName rejects creating or renaming a group to Thunder's
-// native Administrators group name. Without it a second group could shadow the
-// hidden system group and confuse an operator about which one grants admin.
-// Callers must pass the *requested* name, never the group's current one.
-func validateReservedGroupName(w http.ResponseWriter, groupName string) bool {
-	if groupName == thundersvc.NativeAdministratorsGroupName {
+// validateReservedName rejects a request that would claim a name Thunder
+// reserves for one of its seeded principals, which would shadow the hidden
+// system resource and confuse an operator about which one grants admin.
+//
+// Callers pass the *requested* name, never the resource's current one — that is
+// validateSystemGroup/validatePredefinedRole's job. An absent name means the
+// caller is not renaming, and passes.
+func validateReservedName(w http.ResponseWriter, requested, reserved, kind string) bool {
+	if requested == reserved {
 		utils.WriteErrorResponse(w, http.StatusBadRequest,
-			fmt.Sprintf("%q is a reserved group name", thundersvc.NativeAdministratorsGroupName))
+			fmt.Sprintf("%q is a reserved %s name", reserved, kind))
 		return false
 	}
 	return true
 }
 
-// validateReservedRoleName is validateReservedGroupName's counterpart for
-// Thunder's native Administrator role. validatePredefinedRole only inspects a
-// role's current name, so without this an ordinary role could be renamed to
-// Administrator.
+func validateReservedGroupName(w http.ResponseWriter, groupName string) bool {
+	return validateReservedName(w, groupName, thundersvc.NativeAdministratorsGroupName, "group")
+}
+
+// validateReservedRoleName complements validatePredefinedRole, which only
+// inspects a role's current name — without this an ordinary role could be
+// renamed to Administrator.
 func validateReservedRoleName(w http.ResponseWriter, roleName string) bool {
-	if roleName == thundersvc.NativeAdministratorRoleName {
-		utils.WriteErrorResponse(w, http.StatusBadRequest,
-			fmt.Sprintf("%q is a reserved role name", thundersvc.NativeAdministratorRoleName))
-		return false
-	}
-	return true
+	return validateReservedName(w, roleName, thundersvc.NativeAdministratorRoleName, "role")
 }
