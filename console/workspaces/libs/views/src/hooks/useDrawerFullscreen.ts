@@ -16,9 +16,24 @@
  * under the License.
  */
 
-export * from './useDocumentTitle';
-export * from './useFormValidation';
-export * from './useDirtyState';
-export * from './useTimeRangeParams';
-export * from './useAppTheme';
-export * from './useDrawerFullscreen';
+import { useCallback, useState } from 'react';
+
+/**
+ * Drives the fullscreen toggle shared by DrawerHeader (isFullscreen/onToggleFullscreen)
+ * and DrawerWrapper (fullscreen). `reset()` is meant to be called from the same
+ * "reset form on open" effect a drawer already runs, so reopening never resumes
+ * in fullscreen from a previous session.
+ */
+export function useDrawerFullscreen() {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggle = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
+  const reset = useCallback(() => {
+    setIsFullscreen(false);
+  }, []);
+
+  return { isFullscreen, toggle, reset };
+}

@@ -22,6 +22,7 @@ import { KeyRound } from "@wso2/oxygen-ui-icons-react";
 import { CodeBlock, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { TokenExpirySelector, DEFAULT_TOKEN_EXPIRY } from "@agent-management-platform/views";
 import { useGenerateAgentToken } from "@agent-management-platform/api-client";
+import { StepNumberBadge } from "./StepNumberBadge";
 
 interface TokenGenerationStepProps {
   stepNumber: number;
@@ -123,24 +124,7 @@ export const TokenGenerationStep = ({
     <Box display="flex" gap={1} flexDirection="column">
       <Box display="flex" alignItems="center" gap={1} justifyContent="space-between">
         <Box display="flex" alignItems="center" gap={1}>
-          <Box
-            sx={{
-              gap: 2,
-              width: 20,
-              height: 20,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: (theme) => theme.palette.primary.main,
-              color: "primary.contrastText",
-              fontWeight: 600,
-            }}
-          >
-            <Typography variant="body2" fontWeight={600}>
-              {stepNumber}
-            </Typography>
-          </Box>
+          <StepNumberBadge stepNumber={stepNumber} />
           <Typography variant="body1">Generate API Key</Typography>
         </Box>
 
