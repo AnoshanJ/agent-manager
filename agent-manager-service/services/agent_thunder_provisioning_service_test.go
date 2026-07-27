@@ -1001,10 +1001,6 @@ func TestGetAgentGroups_NoBindingRow_ReturnsNotProvisioned_Not500(t *testing.T) 
 // have a stored secret.
 func TestGetIdentityViews_NeverTouchesSecretStore(t *testing.T) {
 	store := &clientmocks.SecretManagementClientMock{
-		GetSecretWithValueFunc: func(context.Context, string) (map[string]string, error) {
-			t.Fatal("GetIdentityViews must never read the secret store — it is a safe, non-destructive read")
-			return nil, nil //nolint:nilnil // unreachable — t.Fatal above halts the test
-		},
 		DeleteSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, string) error {
 			t.Fatal("GetIdentityViews must never destroy a secret")
 			return nil
@@ -1050,12 +1046,7 @@ func TestGetIdentityViews_External_ExposesClientIDNoSecret(t *testing.T) {
 }
 
 func TestGetIdentityViews_Internal_SecretNeverReturned(t *testing.T) {
-	store := &clientmocks.SecretManagementClientMock{
-		GetSecretWithValueFunc: func(context.Context, string) (map[string]string, error) {
-			t.Fatal("an internal agent's secret must never be read for display, even if it exists")
-			return nil, nil //nolint:nilnil // unreachable — t.Fatal above halts the test
-		},
-	}
+	store := &clientmocks.SecretManagementClientMock{}
 	repo := &repomocks.AgentThunderClientRepositoryMock{
 		FindByAgentFunc: func(_ context.Context, _, _, _ string) ([]models.AgentThunderClient, error) {
 			return []models.AgentThunderClient{{

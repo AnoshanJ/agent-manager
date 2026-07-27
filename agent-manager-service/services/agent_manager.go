@@ -804,9 +804,9 @@ func agentAPIKeySecretLocation(ouID, projectName, agentName, envName string) sec
 //
 // The reference is resolved from the SecretReference CR rather than computed locally:
 // CreateSecret returns the SecretReference name, and only the SecretReference knows the
-// provider's real remote reference. (For OpenBao that happens to be the KV path, but for
-// the Secret Manager API it is the provider's own reference — location.KVPath() is wrong
-// there, so we must read it back from the SecretReference.)
+// provider's real remote reference. (The provider manages the SecretReference and its
+// remoteRef internally — location.KVPath() is not the real reference, so we must read
+// it back from the SecretReference.)
 func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projectName, agentName, envName, apiKey string) (key string, property string, err error) {
 	if s.secretMgmtClient == nil {
 		return "", "", fmt.Errorf("secret management is not initialized; cannot store agent API key")
@@ -1607,7 +1607,8 @@ func (s *agentManagerService) toCreateAgentRequestWithSecrets(req *spec.CreateAg
 	return result
 }
 
-// saveSecretsAndCreateReference handles storing secrets in OpenBao and creating SecretReference CR
+// saveSecretsAndCreateReference stores secrets via the secret management client; the
+// provider stores the values and manages the associated SecretReference internally.
 func (s *agentManagerService) saveSecretsAndCreateReference(
 	ctx context.Context,
 	location secretmanagersvc.SecretLocation,
@@ -2274,7 +2275,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 
 	// Step 2-4: For each secret reference, get its details, delete from KV, then delete the CR
 	for _, secretRefName := range secretRefNames {
-		s.cleanupSecretReference(ctx, ouID, projectName, agentName, secretRefName)
+		s.cleanupSecretReference(ctx, ouID, secretRefName)
 	}
 
 	// Resolve agent type before component deletion so LLM config cleanup does not need
@@ -2416,51 +2417,30 @@ func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, 
 	}
 }
 
-// cleanupSecretReference deletes secrets from KV and the SecretReference CR.
-// It retrieves the SecretReference to get the actual KV path, parses it to a location,
-// then calls DeleteSecret which handles both KV and SecretReference deletion.
-func (s *agentManagerService) cleanupSecretReference(ctx context.Context, ouID, projectName, agentName, secretRefName string) {
-	if s.secretMgmtClient == nil {
-		s.logger.Warn("Secret management client not configured, skipping secret cleanup", "secretRefName", secretRefName)
-		return
-	}
-
-	// Get the SecretReference to find the actual KV path
-	secretRefInfo, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
+// cleanupSecretReference deletes an OpenChoreo-managed secret by name (the
+// secret name and its SecretReference name are the same); the API removes the
+// stored values and the SecretReference together. Only removes secrets owned
+// by this service (managed-by label).
+func (s *agentManagerService) cleanupSecretReference(ctx context.Context, ouID, secretRefName string) {
+	secret, err := s.ocClient.GetSecret(ctx, ouID, secretRefName)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
-			s.logger.Debug("SecretReference not found, skipping cleanup", "secretRefName", secretRefName)
+			s.logger.Debug("Secret not found, skipping cleanup", "secretRefName", secretRefName)
 			return
 		}
-		s.logger.Warn("Failed to get SecretReference, skipping cleanup", "secretRefName", secretRefName, "error", err)
+		s.logger.Warn("Failed to get secret, skipping cleanup", "secretRefName", secretRefName, "error", err)
 		return
 	}
 
-	if len(secretRefInfo.Data) == 0 {
-		s.logger.Warn("SecretReference has no data sources, skipping cleanup", "secretRefName", secretRefName)
+	if secret.Labels[secretmanagersvc.LabelKeyManagedBy] != secretmanagersvc.DefaultManagedBy {
+		s.logger.Warn("Secret not managed by this service, skipping cleanup", "secretRefName", secretRefName)
 		return
 	}
 
-	// Parse the KV path to get the correct location
-	kvPath := secretRefInfo.Data[0].RemoteRef.Key
-	if kvPath == "" {
-		s.logger.Warn("SecretReference has empty KV path, skipping cleanup", "secretRefName", secretRefName)
-		return
-	}
-
-	location, parseErr := secretmanagersvc.ParseKVPath(kvPath)
-	if parseErr != nil {
-		s.logger.Warn("Failed to parse KV path from SecretReference, skipping cleanup",
-			"kvPath", kvPath, "secretRefName", secretRefName, "error", parseErr)
-		return
-	}
-
-	// DeleteSecret handles both KV deletion and SecretReference CR deletion
-	if err := s.secretMgmtClient.DeleteSecret(ctx, location, secretRefName); err != nil {
-		s.logger.Warn("Failed to delete secret during cleanup",
-			"kvPath", kvPath, "secretRefName", secretRefName, "error", err)
+	if err := s.ocClient.DeleteSecret(ctx, ouID, secretRefName); err != nil && !errors.Is(err, utils.ErrNotFound) {
+		s.logger.Warn("Failed to delete secret during cleanup", "secretRefName", secretRefName, "error", err)
 	} else {
-		s.logger.Debug("Deleted secret during cleanup", "kvPath", kvPath, "secretRefName", secretRefName)
+		s.logger.Debug("Deleted secret during cleanup", "secretRefName", secretRefName)
 	}
 }
 
@@ -3608,6 +3588,15 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			}
 		}
 		fileOverrides = srcFileVars
+
+		// The cloned overrides reference the SOURCE environment's secret by name.
+		// Give the target environment its own copy and re-point the references,
+		// so a later secret edit in one environment cannot break the other.
+		envOverrides, fileOverrides, err = s.cloneEnvSecretForPromotion(ctx, ouID, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides)
+		if err != nil {
+			s.logger.Error("Failed to clone env secret for promotion", "agentName", agentName, "error", err)
+			return fmt.Errorf("failed to clone environment secret for promotion: %w", err)
+		}
 	} else {
 		// User-driven overrides: only what the request carries (plus target system vars
 		// appended below). Source env's user-managed env/files are NOT inherited.
@@ -4115,8 +4104,8 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 //
 // System-managed env vars are identified by looking up the secretRef in the DB: if it is
 // recorded in agent_env_config_variables_mapping for this agent's LLM configurations, it is
-// system-managed. This is provider-agnostic — it works for both OpenBao and the Secret Manager
-// API without relying on secret reference name patterns.
+// system-managed. This is provider-agnostic — it does not rely on secret reference name
+// patterns.
 //
 // These must be handled separately from processEnvVars because processEnvVars would use the
 // env var name (e.g., "CUSTOM_API_KEY") as the SecretKeyRef.Key, but the actual key in the
@@ -4182,6 +4171,86 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 	return result, keySet, nil
 }
 
+// cloneEnvSecretForPromotion gives the target environment its own copy of the
+// source environment's agent secret. Workload overrides cloned from the source
+// environment reference the source secret by name; without a copy, both
+// environments would share one secret and a later secret edit in either
+// environment could break the other's rendering. Env var and file mount
+// references to the source secret are re-pointed at the target copy.
+// No-op when the cloned overrides don't reference the source env secret.
+func (s *agentManagerService) cloneEnvSecretForPromotion(
+	ctx context.Context,
+	ouID, projectName, agentName, sourceEnv, targetEnv string,
+	envVars []client.EnvVar,
+	fileVars []client.FileVar,
+) ([]client.EnvVar, []client.FileVar, error) {
+	srcLocation := secretmanagersvc.SecretLocation{
+		OrgName:         ouID,
+		ProjectName:     projectName,
+		EnvironmentName: sourceEnv,
+		EntityName:      agentName,
+	}
+	srcSecretName := srcLocation.SecretRefName()
+
+	refersToSrc := func(vf *client.EnvVarValueFrom) bool {
+		return vf != nil && vf.SecretKeyRef != nil && vf.SecretKeyRef.Name == srcSecretName
+	}
+	referenced := false
+	for _, ev := range envVars {
+		if refersToSrc(ev.ValueFrom) {
+			referenced = true
+			break
+		}
+	}
+	if !referenced {
+		for _, fv := range fileVars {
+			if refersToSrc(fv.ValueFrom) {
+				referenced = true
+				break
+			}
+		}
+	}
+	if !referenced {
+		return envVars, fileVars, nil
+	}
+
+	if s.secretMgmtClient == nil {
+		return nil, nil, fmt.Errorf("secret management is not initialized; cannot clone secret for promotion")
+	}
+
+	srcSecret, err := s.ocClient.GetSecret(ctx, ouID, srcSecretName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read source environment secret %q: %w", srcSecretName, err)
+	}
+	data := make(map[string]string, len(srcSecret.Data))
+	for k, v := range srcSecret.Data {
+		data[k] = string(v)
+	}
+
+	tgtLocation := srcLocation
+	tgtLocation.EnvironmentName = targetEnv
+	tgtSecretName, err := s.secretMgmtClient.CreateSecret(ctx, tgtLocation, data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create target environment secret: %w", err)
+	}
+
+	for i := range envVars {
+		if refersToSrc(envVars[i].ValueFrom) {
+			envVars[i].ValueFrom.SecretKeyRef.Name = tgtSecretName
+		}
+	}
+	for i := range fileVars {
+		if refersToSrc(fileVars[i].ValueFrom) {
+			fileVars[i].ValueFrom.SecretKeyRef.Name = tgtSecretName
+		}
+	}
+
+	s.logger.Info("Cloned environment secret for promotion",
+		"agentName", agentName, "sourceSecret", srcSecretName, "targetSecret", tgtSecretName,
+		"sourceEnv", sourceEnv, "targetEnv", targetEnv)
+	return envVars, fileVars, nil
+}
+
 // processEnvVars handles environment variables, separating secrets from plain values.
 // This function handles configuration updates including:
 //   - Adding new secret keys to KV and SecretReference
@@ -4191,7 +4260,7 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 //
 // For sensitive env vars (isSensitive=true):
 //   - If secretRef is provided and value is empty: preserves existing secret (no KV update)
-//   - If value is provided: stores/updates the secret value in OpenBao
+//   - If value is provided: stores/updates the secret value in the secret store
 //   - Returns env var with secretKeyRef (Name=K8s Secret name, Key=property)
 //
 // For plain env vars:

@@ -22,7 +22,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/app"
 	ocauth "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/auth"
-	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc/providers/openbao"
+	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc/providers/openchoreo"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
@@ -43,8 +43,8 @@ func main() {
 		Scope:        strings.Join(cfg.OAuthScopesSupported, " "),
 	})
 
-	// Open-source: OpenBao secret management
-	secretProvider := openbao.NewProvider()
+	// Secret management via the OpenChoreo secret management API
+	secretProvider := openchoreo.NewProvider()
 
 	// Open-source: OpenBao-backed AgentID provisioning
 	agentThunderProvisioning := services.NewOpenBaoAgentThunderProvisioning()

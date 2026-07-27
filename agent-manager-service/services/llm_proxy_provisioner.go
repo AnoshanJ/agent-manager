@@ -85,7 +85,7 @@ type ProvisionProxyParams struct {
 	Description    string
 	CreatedBy      string // defaults to models.UserRoleSystem when empty
 	SecretCtx      ProxySecretContext
-	// SkipKVSecret skips storing the proxy API key in OpenBao KV.
+	// SkipKVSecret skips storing the proxy API key in the secret store.
 	// Set by callers (e.g. monitors) that manage their own composite secret.
 	SkipKVSecret bool
 }

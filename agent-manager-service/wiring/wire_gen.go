@@ -556,24 +556,16 @@ func ProvideObserverClient(cfg config.Config, authProvider client.AuthProvider) 
 // not forwarded — preventing the high-level client from making redundant
 // SecretReference CRUD calls.
 func ProvideSecretManagementClient(cfg config.Config, secretProvider secretmanagersvc.Provider, ocClient client.OpenChoreoClient) (secretmanagersvc.SecretManagementClient, error) {
-	ocClientForSecretMgmt := ocClient
-	if mgr, ok := secretProvider.(secretmanagersvc.SecretReferenceManager); ok && mgr.ManagesSecretReferences() {
-		ocClientForSecretMgmt = nil
-	}
 	return secretmanagersvc.NewSecretManagementClientWithConfig(secretmanagersvc.SecretManagementClientConfig{
 		StoreConfig: &secretmanagersvc.StoreConfig{
 			Provider: cfg.SecretManager.Provider,
-			OpenBao: &secretmanagersvc.OpenBaoConfig{
-				Server: cfg.OpenBao.URL,
-				Path:   cfg.OpenBao.Path,
-				Auth: &secretmanagersvc.OpenBaoAuth{
-					Token: cfg.OpenBao.Token,
-				},
+			OpenChoreo: &secretmanagersvc.OpenChoreoConfig{
+				Client:          ocClient,
+				TargetPlaneKind: cfg.SecretManager.TargetPlaneKind,
+				TargetPlaneName: cfg.SecretManager.TargetPlaneName,
 			},
 		},
-		Provider:        secretProvider,
-		OCClient:        ocClientForSecretMgmt,
-		RefreshInterval: cfg.SecretManager.RefreshInterval,
+		Provider: secretProvider,
 	})
 }
 
