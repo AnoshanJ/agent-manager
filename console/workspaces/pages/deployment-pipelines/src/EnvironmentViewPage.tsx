@@ -45,7 +45,6 @@ import {
 } from "@agent-management-platform/api-client";
 import {
   absoluteRouteMap,
-  type GatewayListenerSpec,
   type GatewayResponse,
   type GatewayStatus,
 } from "@agent-management-platform/types";
@@ -95,53 +94,6 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-interface EndpointCardProps {
-  label: string;
-  scheme: "http" | "https";
-  endpoint: GatewayListenerSpec;
-  onCopy: (value: string, message: string) => void;
-}
-
-function EndpointCard({ label, scheme, endpoint, onCopy }: EndpointCardProps) {
-  const url = endpoint.host
-    ? `${scheme}://${endpoint.host}${endpoint.port ? `:${endpoint.port}` : ""}`
-    : undefined;
-  const displayValue = url ?? "Not configured";
-
-  return (
-    <Card variant="outlined" sx={{ height: "100%" }}>
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-        <Stack spacing={0.5}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-            {label}
-          </Typography>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography
-              variant="body2"
-              color={url ? "text.primary" : "text.secondary"}
-              sx={{ fontFamily: "monospace", wordBreak: "break-all", flex: 1, fontSize: "0.8rem" }}
-            >
-              {displayValue}
-            </Typography>
-            {url && (
-              <Tooltip title={`Copy ${label}`}>
-                <IconButton
-                  size="small"
-                  aria-label={`Copy ${label}`}
-                  onClick={() => onCopy(url, `${label} copied to clipboard`)}
-                  sx={{ flexShrink: 0 }}
-                >
-                  <Copy size={14} />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
-
 export function EnvironmentViewPage() {
   const { orgId, envName } = useParams<{ orgId: string; envName: string }>();
   const navigate = useNavigate();
@@ -178,9 +130,6 @@ export function EnvironmentViewPage() {
       );
     });
   };
-
-  const httpEndpoint = env?.gateway?.ingress?.external?.http;
-  const httpsEndpoint = env?.gateway?.ingress?.external?.https;
 
   const displayName = env?.displayName ?? env?.name ?? envName ?? "";
 
@@ -258,41 +207,15 @@ export function EnvironmentViewPage() {
 
       {env && !envError && (
         <Stack spacing={3}>
-          <Stack spacing={1.5}>
-            {env.dnsPrefix || httpEndpoint || httpsEndpoint ? (
+          {env.dnsPrefix && (
+            <Stack spacing={1.5}>
               <Grid container spacing={2}>
-                {env.dnsPrefix && (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <InfoCard label="DNS Prefix" value={env.dnsPrefix} />
-                  </Grid>
-                )}
-                {httpEndpoint && (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <EndpointCard
-                      label="HTTP Endpoint"
-                      scheme="http"
-                      endpoint={httpEndpoint}
-                      onCopy={handleCopy}
-                    />
-                  </Grid>
-                )}
-                {httpsEndpoint && (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <EndpointCard
-                      label="HTTPS Endpoint"
-                      scheme="https"
-                      endpoint={httpsEndpoint}
-                      onCopy={handleCopy}
-                    />
-                  </Grid>
-                )}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <InfoCard label="DNS Prefix" value={env.dnsPrefix} />
+                </Grid>
               </Grid>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No external ingress configured for this environment.
-              </Typography>
-            )}
-          </Stack>
+            </Stack>
+          )}
 
           <Stack spacing={1.5}>
             <Typography variant="overline" color="text.secondary">

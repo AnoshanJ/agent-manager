@@ -221,6 +221,9 @@ export function MCPProxySecurityTab({
     { orgName: orgName ?? "", proxyId: proxyId ?? "" },
     { enabled: authenticationType === "identity" && !!proxyId },
   );
+  // The persisted source of truth, used to diff against on Save (see
+  // computeScopeReconciliation) — not what the Autocomplete offers as
+  // suggestions, since that also needs not-yet-saved scopes (see scopeOptions).
   const catalogScopes: MCPProxyScopeResponse[] = useMemo(
     () => scopesData?.scopes ?? [],
     [scopesData],
@@ -301,6 +304,24 @@ export function MCPProxySecurityTab({
       prev.map((row) => (row.tool === tool ? { ...row, scopes } : row)),
     );
   }, []);
+
+  // What the Autocomplete offers: catalogScopes (persisted) plus any scope just
+  // added via "+ Add Scope" on another row but not yet saved — without this,
+  // every other row's Autocomplete would fail to recognize the same action and
+  // keep offering to "add" it again instead of suggesting the one the user
+  // already just created. Save still reconciles against catalogScopes alone.
+  const scopeOptions = useMemo<ScopeOption[]>(() => {
+    const knownActions = new Set(catalogScopes.map((s) => s.action));
+    const pending: ScopeOption[] = [];
+    for (const scope of toolScopeRows.flatMap((row) => row.scopes)) {
+      if (knownActions.has(scope.action)) continue;
+      knownActions.add(scope.action);
+      // Not marked isNew here: to every other row it's already a real,
+      // selectable scope, not something still being typed.
+      pending.push({ ...scope, isNew: false });
+    }
+    return [...catalogScopes, ...pending];
+  }, [catalogScopes, toolScopeRows]);
 
   // Selecting the synthetic "+ Add Scope" option just commits a pending
   // placeholder to the row — it isn't created on the server until Save,
@@ -510,7 +531,7 @@ export function MCPProxySecurityTab({
                 No Tools Available
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                This MCP proxy has no tools. Scope bindings require at least one
+                This MCP Server has no tools. Scope bindings require at least one
                 tool.
               </Typography>
             </Stack>
@@ -550,7 +571,7 @@ export function MCPProxySecurityTab({
                           multiple
                           size="small"
                           disableCloseOnSelect
-                          options={catalogScopes}
+                          options={scopeOptions}
                           value={row.scopes}
                           onChange={(_e, value) =>
                             handleToolScopeRowScopesChange(

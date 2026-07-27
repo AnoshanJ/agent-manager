@@ -59,7 +59,6 @@ import {
   normalizeVersion,
 } from "@agent-management-platform/shared-component";
 import { PageLayout } from "@agent-management-platform/views";
-import { MCPCapabilitiesView } from "../components/MCPCapabilitiesView";
 import { MCPProxyManageToolsTab } from "./MCPProxyManageToolsTab";
 import { MCPProxyConnectionTab } from "./MCPProxyConnectionTab";
 import { MCPProxyOverviewTab } from "./MCPProxyOverviewTab";
@@ -74,7 +73,6 @@ import { useCopyWithFeedback } from "./useCopyWithFeedback";
 // instead of resetting to Overview/first-environment.
 const TAB_DEFS = [
   { label: "Overview", slug: "overview" },
-  { label: "Capabilities", slug: "capabilities" },
   { label: "Connection", slug: "connection" },
   { label: "Manage Tools", slug: "manage-tools" },
   { label: "Security", slug: "security" },
@@ -91,6 +89,9 @@ export function ViewMCPProxy() {
   const tabIndex = tabSlug
     ? Math.max(0, TAB_DEFS.findIndex((tab) => tab.slug === tabSlug))
     : 0;
+  // Render blocks below key off the slug, not the raw index, so reordering or
+  // removing a tab in TAB_DEFS doesn't require manually renumbering every block.
+  const activeTabSlug = TAB_DEFS[tabIndex]?.slug;
   const selectedEndpointId = searchParams.get("endpoint") ?? "";
 
   const setSelectedEndpointId = useCallback(
@@ -207,7 +208,7 @@ export function ViewMCPProxy() {
     [orgId, proxy, selectedEndpointId, updateMCPProxy],
   );
 
-  const displayName = proxy?.name ?? proxy?.id ?? proxyId ?? "MCP Proxy";
+  const displayName = proxy?.name ?? proxy?.id ?? proxyId ?? "MCP Server";
   const hasEndpoints = endpoints.length > 0;
   // The proxy fetch's own isLoading flips to false as soon as `proxy` arrives,
   // but selecting the first endpoint (when the URL doesn't already name one)
@@ -229,7 +230,7 @@ export function ViewMCPProxy() {
       <PageLayout
         title={displayName}
         backHref={backHref}
-        backLabel="Back to MCP Proxies"
+        backLabel="Back to MCP Servers"
         isLoading={isLoading}
         titleTail={
           proxy?.version ? (
@@ -250,7 +251,7 @@ export function ViewMCPProxy() {
               startIcon={<Edit size={16} />}
               onClick={() => setEditDrawerOpen(true)}
             >
-              Edit MCP Proxy
+              Edit MCP Server
             </Button>
           ) : undefined
         }
@@ -266,7 +267,7 @@ export function ViewMCPProxy() {
           <Alert severity="error" icon={<AlertTriangle size={18} />}>
             {error instanceof Error
               ? error.message
-              : "Failed to load MCP proxy. Please try again."}
+              : "Failed to load MCP Server. Please try again."}
           </Alert>
         ) : null}
 
@@ -332,7 +333,7 @@ export function ViewMCPProxy() {
               </Grid>
             </Grid>
 
-            {hasEndpoints && (
+            {endpoints.length > 1 && (
               <Stack
                 direction="row"
                 spacing={1}
@@ -394,7 +395,7 @@ export function ViewMCPProxy() {
                 </Stack>
                 <Divider />
                 <Box sx={{ p: 3 }}>
-                  {tabIndex === 0 && (
+                  {activeTabSlug === "overview" && (
                     <MCPProxyOverviewTab
                       proxy={proxy}
                       config={selectedConfig}
@@ -402,15 +403,7 @@ export function ViewMCPProxy() {
                       isLoading={isTabContentLoading}
                     />
                   )}
-                  {tabIndex === 1 && (
-                    <MCPCapabilitiesView
-                      tools={selectedConfig?.capabilities?.tools}
-                      resources={selectedConfig?.capabilities?.resources}
-                      prompts={selectedConfig?.capabilities?.prompts}
-                      sectionTitleVariant="h6"
-                    />
-                  )}
-                  {tabIndex === 2 && (
+                  {activeTabSlug === "connection" && (
                     <MCPProxyConnectionTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -419,7 +412,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 3 && (
+                  {activeTabSlug === "manage-tools" && (
                     <MCPProxyManageToolsTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -429,7 +422,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 4 && (
+                  {activeTabSlug === "security" && (
                     <MCPProxySecurityTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -440,7 +433,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 5 && (
+                  {activeTabSlug === "rewrite" && (
                     <MCPProxyRewriteTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -450,7 +443,7 @@ export function ViewMCPProxy() {
                       isUpdating={updateMCPProxy.isPending}
                     />
                   )}
-                  {tabIndex === 6 && (
+                  {activeTabSlug === "policies" && (
                     <MCPProxyPoliciesTab
                       config={selectedConfig}
                       selectedEndpointId={selectedEndpointId}
@@ -464,8 +457,8 @@ export function ViewMCPProxy() {
             ) : (
               <Card variant="outlined" sx={{ p: 3 }}>
                 <Alert severity="info">
-                  This MCP proxy has no endpoints configured. Use &quot;Edit MCP
-                  Proxy&quot; above to add one.
+                  This MCP Server has no endpoints configured. Use &quot;Edit MCP
+                  Server&quot; above to add one.
                 </Alert>
               </Card>
             )}
