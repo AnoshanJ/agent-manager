@@ -297,21 +297,33 @@ install_observability_plane() {
     # The observer resolves service accounts from its own config (observer-auth-config),
     # still keyed on 'claim: sub'. Patch it to 'client_id' (like openchoreo-api-config),
     # else agent build-log queries get 403.
+    #
+    # observer-auth-config is populated asynchronously: the configmap can exist
+    # before its service-account 'claim: sub' is written. Patching too early sees
+    # no 'sub' and would fail below; wait for the claim to surface (either 'sub'
+    # to patch, or 'client_id' if a prior run already did).
     echo "🔧 Patching observer-auth-config: service_account entitlement claim → client_id..."
-    if kubectl get configmap observer-auth-config -n openchoreo-observability-plane &>/dev/null; then
-        patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
-            | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
-        if ! echo "$patched_obs_yaml" | grep -q "claim: client_id"; then
-            echo "❌ Failed to patch observer-auth-config entitlement claim to client_id"
-            return 1
-        fi
-        echo "$patched_obs_yaml" | kubectl apply --server-side --field-manager=helm --force-conflicts -f -
-        kubectl rollout restart deployment/observer -n openchoreo-observability-plane
-        kubectl rollout status deployment/observer -n openchoreo-observability-plane --timeout=120s
-        echo "✅ observer-auth-config patched (client_id claim)"
-    else
-        echo "⚠️  observer-auth-config not found — skipping observer claim patch"
+    obs_auth_claim=""
+    for _ in $(seq 1 30); do
+        obs_auth_claim=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml 2>/dev/null \
+            | grep -oE "claim:[[:space:]]*['\"]?(sub|client_id)['\"]?" | head -1)
+        [ -n "$obs_auth_claim" ] && break
+        sleep 4
+    done
+    if [ -z "$obs_auth_claim" ]; then
+        echo "❌ observer-auth-config has no service-account 'sub' claim after waiting"
+        return 1
     fi
+    patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
+        | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
+    if ! echo "$patched_obs_yaml" | grep -q "claim: client_id"; then
+        echo "❌ Failed to patch observer-auth-config entitlement claim to client_id"
+        return 1
+    fi
+    echo "$patched_obs_yaml" | kubectl apply --server-side --field-manager=helm --force-conflicts -f -
+    kubectl rollout restart deployment/observer -n openchoreo-observability-plane
+    kubectl rollout status deployment/observer -n openchoreo-observability-plane --timeout=120s
+    echo "✅ observer-auth-config patched (client_id claim)"
 
     # Registering the Observability Plane with the control plane
     echo "🔗 Registering Observability Plane..."

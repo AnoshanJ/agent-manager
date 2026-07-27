@@ -1350,8 +1350,23 @@ fi
 # ThunderID v0.45: the observer resolves service accounts from its own config
 # (observer-auth-config), still keyed on 'claim: sub'. Patch to client_id, else
 # agent build-log / observability queries return 403.
+#
+# The observability plane populates observer-auth-config asynchronously: the
+# configmap can exist for a while before its service-account 'claim: sub' is
+# written. Patching too early sees no 'sub', silently skips, and leaves the
+# observer on 'sub' (403 on every log/trace query). Wait for the claim to
+# surface (either 'sub' to patch, or 'client_id' if a prior run already did).
 log_info "Patching observer-auth-config: service_account entitlement claim -> client_id..."
-if kubectl get configmap observer-auth-config -n openchoreo-observability-plane &>/dev/null; then
+obs_auth_claim=""
+for _ in $(seq 1 30); do
+    obs_auth_claim=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml 2>/dev/null \
+        | grep -oE "claim:[[:space:]]*['\"]?(sub|client_id)['\"]?" | head -1)
+    [ -n "$obs_auth_claim" ] && break
+    sleep 4
+done
+if [ -z "$obs_auth_claim" ]; then
+    log_warning "observer-auth-config has no service-account 'sub' claim after waiting - skipping (observer log/trace queries will 403 until it is patched)"
+else
     patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
         | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
     if echo "$patched_obs_yaml" | grep -q "claim: client_id"; then
@@ -1362,8 +1377,6 @@ if kubectl get configmap observer-auth-config -n openchoreo-observability-plane 
     else
         log_warning "observer-auth-config has no 'sub' claim to patch - skipping"
     fi
-else
-    log_warning "observer-auth-config not found - skipping observer claim patch"
 fi
 
 # Register Observability Plane with Control Plane
