@@ -337,6 +337,11 @@ export const rootRouteMap: AppRoute = {
                             path: 'agents/:agentId',
                             index: true,
                             children: {
+                                agentId: {
+                                    path: 'agent-id',
+                                    index: true,
+                                    children: {},
+                                },
                                 configure: {
                                     path: 'configure',
                                     index: true,

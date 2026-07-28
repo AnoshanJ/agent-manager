@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import {
   Alert,
   Box,
@@ -35,28 +35,27 @@ import {
   ExternalLink,
   RotateCcwKey,
   ShieldAlert,
-  ShieldCheck,
   ShieldOff,
 } from "@wso2/oxygen-ui-icons-react";
-import { generatePath } from "react-router-dom";
-import { absoluteRouteMap } from "@agent-management-platform/types";
+import { generatePath, useParams, useSearchParams } from "react-router-dom";
 import {
-  DrawerContent,
-  DrawerHeader,
-  DrawerWrapper,
-  TextInput,
-} from "@agent-management-platform/views";
+  absoluteRouteMap,
+  IDENTITY_ENV_PARAM,
+} from "@agent-management-platform/types";
+import { PageLayout, TextInput } from "@agent-management-platform/views";
+import { useListEnvironments } from "@agent-management-platform/api-client";
 import {
   getErrorMessage,
   monospaceInputSx,
   RolesGroupsChips,
   useAgentIdentityCredentials,
   useAgentRolesAndGroups,
+  usePipelineEnvironmentsState,
   useThunderInstanceForEnv,
 } from "@agent-management-platform/shared-component";
 
 /**
- * Shared loading/error/empty fallback for this drawer's several independent
+ * Shared loading/error/empty fallback for this page's several independent
  * queries (identity binding, Thunder instance, environment list) — each
  * needs the same three-way triage, just with different icons/copy.
  */
@@ -342,40 +341,45 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
   );
 };
 
-export interface ManageIdentityDrawerProps {
-  open: boolean;
-  onClose: () => void;
-  orgId: string;
-  projectId: string;
-  agentId: string;
-  envNames: string[];
-  /** Loading/error state of the query that produced `envNames`, so the
-   * drawer can tell "still fetching" or "failed to fetch" apart from a
-   * genuinely empty environment list. */
-  isEnvironmentsLoading: boolean;
-  isEnvironmentsError: boolean;
-  getEnvDisplayName: (name: string) => string;
-  /** Controlled by the caller (URL search param) so a deep link from an
-   * EnvironmentCard's "Manage AgentID" button can pre-select the environment
-   * it was opened from. */
-  selectedEnvName: string;
-  onSelectedEnvNameChange: (envName: string) => void;
-}
-
 /**
- * Per-agent identity management, opened from the Configure Agent page's
- * "Manage AgentID" button — client ID/secret/regenerate, roles/groups, and
- * the OAuth2 endpoint details, one environment at a time via the selector
- * below. Overview cards keep their own roles/groups display too
- * (EnvAgentRolesGroupsSection); this is the fuller picture for one env.
+ * Agent-level "Agent ID" page — client ID/secret/regenerate, roles/groups,
+ * and OAuth2 endpoint details for this agent's identity, one environment at
+ * a time via the selector below. Linked to from the Overview page's
+ * per-environment "Agent ID" section (EnvAgentRolesGroupsSection) as well as
+ * the agent's own left-nav.
  */
-export const ManageIdentityDrawer: React.FC<ManageIdentityDrawerProps> = ({
-  open, onClose, orgId, projectId, agentId, envNames,
-  isEnvironmentsLoading, isEnvironmentsError, getEnvDisplayName,
-  selectedEnvName, onSelectedEnvNameChange,
-}) => {
+export const AgentIdComponent: React.FC = () => {
+  const { orgId, projectId, agentId } = useParams<{
+    orgId: string;
+    projectId: string;
+    agentId: string;
+  }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const envSelectLabelId = useId();
-  const envName = envNames.includes(selectedEnvName) ? selectedEnvName : (envNames[0] ?? "");
+
+  const {
+    environments: pipelineEnvs,
+    isLoading: isEnvironmentsLoading,
+    isError: isEnvironmentsError,
+  } = usePipelineEnvironmentsState(orgId, projectId);
+  const envNames = useMemo(() => pipelineEnvs.map((env) => env.name), [pipelineEnvs]);
+  const { data: environmentsList = [] } = useListEnvironments({ orgName: orgId });
+  const getEnvDisplayName = (name: string) =>
+    environmentsList.find((env) => env.name === name)?.displayName ?? name;
+
+  const requestedEnvName = searchParams.get(IDENTITY_ENV_PARAM) ?? "";
+  const envName = envNames.includes(requestedEnvName) ? requestedEnvName : (envNames[0] ?? "");
+
+  const setSelectedEnvName = (name: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(IDENTITY_ENV_PARAM, name);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   let content: React.ReactNode;
   if (isEnvironmentsLoading || isEnvironmentsError || !envName) {
@@ -402,7 +406,7 @@ export const ManageIdentityDrawer: React.FC<ManageIdentityDrawerProps> = ({
             <Select
               labelId={envSelectLabelId}
               value={envName}
-              onChange={(event) => onSelectedEnvNameChange(event.target.value as string)}
+              onChange={(event) => setSelectedEnvName(event.target.value as string)}
             >
               {envNames.map((name) => (
                 <MenuItem key={name} value={name}>
@@ -415,9 +419,9 @@ export const ManageIdentityDrawer: React.FC<ManageIdentityDrawerProps> = ({
 
         <AgentIdentitySection
           key={envName}
-          orgId={orgId}
-          projectId={projectId}
-          agentId={agentId}
+          orgId={orgId ?? ""}
+          projectId={projectId ?? ""}
+          agentId={agentId ?? ""}
           envId={envName}
         />
       </>
@@ -425,11 +429,14 @@ export const ManageIdentityDrawer: React.FC<ManageIdentityDrawerProps> = ({
   }
 
   return (
-    <DrawerWrapper open={open} onClose={onClose} maxWidth={640}>
-      <DrawerHeader icon={<ShieldCheck size={24} />} title="Manage AgentID" onClose={onClose} />
-      <DrawerContent>
-        <Stack spacing={2}>{content}</Stack>
-      </DrawerContent>
-    </DrawerWrapper>
+    <PageLayout
+      title="Agent ID"
+      description="Client credentials, roles & groups, and OAuth2 endpoints for this agent's identity."
+      disableIcon
+    >
+      <Stack spacing={2}>{content}</Stack>
+    </PageLayout>
   );
 };
+
+export default AgentIdComponent;

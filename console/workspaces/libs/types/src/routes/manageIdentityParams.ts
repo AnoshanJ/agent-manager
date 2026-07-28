@@ -16,11 +16,10 @@
  * under the License.
  */
 
-// Query params read by the Configure Agent page's "Manage AgentID" drawer
-// (ManageIdentityDrawer, in @agent-management-platform/configure-agent) and
-// written by the deep link an EnvironmentCard's "Manage AgentID" button
-// builds (@agent-management-platform/overview). Shared here — both packages
-// already depend on @agent-management-platform/types for absoluteRouteMap —
-// so a rename can't desync the two sides.
-export const MANAGE_IDENTITY_PARAM = "manageIdentity";
+// Query param read by the agent-level "Agent ID" page
+// (@agent-management-platform/env-thunders) to pre-select an environment,
+// and written by the deep link an EnvironmentCard's "Agent ID" button builds
+// (@agent-management-platform/overview). Shared here — both packages already
+// depend on @agent-management-platform/types for absoluteRouteMap — so a
+// rename can't desync the two sides.
 export const IDENTITY_ENV_PARAM = "identityEnv";

@@ -248,6 +248,21 @@ export function useNavigationItems(): Array<
         ),
       },
       {
+        label: "Agent ID",
+        type: "item",
+        icon: <thunderInstancesMetadata.icon size={20} />,
+        isActive: !!matchPath(
+          absoluteRouteMap.children.org.children.projects.children.agents
+            .children.agentId.wildPath,
+          pathname,
+        ),
+        href: generatePath(
+          absoluteRouteMap.children.org.children.projects.children.agents
+            .children.agentId.path,
+          { orgId, projectId, agentId },
+        ),
+      },
+      {
         title: "Observability",
         type: "section",
         icon: <AutoGraphOutlined />,
@@ -321,6 +336,20 @@ export function useNavigationItems(): Array<
           pathname,
         ),
         href: generatePath(agentsChildren.configure?.path ?? "", {
+          orgId,
+          projectId,
+          agentId,
+        }),
+      },
+      {
+        label: "Agent ID",
+        type: "item",
+        icon: <thunderInstancesMetadata.icon size={20} />,
+        isActive: !!matchPath(
+          agentsChildren.agentId?.wildPath ?? "",
+          pathname,
+        ),
+        href: generatePath(agentsChildren.agentId?.path ?? "", {
           orgId,
           projectId,
           agentId,
@@ -512,6 +541,20 @@ export function useNavigationItems(): Array<
           pathname,
         ),
         href: generatePath(agentsChildren.configure?.path ?? "", {
+          orgId,
+          projectId,
+          agentId,
+        }),
+      },
+      {
+        label: "Agent ID",
+        type: "item",
+        icon: <thunderInstancesMetadata.icon size={20} />,
+        isActive: !!matchPath(
+          agentsChildren.agentId?.wildPath ?? "",
+          pathname,
+        ),
+        href: generatePath(agentsChildren.agentId?.path ?? "", {
           orgId,
           projectId,
           agentId,
