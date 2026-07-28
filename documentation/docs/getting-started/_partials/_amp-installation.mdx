@@ -8,11 +8,14 @@
          expanded instead of collapsed (for non-k3d environments)
        - props.production         — (boolean, optional) if true, renders the production
          variants of the install commands (external database, generated client secrets,
-         gateway development mode off) instead of the development-grade defaults
+         multiple replicas, non-debug logging) instead of the development-grade
+         defaults. Note the gateway still installs with developmentMode=true: turning
+         it off needs encryption keys the extension chart does not expose as a value,
+         so Step 7 flags it rather than setting it.
 */}
 
-export const Prod = ({when, children}) => (when ? <>{children}</> : null);
-export const Dev = ({when, children}) => (when ? null : <>{children}</>);
+export const Prod = ({production, children}) => (production ? <>{children}</> : null);
+export const Dev = ({production, children}) => (production ? null : <>{children}</>);
 
 The Agent Manager installs as a set of Helm charts on top of OpenChoreo. The components fall into two groups based on install order:
 
@@ -33,7 +36,7 @@ Install these in order — each depends on the one before it.
 
 Manages API Gateway resources and enables secure, authenticated trace ingestion into the Observability Plane.
 
-<Dev when={props.production}>
+<Dev production={props.production}>
 
 ```bash
 helm install gateway-operator \
@@ -48,7 +51,7 @@ helm install gateway-operator \
 
 </Dev>
 
-<Prod when={props.production}>
+<Prod production={props.production}>
 
 ```bash
 helm install gateway-operator \
@@ -110,7 +113,7 @@ The API Platform Gateway is deployed as an extension after Agent Manager is runn
 
 The core platform: a Go API server, a React web console, and a database.
 
-<Dev when={props.production}>
+<Dev production={props.production}>
 
 ```bash
 helm install amp \
@@ -152,7 +155,7 @@ kubectl wait --for=condition=Available \
 
 </Dev>
 
-<Prod when={props.production}>
+<Prod production={props.production}>
 
 The chart deploys an in-cluster PostgreSQL with a default password unless you point it at an external database. Use a managed service — sizing, backups, failover, and patching then come from your database platform. Create the database and a credentials Secret first:
 
@@ -211,6 +214,12 @@ kubectl wait --for=condition=Available \
 ```
 
 `agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
+
+:::warning Enforce TLS on the database server
+The chart passes the connection details as separate host, port, and credential values, and the service builds its connection string without an explicit SSL mode — so the driver's default of `prefer` applies. That negotiates TLS when the server offers it but **silently falls back to an unencrypted connection** when it does not, and there is currently no chart value to require it from the client side.
+
+Enforce it on the database instead, where it cannot be downgraded: *Require SSL* on Cloud SQL, `rds.force_ssl=1` on RDS, or *require secure transport* on Azure Database for PostgreSQL. Keep the database on a private network as well, so it is never reachable from outside the VPC.
+:::
 
 </Prod>
 
@@ -338,7 +347,7 @@ These can be installed in any order after Core is ready.
 
 Deploys the observer service that queries and serves trace, log, and metrics data to the console and CLI.
 
-<Dev when={props.production}>
+<Dev production={props.production}>
 
 ```bash
 helm install amp-observability-traces \
@@ -356,7 +365,7 @@ kubectl wait --for=condition=Available \
 
 </Dev>
 
-<Prod when={props.production}>
+<Prod production={props.production}>
 
 `amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder:
 
@@ -410,7 +419,7 @@ Evaluation jobs publish scores using the `amp-publisher-client` OAuth2 credentia
 
 Registers the API Platform Gateway with the Agent Manager and deploys the gateway stack. **Install this last** — it requires the Agent Manager API to be healthy and Thunder to be ready for token exchange.
 
-<Dev when={props.production}>
+<Dev production={props.production}>
 
 ```bash
 helm install api-platform-default-default \
@@ -427,7 +436,7 @@ kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap
 
 </Dev>
 
-<Prod when={props.production}>
+<Prod production={props.production}>
 
 The bootstrap job authenticates to the Agent Manager API as `amp-api-client`, so it needs the secret you seeded into Thunder. Keep it out of Helm release history with a Secret reference:
 
