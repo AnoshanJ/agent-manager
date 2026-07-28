@@ -148,6 +148,7 @@ export function useAddAgentIdentityGroupMembers() {
     mutationFn: ({ params, body }) => addAgentIdentityGroupMembers(params, body, getToken),
     onSuccess: (_data, { params }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-group-members', params] });
+      queryClient.invalidateQueries({ queryKey: ['agent-groups'] });
     },
   });
 }
@@ -162,6 +163,7 @@ export function useRemoveAgentIdentityGroupMembers() {
     mutationFn: ({ params, body }) => removeAgentIdentityGroupMembers(params, body, getToken),
     onSuccess: (_data, { params }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-group-members', params] });
+      queryClient.invalidateQueries({ queryKey: ['agent-groups'] });
     },
   });
 }
@@ -260,6 +262,7 @@ export function useAddAgentIdentityRoleAssignees() {
     mutationFn: ({ params, body }) => addAgentIdentityRoleAssignees(params, body, getToken),
     onSuccess: (_data, { params }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-role-assignments', params] });
+      queryClient.invalidateQueries({ queryKey: ['agent-roles'] });
     },
   });
 }
@@ -274,6 +277,7 @@ export function useRemoveAgentIdentityRoleAssignees() {
     mutationFn: ({ params, body }) => removeAgentIdentityRoleAssignees(params, body, getToken),
     onSuccess: (_data, { params }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-role-assignments', params] });
+      queryClient.invalidateQueries({ queryKey: ['agent-roles'] });
     },
   });
 }

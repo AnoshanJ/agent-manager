@@ -15,44 +15,168 @@
  * under the License.
  */
 
-import { useId, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
+  Avatar,
   Box,
   Button,
+  Card,
   CircularProgress,
+  Divider,
   Form,
   FormControl,
+  IconButton,
   ListingTable,
   MenuItem,
   Select,
   Skeleton,
   Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
 import {
   AlertTriangle,
-  ExternalLink,
+  Folder,
   RotateCcwKey,
+  Shield,
   ShieldAlert,
   ShieldOff,
+  Trash,
 } from "@wso2/oxygen-ui-icons-react";
-import { generatePath, useParams, useSearchParams } from "react-router-dom";
-import {
-  absoluteRouteMap,
-  IDENTITY_ENV_PARAM,
-} from "@agent-management-platform/types";
+import { useParams, useSearchParams } from "react-router-dom";
+import { IDENTITY_ENV_PARAM, type ThunderGroup, type ThunderRole } from "@agent-management-platform/types";
 import { PageLayout, TextInput } from "@agent-management-platform/views";
-import { useListEnvironments } from "@agent-management-platform/api-client";
+import {
+  useAddAgentIdentityGroupMembers,
+  useAddAgentIdentityRoleAssignees,
+  useListAgentIdentityAgents,
+  useListAgentIdentityGroups,
+  useListAgentIdentityRoles,
+  useListEnvironments,
+  useRemoveAgentIdentityGroupMembers,
+  useRemoveAgentIdentityRoleAssignees,
+} from "@agent-management-platform/api-client";
 import {
   getErrorMessage,
   monospaceInputSx,
-  RolesGroupsChips,
   useAgentIdentityCredentials,
   useAgentRolesAndGroups,
   usePipelineEnvironmentsState,
   useThunderInstanceForEnv,
 } from "@agent-management-platform/shared-component";
+import { useAssignmentDelta } from "../subComponents/agentIdentity/useAssignmentDelta";
+
+type IdentityItem = {
+  id: string;
+  name: string;
+  description?: string;
+};
+
+const CATALOG_PAGE_SIZE = 100;
+
+function IdentityAssignmentTable({
+  items,
+  isLoading,
+  canEdit,
+  removeTooltip,
+  onRemove,
+  emptyTitle,
+  emptyDescription,
+  emptyIcon,
+}: {
+  items: IdentityItem[];
+  isLoading: boolean;
+  canEdit?: boolean;
+  removeTooltip?: string;
+  onRemove?: (id: string) => void;
+  emptyTitle: string;
+  emptyDescription: string;
+  emptyIcon: React.ReactNode;
+}) {
+  if (isLoading) {
+    return (
+      <Stack spacing={1}>
+        <Skeleton variant="rounded" height={48} />
+        <Skeleton variant="rounded" height={48} />
+      </Stack>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <ListingTable.Container>
+        <ListingTable.EmptyState
+          illustration={emptyIcon}
+          title={emptyTitle}
+          description={emptyDescription}
+          minHeight={160}
+        />
+      </ListingTable.Container>
+    );
+  }
+
+  return (
+    <ListingTable.Container>
+      <ListingTable variant="table">
+        <ListingTable.Head>
+          <ListingTable.Row>
+            <ListingTable.Cell>Name</ListingTable.Cell>
+            <ListingTable.Cell>Description</ListingTable.Cell>
+            {canEdit && <ListingTable.Cell align="right" width="80px" />}
+          </ListingTable.Row>
+        </ListingTable.Head>
+        <ListingTable.Body>
+          {items.map((item) => (
+            <ListingTable.Row key={item.id} variant="table">
+              <ListingTable.Cell width="40%">
+                <ListingTable.CellIcon
+                  icon={
+                    <Avatar sx={{ width: 28, height: 28, fontSize: 12 }}>
+                      {item.name.charAt(0).toUpperCase()}
+                    </Avatar>
+                  }
+                  primary={item.name}
+                  secondary={item.description ?? undefined}
+                />
+              </ListingTable.Cell>
+              <ListingTable.Cell>{item.description ?? "-"}</ListingTable.Cell>
+              {canEdit && onRemove && (
+                <ListingTable.Cell align="right">
+                  <Tooltip title={removeTooltip ?? "Remove"}>
+                    <IconButton size="small" onClick={() => onRemove(item.id)}>
+                      <Trash size={16} />
+                    </IconButton>
+                  </Tooltip>
+                </ListingTable.Cell>
+              )}
+            </ListingTable.Row>
+          ))}
+        </ListingTable.Body>
+      </ListingTable>
+    </ListingTable.Container>
+  );
+}
+
+function TabPanel({
+  value,
+  index,
+  children,
+}: {
+  value: number;
+  index: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box role="tabpanel" hidden={value !== index} sx={{ px: 2, py: 2 }}>
+      {value === index ? children : null}
+    </Box>
+  );
+}
 
 /**
  * Shared loading/error/empty fallback for this page's several independent
@@ -72,35 +196,35 @@ const QueryStateFallback: React.FC<{
   isLoading, isError, errorTitle, errorDescription,
   isEmptyValue, emptyIcon, emptyTitle, emptyDescription,
 }) => {
-  if (isLoading) {
-    return <Skeleton variant="rounded" height={120} />;
-  }
-  if (isError) {
-    return (
-      <ListingTable.Container>
-        <ListingTable.EmptyState
-          illustration={<AlertTriangle size={56} />}
-          title={errorTitle}
-          description={errorDescription}
-          minHeight={160}
-        />
-      </ListingTable.Container>
-    );
-  }
-  if (isEmptyValue) {
-    return (
-      <ListingTable.Container>
-        <ListingTable.EmptyState
-          illustration={emptyIcon}
-          title={emptyTitle}
-          description={emptyDescription}
-          minHeight={160}
-        />
-      </ListingTable.Container>
-    );
-  }
-  return null;
-};
+    if (isLoading) {
+      return <Skeleton variant="rounded" height={120} />;
+    }
+    if (isError) {
+      return (
+        <ListingTable.Container>
+          <ListingTable.EmptyState
+            illustration={<AlertTriangle size={56} />}
+            title={errorTitle}
+            description={errorDescription}
+            minHeight={160}
+          />
+        </ListingTable.Container>
+      );
+    }
+    if (isEmptyValue) {
+      return (
+        <ListingTable.Container>
+          <ListingTable.EmptyState
+            illustration={emptyIcon}
+            title={emptyTitle}
+            description={emptyDescription}
+            minHeight={160}
+          />
+        </ListingTable.Container>
+      );
+    }
+    return null;
+  };
 
 interface AgentIdentitySectionProps {
   orgId: string;
@@ -119,6 +243,10 @@ interface AgentIdentitySectionProps {
 const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
   orgId, projectId, agentId, envId,
 }) => {
+  const [activeTab, setActiveTab] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | undefined>();
+
   const {
     binding, provisioned, isLoading, isError, error,
     revealed, isRegenerating, regenerate: handleRegenerate,
@@ -131,9 +259,110 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
     error: thunderInstanceError,
   } = useThunderInstanceForEnv({ orgId, envId });
 
+  const { data: identityAgentsData, isLoading: isLoadingIdentityAgents } =
+    useListAgentIdentityAgents({ orgName: orgId, envName: envId });
+  const { data: allRolesData, isLoading: isLoadingAllRoles } = useListAgentIdentityRoles(
+    { orgName: orgId, envName: envId },
+    { offset: 0, limit: CATALOG_PAGE_SIZE },
+  );
+  const { data: allGroupsData, isLoading: isLoadingAllGroups } = useListAgentIdentityGroups(
+    { orgName: orgId, envName: envId },
+    { offset: 0, limit: CATALOG_PAGE_SIZE },
+  );
+
+  const { mutateAsync: addRoleAssignees } = useAddAgentIdentityRoleAssignees();
+  const { mutateAsync: removeRoleAssignees } = useRemoveAgentIdentityRoleAssignees();
+  const { mutateAsync: addGroupMembers } = useAddAgentIdentityGroupMembers();
+  const { mutateAsync: removeGroupMembers } = useRemoveAgentIdentityGroupMembers();
+
   const { roles, groups, isLoading: isLoadingRolesAndGroups } = useAgentRolesAndGroups({
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
+
+  const thunderAgentId = useMemo(
+    () =>
+      identityAgentsData?.agents.find(
+        (item) => item.agentName === agentId && item.projectName === projectId,
+      )?.thunderAgentId,
+    [identityAgentsData, agentId, projectId],
+  );
+
+  const allRoles: ThunderRole[] = useMemo(() => allRolesData?.roles ?? [], [allRolesData]);
+  const allGroups: ThunderGroup[] = useMemo(() => allGroupsData?.groups ?? [], [allGroupsData]);
+
+  const roleDelta = useAssignmentDelta<ThunderRole>(roles.map((role) => role.id), (role) => role.id);
+  const groupDelta = useAssignmentDelta<ThunderGroup>(groups.map((group) => group.id), (group) => group.id);
+
+  const displayedRoles = useMemo(
+    () => [
+      ...roles.filter((role) => !roleDelta.removedIds.has(role.id)),
+      ...roleDelta.pendingAdds,
+    ],
+    [roles, roleDelta.removedIds, roleDelta.pendingAdds],
+  );
+  const displayedGroups = useMemo(
+    () => [
+      ...groups.filter((group) => !groupDelta.removedIds.has(group.id)),
+      ...groupDelta.pendingAdds,
+    ],
+    [groups, groupDelta.removedIds, groupDelta.pendingAdds],
+  );
+  const availableRoles = useMemo(
+    () => allRoles.filter((role) => !roleDelta.excludedIds.has(role.id)),
+    [allRoles, roleDelta.excludedIds],
+  );
+  const availableGroups = useMemo(
+    () => allGroups.filter((group) => !groupDelta.excludedIds.has(group.id)),
+    [allGroups, groupDelta.excludedIds],
+  );
+
+  const canEditAssignments = !!thunderAgentId && provisioned;
+  const isDirty = roleDelta.isDirty || groupDelta.isDirty;
+
+  const handleCancelChanges = () => {
+    roleDelta.reset();
+    groupDelta.reset();
+    setSaveError(undefined);
+  };
+
+  const handleSaveChanges = async () => {
+    if (!orgId || !envId || !thunderAgentId) return;
+    setSaveError(undefined);
+    setIsSaving(true);
+    const envParams = { orgName: orgId, envName: envId };
+
+    try {
+      await Promise.all([
+        ...roleDelta.pendingAdds.map((role) =>
+          addRoleAssignees({
+            params: { ...envParams, roleId: role.id },
+            body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
+          })),
+        ...[...roleDelta.removedIds].map((roleId) =>
+          removeRoleAssignees({
+            params: { ...envParams, roleId },
+            body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
+          })),
+        ...groupDelta.pendingAdds.map((group) =>
+          addGroupMembers({
+            params: { ...envParams, groupId: group.id },
+            body: { agentIds: [thunderAgentId] },
+          })),
+        ...[...groupDelta.removedIds].map((groupId) =>
+          removeGroupMembers({
+            params: { ...envParams, groupId },
+            body: { agentIds: [thunderAgentId] },
+          })),
+      ]);
+
+      roleDelta.reset();
+      groupDelta.reset();
+    } catch {
+      setSaveError("Failed to update roles/groups. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (isLoading || isError || !binding) {
     return (
@@ -151,11 +380,6 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
   }
 
   const isExternal = binding.provisioningType === "external";
-
-  const idpHref = generatePath(
-    absoluteRouteMap.children.org.children.thunderInstances.children.view.path,
-    { orgId, envName: envId },
-  );
 
   let body: React.ReactNode;
   if (revealed) {
@@ -233,111 +457,196 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
   }
 
   return (
-    <Stack spacing={3}>
-      <Form.Section>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Form.Subheader>Client Credentials</Form.Subheader>
-          {provisioned && (
-            <Button
-              variant="text"
-              size="small"
-              onClick={() => void handleRegenerate()}
-              disabled={isRegenerating}
-              startIcon={
-                isRegenerating ? <CircularProgress size={16} /> : <RotateCcwKey size={16} />
-              }
-            >
-              {isRegenerating ? "Regenerating..." : "Regenerate Secret"}
-            </Button>
-          )}
-        </Box>
+    <Card variant="outlined">
+      <Tabs
+        value={activeTab}
+        onChange={(_event, value) => setActiveTab(value as number)}
+        variant="scrollable"
+        allowScrollButtonsMobile
+      >
+        <Tab label="Overview" />
+        <Tab label="Groups" />
+        <Tab label="Roles" />
+      </Tabs>
+      <Divider />
 
-        {body}
-
-        {!isExternal && (
-          <Typography variant="body2" color="text.secondary">
-            This agent&apos;s client secret is injected directly into the workload —
-            the values above are shown for reference, but you don&apos;t need to copy
-            anything from here to configure the agent itself.
-          </Typography>
-        )}
-      </Form.Section>
-
-      <Form.Section>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Form.Subheader>Roles &amp; Groups</Form.Subheader>
-          <Button
-            variant="text"
-            size="small"
-            component="a"
-            href={idpHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            startIcon={<ExternalLink size={16} />}
-          >
-            Manage Permissions
-          </Button>
-        </Box>
-        <RolesGroupsChips roles={roles} groups={groups} isLoading={isLoadingRolesAndGroups} />
-      </Form.Section>
-
-      <Form.Section>
-        <Form.Subheader>OAuth2 Endpoints</Form.Subheader>
-
-        {isLoadingThunderInstance || isThunderInstanceError || !thunderInstance ? (
-          <QueryStateFallback
-            isLoading={isLoadingThunderInstance}
-            isError={isThunderInstanceError}
-            errorTitle="Failed to load identity provider"
-            errorDescription={getErrorMessage(thunderInstanceError)}
-            isEmptyValue={!thunderInstance}
-            emptyIcon={<ShieldAlert size={56} />}
-            emptyTitle="No identity provider"
-            emptyDescription="No identity provider found for this environment."
-          />
-        ) : (
-          <Stack spacing={1.5}>
-            <TextInput
-              slotProps={{ input: { readOnly: true } }}
-              label="Issuer URL"
-              value={thunderInstance.issuerUrl}
-              copyable
-              fullWidth
-              size="small"
-              sx={monospaceInputSx}
-            />
-            <TextInput
-              slotProps={{ input: { readOnly: true } }}
-              label="Token Endpoint"
-              value={thunderInstance.tokenUrl}
-              copyable
-              fullWidth
-              size="small"
-              sx={monospaceInputSx}
-            />
-            <TextInput
-              slotProps={{ input: { readOnly: true } }}
-              label="JWKS Endpoint"
-              value={thunderInstance.jwksUrl}
-              copyable
-              fullWidth
-              size="small"
-              sx={monospaceInputSx}
-            />
-          </Stack>
-        )}
-      </Form.Section>
-
-      {isExternal && thunderInstance && (
-        <Alert severity="info">
-          <Typography variant="body2">
-            Configure your agent to request a JWT token from the identity provider
-            endpoints above, using the client ID and secret shown earlier, so it can
-            authenticate its requests.
-          </Typography>
+      {saveError != null && (
+        <Alert severity="error" sx={{ mx: 2, mt: 2 }}>
+          {saveError}
         </Alert>
       )}
-    </Stack>
+      {!canEditAssignments && !isLoadingIdentityAgents && (
+        <Alert severity="info" sx={{ mx: 2, mt: 2 }}>
+          This agent has no active identity binding in this environment, so roles and groups
+          cannot be changed yet.
+        </Alert>
+      )}
+
+      <TabPanel value={activeTab} index={0}>
+        <Stack spacing={3}>
+          <Form.Section>
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <Form.Subheader>Client Credentials</Form.Subheader>
+              {provisioned && (
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={() => void handleRegenerate()}
+                  disabled={isRegenerating}
+                  startIcon={
+                    isRegenerating ? <CircularProgress size={16} /> : <RotateCcwKey size={16} />
+                  }
+                >
+                  {isRegenerating ? "Regenerating..." : "Regenerate Secret"}
+                </Button>
+              )}
+            </Box>
+
+            {body}
+
+            {!isExternal && (
+              <Typography variant="body2" color="text.secondary">
+                This agent&apos;s client secret is injected directly into the workload —
+                the values above are shown for reference, but you don&apos;t need to copy
+                anything from here to configure the agent itself.
+              </Typography>
+            )}
+          </Form.Section>
+
+          <Form.Section>
+            <Form.Subheader>OAuth2 Endpoints</Form.Subheader>
+
+            {isLoadingThunderInstance || isThunderInstanceError || !thunderInstance ? (
+              <QueryStateFallback
+                isLoading={isLoadingThunderInstance}
+                isError={isThunderInstanceError}
+                errorTitle="Failed to load identity provider"
+                errorDescription={getErrorMessage(thunderInstanceError)}
+                isEmptyValue={!thunderInstance}
+                emptyIcon={<ShieldAlert size={56} />}
+                emptyTitle="No identity provider"
+                emptyDescription="No identity provider found for this environment."
+              />
+            ) : (
+              <Stack spacing={1.5}>
+                <TextInput
+                  slotProps={{ input: { readOnly: true } }}
+                  label="Issuer URL"
+                  value={thunderInstance.issuerUrl}
+                  copyable
+                  fullWidth
+                  size="small"
+                  sx={monospaceInputSx}
+                />
+                <TextInput
+                  slotProps={{ input: { readOnly: true } }}
+                  label="Token Endpoint"
+                  value={thunderInstance.tokenUrl}
+                  copyable
+                  fullWidth
+                  size="small"
+                  sx={monospaceInputSx}
+                />
+                <TextInput
+                  slotProps={{ input: { readOnly: true } }}
+                  label="JWKS Endpoint"
+                  value={thunderInstance.jwksUrl}
+                  copyable
+                  fullWidth
+                  size="small"
+                  sx={monospaceInputSx}
+                />
+              </Stack>
+            )}
+          </Form.Section>
+
+          {isExternal && thunderInstance && (
+            <Alert severity="info">
+              <Typography variant="body2">
+                Configure your agent to request a JWT token from the identity provider
+                endpoints above, using the client ID and secret shown earlier, so it can
+                authenticate its requests.
+              </Typography>
+            </Alert>
+          )}
+        </Stack>
+      </TabPanel>
+
+      <TabPanel value={activeTab} index={1}>
+        <Stack spacing={2}>
+          {canEditAssignments && (
+            <Form.ElementWrapper label="Add Group" name="add-group">
+              {isLoadingAllGroups ? (
+                <CircularProgress size={20} />
+              ) : (
+                <Autocomplete
+                  options={availableGroups}
+                  getOptionLabel={(option) => option.name}
+                  onChange={groupDelta.handleAdd}
+                  value={null}
+                  renderInput={(params) => <TextField {...params} placeholder="Search groups..." />}
+                  noOptionsText="No groups available"
+                />
+              )}
+            </Form.ElementWrapper>
+          )}
+          <IdentityAssignmentTable
+            items={displayedGroups}
+            isLoading={isLoadingRolesAndGroups}
+            canEdit={canEditAssignments}
+            removeTooltip="Remove from group"
+            onRemove={groupDelta.handleRemove}
+            emptyIcon={<Folder size={56} />}
+            emptyTitle="No groups assigned"
+            emptyDescription="This agent is not a member of any groups in this environment."
+          />
+        </Stack>
+      </TabPanel>
+
+      <TabPanel value={activeTab} index={2}>
+        <Stack spacing={2}>
+          {canEditAssignments && (
+            <Form.ElementWrapper label="Add Role" name="add-role">
+              {isLoadingAllRoles ? (
+                <CircularProgress size={20} />
+              ) : (
+                <Autocomplete
+                  options={availableRoles}
+                  getOptionLabel={(option) => option.name}
+                  onChange={roleDelta.handleAdd}
+                  value={null}
+                  renderInput={(params) => <TextField {...params} placeholder="Search roles..." />}
+                  noOptionsText="No roles available"
+                />
+              )}
+            </Form.ElementWrapper>
+          )}
+          <IdentityAssignmentTable
+            items={displayedRoles}
+            isLoading={isLoadingRolesAndGroups}
+            canEdit={canEditAssignments}
+            removeTooltip="Remove role"
+            onRemove={roleDelta.handleRemove}
+            emptyIcon={<Shield size={56} />}
+            emptyTitle="No roles assigned"
+            emptyDescription="This agent has no role assignments in this environment."
+          />
+        </Stack>
+      </TabPanel>
+
+      {isDirty && (
+        <Box sx={{ px: 2, pb: 2 }}>
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" disabled={isSaving} onClick={handleCancelChanges}>
+              Cancel
+            </Button>
+            <Button variant="contained" disabled={isSaving} onClick={() => void handleSaveChanges()}>
+              {isSaving ? "Saving..." : "Save Changes"}
+            </Button>
+          </Stack>
+        </Box>
+      )}
+    </Card>
   );
 };
 
@@ -355,7 +664,6 @@ export const AgentIdComponent: React.FC = () => {
     agentId: string;
   }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const envSelectLabelId = useId();
 
   const {
     environments: pipelineEnvs,
@@ -381,6 +689,8 @@ export const AgentIdComponent: React.FC = () => {
     );
   };
 
+  const showEnvSelector = envNames.length > 1;
+
   let content: React.ReactNode;
   if (isEnvironmentsLoading || isEnvironmentsError || !envName) {
     content = (
@@ -398,25 +708,6 @@ export const AgentIdComponent: React.FC = () => {
   } else {
     content = (
       <>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="flex-end">
-          <Typography id={envSelectLabelId} variant="body2" color="text.secondary">
-            Environment
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: 260 }}>
-            <Select
-              labelId={envSelectLabelId}
-              value={envName}
-              onChange={(event) => setSelectedEnvName(event.target.value as string)}
-            >
-              {envNames.map((name) => (
-                <MenuItem key={name} value={name}>
-                  {getEnvDisplayName(name)}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Stack>
-
         <AgentIdentitySection
           key={envName}
           orgId={orgId ?? ""}
@@ -431,8 +722,28 @@ export const AgentIdComponent: React.FC = () => {
   return (
     <PageLayout
       title="Agent ID"
-      description="Client credentials, roles & groups, and OAuth2 endpoints for this agent's identity."
       disableIcon
+      actions={
+        showEnvSelector ? (
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <Select
+              value={envName}
+              onChange={(event) => setSelectedEnvName(event.target.value as string)}
+              renderValue={(value) => (
+                <Typography>
+                  {getEnvDisplayName(value as string)} Environment
+                </Typography>
+              )}
+            >
+              {envNames.map((name) => (
+                <MenuItem key={name} value={name}>
+                  {getEnvDisplayName(name)}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : undefined
+      }
     >
       <Stack spacing={2}>{content}</Stack>
     </PageLayout>

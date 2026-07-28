@@ -233,34 +233,41 @@ export function useNavigationItems(): Array<
           href: generatePath(item.route, { orgId, projectId, agentId }),
         })),
       {
-        label: "Configure",
-        type: "item",
-        icon: <Settings size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.configure.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.configure.path,
-          { orgId, projectId, agentId },
-        ),
-      },
-      {
-        label: "Agent ID",
-        type: "item",
-        icon: <thunderInstancesMetadata.icon size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.agentId.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.agentId.path,
-          { orgId, projectId, agentId },
-        ),
+        title: "Agent Lifecycle",
+        type: "section",
+        icon: <Rocket />,
+        items: [
+          {
+            label: "Configure",
+            type: "item",
+            icon: <Settings size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.configure.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.configure.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+          {
+            label: "Agent ID",
+            type: "item",
+            icon: <thunderInstancesMetadata.icon size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.agentId.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.agentId.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+        ],
       },
       {
         title: "Observability",
@@ -328,62 +335,69 @@ export function useNavigationItems(): Array<
         ),
       },
       {
-        label: "Configure",
-        type: "item",
-        icon: <Settings size={20} />,
-        isActive: !!matchPath(
-          agentsChildren.configure?.wildPath ?? "",
-          pathname,
-        ),
-        href: generatePath(agentsChildren.configure?.path ?? "", {
-          orgId,
-          projectId,
-          agentId,
-        }),
-      },
-      {
-        label: "Agent ID",
-        type: "item",
-        icon: <thunderInstancesMetadata.icon size={20} />,
-        isActive: !!matchPath(
-          agentsChildren.agentId?.wildPath ?? "",
-          pathname,
-        ),
-        href: generatePath(agentsChildren.agentId?.path ?? "", {
-          orgId,
-          projectId,
-          agentId,
-        }),
-      },
-      {
-        label: "Deploy",
-        type: "item",
-        icon: <Rocket size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.deployment.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.deployment.path,
-          { orgId, projectId, agentId },
-        ),
-      },
-      {
-        label: "Try It",
-        type: "item",
-        icon: <FlaskConical size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.environment.children.tryOut.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.environment.children.tryOut.path,
-          { orgId, projectId, agentId, envId: defaultEnv },
-        ),
+        title: "Agent Lifecycle",
+        type: "section",
+        icon: <Rocket />,
+        items: [
+          {
+            label: "Configure",
+            type: "item",
+            icon: <Settings size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.configure?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.configure?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          {
+            label: "Agent ID",
+            type: "item",
+            icon: <thunderInstancesMetadata.icon size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.agentId?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.agentId?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          {
+            label: "Deploy",
+            type: "item",
+            icon: <Rocket size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.deployment.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.deployment.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+          {
+            label: "TryIt",
+            type: "item",
+            icon: <FlaskConical size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.environment.children.tryOut.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.environment.children.tryOut.path,
+              { orgId, projectId, agentId, envId: defaultEnv },
+            ),
+          },
+        ],
       },
       ...(agent?.agentType?.type === "agent-api"
         ? [
@@ -518,92 +532,99 @@ export function useNavigationItems(): Array<
         ),
       },
       {
-        label: "Build",
-        type: "item",
-        icon: <Wrench size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.build.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.build.path,
-          { orgId, projectId, agentId },
-        ),
-      },
-      {
-        label: "Configure",
-        type: "item",
-        icon: <Settings size={20} />,
-        isActive: !!matchPath(
-          agentsChildren.configure?.wildPath ?? "",
-          pathname,
-        ),
-        href: generatePath(agentsChildren.configure?.path ?? "", {
-          orgId,
-          projectId,
-          agentId,
-        }),
-      },
-      {
-        label: "Agent ID",
-        type: "item",
-        icon: <thunderInstancesMetadata.icon size={20} />,
-        isActive: !!matchPath(
-          agentsChildren.agentId?.wildPath ?? "",
-          pathname,
-        ),
-        href: generatePath(agentsChildren.agentId?.path ?? "", {
-          orgId,
-          projectId,
-          agentId,
-        }),
-      },
-      {
-        label: "Deploy",
-        type: "item",
-        icon: <Rocket size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.deployment.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.deployment.path,
-          { orgId, projectId, agentId },
-        ),
-      },
-      {
-        label: "Publish",
-        type: "item",
-        icon: <Package size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.publish.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.publish.path,
-          { orgId, projectId, agentId },
-        ),
-      },
-      {
-        label: "Try It",
-        type: "item",
-        icon: <FlaskConical size={20} />,
-        isActive: !!matchPath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.environment.children.tryOut.wildPath,
-          pathname,
-        ),
-        href: generatePath(
-          absoluteRouteMap.children.org.children.projects.children.agents
-            .children.environment.children.tryOut.path,
-          { orgId, projectId, agentId, envId: defaultEnv },
-        ),
+        title: "Agent Lifecycle",
+        type: "section",
+        icon: <Rocket />,
+        items: [
+          {
+            label: "Configure",
+            type: "item",
+            icon: <Settings size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.configure?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.configure?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          {
+            label: "Agent ID",
+            type: "item",
+            icon: <thunderInstancesMetadata.icon size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.agentId?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.agentId?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          {
+            label: "Build",
+            type: "item",
+            icon: <Wrench size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.build.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.build.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+          {
+            label: "Deploy",
+            type: "item",
+            icon: <Rocket size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.deployment.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.deployment.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+          {
+            label: "TryIt",
+            type: "item",
+            icon: <FlaskConical size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.environment.children.tryOut.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.environment.children.tryOut.path,
+              { orgId, projectId, agentId, envId: defaultEnv },
+            ),
+          },
+          {
+            label: "Publish",
+            type: "item",
+            icon: <Package size={20} />,
+            isActive: !!matchPath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.publish.wildPath,
+              pathname,
+            ),
+            href: generatePath(
+              absoluteRouteMap.children.org.children.projects.children.agents
+                .children.publish.path,
+              { orgId, projectId, agentId },
+            ),
+          },
+        ],
       },
       ...(agent?.agentType?.type === "agent-api"
         ? [
@@ -842,6 +863,16 @@ export function useNavigationItems(): Array<
                   isActive: !!matchPath(gatewaysOrgRoute.wildPath, pathname),
                 },
                 {
+                  label: "Environments",
+                  type: "item" as const,
+                  icon: <Server size={20} />,
+                  href: generatePath(environmentsOrgRoute.path, { orgId }),
+                  isActive: !!matchPath(
+                    environmentsOrgRoute.wildPath,
+                    pathname,
+                  ),
+                },
+                {
                   label: "Deployment Pipelines",
                   type: "item" as const,
                   icon: <ServerCrash size={20} />,
@@ -850,16 +881,6 @@ export function useNavigationItems(): Array<
                   }),
                   isActive: !!matchPath(
                     deploymentPipelinesOrgRoute.wildPath,
-                    pathname,
-                  ),
-                },
-                {
-                  label: "Environments",
-                  type: "item" as const,
-                  icon: <Server size={20} />,
-                  href: generatePath(environmentsOrgRoute.path, { orgId }),
-                  isActive: !!matchPath(
-                    environmentsOrgRoute.wildPath,
                     pathname,
                   ),
                 },
