@@ -32,7 +32,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Trash } from "@wso2/oxygen-ui-icons-react";
+import { Shield, Trash, Users } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useListAgentIdentityAgents,
@@ -116,7 +116,10 @@ export const GroupEditPage: React.FC = () => {
     ? withSearchParams(generatePath(groupsNode.path, { orgId }), searchParams)
     : "#";
 
-  const pageMemberIds = memberDelta.activeIds;
+  const displayedMemberIds = useMemo(
+    () => [...memberDelta.activeIds, ...memberDelta.pendingAddIds],
+    [memberDelta.activeIds, memberDelta.pendingAddIds],
+  );
 
   const availableAgents = useMemo(
     () => agents.filter((a) => !memberDelta.excludedIds.has(a.thunderAgentId as string)),
@@ -217,50 +220,15 @@ export const GroupEditPage: React.FC = () => {
                 </Form.ElementWrapper>
               </Box>
 
-              {pendingAdds.length > 0 && (
-                <Box mb={2}>
-                  <Typography variant="body2" fontWeight={500} mb={1}>
-                    Pending additions (unsaved)
-                  </Typography>
-                  <ListingTable.Container>
-                    <ListingTable>
-                      <ListingTable.Head>
-                        <ListingTable.Row>
-                          <ListingTable.Cell>Agent</ListingTable.Cell>
-                          <ListingTable.Cell>Project</ListingTable.Cell>
-                          <ListingTable.Cell />
-                        </ListingTable.Row>
-                      </ListingTable.Head>
-                      <ListingTable.Body>
-                        {pendingAdds.map((agent) => (
-                          <ListingTable.Row key={agent.thunderAgentId}>
-                            <ListingTable.Cell>{agent.agentName}</ListingTable.Cell>
-                            <ListingTable.Cell>{agent.projectName}</ListingTable.Cell>
-                            <ListingTable.Cell align="right">
-                              <Tooltip title="Remove from group">
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    handleRemoveAgent(agent.thunderAgentId as string)
-                                  }
-                                >
-                                  <Trash size={16} />
-                                </IconButton>
-                              </Tooltip>
-                            </ListingTable.Cell>
-                          </ListingTable.Row>
-                        ))}
-                      </ListingTable.Body>
-                    </ListingTable>
-                  </ListingTable.Container>
-                </Box>
-              )}
-
-              {pageMemberIds.length === 0 && pendingAdds.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No members yet. Search and add agents above.
-                </Typography>
-              ) : pageMemberIds.length > 0 ? (
+              {displayedMemberIds.length === 0 ? (
+                <ListingTable.Container>
+                  <ListingTable.EmptyState
+                    illustration={<Users size={64} />}
+                    title="No members yet"
+                    description="Search and add agents above."
+                  />
+                </ListingTable.Container>
+              ) : (
                 <ListingTable.Container>
                   <ListingTable>
                     <ListingTable.Head>
@@ -271,7 +239,7 @@ export const GroupEditPage: React.FC = () => {
                       </ListingTable.Row>
                     </ListingTable.Head>
                     <ListingTable.Body>
-                      {pageMemberIds.map((id) => (
+                      {displayedMemberIds.map((id) => (
                         <ListingTable.Row key={id}>
                           <ListingTable.Cell>{displayName(id)}</ListingTable.Cell>
                           <ListingTable.Cell>{id}</ListingTable.Cell>
@@ -290,7 +258,7 @@ export const GroupEditPage: React.FC = () => {
                     </ListingTable.Body>
                   </ListingTable>
                 </ListingTable.Container>
-              ) : null}
+              )}
             </>
           )}
 
@@ -311,9 +279,12 @@ export const GroupEditPage: React.FC = () => {
                     Failed to load roles. Please try again.
                   </Typography>
                 ) : roles.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    No roles assigned to this group.
-                  </Typography>
+                  <ListingTable.Container>
+                    <ListingTable.EmptyState
+                      illustration={<Shield size={64} />}
+                      title="No roles assigned to this group"
+                    />
+                  </ListingTable.Container>
                 ) : (
                   <ListingTable.Container>
                     <ListingTable>

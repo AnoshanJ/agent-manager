@@ -33,7 +33,7 @@ import {
   Typography,
 } from "@wso2/oxygen-ui";
 
-import { Trash } from "@wso2/oxygen-ui-icons-react";
+import { Folder, Trash, Users } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
 import {
   useAllUsers,
@@ -438,9 +438,13 @@ export const RoleEditPage: React.FC = () => {
               </Box>
 
               {displayedUsers.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No users assigned yet. Search and add users above.
-                </Typography>
+                <ListingTable.Container>
+                  <ListingTable.EmptyState
+                    illustration={<Users size={64} />}
+                    title="No users assigned yet"
+                    description="Search and add users above."
+                  />
+                </ListingTable.Container>
               ) : (
                 <ListingTable.Container>
                   <ListingTable>
@@ -502,9 +506,13 @@ export const RoleEditPage: React.FC = () => {
               </Box>
 
               {displayedGroups.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No groups assigned yet. Search and add groups above.
-                </Typography>
+                <ListingTable.Container>
+                  <ListingTable.EmptyState
+                    illustration={<Folder size={64} />}
+                    title="No groups assigned yet"
+                    description="Search and add groups above."
+                  />
+                </ListingTable.Container>
               ) : (
                 <ListingTable.Container>
                   <ListingTable>

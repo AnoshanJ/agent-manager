@@ -94,18 +94,20 @@ export const AgentsTab: React.FC = () => {
     <ListingTable.Provider searchValue={search} onSearchChange={setSearch}>
       <ListingTable.Container>
         <ListingTable.Toolbar showSearch searchPlaceholder="Search agents..." />
-        {!isLoading && agents.length === 0 ? (
-          <ListingTable.EmptyState
-            illustration={<Users size={64} />}
-            title="No agents yet"
-            description="Agents provisioned in this environment will appear here."
-          />
-        ) : !isLoading && filteredAgents.length === 0 ? (
-          <ListingTable.EmptyState
-            illustration={<Search size={64} />}
-            title="No agents found"
-            description={`No agents match "${search}". Try a different search term.`}
-          />
+        {!isLoading && filteredAgents.length === 0 ? (
+          search ? (
+            <ListingTable.EmptyState
+              illustration={<Search size={64} />}
+              title="No agents found"
+              description={`No agents match "${search}". Try a different search term.`}
+            />
+          ) : (
+            <ListingTable.EmptyState
+              illustration={<Users size={64} />}
+              title="No agents yet"
+              description="Agents provisioned in this environment will appear here."
+            />
+          )
         ) : (
           <ListingTable variant="table">
             <ListingTable.Head>

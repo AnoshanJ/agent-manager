@@ -32,7 +32,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Trash } from "@wso2/oxygen-ui-icons-react";
+import { Shield, Trash, Users } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useAddAgentIdentityGroupMembers,
@@ -77,6 +77,7 @@ function AssignmentTab<T extends AssignableItem>({
   noOptionsText,
   removeTooltip,
   emptyText,
+  emptyIcon,
   canEdit,
   isLoadingCatalog,
   availableItems,
@@ -92,6 +93,7 @@ function AssignmentTab<T extends AssignableItem>({
   noOptionsText: string;
   removeTooltip: string;
   emptyText: string;
+  emptyIcon: React.ReactNode;
   canEdit: boolean;
   isLoadingCatalog: boolean;
   availableItems: T[];
@@ -136,9 +138,9 @@ function AssignmentTab<T extends AssignableItem>({
       )}
 
       {displayedItems.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          {emptyText}
-        </Typography>
+        <ListingTable.Container>
+          <ListingTable.EmptyState illustration={emptyIcon} title={emptyText} />
+        </ListingTable.Container>
       ) : (
         <ListingTable.Container>
           <ListingTable>
@@ -395,6 +397,7 @@ export const AgentDetailPage: React.FC = () => {
               noOptionsText="No roles available"
               removeTooltip="Remove role"
               emptyText="No roles assigned to this agent."
+              emptyIcon={<Shield size={64} />}
               canEdit={canEdit}
               isLoadingCatalog={isLoadingAllRoles}
               availableItems={availableRoles}
@@ -416,6 +419,7 @@ export const AgentDetailPage: React.FC = () => {
               noOptionsText="No groups available"
               removeTooltip="Remove from group"
               emptyText="This agent is not a member of any groups."
+              emptyIcon={<Users size={64} />}
               canEdit={canEdit}
               isLoadingCatalog={isLoadingAllGroups}
               availableItems={availableGroups}

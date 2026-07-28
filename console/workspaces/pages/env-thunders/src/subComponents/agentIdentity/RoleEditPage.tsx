@@ -33,7 +33,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Trash } from "@wso2/oxygen-ui-icons-react";
+import { Folder, Trash, Users } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useListAgentIdentityAgents,
@@ -365,9 +365,13 @@ export const RoleEditPage: React.FC = () => {
                   </Box>
 
                   {displayedAgentIds.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No agents assigned yet. Search and add agents above.
-                    </Typography>
+                    <ListingTable.Container>
+                      <ListingTable.EmptyState
+                        illustration={<Users size={64} />}
+                        title="No agents assigned yet"
+                        description="Search and add agents above."
+                      />
+                    </ListingTable.Container>
                   ) : (
                     <ListingTable.Container>
                       <ListingTable>
@@ -439,9 +443,13 @@ export const RoleEditPage: React.FC = () => {
                   </Box>
 
                   {displayedGroups.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No groups assigned yet. Search and add groups above.
-                    </Typography>
+                    <ListingTable.Container>
+                      <ListingTable.EmptyState
+                        illustration={<Folder size={64} />}
+                        title="No groups assigned yet"
+                        description="Search and add groups above."
+                      />
+                    </ListingTable.Container>
                   ) : (
                     <ListingTable.Container>
                       <ListingTable>
