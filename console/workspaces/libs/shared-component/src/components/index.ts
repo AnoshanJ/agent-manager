@@ -85,3 +85,8 @@ export {
   SingleAPIKeyManager,
   type SingleAPIKeyManagerProps,
 } from "./APIKeysManager/SingleAPIKeyManager";
+export {
+  PermissionTree,
+  type PermissionTreeItem,
+  type PermissionTreeProps,
+} from "./PermissionTree/PermissionTree";

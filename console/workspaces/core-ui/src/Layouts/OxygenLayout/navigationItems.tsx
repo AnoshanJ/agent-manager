@@ -36,9 +36,6 @@ import {
   ServerCrash,
   Server,
   ShieldCheck,
-  Users,
-  Shield,
-  Folder,
 } from "@wso2/oxygen-ui-icons-react";
 import {
   generatePath,
@@ -828,41 +825,24 @@ export function useNavigationItems(): Array<
                   type: "item" as const,
                   icon: <thunderInstancesMetadata.icon size={20} />,
                   isActive: false,
-                  children: [
-                    {
-                      label: "Agents",
-                      type: "item" as const,
-                      icon: <Users size={20} />,
-                      href: `${thunderInstancesBasePath}/agents`,
-                      isActive: !!matchPath(
-                        absoluteRouteMap.children.org.children.thunderInstances
-                          .children.agents.wildPath,
-                        pathname,
-                      ),
+                  // Order here (agents, groups, roles) is the sidebar's
+                  // submenu order — it drives both the array order below.
+                  children: (["agents", "groups", "roles"] as const).map(
+                    (key) => {
+                      const ChildIcon = thunderInstancesMetadata.children[key].icon;
+                      return {
+                        label: thunderInstancesMetadata.children[key].title,
+                        type: "item" as const,
+                        icon: <ChildIcon size={20} />,
+                        href: `${thunderInstancesBasePath}/${key}`,
+                        isActive: !!matchPath(
+                          absoluteRouteMap.children.org.children
+                            .thunderInstances.children[key].wildPath,
+                          pathname,
+                        ),
+                      };
                     },
-                    {
-                      label: "Roles",
-                      type: "item" as const,
-                      icon: <Shield size={20} />,
-                      href: `${thunderInstancesBasePath}/roles`,
-                      isActive: !!matchPath(
-                        absoluteRouteMap.children.org.children.thunderInstances
-                          .children.roles.wildPath,
-                        pathname,
-                      ),
-                    },
-                    {
-                      label: "Groups",
-                      type: "item" as const,
-                      icon: <Folder size={20} />,
-                      href: `${thunderInstancesBasePath}/groups`,
-                      isActive: !!matchPath(
-                        absoluteRouteMap.children.org.children.thunderInstances
-                          .children.groups.wildPath,
-                        pathname,
-                      ),
-                    },
-                  ],
+                  ),
                 },
               ],
             },

@@ -55,7 +55,7 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
   return (
     <CollapsibleSection show={show}>
       <SectionHeader
-        title="Agent Identity"
+        title="Agent ID"
         viewAllHref={buildManageIdentityHref(orgId, projectId, agentId, envId)}
       />
 

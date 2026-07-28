@@ -50,7 +50,11 @@ import {
   type AgentIdentityAgentResponse,
   type ThunderGroup,
 } from "@agent-management-platform/types";
-import { EditFormSkeleton } from "@agent-management-platform/shared-component";
+import {
+  EditFormSkeleton,
+  PermissionTree,
+  type PermissionTreeItem,
+} from "@agent-management-platform/shared-component";
 import { PageLayout } from "@agent-management-platform/views";
 import { useAgentLookup } from "./useAgentLookup";
 import { useAssignmentDelta } from "./useAssignmentDelta";
@@ -130,25 +134,30 @@ export const RoleEditPage: React.FC = () => {
   const groupDelta = useAssignmentDelta<ThunderGroup>(initialGroupIds, (g) => g.id);
 
   // --- Permissions tab: full selected-state approach ---
-  const [selectedScopes, setSelectedScopes] = useState<ScopeChoice[]>([]);
+  // Held as bare scope names (not ScopeChoice objects) since every consumer
+  // below — the tree, the dirty check, and the save payload — only ever
+  // needs the name. A scope assigned to this role may no longer be in the
+  // environment's catalog (its owning proxy may no longer be deployed here);
+  // keeping just the name means it isn't silently dropped on load and still
+  // round-trips correctly if the role is saved.
+  const [selectedScopeIds, setSelectedScopeIds] = useState<string[]>([]);
   const hasEditedScopes = useRef(false);
 
-  const catalogByScope = useMemo(
-    () => new Map(catalogScopes.map((s) => [s.scope, s])),
+  const scopeTreeItems: PermissionTreeItem[] = useMemo(
+    () =>
+      catalogScopes.map((s) => ({
+        id: s.scope,
+        path: s.scope.split(":"),
+        description: s.description,
+      })),
     [catalogScopes],
   );
 
   useEffect(() => {
     if (!hasEditedScopes.current && catalogScopes.length > 0) {
-      // A scope assigned to this role may no longer be in the environment's
-      // aggregate (its owning proxy may no longer be deployed here) — keep it
-      // as a placeholder so it isn't silently dropped (and dirtied) on load,
-      // and stays in the payload if the role is saved.
-      setSelectedScopes(
-        initialScopeNames.map((name) => catalogByScope.get(name) ?? { scope: name }),
-      );
+      setSelectedScopeIds(initialScopeNames);
     }
-  }, [initialScopeNames, catalogScopes, catalogByScope]);
+  }, [initialScopeNames, catalogScopes]);
 
   const rolesNode =
     absoluteRouteMap.children.org.children.thunderInstances.children.roles;
@@ -184,15 +193,10 @@ export const RoleEditPage: React.FC = () => {
   const handleAddGroup = groupDelta.handleAdd;
   const handleRemoveGroup = groupDelta.handleRemove;
 
-  // --- Permissions handlers ---
-  const handleScopesChange = (_e: React.SyntheticEvent, newValue: ScopeChoice[]) => {
+  // --- Permissions handler ---
+  const handleScopeSelectionChange = (ids: string[]) => {
     hasEditedScopes.current = true;
-    setSelectedScopes(newValue);
-  };
-
-  const handleRemoveScope = (scope: string) => {
-    hasEditedScopes.current = true;
-    setSelectedScopes((prev) => prev.filter((s) => s.scope !== scope));
+    setSelectedScopeIds(ids);
   };
 
   // --- Save ---
@@ -246,7 +250,7 @@ export const RoleEditPage: React.FC = () => {
               body: {
                 name: roleData.name,
                 description: roleData.description,
-                scopes: selectedScopes.map((s) => s.scope),
+                scopes: selectedScopeIds,
               },
             })
           : null,
@@ -269,10 +273,10 @@ export const RoleEditPage: React.FC = () => {
     if (isPermissionsReadOnly) return false;
     const initial = new Set(initialScopeNames);
     return (
-      initial.size !== selectedScopes.length ||
-      selectedScopes.some((s) => !initial.has(s.scope))
+      initial.size !== selectedScopeIds.length ||
+      selectedScopeIds.some((id) => !initial.has(id))
     );
-  }, [isPermissionsReadOnly, initialScopeNames, selectedScopes]);
+  }, [isPermissionsReadOnly, initialScopeNames, selectedScopeIds]);
 
   const isDirty = scopesDirty || agentDelta.isDirty || groupDelta.isDirty;
 
@@ -315,89 +319,17 @@ export const RoleEditPage: React.FC = () => {
               <Typography variant="body2" color="text.secondary">
                 {isPermissionsReadOnly
                   ? "Permissions for predefined roles cannot be modified."
-                  : "Search and select scopes to assign to this role."}
+                  : "Check the scopes to assign to this role."}
               </Typography>
 
               <Box sx={{ mt: 1 }}>
-                {!isPermissionsReadOnly && (
-                  <Form.ElementWrapper label="Add scopes" name="addScopes">
-                    <Autocomplete
-                      id="addScopes"
-                      multiple
-                      disableCloseOnSelect
-                      options={catalogScopes}
-                      value={selectedScopes}
-                      onChange={handleScopesChange}
-                      getOptionLabel={(option) => (option as ScopeChoice).scope}
-                      isOptionEqualToValue={(option, value) =>
-                        (option as ScopeChoice).scope === (value as ScopeChoice).scope
-                      }
-                      renderTags={() => null}
-                      renderOption={(props, option) => (
-                        <li {...props} key={(option as ScopeChoice).scope}>
-                          <Box>
-                            <Typography variant="body2">
-                              {(option as ScopeChoice).scope}
-                            </Typography>
-                            {(option as ScopeChoice).description && (
-                              <Typography variant="caption" color="text.secondary">
-                                {(option as ScopeChoice).description}
-                              </Typography>
-                            )}
-                          </Box>
-                        </li>
-                      )}
-                      renderInput={(autocompleteParams) => (
-                        <TextField {...autocompleteParams} placeholder="Search scopes..." />
-                      )}
-                      noOptionsText="No scopes in the catalog"
-                      sx={{ mb: 3 }}
-                    />
-                  </Form.ElementWrapper>
-                )}
-
-                {selectedScopes.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    No scopes assigned yet.
-                  </Typography>
-                ) : (
-                  <ListingTable.Container>
-                    <ListingTable>
-                      <ListingTable.Head>
-                        <ListingTable.Row>
-                          <ListingTable.Cell>Scope</ListingTable.Cell>
-                          <ListingTable.Cell>Description</ListingTable.Cell>
-                          {!isPermissionsReadOnly && <ListingTable.Cell />}
-                        </ListingTable.Row>
-                      </ListingTable.Head>
-                      <ListingTable.Body>
-                        {selectedScopes.map((sel) => {
-                          const s = catalogByScope.get(sel.scope) ?? sel;
-                          return (
-                            <ListingTable.Row key={s.scope}>
-                              <ListingTable.Cell>{s.scope}</ListingTable.Cell>
-                              <ListingTable.Cell>
-                                {s.description ?? "-"}
-                              </ListingTable.Cell>
-                              {!isPermissionsReadOnly && (
-                                <ListingTable.Cell align="right">
-                                  <Tooltip title="Remove scope">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleRemoveScope(s.scope)}
-                                    >
-                                      <Trash size={16} />
-                                    </IconButton>
-                                  </Tooltip>
-                                </ListingTable.Cell>
-                              )}
-                            </ListingTable.Row>
-                          );
-                        })}
-                      </ListingTable.Body>
-                    </ListingTable>
-                  </ListingTable.Container>
-                )}
+                <PermissionTree
+                  items={scopeTreeItems}
+                  selectedIds={selectedScopeIds}
+                  onChange={handleScopeSelectionChange}
+                  readOnly={isPermissionsReadOnly}
+                  emptyMessage="No scopes in the catalog."
+                />
               </Box>
             </>
           )}
