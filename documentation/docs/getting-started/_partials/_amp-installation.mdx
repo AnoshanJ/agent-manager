@@ -6,7 +6,13 @@
          so the gateway reaches the AMP API via the Docker host network (k3d only)
        - props.expandRegistryConfig — (boolean, optional) if true, shows registry config
          expanded instead of collapsed (for non-k3d environments)
+       - props.production         — (boolean, optional) if true, renders the production
+         variants of the install commands (external database, generated client secrets,
+         gateway development mode off) instead of the development-grade defaults
 */}
+
+export const Prod = ({when, children}) => (when ? <>{children}</> : null);
+export const Dev = ({when, children}) => (when ? null : <>{children}</>);
 
 The Agent Manager installs as a set of Helm charts on top of OpenChoreo. The components fall into two groups based on install order:
 
@@ -27,6 +33,8 @@ Install these in order — each depends on the one before it.
 
 Manages API Gateway resources and enables secure, authenticated trace ingestion into the Observability Plane.
 
+<Dev when={props.production}>
+
 ```bash
 helm install gateway-operator \
   oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
@@ -37,6 +45,23 @@ helm install gateway-operator \
   --set gateway.helm.chartVersion=1.1.1 \
   --timeout 600s
 ```
+
+</Dev>
+
+<Prod when={props.production}>
+
+```bash
+helm install gateway-operator \
+  oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
+  --version 0.6.0 \
+  --namespace ${DATA_PLANE_NS} \
+  --set logging.level=info \
+  --set gatewayApi.installStandardCRDs=false \
+  --set gateway.helm.chartVersion=1.1.1 \
+  --timeout 600s
+```
+
+</Prod>
 
 Wait for the operator to be ready:
 
@@ -83,7 +108,9 @@ The API Platform Gateway is deployed as an extension after Agent Manager is runn
 
 #### Step 2: Agent Manager (API + Console + PostgreSQL)
 
-The core platform: a Go API server, a React web console, and a PostgreSQL database.
+The core platform: a Go API server, a React web console, and a database.
+
+<Dev when={props.production}>
 
 ```bash
 helm install amp \
@@ -107,16 +134,6 @@ helm install amp \
   --timeout 1800s
 ```
 
-:::info
-`keyManager.issuer` must be the public Thunder URL — the chart default is the k3d
-hostname. The authorization server the API advertises in its RFC 9728 protected
-resource metadata is derived from it, so
-`agentManagerService.config.oauthAuthorizationServers` only needs setting if it
-must differ. Likewise the MCP audience entry is derived from
-`serverPublicURL` above, so `keyManager.audience` only needs setting to change
-the accepted client IDs.
-:::
-
 Wait for all components:
 
 ```bash
@@ -133,10 +150,85 @@ kubectl wait --for=condition=Available \
   deployment/amp-console -n ${AMP_NS} --timeout=600s
 ```
 
+</Dev>
+
+<Prod when={props.production}>
+
+The chart deploys an in-cluster PostgreSQL with a default password unless you point it at an external database. Use a managed service — sizing, backups, failover, and patching then come from your database platform. Create the database and a credentials Secret first:
+
+```bash
+kubectl create namespace ${AMP_NS} --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic amp-db-credentials \
+  --namespace ${AMP_NS} \
+  --from-literal=password='<AMP_DB_PASSWORD>'
+```
+
+Then install, wiring the external database and the platform client secrets generated earlier:
+
+```bash
+helm install amp \
+  oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
+  --version ${VERSION} \
+  --namespace ${AMP_NS} \
+  --create-namespace \
+  --set console.config.instrumentationUrl="${INSTRUMENTATION_URL}" \
+  --set console.config.auth.baseUrl="${THUNDER_PUBLIC_URL}" \
+  --set console.config.auth.signInRedirectURL="${CONSOLE_PUBLIC_URL}/login" \
+  --set console.config.auth.signOutRedirectURL="${CONSOLE_PUBLIC_URL}/login" \
+  --set console.config.apiBaseUrl="${API_PUBLIC_URL}" \
+  --set agentManagerService.config.amObserverPublicURL="${OBS_API_PUBLIC_URL}" \
+  --set console.ocIngress.hostname="${CONSOLE_PUBLIC_HOST}" \
+  --set agentManagerService.ocIngress.hostname="${API_PUBLIC_HOST}" \
+  --set agentManagerService.config.serverPublicURL="${API_PUBLIC_URL}" \
+  --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
+  --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
+  --set agentManagerService.config.oidc.clientSecret="${AMP_API_CLIENT_SECRET}" \
+  --set agentManagerService.config.thunder.clientSecret="${AMP_SYSTEM_CLIENT_SECRET}" \
+  --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
+  --set agentManagerService.replicaCount=2 \
+  --set console.replicaCount=2 \
+  --set postgresql.enabled=false \
+  --set postgresql.external.host="your-db.example.com" \
+  --set postgresql.external.port=5432 \
+  --set postgresql.external.database=agentmanager \
+  --set postgresql.external.username=agentmanager \
+  --set postgresql.external.existingSecret=amp-db-credentials \
+  --set postgresql.external.existingSecretPasswordKey=password \
+  --timeout 1800s
+```
+
+Wait for all components — with an external database no PostgreSQL StatefulSet is deployed, so there is nothing to wait for there:
+
+```bash
+# API server
+kubectl wait --for=condition=Available \
+  deployment/amp-api -n ${AMP_NS} --timeout=600s
+
+# Console
+kubectl wait --for=condition=Available \
+  deployment/amp-console -n ${AMP_NS} --timeout=600s
+```
+
+`agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
+
+</Prod>
+
+:::info
+`keyManager.issuer` must be the public Thunder URL — the chart default is the k3d
+hostname. The authorization server the API advertises in its RFC 9728 protected
+resource metadata is derived from it, so
+`agentManagerService.config.oauthAuthorizationServers` only needs setting if it
+must differ. Likewise the MCP audience entry is derived from
+`serverPublicURL` above, so `keyManager.audience` only needs setting to change
+the accepted client IDs.
+:::
+
 :::tip Verify
 ```bash
 kubectl get pods -n ${AMP_NS}
-# Expected: amp-postgresql-0 (Running), amp-api-xxx (Running), amp-console-xxx (Running)
+# Expected: amp-api-xxx (Running), amp-console-xxx (Running), plus
+# amp-postgresql-0 (Running) only when using the in-cluster database
 ```
 :::
 
@@ -246,6 +338,8 @@ These can be installed in any order after Core is ready.
 
 Deploys the observer service that queries and serves trace, log, and metrics data to the console and CLI.
 
+<Dev when={props.production}>
+
 ```bash
 helm install amp-observability-traces \
   oci://${HELM_CHART_REGISTRY}/wso2-amp-observability-extension \
@@ -259,6 +353,30 @@ helm install amp-observability-traces \
 kubectl wait --for=condition=Available \
   deployment/amp-observer -n ${OBSERVABILITY_NS} --timeout=600s
 ```
+
+</Dev>
+
+<Prod when={props.production}>
+
+`amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder:
+
+```bash
+helm install amp-observability-traces \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-observability-extension \
+  --version ${VERSION} \
+  --namespace ${OBSERVABILITY_NS} \
+  --set amObserver.ocIngress.hostname="${OBS_API_PUBLIC_HOST}" \
+  --set amObserver.publicUrl="${OBS_API_PUBLIC_URL}" \
+  --set amObserver.auth.issuer="${THUNDER_PUBLIC_URL}" \
+  --set amObserver.observer.idpClientSecret="${AM_OBSERVER_CLIENT_SECRET}" \
+  --set amObserver.replicaCount=2 \
+  --timeout 1800s
+
+kubectl wait --for=condition=Available \
+  deployment/amp-observer -n ${OBSERVABILITY_NS} --timeout=600s
+```
+
+</Prod>
 
 :::warning
 `amObserver.auth.issuer` must be the **public** Thunder URL, not the in-cluster
@@ -285,12 +403,14 @@ helm install amp-evaluation-extension \
 ```
 
 :::info
-The default `publisher.apiKey` must match `publisherApiKey.value` in the Agent Manager chart. Both default to `amp-internal-api-key`.
+Evaluation jobs publish scores using the `amp-publisher-client` OAuth2 credentials bootstrapped by the Thunder extension. The client secret is fetched from OpenBao at workflow runtime (`secret/amp-publisher-client-secret`) and must match the value set on `thunder.bootstrap.ampPublisherClient.clientSecret`.
 :::
 
 #### Step 7: API Platform Gateway Extension
 
 Registers the API Platform Gateway with the Agent Manager and deploys the gateway stack. **Install this last** — it requires the Agent Manager API to be healthy and Thunder to be ready for token exchange.
+
+<Dev when={props.production}>
 
 ```bash
 helm install api-platform-default-default \
@@ -304,6 +424,37 @@ helm install api-platform-default-default \
 kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap \
   -n ${DATA_PLANE_NS} --timeout=300s
 ```
+
+</Dev>
+
+<Prod when={props.production}>
+
+The bootstrap job authenticates to the Agent Manager API as `amp-api-client`, so it needs the secret you seeded into Thunder. Keep it out of Helm release history with a Secret reference:
+
+```bash
+kubectl create secret generic gateway-idp-credentials \
+  --namespace ${DATA_PLANE_NS} \
+  --from-literal=client-id=amp-api-client \
+  --from-literal=client-secret="${AMP_API_CLIENT_SECRET}"
+
+helm install api-platform-default-default \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-api-platform-gateway-extension \
+  --version ${VERSION} \
+  --namespace ${DATA_PLANE_NS} \
+  --set agentManager.orgName=default \
+  --set gateway.environment=default \
+  --set agentManager.idp.existingSecret=gateway-idp-credentials \
+  --timeout 1800s
+
+kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap \
+  -n ${DATA_PLANE_NS} --timeout=300s
+```
+
+:::warning Development mode is still on
+This release defaults to `developmentMode: true`, which relaxes gateway security checks such as auto-generating encryption keys. Turning it off requires supplying encryption keys that the extension chart does not yet expose as a value — see [Gateway hardening](#gateway-hardening) for the procedure and its caveats.
+:::
+
+</Prod>
 
 After the gateway is running, apply the OTEL trace collection RestApi:
 
