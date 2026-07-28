@@ -17,7 +17,7 @@
  */
 
 import { Sidebar } from "@wso2/oxygen-ui";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 export interface NavigationItem {
@@ -27,6 +27,7 @@ export interface NavigationItem {
   isActive?: boolean;
   pinBottom?: boolean;
   type: 'item';
+  children?: NavigationItem[];
 }
 export interface NavigationSection {
   title: string;
@@ -44,7 +45,9 @@ interface LeftNavigationProps {
 
 // Render each item as a real anchor (`<a>`) so clicking opens the link —
 // enabling middle-click / open-in-new-tab and proper link semantics, rather
-// than navigating from the Sidebar's onSelect callback.
+// than navigating from the Sidebar's onSelect callback. Items with `children`
+// render without a link — the Sidebar.Item then acts purely as an
+// expand/collapse toggle for the nested items.
 function renderItem(item: NavigationItem) {
   return (
     <Sidebar.Item
@@ -54,8 +57,15 @@ function renderItem(item: NavigationItem) {
     >
       <Sidebar.ItemIcon>{item.icon}</Sidebar.ItemIcon>
       <Sidebar.ItemLabel>{item.label}</Sidebar.ItemLabel>
+      {item.children?.map(renderItem)}
     </Sidebar.Item>
   );
+}
+
+function findParentLabel(items: NavigationItem[], childLabel: string): string | undefined {
+  return items.find((item) =>
+    item.children?.some((child) => child.label === childLabel),
+  )?.label;
 }
 
 export function LeftNavigation({
@@ -66,9 +76,28 @@ export function LeftNavigation({
 }: LeftNavigationProps) {
   const topItems = mainItems.filter((item) => !item.pinBottom);
   const bottomItems = mainItems.filter((item) => item.pinBottom);
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const allItems = [...mainItems, ...groupedItems.flatMap((group) => group.items)];
+    const parentLabel = findParentLabel(allItems, activeItem);
+    if (parentLabel) {
+      setExpandedMenus((prev) => (prev[parentLabel] ? prev : { ...prev, [parentLabel]: true }));
+    }
+  }, [activeItem, mainItems, groupedItems]);
+
+  const handleToggleExpand = (id: string) => {
+    setExpandedMenus((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   return (
-    <Sidebar collapsed={collapsed} activeItem={activeItem} width={280}>
+    <Sidebar
+      collapsed={collapsed}
+      activeItem={activeItem}
+      expandedMenus={expandedMenus}
+      onToggleExpand={handleToggleExpand}
+      width={280}
+    >
       <Sidebar.Nav
         sx={{
           "& .MuiButtonBase-root": {

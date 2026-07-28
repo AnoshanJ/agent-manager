@@ -15,87 +15,26 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { type ReactNode, useCallback } from "react";
+import React, { useCallback } from "react";
 import {
   Alert,
-  Box,
   Card,
   Chip,
-  Divider,
   Grid,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  ListSubheader,
   Skeleton,
   Stack,
   Tooltip,
-  Typography,
 } from "@wso2/oxygen-ui";
-import {
-  AlertTriangle,
-  CheckCircle,
-  Folder,
-  LayoutGrid,
-  Shield,
-  Users,
-} from "@wso2/oxygen-ui-icons-react";
-import {
-  generatePath,
-  matchPath,
-  useLocation,
-  useParams,
-  Link,
-  Navigate,
-  Route,
-  Routes,
-} from "react-router-dom";
+import { AlertTriangle, CheckCircle } from "@wso2/oxygen-ui-icons-react";
+import { generatePath, useParams } from "react-router-dom";
 import { useListThunderInstances } from "@agent-management-platform/api-client";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { copyToClipboard } from "@agent-management-platform/shared-component";
 import { PageLayout, useSnackBar } from "@agent-management-platform/views";
 import { ThunderInstanceOverviewTab } from "./ThunderInstanceOverviewTab";
-import { AgentsTab } from "./agentIdentity/AgentsTab";
-import { AgentDetailPage } from "./agentIdentity/AgentDetailPage";
-import { GroupsPage } from "./agentIdentity/GroupsPage";
-import { GroupCreatePage } from "./agentIdentity/GroupCreatePage";
-import { GroupEditPage } from "./agentIdentity/GroupEditPage";
-import { RolesPage } from "./agentIdentity/RolesPage";
-import { RoleCreatePage } from "./agentIdentity/RoleCreatePage";
-import { RoleEditPage } from "./agentIdentity/RoleEditPage";
-
-interface NavTab {
-  label: string;
-  icon: ReactNode;
-  href: string;
-  wildPath?: string;
-}
-
-const ICON_SX_ACTIVE = { minWidth: 36, color: "primary.main" } as const;
-const ICON_SX_INACTIVE = { minWidth: 36, color: "inherit" } as const;
-const TEXT_SX_ACTIVE = { color: "text.secondary" } as const;
-const TEXT_SX_INACTIVE = { color: "inherit" } as const;
-
-interface NavItemProps {
-  tab: NavTab;
-  isActive: boolean;
-}
-
-function NavItem({ tab, isActive }: NavItemProps) {
-  return (
-    <Link to={tab.href} style={{ textDecoration: "none", color: "inherit" }}>
-      <ListItemButton selected={isActive}>
-        <ListItemIcon sx={isActive ? ICON_SX_ACTIVE : ICON_SX_INACTIVE}>{tab.icon}</ListItemIcon>
-        <ListItemText primary={tab.label} sx={isActive ? TEXT_SX_ACTIVE : TEXT_SX_INACTIVE} />
-      </ListItemButton>
-    </Link>
-  );
-}
 
 export const ViewThunderInstance: React.FC = () => {
   const { orgId, envName } = useParams<{ orgId: string; envName: string }>();
-  const { pathname } = useLocation();
   const { pushSnackBar } = useSnackBar();
 
   const { data, isLoading, error } = useListThunderInstances({ orgName: orgId });
@@ -121,35 +60,7 @@ export const ViewThunderInstance: React.FC = () => {
     { orgId: orgId ?? "" },
   );
 
-  const viewNode = absoluteRouteMap.children.org.children.thunderInstances.children.view;
-  const overviewHref = generatePath(viewNode.path, { orgId: orgId ?? "", envName: envName ?? "" });
-  const overviewTab: NavTab = { label: "Overview", icon: <LayoutGrid size={18} />, href: overviewHref };
-
-  const identityManagementTabs: NavTab[] = [
-    {
-      label: "Agents",
-      icon: <Users size={18} />,
-      href: generatePath(viewNode.children.agents.path, { orgId: orgId ?? "", envName: envName ?? "" }),
-      wildPath: viewNode.children.agents.wildPath,
-    },
-    {
-      label: "Roles",
-      icon: <Shield size={18} />,
-      href: generatePath(viewNode.children.roles.path, { orgId: orgId ?? "", envName: envName ?? "" }),
-      wildPath: viewNode.children.roles.wildPath,
-    },
-    {
-      label: "Groups",
-      icon: <Folder size={18} />,
-      href: generatePath(viewNode.children.groups.path, { orgId: orgId ?? "", envName: envName ?? "" }),
-      wildPath: viewNode.children.groups.wildPath,
-    },
-  ];
-
-  const isOverviewActive = pathname === overviewHref;
-
   return (
-    <>
       <PageLayout
         title={displayName}
         backHref={backHref}
@@ -207,52 +118,11 @@ export const ViewThunderInstance: React.FC = () => {
         )}
 
         {instance && !error && (
-          <Card
-            variant="outlined"
-            sx={{ display: "flex", overflow: "hidden", minHeight: "calc(70vh - 64px)" }}
-          >
-            <Box component="nav" sx={{ width: 200, flexShrink: 0, overflowY: "auto", p: 2 }}>
-              <List>
-                <NavItem tab={overviewTab} isActive={isOverviewActive} />
-              </List>
-              <List
-                subheader={
-                  <ListSubheader disableGutters disableSticky>
-                    <Typography variant="overline">Identity Management</Typography>
-                  </ListSubheader>
-                }
-              >
-                {identityManagementTabs.map((tab) => (
-                  <NavItem
-                    key={tab.label}
-                    tab={tab}
-                    isActive={!!tab.wildPath && !!matchPath(tab.wildPath, pathname)}
-                  />
-                ))}
-              </List>
-            </Box>
-            <Divider orientation="vertical" flexItem />
-            <Box sx={{ flex: 1, minWidth: 0, overflowY: "auto", p: 3 }}>
-              <Routes>
-                <Route
-                  index
-                  element={<ThunderInstanceOverviewTab instance={instance} onCopy={handleCopy} />}
-                />
-                <Route path="agents" element={<AgentsTab />} />
-                <Route path="agents/:projectName/:agentName" element={<AgentDetailPage />} />
-                <Route path="groups" element={<GroupsPage />} />
-                <Route path="groups/create" element={<GroupCreatePage />} />
-                <Route path="groups/:groupId" element={<GroupEditPage />} />
-                <Route path="roles" element={<RolesPage />} />
-                <Route path="roles/create" element={<RoleCreatePage />} />
-                <Route path="roles/:roleId" element={<RoleEditPage />} />
-                <Route path="*" element={<Navigate to="." replace />} />
-              </Routes>
-            </Box>
+          <Card variant="outlined" sx={{ p: 3 }}>
+            <ThunderInstanceOverviewTab instance={instance} onCopy={handleCopy} />
           </Card>
         )}
       </PageLayout>
-    </>
   );
 };
 

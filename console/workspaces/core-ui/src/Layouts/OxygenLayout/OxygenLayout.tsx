@@ -36,11 +36,17 @@ import { TopNavigation } from "./TopNavigation";
 import { useListOrganizations } from "@agent-management-platform/api-client";
 import { MountPoints } from "../../types";
 
+const flattenWithChildren = (items: NavigationItem[]): NavigationItem[] =>
+  items.flatMap((item) => [item, ...flattenWithChildren(item.children ?? [])]);
+
 const getFlattenedItems = (
   mainItems: NavigationItem[],
   groupedItems: NavigationSection[],
 ) => {
-  return [...mainItems, ...groupedItems.flatMap((item) => item.items)];
+  return flattenWithChildren([
+    ...mainItems,
+    ...groupedItems.flatMap((item) => item.items),
+  ]);
 };
 
 export function OxygenLayout() {

@@ -88,6 +88,49 @@ export const rootRouteMap: AppRoute = {
                                 },
                             },
                         },
+                        agents: {
+                            path: 'agents',
+                            index: true,
+                            children: {
+                                detail: {
+                                    path: ':projectName/:agentName',
+                                    index: true,
+                                    children: {},
+                                },
+                            },
+                        },
+                        roles: {
+                            path: 'roles',
+                            index: true,
+                            children: {
+                                create: {
+                                    path: 'create',
+                                    index: true,
+                                    children: {},
+                                },
+                                detail: {
+                                    path: ':roleId',
+                                    index: true,
+                                    children: {},
+                                },
+                            },
+                        },
+                        groups: {
+                            path: 'groups',
+                            index: true,
+                            children: {
+                                create: {
+                                    path: 'create',
+                                    index: true,
+                                    children: {},
+                                },
+                                detail: {
+                                    path: ':groupId',
+                                    index: true,
+                                    children: {},
+                                },
+                            },
+                        },
                     },
                 },
                 gateways: {

@@ -20,39 +20,48 @@ import React from "react";
 import { Navigate, Route, Routes, generatePath, useParams } from "react-router-dom";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { PageLayout } from "@agent-management-platform/views";
+import { AgentIdentityEnvironmentProvider } from "./context/AgentIdentityEnvironmentContext";
 import { ThunderInstancesTable } from "./subComponents/ThunderInstancesTable";
 import { ViewThunderInstance } from "./subComponents/ViewThunderInstance";
+import { AgentsOrganization } from "./AgentsOrganization";
+import { RolesOrganization } from "./RolesOrganization";
+import { GroupsOrganization } from "./GroupsOrganization";
 
 export const ThunderInstancesOrganization: React.FC = () => {
   const { orgId } = useParams<{ orgId: string }>();
 
   return (
-    <Routes>
-      <Route
-        index
-        element={
-          <PageLayout
-            title="Agent Identity"
-            description="Environment-scoped agent identities for agent authentication"
-            disableIcon
-          >
-            <ThunderInstancesTable />
-          </PageLayout>
-        }
-      />
-      <Route path="view/:envName/*" element={<ViewThunderInstance />} />
-      <Route
-        path="*"
-        element={
-          <Navigate
-            to={generatePath(
-              absoluteRouteMap.children.org.children.thunderInstances.path,
-              { orgId },
-            )}
-          />
-        }
-      />
-    </Routes>
+    <AgentIdentityEnvironmentProvider>
+      <Routes>
+        <Route
+          index
+          element={
+            <PageLayout
+              title="Agent Identity"
+              description="Environment-scoped agent identities for agent authentication"
+              disableIcon
+            >
+              <ThunderInstancesTable />
+            </PageLayout>
+          }
+        />
+        <Route path="view/:envName/*" element={<ViewThunderInstance />} />
+        <Route path="agents/*" element={<AgentsOrganization />} />
+        <Route path="roles/*" element={<RolesOrganization />} />
+        <Route path="groups/*" element={<GroupsOrganization />} />
+        <Route
+          path="*"
+          element={
+            <Navigate
+              to={generatePath(
+                absoluteRouteMap.children.org.children.thunderInstances.path,
+                { orgId },
+              )}
+            />
+          }
+        />
+      </Routes>
+    </AgentIdentityEnvironmentProvider>
   );
 };
 

@@ -33,7 +33,7 @@ import {
   Typography,
 } from "@wso2/oxygen-ui";
 import { Trash } from "@wso2/oxygen-ui-icons-react";
-import { generatePath, useNavigate, useParams } from "react-router-dom";
+import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useListAgentIdentityAgents,
   useGetAgentIdentityGroup,
@@ -47,13 +47,11 @@ import {
   type AgentIdentityAgentResponse,
   type ThunderRole,
 } from "@agent-management-platform/types";
-import {
-  BackButton,
-  EditFormSkeleton,
-  EntityHeader,
-} from "@agent-management-platform/shared-component";
+import { EditFormSkeleton } from "@agent-management-platform/shared-component";
+import { PageLayout } from "@agent-management-platform/views";
 import { useAgentLookup } from "./useAgentLookup";
 import { useAssignmentDelta } from "./useAssignmentDelta";
+import { withSearchParams } from "../../utils/withSearchParams";
 
 type ActiveTab = "agents" | "roles";
 
@@ -64,16 +62,17 @@ type ActiveTab = "agents" | "roles";
 const MEMBERS_PAGE_SIZE = 100;
 
 export const GroupEditPage: React.FC = () => {
-  const { orgId, envName, groupId } = useParams<{
+  const { orgId, groupId } = useParams<{
     orgId: string;
-    envName: string;
     groupId: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const envName = searchParams.get("envName") ?? "";
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("agents");
 
-  const params = { orgName: orgId, envName: envName ?? "", groupId: groupId ?? "" };
+  const params = { orgName: orgId, envName, groupId: groupId ?? "" };
 
   const { data: groupData, isLoading: isLoadingGroup } = useGetAgentIdentityGroup(params);
   const { data: membersData, isLoading: isLoadingMembers } = useGetAgentIdentityGroupMembers(
@@ -87,7 +86,7 @@ export const GroupEditPage: React.FC = () => {
   } = useGetAgentIdentityGroupRoles(params);
   const { data: agentsData, isLoading: isLoadingAgents } = useListAgentIdentityAgents({
     orgName: orgId,
-    envName: envName ?? "",
+    envName,
   });
 
   const { mutateAsync: addMembers } = useAddAgentIdentityGroupMembers();
@@ -112,9 +111,10 @@ export const GroupEditPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const groupsNode =
-    absoluteRouteMap.children.org.children.thunderInstances.children.view.children.groups;
-  const groupsPath =
-    orgId && envName ? generatePath(groupsNode.path, { orgId, envName }) : "#";
+    absoluteRouteMap.children.org.children.thunderInstances.children.groups;
+  const groupsPath = orgId
+    ? withSearchParams(generatePath(groupsNode.path, { orgId }), searchParams)
+    : "#";
 
   const pageMemberIds = memberDelta.activeIds;
 
@@ -153,25 +153,23 @@ export const GroupEditPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <>
-        <BackButton to={groupsPath} label="Groups" />
+      <PageLayout title="Group" backHref={groupsPath} backLabel="Back to Groups" disableIcon>
         <EditFormSkeleton tabs={2} />
-      </>
+      </PageLayout>
     );
   }
 
   const isDirty = memberDelta.isDirty;
 
   return (
-    <>
-      <BackButton to={groupsPath} label="Groups" />
+    <PageLayout
+      title={groupData?.name || "Group"}
+      backHref={groupsPath}
+      backLabel="Back to Groups"
+      description={groupData?.description}
+      disableIcon
+    >
       <Stack spacing={3}>
-        <EntityHeader
-          fallback="G"
-          name={groupData?.name ?? ""}
-          subtitle={groupData?.description}
-          id={groupId ?? ""}
-        />
         {saveError != null && <Alert severity="error">{saveError}</Alert>}
         {saveSuccess && (
           <Alert severity="success">Group updated successfully.</Alert>
@@ -358,7 +356,7 @@ export const GroupEditPage: React.FC = () => {
           </Stack>
         )}
       </Stack>
-    </>
+    </PageLayout>
   );
 };
 

@@ -26,18 +26,21 @@ import {
   Tooltip,
 } from "@wso2/oxygen-ui";
 import { Plus, Shield, Trash } from "@wso2/oxygen-ui-icons-react";
-import { generatePath, useNavigate, useParams } from "react-router-dom";
+import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useDeleteAgentIdentityRole,
   useListAgentIdentityRoles,
 } from "@agent-management-platform/api-client";
 import { ListingSkeletonRows, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { absoluteRouteMap, type ThunderRole } from "@agent-management-platform/types";
+import { withSearchParams } from "../../utils/withSearchParams";
 
 const AVATAR_SX = { width: 28, height: 28, fontSize: 12 } as const;
 
 export const RolesPage: React.FC = () => {
-  const { orgId, envName } = useParams<{ orgId: string; envName: string }>();
+  const { orgId } = useParams<{ orgId: string }>();
+  const [searchParams] = useSearchParams();
+  const envName = searchParams.get("envName") ?? "";
   const navigate = useNavigate();
 
   const [page, setPage] = useState(0);
@@ -45,7 +48,7 @@ export const RolesPage: React.FC = () => {
   const [search, setSearch] = useState("");
 
   const { data, isLoading, error } = useListAgentIdentityRoles(
-    { orgName: orgId, envName: envName ?? "" },
+    { orgName: orgId, envName },
     { offset: page * rowsPerPage, limit: rowsPerPage },
   );
   const { mutateAsync: deleteRole } = useDeleteAgentIdentityRole();
@@ -64,16 +67,18 @@ export const RolesPage: React.FC = () => {
   }, [roles.length, total, page, rowsPerPage]);
 
   const rolesNode =
-    absoluteRouteMap.children.org.children.thunderInstances.children.view.children.roles;
+    absoluteRouteMap.children.org.children.thunderInstances.children.roles;
 
-  const createPath =
-    orgId && envName
-      ? generatePath(rolesNode.children.create.path, { orgId, envName })
-      : "#";
+  const createPath = orgId
+    ? withSearchParams(generatePath(rolesNode.children.create.path, { orgId }), searchParams)
+    : "#";
 
   const editRolePath = (roleId: string) =>
-    orgId && envName
-      ? generatePath(rolesNode.children.detail.path, { orgId, envName, roleId })
+    orgId
+      ? withSearchParams(
+          generatePath(rolesNode.children.detail.path, { orgId, roleId }),
+          searchParams,
+        )
       : "#";
 
   const filteredRoles = useMemo(() => {

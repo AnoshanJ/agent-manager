@@ -34,7 +34,7 @@ import {
   Typography,
 } from "@wso2/oxygen-ui";
 import { Trash } from "@wso2/oxygen-ui-icons-react";
-import { generatePath, useNavigate, useParams } from "react-router-dom";
+import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useListAgentIdentityAgents,
   useListAgentIdentityGroups,
@@ -50,14 +50,12 @@ import {
   type AgentIdentityAgentResponse,
   type ThunderGroup,
 } from "@agent-management-platform/types";
-import {
-  BackButton,
-  EditFormSkeleton,
-  EntityHeader,
-} from "@agent-management-platform/shared-component";
+import { EditFormSkeleton } from "@agent-management-platform/shared-component";
+import { PageLayout } from "@agent-management-platform/views";
 import { useAgentLookup } from "./useAgentLookup";
 import { useAssignmentDelta } from "./useAssignmentDelta";
 import type { ScopeChoice } from "./scopeChoice";
+import { withSearchParams } from "../../utils/withSearchParams";
 
 type ActiveTab = "permissions" | "agents" | "groups";
 
@@ -67,11 +65,12 @@ type ActiveTab = "permissions" | "agents" | "groups";
 const GROUPS_PAGE_SIZE = 100;
 
 export const RoleEditPage: React.FC = () => {
-  const { orgId, envName, roleId } = useParams<{
+  const { orgId, roleId } = useParams<{
     orgId: string;
-    envName: string;
     roleId: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const envName = searchParams.get("envName") ?? "";
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("permissions");
@@ -79,7 +78,7 @@ export const RoleEditPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string | undefined>();
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const params = { orgName: orgId, envName: envName ?? "", roleId: roleId ?? "" };
+  const params = { orgName: orgId, envName, roleId: roleId ?? "" };
 
   const { data: roleData, isLoading: isLoadingRole } = useGetAgentIdentityRole(params);
   const isPermissionsReadOnly = roleData?.isReadOnly ?? false;
@@ -87,15 +86,15 @@ export const RoleEditPage: React.FC = () => {
     useGetAgentIdentityRoleAssignments(params);
   const { data: agentsData, isLoading: isLoadingAgents } = useListAgentIdentityAgents({
     orgName: orgId,
-    envName: envName ?? "",
+    envName,
   });
   const { data: groupsData, isLoading: isLoadingGroups } = useListAgentIdentityGroups(
-    { orgName: orgId, envName: envName ?? "" },
+    { orgName: orgId, envName },
     { offset: 0, limit: GROUPS_PAGE_SIZE },
   );
   const { data: scopesData, isLoading: isLoadingScopes } = useListAgentIdentityScopes({
     orgName: orgId,
-    envName: envName ?? "",
+    envName,
   });
 
   const { mutateAsync: addAssignees } = useAddAgentIdentityRoleAssignees();
@@ -152,9 +151,10 @@ export const RoleEditPage: React.FC = () => {
   }, [initialScopeNames, catalogScopes, catalogByScope]);
 
   const rolesNode =
-    absoluteRouteMap.children.org.children.thunderInstances.children.view.children.roles;
-  const rolesPath =
-    orgId && envName ? generatePath(rolesNode.path, { orgId, envName }) : "#";
+    absoluteRouteMap.children.org.children.thunderInstances.children.roles;
+  const rolesPath = orgId
+    ? withSearchParams(generatePath(rolesNode.path, { orgId }), searchParams)
+    : "#";
 
   // --- Derived displayed lists ---
   const displayedAgentIds = useMemo(
@@ -278,24 +278,22 @@ export const RoleEditPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <>
-        <BackButton to={rolesPath} label="Roles" />
+      <PageLayout title="Role" backHref={rolesPath} backLabel="Back to Roles" disableIcon>
         <EditFormSkeleton tabs={3} />
-      </>
+      </PageLayout>
     );
   }
 
   return (
-    <>
-      <BackButton to={rolesPath} label="Roles" />
+    <PageLayout
+      title={roleData?.name || "Role"}
+      backHref={rolesPath}
+      backLabel="Back to Roles"
+      description={roleData?.description}
+      disableIcon
+      titleTail={isPermissionsReadOnly ? <Chip label="Read-only" size="small" /> : undefined}
+    >
       <Stack spacing={3}>
-        <EntityHeader
-          fallback="R"
-          name={roleData?.name ?? ""}
-          subtitle={roleData?.description}
-          id={roleId ?? ""}
-          badge={isPermissionsReadOnly ? <Chip label="Read-only" size="small" /> : undefined}
-        />
         {saveError != null && <Alert severity="error">{saveError}</Alert>}
         {saveSuccess && <Alert severity="success">Role updated successfully.</Alert>}
 
@@ -566,7 +564,7 @@ export const RoleEditPage: React.FC = () => {
           </Stack>
         )}
       </Stack>
-    </>
+    </PageLayout>
   );
 };
 
