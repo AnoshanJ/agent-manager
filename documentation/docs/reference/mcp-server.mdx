@@ -68,6 +68,26 @@ http://api.amp.localhost:8080/mcp
 
 If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value.
 
+:::warning Moving the public URL is a three-place change
+
+MCP clients send the server's public URL — with a trailing slash — as the OAuth
+`resource` parameter (RFC 8707), and Thunder both validates that value against
+its registered resource servers and stamps it into the token's `aud`. Changing
+the public URL therefore means changing three settings together:
+
+| Setting                                        | Chart / file                     | Value                          |
+| ---------------------------------------------- | -------------------------------- | ------------------------------ |
+| `agentManagerService.config.serverPublicURL`   | `wso2-agent-manager`             | the public base URL            |
+| `thunder.bootstrap.agentManagerMcpBaseUrl`     | `wso2-amp-thunder-extension`     | the same base URL              |
+| `agentManagerService.config.keyManager.audience` | `wso2-agent-manager`           | must list the base URL **plus a trailing slash** |
+
+Leaving `agentManagerMcpBaseUrl` behind makes the browser redirect fail with
+`invalid_target: The resource parameter does not match any registered resource
+server`. Leaving the `audience` entry behind lets the login succeed but makes
+every tool call return 401.
+
+:::
+
 ## Default OAuth Client
 
 AMP ships a pre-registered OAuth application in Thunder for MCP clients:
@@ -81,6 +101,8 @@ The client is public (no secret), PKCE is required, and the callback port is pin
 The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
 
 *Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On existing installs, re-run the bootstrap job — it replaces legacy MCP resource servers automatically and seeds the permissions; a `helm upgrade` alone will not re-seed, and without the permissions MCP tokens are issued with an empty scope list and every tool call returns 403.*
+
+*Installs created before the `agentManagerMcpBaseUrl` default was corrected registered the agent-manager MCP resource server under `http://localhost:9000/` instead of the gateway URL, which fails the authorize request with `invalid_target`. Re-running the bootstrap job registers the correct identifier; the stale entry is inert and can be left in place.*
 
 ## Configuring AI Assistants
 
