@@ -522,8 +522,10 @@ thunder:
     # and silently drops name/handle/description/permissionSet. Point each base
     # URL at the externally reachable origin of its MCP endpoint's service — the
     # same value as agent-manager's serverPublicURL and the observability
-    # extension's amObserver.publicUrl. Defaults suit a k3d/local install.
-    agentManagerMcpBaseUrl: "http://localhost:9000"
+    # extension's amObserver.publicUrl. Defaults suit a k3d/local install, where
+    # amp-api is reached through the OpenChoreo control-plane gateway rather than
+    # on its container port.
+    agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
