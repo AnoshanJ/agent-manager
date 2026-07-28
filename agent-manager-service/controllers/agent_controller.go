@@ -1006,7 +1006,7 @@ func (c *agentController) GetAgentIdentity(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
@@ -1047,7 +1047,7 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
@@ -1091,7 +1091,7 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
@@ -1132,7 +1132,7 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
@@ -1170,7 +1170,7 @@ func (c *agentController) GetAgentRoles(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
@@ -1209,7 +1209,7 @@ func (c *agentController) GetAgentGroups(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	ouID := middleware.OUIDFromRequest(r)
 	projName := r.PathValue(utils.PathParamProjName)
 	agentName := r.PathValue(utils.PathParamAgentName)
