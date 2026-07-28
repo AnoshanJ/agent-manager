@@ -173,11 +173,19 @@ type openChoreoClient struct {
 	defaultNamespace string
 }
 
-// NamespaceFor resolves the OpenChoreo namespace for an OU. The deployment
-// currently runs single-namespace, so every OU maps to the configured default
-// namespace. Exposed on the interface so other components that address the same
-// namespace (e.g. the observability service reading a workload's logs) resolve
-// it identically; a future ou_id → namespace mapping plugs in here only.
+// NamespaceFor resolves the OpenChoreo namespace an OU's workloads run in.
+// The deployment currently runs single-namespace, so every OU maps to the one
+// configured default namespace (OPEN_CHOREO_DEFAULT_NAMESPACE). Exposed on the
+// interface so other components that address the same namespace (e.g. the
+// observability service reading a workload's logs) resolve it identically.
+//
+// Multi-tenancy TODO: when each org gets its own OpenChoreo namespace, replace
+// this with a stable OU ID → OC namespace mapping. Namespace and org handle are
+// NOT the same thing — key the mapping on the immutable OU ID, never the org
+// handle. The handle is user-editable, and the namespace (plus the env-Thunder
+// issuer/JWKS/token URLs derived from it) must stay fixed for an org's lifetime;
+// deriving it from a value that can change would break addressing and invalidate
+// already-issued tokens on every rename.
 func (c *openChoreoClient) NamespaceFor(_ string) string {
 	return c.defaultNamespace
 }

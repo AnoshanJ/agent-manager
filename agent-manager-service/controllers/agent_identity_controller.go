@@ -767,7 +767,7 @@ func (c *agentIdentityController) RemoveRoleAssignees(w http.ResponseWriter, r *
 func (c *agentIdentityController) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
-	orgName := r.PathValue(utils.PathParamOrgName)
+	orgName := middleware.OrgHandleFromRequest(r)
 	envName := r.PathValue("envName")
 	ouID := middleware.OUIDFromRequest(r)
 

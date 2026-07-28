@@ -62,7 +62,7 @@ const provisionRetryDelay = 3 * time.Minute
 // gateway) is a later phase and is deliberately not implemented here.
 //
 // Deployment-pluggable (see app.Options.AgentThunderProvisioning; the
-// open-source build injects NewOpenBaoAgentThunderProvisioning). Credential
+// open-source build injects NewDBBackedAgentThunderProvisioning). Credential
 // storage goes through secretmanagersvc.SecretManagementClient — the same
 // deployment-pluggable seam LLM/MCP/publisher secrets already use (see
 // app.Options's secretProvider) — instead of talking to OpenBao directly, so
@@ -240,7 +240,7 @@ func (s *agentThunderProvisioningService) deleteCredential(ctx context.Context, 
 type WorkloadInjectorSetter interface {
 	// SetWorkloadInjector backfills the workload injector once the real
 	// AgentIdentityInjectionService exists (this service is constructed before
-	// the OpenChoreo client — see NewOpenBaoAgentThunderProvisioning). app.Run
+	// the OpenChoreo client — see NewDBBackedAgentThunderProvisioning). app.Run
 	// calls it exactly once, before the reconciler or HTTP server start. No-op
 	// when injector is nil. If this backfill is ever skipped (a startup-order
 	// regression), the post-provisioning reconcile hook logs a warning rather
@@ -294,11 +294,16 @@ func reconcileWorkloadInjection(ctx context.Context, injector AgentIdentityInjec
 	}
 }
 
-// NewOpenBaoAgentThunderProvisioning returns the deployment factory that builds
-// the OpenBao-backed provisioning service once the DB and secret management
-// client are available (see app.Options.AgentThunderProvisioning). Used by the
+// NewDBBackedAgentThunderProvisioning returns the deployment factory that builds
+// the provisioning service once the DB and secret management client are
+// available (see app.Options.AgentThunderProvisioning). Used by the
 // open-source deployment, which provisions AgentIDs against per-environment
-// Thunder via env-Thunder.
+// Thunder via env-Thunder. "DB-backed" (not "default") is the load-bearing
+// distinction: the env-Thunder system-client credential this service reads
+// (via NewEnvThunderSecretReader) is decrypted from AMS's own Postgres rather
+// than read back from a key vault — the same reason a SaaS/cloud deployment,
+// whose vault may be reveal-once, needs this same DB-backed approach rather
+// than an alternative provisioning implementation.
 //
 // secretMgmtClient is supplied by app.Run, built the same way as the shared
 // one wiring.InitializeAppParams builds for every other secret-backed service
@@ -316,7 +321,7 @@ func reconcileWorkloadInjection(ctx context.Context, injector AgentIdentityInjec
 // agent whose workload comes up outside AgentManagerService.DeployAgent (a
 // git/build-pipeline agent, or a kind-sourced one) would never get its AgentID
 // env vars — neither path calls InjectForEnvironment itself.
-func NewOpenBaoAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, encryptionKey []byte) AgentThunderProvisioningService {
+func NewDBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, encryptionKey []byte) AgentThunderProvisioningService {
 	return func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, encryptionKey []byte) AgentThunderProvisioningService {
 		envThunderRepo := repositories.NewEnvThunderSystemClientRepo(db)
 		return NewAgentThunderProvisioningService(
