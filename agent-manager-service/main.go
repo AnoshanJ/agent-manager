@@ -46,8 +46,9 @@ func main() {
 	// Open-source: OpenBao secret management
 	secretProvider := openbao.NewProvider()
 
-	// Open-source: OpenBao-backed AgentID provisioning
-	agentThunderProvisioning := services.NewOpenBaoAgentThunderProvisioning()
+	// Open-source: DB-backed AgentID provisioning (env-Thunder credential read
+	// from Postgres, not a key vault — see NewDBBackedAgentThunderProvisioning)
+	agentThunderProvisioning := services.NewDBBackedAgentThunderProvisioning()
 
 	app.Run(authProvider, secretProvider, app.Options{
 		Server:                   *serverFlag,
