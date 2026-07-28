@@ -29,6 +29,16 @@ vm_host() {
 # own serving (that is internalServer.tlsEnabled) — it is purely the endpoint
 # scheme. The agent host is only reachable over TLS via Caddy's wildcard site, so
 # without this the console emits http:// and the browser blocks it as mixed content.
+#
+# keyManager.audience is restated rather than left at the chart default for the
+# same reason observability_helm_args restates amObserver.auth.audience: the
+# default's last entry is this service's own serverPublicURL, which the line
+# above has just moved. An MCP token carries the RFC 8707 resource identifier
+# (serverPublicURL plus a trailing slash) as its `aud`, so leaving the default
+# in place means amp-api rejects every MCP token Thunder mints for it. The
+# leading entries mirror the chart and must stay: console, amctl and publisher
+# tokens arrive with aud amp, amctl or amp-publisher-*. Commas are escaped
+# because helm's --set otherwise splits the value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -37,6 +47,7 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
+      "--set" "${k}.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
       "--set" "${k}.config.tlsEnabled=true" \
       "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}"
   done
