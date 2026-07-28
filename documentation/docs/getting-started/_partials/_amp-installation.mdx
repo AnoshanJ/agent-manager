@@ -101,6 +101,7 @@ helm install amp \
   --set agentManagerService.ocIngress.hostname="${API_PUBLIC_HOST}" \
   --set agentManagerService.config.serverPublicURL="${API_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.oauthAuthorizationServers="${THUNDER_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
@@ -243,11 +244,27 @@ helm install amp-observability-traces \
   --namespace ${OBSERVABILITY_NS} \
   --set amObserver.ocIngress.hostname="${OBS_API_PUBLIC_HOST}" \
   --set amObserver.publicUrl="${OBS_API_PUBLIC_URL}" \
+  --set amObserver.auth.issuer="${THUNDER_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
   deployment/amp-observer -n ${OBSERVABILITY_NS} --timeout=600s
 ```
+
+:::warning
+`amObserver.auth.issuer` must be the **public** Thunder URL, not the in-cluster
+service URL. The observer validates the same user token the console and `amctl`
+send to the Agent Manager API, so its issuer has to match
+`agentManagerService.config.keyManager.issuer` from Step 2. Leave it at the
+chart default on a custom-domain install and the traces page stays empty while
+the observer logs `JWT validation failed ... invalid issuer`.
+
+The chart derives the two related values from what you set above:
+`amObserver.oauth.authorizationServers` defaults to `amObserver.auth.issuer`,
+and `amObserver.publicUrl` (with a trailing slash) is appended to
+`amObserver.auth.audience` so observer MCP tokens validate. Set them explicitly
+only if your setup needs them to differ.
+:::
 
 #### Step 6: Evaluation Extension
 
