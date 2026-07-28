@@ -884,31 +884,26 @@ export function useNavigationItems(): Array<
                     pathname,
                   ),
                 },
-                {
-                  label: thunderInstancesMetadata.title,
-                  type: "item" as const,
-                  icon: <thunderInstancesMetadata.icon size={20} />,
-                  isActive: false,
-                  // Order here (agents, groups, roles) is the sidebar's
-                  // submenu order — it drives both the array order below.
-                  children: (["agents", "groups", "roles"] as const).map(
-                    (key) => {
-                      const ChildIcon = thunderInstancesMetadata.children[key].icon;
-                      return {
-                        label: thunderInstancesMetadata.children[key].title,
-                        type: "item" as const,
-                        icon: <ChildIcon size={20} />,
-                        href: `${thunderInstancesBasePath}/${key}`,
-                        isActive: !!matchPath(
-                          absoluteRouteMap.children.org.children
-                            .thunderInstances.children[key].wildPath,
-                          pathname,
-                        ),
-                      };
-                    },
-                  ),
-                },
               ],
+            },
+            {
+              title: "Identities",
+              type: "section" as const,
+              icon: <thunderInstancesMetadata.icon />,
+              items: (["groups", "roles"] as const).map((key) => {
+                const ChildIcon = thunderInstancesMetadata.children[key].icon;
+                return {
+                  label: thunderInstancesMetadata.children[key].title,
+                  type: "item" as const,
+                  icon: <ChildIcon size={20} />,
+                  href: `${thunderInstancesBasePath}/${key}`,
+                  isActive: !!matchPath(
+                    absoluteRouteMap.children.org.children.thunderInstances
+                      .children[key].wildPath,
+                    pathname,
+                  ),
+                };
+              }),
             },
           ]
         : []),

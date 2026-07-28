@@ -23,7 +23,6 @@ import { PageLayout } from "@agent-management-platform/views";
 import { RolesPage } from "./subComponents/agentIdentity/RolesPage";
 import { RoleCreatePage } from "./subComponents/agentIdentity/RoleCreatePage";
 import { RoleEditPage } from "./subComponents/agentIdentity/RoleEditPage";
-import { AgentIdentityEnvironmentSelector } from "./subComponents/agentIdentity/AgentIdentityEnvironmentSelector";
 import { AgentIdentityEnvironmentGate } from "./subComponents/agentIdentity/AgentIdentityEnvironmentGate";
 import { withSearchParams } from "./utils/withSearchParams";
 
@@ -33,12 +32,11 @@ const TITLE = "Roles";
 function RolesListPage() {
   return (
     <AgentIdentityEnvironmentGate title={TITLE}>
-      {(envName) => (
+      {() => (
         <PageLayout
           title={TITLE}
           description="Roles available in the selected environment's identity provider."
           disableIcon
-          actions={<AgentIdentityEnvironmentSelector envName={envName} />}
         >
           <RolesPage />
         </PageLayout>

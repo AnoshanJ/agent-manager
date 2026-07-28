@@ -34,6 +34,7 @@ import {
 import { ListingSkeletonRows, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { absoluteRouteMap, type ThunderGroup } from "@agent-management-platform/types";
 import { withSearchParams } from "../../utils/withSearchParams";
+import { AgentIdentityEnvironmentTabs } from "./AgentIdentityEnvironmentTabs";
 
 const AVATAR_SX = { width: 28, height: 28, fontSize: 12 } as const;
 
@@ -113,6 +114,7 @@ export const GroupsPage: React.FC = () => {
 
       <ListingTable.Provider searchValue={search} onSearchChange={setSearch}>
         <ListingTable.Container>
+          <AgentIdentityEnvironmentTabs />
           <ListingTable.Toolbar
             showSearch
             searchPlaceholder="Search groups..."

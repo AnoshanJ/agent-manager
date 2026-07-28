@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   listAgentIdentityGroups,
   createAgentIdentityGroup,
@@ -260,9 +260,10 @@ export function useAddAgentIdentityRoleAssignees() {
   >({
     action: { verb: 'update', target: 'role assignments' },
     mutationFn: ({ params, body }) => addAgentIdentityRoleAssignees(params, body, getToken),
-    onSuccess: (_data, { params }) => {
+    onSuccess: (_data, { params, body }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-role-assignments', params] });
       queryClient.invalidateQueries({ queryKey: ['agent-roles'] });
+      invalidateAssignedGroupRoles(queryClient, params, body);
     },
   });
 }
@@ -275,11 +276,31 @@ export function useRemoveAgentIdentityRoleAssignees() {
   >({
     action: { verb: 'update', target: 'role assignments' },
     mutationFn: ({ params, body }) => removeAgentIdentityRoleAssignees(params, body, getToken),
-    onSuccess: (_data, { params }) => {
+    onSuccess: (_data, { params, body }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity-role-assignments', params] });
       queryClient.invalidateQueries({ queryKey: ['agent-roles'] });
+      invalidateAssignedGroupRoles(queryClient, params, body);
     },
   });
+}
+
+// Role assignments are also editable from the group side (GroupEditPage's
+// Roles tab calls these same role-keyed mutations), so a cached
+// agent-identity-group-roles view for any group in this request's
+// assignments may now be stale — invalidate just those groups' entries
+// instead of every cached group-roles view in the org.
+function invalidateAssignedGroupRoles(
+  queryClient: QueryClient,
+  { orgName, envName }: AgentIdentityRolePathParams,
+  { assignments }: AgentIdentityAssignmentsRequest,
+) {
+  assignments
+    .filter((assignment) => assignment.type === 'group')
+    .forEach((assignment) => {
+      queryClient.invalidateQueries({
+        queryKey: ['agent-identity-group-roles', { orgName, envName, groupId: assignment.id }],
+      });
+    });
 }
 
 // --- Agents picker ---

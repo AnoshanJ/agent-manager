@@ -17,28 +17,15 @@
 
 import { useMemo } from "react";
 import { FormControl, MenuItem, Select, Typography } from "@wso2/oxygen-ui";
-import { useParams, useSearchParams } from "react-router-dom";
-import { useListEnvironments } from "@agent-management-platform/api-client";
-import { useAgentIdentityEnvironment } from "../../context/AgentIdentityEnvironmentContext";
-
-interface AgentIdentityEnvironmentSelectorProps {
-  envName: string;
-}
+import { useAgentIdentityEnvironmentOptions } from "./useAgentIdentityEnvironmentOptions";
 
 /**
- * Environment selector for the org-level Agents/Roles/Groups pages. Lists
- * every environment in the org (not just ones with a provisioned identity)
- * and updates the `envName` search param on change.
+ * Environment selector for the org-level Agents page. Lists every
+ * environment in the org (not just ones with a provisioned identity) and
+ * updates the `envName` search param on change.
  */
-export function AgentIdentityEnvironmentSelector({
-  envName,
-}: AgentIdentityEnvironmentSelectorProps) {
-  const { orgId } = useParams<{ orgId: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { setLastEnvName } = useAgentIdentityEnvironment();
-
-  const { data: environments } = useListEnvironments({ orgName: orgId });
-  const options = useMemo(() => environments ?? [], [environments]);
+export function AgentIdentityEnvironmentSelector() {
+  const { envName, options, handleChange } = useAgentIdentityEnvironmentOptions();
 
   const selectedEnvironment = useMemo(
     () => options.find((env) => env.name === envName),
@@ -53,13 +40,7 @@ export function AgentIdentityEnvironmentSelector({
     <FormControl size="small" sx={{ minWidth: 160 }}>
       <Select
         value={envName}
-        onChange={(e) => {
-          const newEnvName = e.target.value as string;
-          setLastEnvName(newEnvName);
-          const next = new URLSearchParams(searchParams);
-          next.set("envName", newEnvName);
-          setSearchParams(next);
-        }}
+        onChange={(e) => handleChange(e.target.value as string)}
         renderValue={(value) => (
           <Typography>
             {selectedEnvironment?.displayName ?? value}

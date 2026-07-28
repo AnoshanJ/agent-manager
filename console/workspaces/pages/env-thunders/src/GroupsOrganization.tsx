@@ -23,7 +23,6 @@ import { PageLayout } from "@agent-management-platform/views";
 import { GroupsPage } from "./subComponents/agentIdentity/GroupsPage";
 import { GroupCreatePage } from "./subComponents/agentIdentity/GroupCreatePage";
 import { GroupEditPage } from "./subComponents/agentIdentity/GroupEditPage";
-import { AgentIdentityEnvironmentSelector } from "./subComponents/agentIdentity/AgentIdentityEnvironmentSelector";
 import { AgentIdentityEnvironmentGate } from "./subComponents/agentIdentity/AgentIdentityEnvironmentGate";
 import { withSearchParams } from "./utils/withSearchParams";
 
@@ -33,12 +32,11 @@ const TITLE = "Groups";
 function GroupsListPage() {
   return (
     <AgentIdentityEnvironmentGate title={TITLE}>
-      {(envName) => (
+      {() => (
         <PageLayout
           title={TITLE}
           description="Groups available in the selected environment's identity provider."
           disableIcon
-          actions={<AgentIdentityEnvironmentSelector envName={envName} />}
         >
           <GroupsPage />
         </PageLayout>

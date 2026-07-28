@@ -36,11 +36,14 @@ import { Shield, Trash, Users } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useListAgentIdentityAgents,
+  useListAgentIdentityRoles,
   useGetAgentIdentityGroup,
   useGetAgentIdentityGroupMembers,
   useGetAgentIdentityGroupRoles,
   useAddAgentIdentityGroupMembers,
   useRemoveAgentIdentityGroupMembers,
+  useAddAgentIdentityRoleAssignees,
+  useRemoveAgentIdentityRoleAssignees,
 } from "@agent-management-platform/api-client";
 import {
   absoluteRouteMap,
@@ -60,6 +63,10 @@ type ActiveTab = "agents" | "roles";
 // (mirrors the simpler `limit: 100` picker convention used elsewhere in the
 // identities pages, rather than adding a dedicated "fetch all" hook).
 const MEMBERS_PAGE_SIZE = 100;
+
+// Same convention for the "Add Role" picker's role catalog (mirrors
+// RoleEditPage's GROUPS_PAGE_SIZE for its "Add Group" picker).
+const ROLES_PAGE_SIZE = 100;
 
 export const GroupEditPage: React.FC = () => {
   const { orgId, groupId } = useParams<{
@@ -88,9 +95,15 @@ export const GroupEditPage: React.FC = () => {
     orgName: orgId,
     envName,
   });
+  const { data: allRolesData, isLoading: isLoadingAllRoles } = useListAgentIdentityRoles(
+    { orgName: orgId, envName },
+    { offset: 0, limit: ROLES_PAGE_SIZE },
+  );
 
   const { mutateAsync: addMembers } = useAddAgentIdentityGroupMembers();
   const { mutateAsync: removeMembers } = useRemoveAgentIdentityGroupMembers();
+  const { mutateAsync: addRoleAssignees } = useAddAgentIdentityRoleAssignees();
+  const { mutateAsync: removeRoleAssignees } = useRemoveAgentIdentityRoleAssignees();
 
   const { agents, displayName } = useAgentLookup(agentsData?.agents ?? []);
 
@@ -98,13 +111,17 @@ export const GroupEditPage: React.FC = () => {
     () => (membersData?.members ?? []).map((m) => m.id),
     [membersData],
   );
-  const roles: ThunderRole[] = useMemo(() => rolesData?.roles ?? [], [rolesData]);
+  const initialRoles: ThunderRole[] = useMemo(() => rolesData?.roles ?? [], [rolesData]);
+  const allRoles: ThunderRole[] = useMemo(() => allRolesData?.roles ?? [], [allRolesData]);
 
   const memberDelta = useAssignmentDelta<AgentIdentityAgentResponse>(
     initialMemberIds,
     (a) => a.thunderAgentId as string,
   );
   const { pendingAdds, removedIds } = memberDelta;
+
+  const initialRoleIds = useMemo(() => initialRoles.map((r) => r.id), [initialRoles]);
+  const roleDelta = useAssignmentDelta<ThunderRole>(initialRoleIds, (r) => r.id);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
@@ -129,6 +146,22 @@ export const GroupEditPage: React.FC = () => {
   const handleAddAgent = memberDelta.handleAdd;
   const handleRemoveAgent = memberDelta.handleRemove;
 
+  const displayedRoles = useMemo(
+    () => [
+      ...initialRoles.filter((r) => !roleDelta.removedIds.has(r.id)),
+      ...roleDelta.pendingAdds,
+    ],
+    [initialRoles, roleDelta.removedIds, roleDelta.pendingAdds],
+  );
+
+  const availableRoles = useMemo(
+    () => allRoles.filter((r) => !roleDelta.excludedIds.has(r.id)),
+    [allRoles, roleDelta.excludedIds],
+  );
+
+  const handleAddRole = roleDelta.handleAdd;
+  const handleRemoveRole = roleDelta.handleRemove;
+
   const handleSave = async () => {
     if (!orgId || !envName || !groupId) return;
     setSaveError(undefined);
@@ -139,14 +172,29 @@ export const GroupEditPage: React.FC = () => {
         .map((a) => a.thunderAgentId as string)
         .filter((id) => !initialMemberIds.includes(id));
       const idsToRemove = [...removedIds];
+      const roleIdsToAdd = [...roleDelta.pendingAdds.map((r) => r.id)];
+      const roleIdsToRemove = [...roleDelta.removedIds];
       await Promise.all([
         idsToAdd.length > 0 ? addMembers({ params, body: { agentIds: idsToAdd } }) : null,
         idsToRemove.length > 0 ? removeMembers({ params, body: { agentIds: idsToRemove } }) : null,
+        ...roleIdsToAdd.map((roleId) =>
+          addRoleAssignees({
+            params: { orgName: orgId, envName, roleId },
+            body: { assignments: [{ id: groupId, type: "group" }] },
+          }),
+        ),
+        ...roleIdsToRemove.map((roleId) =>
+          removeRoleAssignees({
+            params: { orgName: orgId, envName, roleId },
+            body: { assignments: [{ id: groupId, type: "group" }] },
+          }),
+        ),
       ]);
       setSaveSuccess(true);
       memberDelta.reset();
+      roleDelta.reset();
     } catch {
-      setSaveError("Failed to update group members. Please try again.");
+      setSaveError("Failed to update group. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -162,7 +210,7 @@ export const GroupEditPage: React.FC = () => {
     );
   }
 
-  const isDirty = memberDelta.isDirty;
+  const isDirty = memberDelta.isDirty || roleDelta.isDirty;
 
   return (
     <PageLayout
@@ -266,48 +314,83 @@ export const GroupEditPage: React.FC = () => {
           {activeTab === "roles" && (
             <>
               <Form.Header>Assigned Roles</Form.Header>
-              <Typography variant="body2" color="text.secondary">
-                Roles currently assigned to this group. Manage role assignments
-                from the Roles page.
-              </Typography>
-
-              <Box sx={{ mt: 1 }}>
-                {isLoadingRoles ? (
-                  <CircularProgress size={20} />
-                ) : isRolesError ? (
-                  <Typography variant="body2" color="error">
-                    Failed to load roles. Please try again.
+              {isLoadingRoles || isLoadingAllRoles ? (
+                <CircularProgress size={20} />
+              ) : isRolesError ? (
+                <Typography variant="body2" color="error">
+                  Failed to load roles. Please try again.
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    Search and add roles to this group.
                   </Typography>
-                ) : roles.length === 0 ? (
-                  <ListingTable.Container>
-                    <ListingTable.EmptyState
-                      illustration={<Shield size={64} />}
-                      title="No roles assigned to this group"
-                    />
-                  </ListingTable.Container>
-                ) : (
-                  <ListingTable.Container>
-                    <ListingTable>
-                      <ListingTable.Head>
-                        <ListingTable.Row>
-                          <ListingTable.Cell>Name</ListingTable.Cell>
-                          <ListingTable.Cell>Description</ListingTable.Cell>
-                        </ListingTable.Row>
-                      </ListingTable.Head>
-                      <ListingTable.Body>
-                        {roles.map((role) => (
-                          <ListingTable.Row key={role.id}>
-                            <ListingTable.Cell>{role.name}</ListingTable.Cell>
-                            <ListingTable.Cell>
-                              {role.description ?? "-"}
-                            </ListingTable.Cell>
+                  {(allRolesData?.total ?? 0) > ROLES_PAGE_SIZE && (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      Showing the first {ROLES_PAGE_SIZE} of {allRolesData?.total} roles in this
+                      environment. The add-role picker below only excludes roles from this page.
+                    </Alert>
+                  )}
+
+                  <Box sx={{ mt: 1, mb: 2 }}>
+                    <Form.ElementWrapper label="Add Role" name="addRole">
+                      <Autocomplete
+                        id="addRole"
+                        options={availableRoles}
+                        getOptionLabel={(option) => (option as ThunderRole).name}
+                        onChange={handleAddRole}
+                        value={null}
+                        renderInput={(autocompleteParams) => (
+                          <TextField {...autocompleteParams} placeholder="Search roles..." />
+                        )}
+                        noOptionsText="No roles available"
+                      />
+                    </Form.ElementWrapper>
+                  </Box>
+
+                  {displayedRoles.length === 0 ? (
+                    <ListingTable.Container>
+                      <ListingTable.EmptyState
+                        illustration={<Shield size={64} />}
+                        title="No roles assigned yet"
+                        description="Search and add roles above."
+                      />
+                    </ListingTable.Container>
+                  ) : (
+                    <ListingTable.Container>
+                      <ListingTable>
+                        <ListingTable.Head>
+                          <ListingTable.Row>
+                            <ListingTable.Cell>Name</ListingTable.Cell>
+                            <ListingTable.Cell>Description</ListingTable.Cell>
+                            <ListingTable.Cell />
                           </ListingTable.Row>
-                        ))}
-                      </ListingTable.Body>
-                    </ListingTable>
-                  </ListingTable.Container>
-                )}
-              </Box>
+                        </ListingTable.Head>
+                        <ListingTable.Body>
+                          {displayedRoles.map((role) => (
+                            <ListingTable.Row key={role.id}>
+                              <ListingTable.Cell>{role.name}</ListingTable.Cell>
+                              <ListingTable.Cell>
+                                {role.description ?? "-"}
+                              </ListingTable.Cell>
+                              <ListingTable.Cell align="right">
+                                <Tooltip title="Remove from group">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleRemoveRole(role.id)}
+                                  >
+                                    <Trash size={16} />
+                                  </IconButton>
+                                </Tooltip>
+                              </ListingTable.Cell>
+                            </ListingTable.Row>
+                          ))}
+                        </ListingTable.Body>
+                      </ListingTable>
+                    </ListingTable.Container>
+                  )}
+                </>
+              )}
             </>
           )}
         </Form.Section>

@@ -29,12 +29,12 @@ const TITLE = "Agents";
 function AgentsListPage() {
   return (
     <AgentIdentityEnvironmentGate title={TITLE}>
-      {(envName) => (
+      {() => (
         <PageLayout
           title={TITLE}
           description="Agents provisioned in the selected environment's identity provider."
           disableIcon
-          actions={<AgentIdentityEnvironmentSelector envName={envName} />}
+          actions={<AgentIdentityEnvironmentSelector />}
         >
           <AgentsTab />
         </PageLayout>
