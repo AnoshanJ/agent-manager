@@ -18,6 +18,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -349,4 +350,51 @@ func TestValidateMCPEndpointSecurity_TwoEgressGateways_NoDeployment_OneNonCompli
 	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil)
 	assert.ErrorIs(t, err, utils.ErrInvalidInput)
 	assert.Contains(t, err.Error(), nonCompliant.Name)
+}
+
+func TestMCPDeployErrorIsFatal_NilError(t *testing.T) {
+	assert.False(t, mcpDeployErrorIsFatal(nil))
+}
+
+func TestMCPDeployErrorIsFatal_ToleratedError(t *testing.T) {
+	// Only errNoGatewayForEnvironment is tolerated.
+	assert.False(t, mcpDeployErrorIsFatal(errNoGatewayForEnvironment))
+}
+
+func TestMCPDeployErrorIsFatal_FatalErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"errNoEgressGatewayForEnvironment", errNoEgressGatewayForEnvironment},
+		{"errAmbiguousEgressGateway", errAmbiguousEgressGateway},
+		{"errInvalidEgressGateway", errInvalidEgressGateway},
+		{"errPlacementFixed", errPlacementFixed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.True(t, mcpDeployErrorIsFatal(tt.err), "error %q must be fatal", tt.name)
+		})
+	}
+}
+
+func TestMCPDeployErrorIsFatal_JoinedErrorsMixed(t *testing.T) {
+	// errors.Join of tolerated + fatal: the fatal takes precedence, returns true.
+	joinedMixedErrors := errors.Join(errNoGatewayForEnvironment, errInvalidEgressGateway)
+	assert.True(t, mcpDeployErrorIsFatal(joinedMixedErrors),
+		"joined error with both tolerated and fatal must return true (fatal wins)")
+}
+
+func TestMCPDeployErrorIsFatal_JoinedErrorsToleratedOnly(t *testing.T) {
+	// errors.Join of only tolerated errors: returns false.
+	joinedToleratedOnly := errors.Join(errNoGatewayForEnvironment, errNoGatewayForEnvironment)
+	assert.False(t, mcpDeployErrorIsFatal(joinedToleratedOnly),
+		"joined error with only tolerated errors must return false")
+}
+
+func TestMCPDeployErrorIsFatal_UnrelatedError(t *testing.T) {
+	// An error unrelated to any sentinel: returns false (not a fatal placement error).
+	unrelatedErr := errors.New("some other error")
+	assert.False(t, mcpDeployErrorIsFatal(unrelatedErr),
+		"unrelated error must not be fatal")
 }

@@ -134,6 +134,31 @@ func NewMCPProxyService(
 	}
 }
 
+// mcpDeployErrorIsFatal reports whether a deployMCPProxyEndpoints failure must fail the
+// request. Only errNoGatewayForEnvironment is tolerated — it is a timing condition, and
+// the binding deploys on the next update once a gateway exists. Every placement error is
+// caller error and must surface, or an invalid gatewayId returns 201 with nothing deployed.
+func mcpDeployErrorIsFatal(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check fatal errors first: they take precedence in a join. Any fatal placement error
+	// (caller misconfiguration) must surface, even if a tolerated timing error is present.
+	if errors.Is(err, errNoEgressGatewayForEnvironment) ||
+		errors.Is(err, errAmbiguousEgressGateway) ||
+		errors.Is(err, errInvalidEgressGateway) ||
+		errors.Is(err, errPlacementFixed) {
+		return true
+	}
+	// Only if no fatal errors: check if this is the tolerated timing condition.
+	for _, tolerated := range []error{errNoGatewayForEnvironment} {
+		if errors.Is(err, tolerated) {
+			return false
+		}
+	}
+	return false
+}
+
 // Create creates a new MCP proxy and its endpoints.
 //
 // Each endpoint is the deployable proxy definition; one endpoint deploys to 1..N
@@ -217,6 +242,9 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 	// per-environment artifacts. Best-effort: an environment whose gateway is not yet
 	// active is skipped and deploys on the next update.
 	if err := s.deployMCPProxyEndpoints(ctx, created, orgUUID); err != nil {
+		if mcpDeployErrorIsFatal(err) {
+			return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, err)
+		}
 		s.logger.Warn("Failed to deploy one or more MCP proxy endpoint artifacts", "proxyID", created.UUID, "error", err)
 	}
 	return convertModelMCPProxyToSpec(created), nil
@@ -493,9 +521,10 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 
 	// Redeploy the (endpoint,env) artifacts so they pick up the new upstream / auth /
 	// policies / context, and tear down artifacts for environments no longer bound.
-	if err := s.deployMCPProxyEndpoints(ctx, updated, orgUUID); err != nil {
-		s.logger.Warn("Failed to redeploy one or more MCP proxy endpoint artifacts", "proxyID", updated.UUID, "error", err)
-	}
+	deployErr := s.deployMCPProxyEndpoints(ctx, updated, orgUUID)
+
+	// Run teardown and refresh unconditionally: the DB transaction that unbound environments
+	// already committed, and this is the only chance to clean up the orphaned artifacts.
 	stillBound := map[string]struct{}{}
 	for _, endpoint := range updated.Endpoints {
 		for _, ee := range endpoint.Environments {
@@ -528,6 +557,14 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 	// so it still carries request-scoped values like a correlation ID,
 	// without being cancelled the moment this handler returns.
 	go s.refreshAgentsBoundToProxy(context.WithoutCancel(ctx), updated, orgUUID)
+
+	// Now evaluate the deployment error after cleanup has run.
+	if deployErr != nil {
+		if mcpDeployErrorIsFatal(deployErr) {
+			return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, deployErr)
+		}
+		s.logger.Warn("Failed to redeploy one or more MCP proxy endpoint artifacts", "proxyID", updated.UUID, "error", deployErr)
+	}
 
 	return convertModelMCPProxyToSpec(updated), nil
 }
