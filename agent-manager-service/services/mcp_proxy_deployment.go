@@ -257,7 +257,7 @@ func (s *MCPProxyService) deployMCPProxyEndpoints(ctx context.Context, proxy *mo
 					deployed = ids
 				}
 			}
-			gateway, err := resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, ee.EnvironmentUUID, deployed, nil)
+			gateway, err := resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, ee.EnvironmentUUID, deployed, ee.RequestedGatewayUUID)
 			if errors.Is(err, errNoGatewayForEnvironment) {
 				s.logger.Info("Skipping MCP proxy endpoint deploy; no gateway mapped to environment",
 					"proxyUUID", proxy.UUID, "endpoint", endpoint.Handle, "environment", envID)

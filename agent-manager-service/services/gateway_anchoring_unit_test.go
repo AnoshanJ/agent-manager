@@ -118,6 +118,56 @@ func TestAnchoring_MCPProxyUpdate(t *testing.T) {
 		err := svc.deployMCPProxyEndpoints(context.Background(), newProxy(), "org")
 		require.ErrorIs(t, err, errAmbiguousEgressGateway)
 	})
+
+	t.Run("caller-specified gatewayId for a new binding selects that gateway", func(t *testing.T) {
+		// No prior deployment (the binding is new): resolution falls through to
+		// resolveEgressGatewayForEnvironment, which must honor the caller's explicit
+		// choice among the two egress-capable candidates instead of erroring ambiguous.
+		hub := &stubEventHub{}
+		svc := &MCPProxyService{
+			gatewayRepo:       gatewayFixtureRepo(t, env.String(), []*models.Gateway{both, egress}),
+			mcpProxyScopeRepo: scopeRepo,
+			deploymentRepo: &repomocks.DeploymentRepositoryMock{
+				GetDeployedGatewaysByProviderFunc: func(uuid.UUID, string) ([]string, error) {
+					return nil, nil
+				},
+				CreateWithLimitEnforcementFunc: func(*models.Deployment, int) error { return nil },
+			},
+			gatewayEventsService: &GatewayEventsService{hub: hub},
+			logger:               discardLogger(),
+		}
+
+		requested := egress.UUID.String()
+		p := newProxy()
+		p.Endpoints[0].Environments[0].RequestedGatewayUUID = &requested
+
+		err := svc.deployMCPProxyEndpoints(context.Background(), p, "org")
+		require.NoError(t, err)
+		require.Len(t, hub.published, 1)
+		require.Equal(t, egress.UUID.String(), hub.published[0].GatewayID)
+	})
+
+	t.Run("caller-specified gatewayId differing from an existing deployment is rejected", func(t *testing.T) {
+		// The artifact is already deployed to "both"; requesting "egress" instead must
+		// fail as placement-fixed rather than silently re-homing the binding.
+		svc := &MCPProxyService{
+			gatewayRepo:       gatewayFixtureRepo(t, env.String(), []*models.Gateway{both, egress}),
+			mcpProxyScopeRepo: scopeRepo,
+			deploymentRepo: &repomocks.DeploymentRepositoryMock{
+				GetDeployedGatewaysByProviderFunc: func(uuid.UUID, string) ([]string, error) {
+					return []string{both.UUID.String()}, nil
+				},
+			},
+			logger: discardLogger(),
+		}
+
+		requested := egress.UUID.String()
+		p := newProxy()
+		p.Endpoints[0].Environments[0].RequestedGatewayUUID = &requested
+
+		err := svc.deployMCPProxyEndpoints(context.Background(), p, "org")
+		require.ErrorIs(t, err, errPlacementFixed)
+	})
 }
 
 func TestAnchoring_MonitorRunAgainstDeployedProxy(t *testing.T) {

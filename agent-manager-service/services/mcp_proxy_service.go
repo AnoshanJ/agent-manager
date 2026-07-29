@@ -241,6 +241,7 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 	// configurations that reference it deploy nothing and instead reuse the endpoint's
 	// per-environment artifacts. Best-effort: an environment whose gateway is not yet
 	// active is skipped and deploys on the next update.
+	applyRequestedGatewayUUIDs(created, req.Endpoints)
 	if err := s.deployMCPProxyEndpoints(ctx, created, orgUUID); err != nil {
 		if mcpDeployErrorIsFatal(err) {
 			return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, err)
@@ -386,6 +387,9 @@ func (s *MCPProxyService) Get(ctx context.Context, orgUUID, proxyID string) (*mo
 						for _, gatewayID := range gatewayIDs {
 							gatewaySet[gatewayID] = struct{}{}
 						}
+						// Exactly one gateway per (artifact, environment) is the invariant, so
+						// ids[0] is deterministic.
+						envBinding.GatewayID = &gatewayIDs[0]
 					}
 				}
 				envBinding.DeploymentStatus = status
@@ -521,6 +525,7 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 
 	// Redeploy the (endpoint,env) artifacts so they pick up the new upstream / auth /
 	// policies / context, and tear down artifacts for environments no longer bound.
+	applyRequestedGatewayUUIDs(updated, req.Endpoints)
 	deployErr := s.deployMCPProxyEndpoints(ctx, updated, orgUUID)
 
 	// Run teardown and refresh unconditionally: the DB transaction that unbound environments
@@ -1409,6 +1414,42 @@ func (s *MCPProxyService) buildMCPEndpointsForStorage(incoming []models.MCPProxy
 	return out, nil
 }
 
+// applyRequestedGatewayUUIDs copies each request DTO's caller-specified gatewayId onto the
+// matching (endpoint, environment) binding of a freshly-reloaded proxy, transiently and
+// in-memory only — RequestedGatewayUUID is gorm:"-", so this never persists. Create/Update
+// reload the proxy from the DB (losing any in-memory state) before deploying, so this must
+// run on that reloaded copy, right before deployMCPProxyEndpoints. uq_proxy_env_single
+// guarantees at most one binding per environment per proxy, so keying by environment UUID
+// alone is unambiguous.
+func applyRequestedGatewayUUIDs(proxy *models.MCPProxy, endpoints []models.MCPProxyEndpointDTO) {
+	requested := map[string]*string{}
+	for _, endpoint := range endpoints {
+		for _, env := range endpoint.Environments {
+			envUUID := strings.TrimSpace(env.EnvironmentUUID)
+			if envUUID == "" || env.GatewayID == nil {
+				continue
+			}
+			gwID := strings.TrimSpace(*env.GatewayID)
+			if gwID == "" {
+				continue
+			}
+			requested[envUUID] = &gwID
+		}
+	}
+	if len(requested) == 0 {
+		return
+	}
+	for i := range proxy.Endpoints {
+		endpoint := &proxy.Endpoints[i]
+		for j := range endpoint.Environments {
+			ee := &endpoint.Environments[j]
+			if gwID, ok := requested[ee.EnvironmentUUID.String()]; ok {
+				ee.RequestedGatewayUUID = gwID
+			}
+		}
+	}
+}
+
 // persistMCPEndpoints inserts the endpoint rows and their (endpoint, environment) join rows
 // for the proxy. The artifacts row backing each (endpoint, env) deployment is created lazily
 // at deploy time (ensureMCPProxyEnvArtifactRow); here we only record the intended identity.
@@ -1459,11 +1500,12 @@ func (s *MCPProxyService) persistMCPEndpoints(ctx context.Context, tx *gorm.DB, 
 				return fmt.Errorf("failed to check MCP proxy endpoint environment artifact: %w", err)
 			}
 			if err := s.endpointRepo.AddEndpointEnvironment(ctx, tx, &models.MCPProxyEndpointEnvironment{
-				MCPProxyUUID:    proxyUUID,
-				EndpointUUID:    endpointUUID,
-				EnvironmentUUID: envUUID,
-				ArtifactUUID:    artifactUUID,
-				Status:          models.StatusCreated,
+				MCPProxyUUID:         proxyUUID,
+				EndpointUUID:         endpointUUID,
+				EnvironmentUUID:      envUUID,
+				ArtifactUUID:         artifactUUID,
+				Status:               models.StatusCreated,
+				RequestedGatewayUUID: nil,
 			}); err != nil {
 				return err
 			}
