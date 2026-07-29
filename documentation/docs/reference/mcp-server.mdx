@@ -93,9 +93,9 @@ server`. Leaving the `audience` entry behind lets the login succeed but makes
 every tool call return 401.
 
 Identifiers are matched exactly, so a deployment reachable on more than one
-origin needs one resource server per origin. That is why the chart registers the
-docker-compose dev origin as well, via `thunder.bootstrap.agentManagerMcpDevBaseUrl`
-— set it to the empty string to drop it on a deployment that has no dev stack.
+origin needs one resource server per origin. `thunder.bootstrap.agentManagerMcpDevBaseUrl`
+is the opt-in second origin for the docker-compose dev stack; `make setup-openchoreo`
+sets it, and other installs leave it empty.
 
 :::
 
@@ -111,9 +111,13 @@ The client is public (no secret), PKCE is required, and the callback port is pin
 
 The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
 
-*Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On existing installs, re-run the bootstrap job — it replaces legacy MCP resource servers automatically and seeds the permissions; a `helm upgrade` alone will not re-seed, and without the permissions MCP tokens are issued with an empty scope list and every tool call returns 403.*
+:::note Upgrading an existing install
 
-*Installs created before the gateway origin was added registered the agent-manager MCP resource server only under `http://localhost:9000/`, so a Quick Start or k3d client pointed at `http://api.amp.localhost:8080/mcp` fails the authorize request with `invalid_target`. Note the bootstrap scripts live in a ConfigMap annotated `helm.sh/hook: pre-install`, which Helm does **not** re-apply on `helm upgrade` — so upgrading the chart alone leaves the old ConfigMap, and re-running the setup job would just re-register the old identifiers. Either reinstall the `amp-thunder-extension` release, or replace the `amp-thunder-bootstrap` ConfigMap and then re-run the job. Identifiers no longer in use are inert and can be left in place.*
+Both the MCP resource-server identifiers and the permissions that become MCP token scopes are seeded by `60-amp-resource-server.sh`, which lives in a ConfigMap annotated `helm.sh/hook: pre-install`. Helm does **not** re-apply that ConfigMap on `helm upgrade`, so upgrading the chart leaves the old scripts in place and re-running the setup job would just re-seed the old values.
+
+To pick up either, **reinstall the `amp-thunder-extension` release** (or replace the `amp-thunder-bootstrap` ConfigMap, then re-run the job). Symptoms if you skip it: an install seeded before the gateway origin was added registered only `http://localhost:9000/`, so a Quick Start or k3d client fails authorize with `invalid_target`; an install seeded without the permissions issues MCP tokens with an empty scope list and every tool call returns 403. Identifiers no longer in use are inert and can be left in place.
+
+:::
 
 ## Configuring AI Assistants
 

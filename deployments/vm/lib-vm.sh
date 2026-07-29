@@ -30,15 +30,10 @@ vm_host() {
 # scheme. The agent host is only reachable over TLS via Caddy's wildcard site, so
 # without this the console emits http:// and the browser blocks it as mixed content.
 #
-# keyManager.audience is restated rather than left at the chart default for the
-# same reason observability_helm_args restates amObserver.auth.audience: the
-# default's last entry is this service's own serverPublicURL, which the line
-# above has just moved. An MCP token carries the RFC 8707 resource identifier
-# (serverPublicURL plus a trailing slash) as its `aud`, so leaving the default
-# in place means amp-api rejects every MCP token Thunder mints for it. The
-# leading entries mirror the chart and must stay: console, amctl and publisher
-# tokens arrive with aud amp, amctl or amp-publisher-*. Commas are escaped
-# because helm's --set otherwise splits the value into a list.
+# keyManager.audience is restated because the chart default's last entry is the
+# chart's own serverPublicURL, which the line below has just moved; an MCP
+# token's aud is serverPublicURL plus a trailing slash. Commas stay escaped or
+# helm's --set splits the value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -268,14 +263,8 @@ thunder_helm_args() {
   # permissionSet, which makes Thunder reject the resource server (empty name)
   # and the bootstrap fail. Pass the base URL without a trailing slash — the
   # template adds it.
-  #
-  # agentManagerMcpDevBaseUrl is emptied: it exists so a local setup can also
-  # reach amp-api on the docker-compose host port, which no VM install has. The
-  # entry is marked optional in the chart, so an empty value skips it instead of
-  # registering a bogus localhost resource server.
   printf '%s\n' \
     "--set" "thunder.bootstrap.agentManagerMcpBaseUrl=https://${AMP_HOST_API}" \
-    "--set" "thunder.bootstrap.agentManagerMcpDevBaseUrl=" \
     "--set" "thunder.bootstrap.observerMcpBaseUrl=https://${AMP_HOST_OBSERVER}"
 
   # The console client's registered redirect URI lives under `setup` (<=main) and

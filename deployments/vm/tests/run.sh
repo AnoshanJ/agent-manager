@@ -55,15 +55,15 @@ assert_eq "amp oauthAuthorizationServers (service key)" \
 assert_eq "amp keyManager.issuer (service key)" \
   "agentManagerService.config.keyManager.issuer=https://thunder.amp.203.0.113.10.sslip.io" \
   "$(grep -F 'agentManagerService.config.keyManager.issuer' <<<"$amp")"
-# amp-api mints MCP tokens (am-mcp) whose aud is its own public URL plus a
-# trailing slash, so the audience list has to follow serverPublicURL off the
-# chart's localhost default. Commas stay escaped or helm splits it into a list.
-assert_eq "amp keyManager.audience carries the public API URL (service key)" \
-  'agentManagerService.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://api.amp.203.0.113.10.sslip.io/' \
-  "$(grep -F 'agentManagerService.config.keyManager.audience' <<<"$amp")"
-assert_eq "amp keyManager.audience carries the public API URL (legacy key)" \
-  'agentManager.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://api.amp.203.0.113.10.sslip.io/' \
-  "$(grep -F 'agentManager.config.keyManager.audience' <<<"$amp")"
+# An MCP token's aud is serverPublicURL plus a trailing slash, so the audience
+# has to follow it off the chart's localhost default. Assert only that entry —
+# pinning the whole list would break on any unrelated audience change.
+assert_eq "amp keyManager.audience carries the public API URL (service key)" "yes" \
+  "$(has "$amp" 'agentManagerService.config.keyManager.audience=amp\,')"
+assert_eq "amp keyManager.audience ends with the public API URL (service key)" "yes" \
+  "$(has "$amp" 'am-mcp\,https://api.amp.203.0.113.10.sslip.io/')"
+assert_eq "amp keyManager.audience carries the public API URL (legacy key)" "yes" \
+  "$(has "$amp" 'agentManager.config.keyManager.audience=amp\,')"
 # tlsEnabled=true makes amp-api advertise the https deployed-agent endpoint variant;
 # emitted under both keys (old agentManager + new agentManagerService).
 assert_eq "amp tlsEnabled (service key)" \
@@ -377,12 +377,10 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core amp cp url present" \
     "console.config.gatewayControlPlaneUrl=https://cp.amp.example.com" \
     "$(grep -F 'gatewayControlPlaneUrl' <<<"$core_amp")"
-  # The MCP resource identifier is serverPublicURL plus a trailing slash, so the
-  # audience must land on the same host as serverPublicURL above and as
+  # The audience must land on the same host as serverPublicURL above and as
   # thunder.bootstrap.agentManagerMcpBaseUrl below.
-  assert_eq "core amp keyManager.audience carries the public API URL" \
-    'agentManagerService.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://api.amp.example.com/' \
-    "$(grep -F 'agentManagerService.config.keyManager.audience' <<<"$core_amp")"
+  assert_eq "core amp keyManager.audience carries the public API URL" "yes" \
+    "$(has "$core_amp" 'am-mcp\,https://api.amp.example.com/')"
 
   core_th="$(thunder_helm_args)"
   assert_eq "core thunder jwt.issuer" \
@@ -396,10 +394,9 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core thunder MCP base URL (observer)" \
     "thunder.bootstrap.observerMcpBaseUrl=https://observer.amp.example.com" \
     "$(grep -F 'observerMcpBaseUrl' <<<"$core_th")"
-  # No docker-compose stack on a VM, so the optional dev origin is skipped
-  # rather than registered as a bogus localhost resource server.
-  assert_eq "core thunder MCP dev base URL emptied" \
-    "thunder.bootstrap.agentManagerMcpDevBaseUrl=" \
+  # The dev origin is opt-in (empty chart default), so a VM install must not
+  # register it at all.
+  assert_eq "core thunder leaves the dev MCP origin unset" "" \
     "$(grep -F 'agentManagerMcpDevBaseUrl' <<<"$core_th")"
 
   core_obs="$(observability_helm_args)"

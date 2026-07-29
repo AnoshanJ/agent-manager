@@ -527,16 +527,13 @@ thunder:
     # on its container port.
     #
     # An identifier is matched EXACTLY, so a service reachable on more than one
-    # origin needs one entry per origin. This single Thunder serves two amp-api
-    # front doors in a local setup: the k3d/quick-start install behind the
-    # control-plane gateway (agentManagerMcpBaseUrl), and the docker-compose dev
-    # stack published straight onto the host port (agentManagerMcpDevBaseUrl,
-    # matching SERVER_PUBLIC_URL in deployments/docker-compose.yml). Entries
-    # marked `optional: true` are skipped when their base URL is empty, so a
-    # deployment with no dev stack can drop that one with
-    # `--set thunder.bootstrap.agentManagerMcpDevBaseUrl=`.
+    # origin needs one entry per origin. Entries marked `optional: true` are
+    # skipped when their base URL is empty. agentManagerMcpDevBaseUrl is the
+    # opt-in second origin for the docker-compose dev stack, which reaches
+    # amp-api on its published host port instead of through the gateway;
+    # setup-openchoreo.sh sets it.
     agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
-    agentManagerMcpDevBaseUrl: "http://localhost:9000"
+    agentManagerMcpDevBaseUrl: ""
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"

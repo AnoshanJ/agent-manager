@@ -1570,9 +1570,7 @@ data:
     log_info "Registering MCP resource servers..."
     {{- range .Values.thunder.bootstrap.mcpResourceServers }}
     {{- $base := index $.Values.thunder.bootstrap .baseUrlValue }}
-    {{- if and (not $base) (not .optional) }}
-    {{- fail (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}
-    {{- end }}
+    {{- if not (or $base .optional) }}{{ fail (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}{{ end }}
     {{- if $base }}
     {{- $identifier := printf "%s/" (trimSuffix "/" $base) }}
     MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ $identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")

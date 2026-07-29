@@ -194,11 +194,7 @@ agentManagerService:
     # Console and CLI logins carry no `resource`, so they resolve to the "amp"
     # resource server and arrive with aud=amp. MCP logins (am-mcp) DO send
     # `resource`, and get this service's serverPublicURL WITH a trailing slash
-    # as their audience, so that URL is listed. "am-mcp" is listed defensively;
-    # MCP tokens normally carry the resource URL, not the client ID.
-    # Keep the audience URL entry in sync with serverPublicURL below — an
-    # install that moves serverPublicURL must move this entry with it, or the
-    # service rejects every MCP token Thunder mints for it.
+    # as their audience, so that URL is listed too.
     keyManager:
       issuer: "http://thunder.amp.localhost:8080"
       audience: "amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp,http://api.amp.localhost:8080/"
