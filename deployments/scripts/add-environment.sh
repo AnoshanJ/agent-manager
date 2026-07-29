@@ -83,15 +83,28 @@ ORG_NAME="${ORG_NAME:-default}"
 # annotates the right namespace.
 ENVIRONMENT_NAMESPACE="${ENVIRONMENT_NAMESPACE:-default}"
 
+GATEWAY_TOPOLOGY="${GATEWAY_TOPOLOGY:-single}"
+case "$GATEWAY_TOPOLOGY" in
+    single|split) ;;
+    *)
+        echo "❌ GATEWAY_TOPOLOGY must be 'single' or 'split' (got '${GATEWAY_TOPOLOGY}')"
+        exit 1
+        ;;
+esac
+
 # The APIGateway controller materializes a Service named
-# "api-platform-<org>-<env>-gateway-gateway-runtime" (24-char suffix), which
-# must stay within k8s's 63-char metadata.name limit.
-# So: len(env) <= 63 - 13 ("api-platform-") - 1 ("-") - 24 - len(org) = 25 - len(org)
-MAX_ENV_NAME_LEN=$((25 - ${#ORG_NAME}))
+# "api-platform-<org>-<env>-gw-gateway-gateway-runtime" — a 27-char suffix, not the
+# 24 this comment used to claim — which must stay within k8s's 63-char limit.
+# So: len(org) + len(env) <= 63 - 13 ("api-platform-") - 1 ("-") - 27 = 22.
+# Matches utils.MaxEnvNameLength in agent-manager-service.
+# Split mode adds a second release whose names carry a further "-egress" (7 chars).
+MAX_ENV_NAME_LEN=$((22 - ${#ORG_NAME}))
+if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
+    MAX_ENV_NAME_LEN=$((MAX_ENV_NAME_LEN - 7))
+fi
 if [ "${#ENV_NAME}" -gt "$MAX_ENV_NAME_LEN" ]; then
-    echo "❌ ENV_NAME '${ENV_NAME}' is ${#ENV_NAME} characters; max ${MAX_ENV_NAME_LEN} for org '${ORG_NAME}'"
+    echo "❌ ENV_NAME '${ENV_NAME}' is ${#ENV_NAME} characters; max ${MAX_ENV_NAME_LEN} for org '${ORG_NAME}' in ${GATEWAY_TOPOLOGY} topology"
     echo "   The gateway Service name would exceed Kubernetes' 63-char limit."
-    echo "   Use a shorter env name (e.g. 'staging' instead of 'staging-environment')."
     exit 1
 fi
 DATAPLANE_REF="${DATAPLANE_REF:-default}"
@@ -363,19 +376,16 @@ RELEASE_NAME="api-platform-${ORG_NAME}-${ENV_NAME}"
 # any trailing hyphens left by truncation.
 RELEASE_NAME=$(echo "$RELEASE_NAME" | head -c 53 | sed 's/-*$//')
 
+# Shared across both releases in split topology (chart ref, agentManager.*,
+# gateway.environment, apiGateway.controlPlane.*, keymanager/identityProvider
+# wiring). Per-release settings (--namespace, apiGateway.namespace, gateway.type,
+# gateway.vhost, and for egress gateway.name/gateway.hostname) are passed
+# explicitly on each `helm upgrade --install` invocation below.
 HELM_ARGS=(
-    upgrade --install "${RELEASE_NAME}"
-    "${CHART_REF}"
-    --namespace "${GATEWAY_NAMESPACE}"
     --create-namespace
-    # apiGateway.namespace drives where the chart renders the APIGateway CR,
-    # config, RestApis, kgateway backendRef and token secret — --namespace alone
-    # only places the Helm release. Both must point at the same namespace.
-    --set apiGateway.namespace="${GATEWAY_NAMESPACE}"
     --set agentManager.orgName="${ORG_NAME}"
     --set gateway.environment="${ENV_NAME}"
     --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway"
-    --set gateway.vhost="http://${ENV_NAME}-${ORG_NAME}.gateway.localhost:${GATEWAY_VHOST_PORT}"
     --set agentManager.apiUrl="${AGENT_MANAGER_INTERNAL_API}"
     --set apiGateway.controlPlane.host="${AGENT_MANAGER_INTERNAL_CP}"
     --set apiGateway.controlPlane.tls.insecureSkipVerify=true
@@ -425,7 +435,58 @@ else
     echo "ℹ️  Per-env Thunder not provisioned — gateway will use shared platform Thunder."
 fi
 
-helm "${HELM_ARGS[@]}"
+if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
+    INGRESS_TYPE="INGRESS"
+else
+    INGRESS_TYPE="BOTH"
+fi
+
+helm upgrade --install "${RELEASE_NAME}" "${CHART_REF}" \
+    --namespace "${GATEWAY_NAMESPACE}" \
+    --set apiGateway.namespace="${GATEWAY_NAMESPACE}" \
+    --set gateway.type="${INGRESS_TYPE}" \
+    --set gateway.vhost="http://${ENV_NAME}-${ORG_NAME}.gateway.localhost:${GATEWAY_VHOST_PORT}" \
+    "${HELM_ARGS[@]}"
+
+if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
+    echo ""
+    echo "🌐 Installing egress API Platform Gateway for '${ENV_NAME}'..."
+
+    EGRESS_NAMESPACE="${GATEWAY_NAMESPACE}-egress"
+    EGRESS_RELEASE_NAME=$(echo "api-platform-${ORG_NAME}-${ENV_NAME}-egress" | head -c 53 | sed 's/-*$//')
+    EGRESS_GATEWAY_NAME="api-platform-${ORG_NAME}-${ENV_NAME}-egress"
+    EGRESS_HOSTNAME="${ENV_NAME}-${ORG_NAME}-egress.gateway.localhost"
+
+    # Both namespaces must carry this label. The sandbox NetworkPolicy at
+    # wso2-amp-platform-resources-extension/templates/component-types/agent-api.yaml:206-213
+    # selects gateway namespaces by it on port 22893 — a cluster-wide namespaceSelector, so
+    # a labelled egress namespace is permitted automatically with no policy change. The
+    # label is stamped only by shell scripts, NEVER by the chart. Missing it produces a
+    # connection timeout at agent runtime with nothing in the control plane explaining why.
+    kubectl create namespace "${EGRESS_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+    kubectl label namespace "${EGRESS_NAMESPACE}" "amp.wso2.com/api-platform-gateway=true" --overwrite > /dev/null
+
+    # gateway.name MUST be set: apiGatewayName (_helpers.tpl:56-62) defaults to
+    # api-platform-<org>-<env> with no discriminator, so both releases would produce the
+    # same gateway name. The name is also load-bearing for in-cluster routing —
+    # gatewayRuntimeInClusterURL (agent_configuration_service.go:271-280) derives the
+    # runtime namespace by stripping the configured "api-platform-" prefix, so name and
+    # namespace must stay in lockstep. See agent_configuration_proxy_url_test.go.
+    #
+    # gateway.hostname MUST be set and MUST equal the host inside gateway.vhost:
+    # gatewayHostname (_helpers.tpl:68-74) defaults to <env>-<org>.gateway.localhost with
+    # no discriminator, so two releases would claim the same hostname on the same shared
+    # gateway-default kgateway. A hostname/vhost mismatch means the catch-all HTTPRoute
+    # never matches and every egress call 404s.
+    helm upgrade --install "${EGRESS_RELEASE_NAME}" "${CHART_REF}" \
+        --namespace "${EGRESS_NAMESPACE}" \
+        --set apiGateway.namespace="${EGRESS_NAMESPACE}" \
+        --set gateway.type="EGRESS" \
+        --set gateway.name="${EGRESS_GATEWAY_NAME}" \
+        --set gateway.hostname="${EGRESS_HOSTNAME}" \
+        --set gateway.vhost="http://${EGRESS_HOSTNAME}:${GATEWAY_VHOST_PORT}" \
+        "${HELM_ARGS[@]}"
+fi
 
 # --- Step 4: Wait for gateway to be ready ---
 GATEWAY_NAME="api-platform-${ORG_NAME}-${ENV_NAME}"
@@ -435,6 +496,15 @@ if kubectl wait --for=condition=Programmed "apigateway/${GATEWAY_NAME}" -n "${GA
     echo "✅ Gateway is programmed"
 else
     echo "⚠️  Gateway did not become ready in time — check: kubectl get apigateway ${GATEWAY_NAME} -n ${GATEWAY_NAMESPACE}"
+fi
+
+if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
+    echo "⏳ Waiting for egress gateway '${EGRESS_GATEWAY_NAME}' to be ready..."
+    if kubectl wait --for=condition=Programmed "apigateway/${EGRESS_GATEWAY_NAME}" -n "${EGRESS_NAMESPACE}" --timeout=180s 2>/dev/null; then
+        echo "✅ Egress gateway is programmed"
+    else
+        echo "⚠️  Egress gateway did not become ready in time — check: kubectl get apigateway ${EGRESS_GATEWAY_NAME} -n ${EGRESS_NAMESPACE}"
+    fi
 fi
 
 echo ""
