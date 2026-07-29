@@ -381,8 +381,15 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 		return
 	}
 
+	resolvedEnvID, err := c.resolveEnvironmentUUID(ctx, ouID, envID)
+	if err != nil {
+		log.Error("AssignGatewayToEnvironment: environment not found", "envID", envID, "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Assign via service
-	if err := c.gatewayService.AssignGatewayToEnvironment(gatewayID, envID); err != nil {
+	if err := c.gatewayService.AssignGatewayToEnvironment(gatewayID, resolvedEnvID); err != nil {
 		log.Error("AssignGatewayToEnvironment: failed to assign", "error", err)
 		handleGatewayErrors(w, err, "Failed to assign gateway to environment")
 		return
@@ -394,11 +401,26 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 func (c *gatewayController) RemoveGatewayFromEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
+	ouID := middleware.OUIDFromRequest(r)
 	gatewayID := strings.TrimSpace(r.PathValue("gatewayID"))
 	envID := strings.TrimSpace(r.PathValue("envID"))
 
+	// Verify gateway exists and belongs to the caller's org
+	if _, err := c.gatewayService.GetGateway(gatewayID, ouID); err != nil {
+		log.Error("RemoveGatewayFromEnvironment: gateway not found", "error", err)
+		handleGatewayErrors(w, err, "Failed to remove gateway from environment")
+		return
+	}
+
+	resolvedEnvID, err := c.resolveEnvironmentUUID(ctx, ouID, envID)
+	if err != nil {
+		log.Error("RemoveGatewayFromEnvironment: environment not found", "envID", envID, "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Remove via service
-	if err := c.gatewayService.RemoveGatewayFromEnvironment(gatewayID, envID); err != nil {
+	if err := c.gatewayService.RemoveGatewayFromEnvironment(gatewayID, resolvedEnvID); err != nil {
 		log.Error("RemoveGatewayFromEnvironment: failed to remove mapping", "error", err)
 		if errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(), "mapping not found") {
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Gateway-environment mapping not found")
@@ -680,12 +702,17 @@ func (c *gatewayController) matchGatewayEnvironments(
 
 // Helper conversion functions
 
+// canonicalGatewayType uppercases the stored lowercase role for the wire enum.
+func canonicalGatewayType(role string) spec.GatewayType {
+	return spec.GatewayType(strings.ToUpper(role))
+}
+
 func convertGatewayToSpecResponse(gw *services.GatewayResponse, ouID string, environments []models.GatewayEnvironmentResponse) spec.GatewayResponse {
 	response := spec.GatewayResponse{
 		Uuid:        gw.ID,
 		Name:        gw.Name,
 		DisplayName: gw.DisplayName,
-		GatewayType: spec.GatewayType(gw.FunctionalityType),
+		GatewayType: canonicalGatewayType(gw.FunctionalityType),
 		Vhost:       gw.Vhost,
 		IsCritical:  gw.IsCritical,
 		Status:      convertStatusToGatewayStatus(gw.IsActive),
