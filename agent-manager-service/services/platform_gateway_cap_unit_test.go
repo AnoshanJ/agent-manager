@@ -19,9 +19,13 @@ package services
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 func TestNormalizeGatewayRole(t *testing.T) {
@@ -52,4 +56,85 @@ func TestNormalizeGatewayRole(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// A second ingress-capable gateway in one environment is rejected.
+func TestAssignGatewayToEnvironment_SecondIngressRejected(t *testing.T) {
+	envID := uuid.New().String()
+	gw := &models.Gateway{UUID: uuid.New(), GatewayFunctionalityType: models.GatewayRoleBoth}
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByUUIDFunc:                        func(string) (*models.Gateway, error) { return gw, nil },
+		TransactionFunc:                      func(fn func(tx *gorm.DB) error) error { return fn(nil) },
+		AcquireEnvironmentLockFunc:           func(*gorm.DB, string) error { return nil },
+		EnvironmentMappingExistsFunc:         func(string, string) (bool, error) { return false, nil },
+		CountIngressCapableInEnvironmentFunc: func(*gorm.DB, string) (int64, error) { return 1, nil },
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	err := svc.AssignGatewayToEnvironment(gw.UUID.String(), envID)
+
+	require.ErrorIs(t, err, utils.ErrGatewayIngressCapExceeded)
+}
+
+// A second EGRESS gateway is allowed. This is the supported both+egress shape and the
+// only way an existing environment gains egress separation — asserting it is permitted
+// matters as much as asserting the ingress rejection.
+func TestAssignGatewayToEnvironment_SecondEgressAllowed(t *testing.T) {
+	envID := uuid.New().String()
+	gw := &models.Gateway{UUID: uuid.New(), GatewayFunctionalityType: models.GatewayRoleEgress}
+	created := false
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByUUIDFunc:                func(string) (*models.Gateway, error) { return gw, nil },
+		TransactionFunc:              func(fn func(tx *gorm.DB) error) error { return fn(nil) },
+		AcquireEnvironmentLockFunc:   func(*gorm.DB, string) error { return nil },
+		EnvironmentMappingExistsFunc: func(string, string) (bool, error) { return false, nil },
+		CountIngressCapableInEnvironmentFunc: func(*gorm.DB, string) (int64, error) {
+			t.Fatal("egress gateways must not be counted against the ingress cap")
+			return 0, nil
+		},
+		CreateEnvironmentMappingTxFunc: func(*gorm.DB, *models.GatewayEnvironmentMapping) error {
+			created = true
+			return nil
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	require.NoError(t, svc.AssignGatewayToEnvironment(gw.UUID.String(), envID))
+	require.True(t, created)
+}
+
+// Re-assigning an already-mapped gateway stays idempotent and never counts itself.
+func TestAssignGatewayToEnvironment_IdempotentWhenAlreadyMapped(t *testing.T) {
+	envID := uuid.New().String()
+	gw := &models.Gateway{UUID: uuid.New(), GatewayFunctionalityType: models.GatewayRoleBoth}
+	lockAcquired := false
+	existsChecked := false
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByUUIDFunc: func(string) (*models.Gateway, error) { return gw, nil },
+		TransactionFunc: func(fn func(tx *gorm.DB) error) error {
+			return fn(nil)
+		},
+		AcquireEnvironmentLockFunc: func(*gorm.DB, string) error {
+			lockAcquired = true
+			return nil
+		},
+		EnvironmentMappingExistsFunc: func(string, string) (bool, error) {
+			existsChecked = true
+			// The lock must be held before the existence check runs.
+			require.True(t, lockAcquired, "expected environment lock to be acquired before the existence check")
+			return true, nil
+		},
+		CountIngressCapableInEnvironmentFunc: func(*gorm.DB, string) (int64, error) {
+			t.Fatal("an already-mapped gateway must not be counted against the ingress cap")
+			return 0, nil
+		},
+		CreateEnvironmentMappingTxFunc: func(*gorm.DB, *models.GatewayEnvironmentMapping) error {
+			t.Fatal("an already-mapped gateway must not be re-inserted")
+			return nil
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	require.NoError(t, svc.AssignGatewayToEnvironment(gw.UUID.String(), envID))
+	require.True(t, existsChecked, "expected the existence check to run inside the transaction")
 }

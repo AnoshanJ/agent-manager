@@ -870,40 +870,76 @@ func (s *PlatformGatewayService) ListIdentityProvidersByOrg(ouID string) ([]repo
 	return s.gatewayRepo.ListIdentityProvidersByOrg(ouID)
 }
 
-// AssignGatewayToEnvironment creates a mapping between a gateway and an environment
+// AssignGatewayToEnvironment maps a gateway to an environment, enforcing the
+// one-ingress-capable-gateway-per-environment cap. This is the single membership choke
+// point — RegisterGateway drives the same transactional helper.
 func (s *PlatformGatewayService) AssignGatewayToEnvironment(gatewayID, environmentID string) error {
-	// Parse UUIDs
-	gwUUID, err := uuid.Parse(gatewayID)
-	if err != nil {
-		return fmt.Errorf("invalid gateway UUID: %w", err)
+	if _, err := uuid.Parse(gatewayID); err != nil {
+		return fmt.Errorf("%w: invalid gateway UUID %q", utils.ErrBadRequest, gatewayID)
 	}
+	gateway, err := s.gatewayRepo.GetByUUID(gatewayID)
+	if err != nil {
+		return err
+	}
+	if gateway == nil {
+		return utils.ErrGatewayNotFound
+	}
+	return s.gatewayRepo.Transaction(func(tx *gorm.DB) error {
+		return s.assignGatewayToEnvironmentTx(tx, gateway, environmentID)
+	})
+}
 
+// assignGatewayToEnvironmentTx performs the capped, locked mapping insert inside an
+// existing transaction.
+//
+// The advisory lock is taken before the existence check so the check-then-insert window
+// is serialised per environment. The existence check sits inside the lock so an
+// idempotent re-assign of an already-mapped gateway returns before the count runs and
+// can never count itself.
+//
+// Egress-capable gateways are never counted or rejected: egress is uncapped.
+func (s *PlatformGatewayService) assignGatewayToEnvironmentTx(
+	tx *gorm.DB, gateway *models.Gateway, environmentID string,
+) error {
 	envUUID, err := uuid.Parse(environmentID)
 	if err != nil {
-		return fmt.Errorf("invalid environment UUID: %w", err)
+		return fmt.Errorf("%w: invalid environment UUID %q", utils.ErrBadRequest, environmentID)
+	}
+	envIDStr := envUUID.String()
+
+	if err := s.gatewayRepo.AcquireEnvironmentLock(tx, envIDStr); err != nil {
+		return fmt.Errorf("failed to lock environment %s: %w", envIDStr, err)
 	}
 
-	// Check if mapping already exists
-	exists, err := s.gatewayRepo.EnvironmentMappingExists(gatewayID, environmentID)
+	// Reads on the pooled connection (not tx) are safe here: the advisory lock is
+	// held until commit, so a competing writer has already committed by the time
+	// this lock grant returns, and READ COMMITTED guarantees that commit is visible.
+	exists, err := s.gatewayRepo.EnvironmentMappingExists(gateway.UUID.String(), envIDStr)
 	if err != nil {
 		return fmt.Errorf("failed to check existing mapping: %w", err)
 	}
-
 	if exists {
-		// Already assigned, treat as success
-		return nil
+		return nil // already assigned
 	}
 
-	// Create mapping
+	if gateway.IsIngressCapable() {
+		count, err := s.gatewayRepo.CountIngressCapableInEnvironment(tx, envIDStr)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return fmt.Errorf("%w: environment %s already has an ingress gateway; "+
+				"register this gateway with gatewayType EGRESS instead", utils.ErrGatewayIngressCapExceeded, envIDStr)
+		}
+	}
+
 	mapping := &models.GatewayEnvironmentMapping{
-		GatewayUUID:     gwUUID,
+		GatewayUUID:     gateway.UUID,
 		EnvironmentUUID: envUUID,
 	}
-
-	if err := s.gatewayRepo.CreateEnvironmentMapping(mapping); err != nil {
+	if err := s.gatewayRepo.CreateEnvironmentMappingTx(tx, mapping); err != nil {
 		return fmt.Errorf("failed to create gateway-environment mapping: %w", err)
 	}
-
 	return nil
 }
 
