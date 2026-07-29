@@ -7,6 +7,11 @@ on:
       - ".github/actions/setup-helm-chart/**"
       - ".github/workflows/helm-charts-pr-check.yml"
 
+# These jobs render and lint PR-authored charts, so the token they run with is
+# read-only. No job here calls the API or pushes.
+permissions:
+  contents: read
+
 env:
   HELM_VERSION: "3.19.4"
   KUBECONFORM_VERSION: "0.7.0"
@@ -144,13 +149,18 @@ jobs:
         shell: bash
 
       - name: Run chart render assertions
+        env:
+          CHART: ${{ matrix.chart }}
         run: |
-          CHART_PATH="deployments/helm-charts/${{ matrix.chart }}"
+          CHART_PATH="deployments/helm-charts/$CHART"
           # Charts that derive values from other values carry their own assertions.
           if [ -f "$CHART_PATH/tests/render.sh" ]; then
-            bash "$CHART_PATH/tests/render.sh"
+            # render.sh is PR-authored. Run it with a scrubbed environment so it
+            # inherits no token or other credential, and only the PATH/HOME helm
+            # needs. env -i also stops a chart name from reaching it as $CHART.
+            env -i PATH="$PATH" HOME="$HOME" bash "$CHART_PATH/tests/render.sh"
           else
-            echo "No tests/render.sh for ${{ matrix.chart }}, skipping"
+            echo "No tests/render.sh for $CHART, skipping"
           fi
         shell: bash
 
