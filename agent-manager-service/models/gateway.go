@@ -46,6 +46,36 @@ func (Gateway) TableName() string {
 	return "gateways"
 }
 
+// Gateway placement roles. Stored lowercase in gateways.gateway_functionality_type;
+// emitted uppercase on the wire. Roles are naming and placement policy, not capability:
+// every gateway has identical runtime capabilities regardless of role.
+const (
+	// GatewayRoleIngress handles inbound agent traffic. At most one per environment.
+	GatewayRoleIngress = "ingress"
+	// GatewayRoleEgress hosts outbound LLM/MCP artifacts. Uncapped per environment.
+	GatewayRoleEgress = "egress"
+	// GatewayRoleBoth does both. Counts against the ingress cap.
+	GatewayRoleBoth = "both"
+)
+
+// IngressGatewayRoles are the roles that occupy an environment's single ingress slot.
+var IngressGatewayRoles = []string{GatewayRoleIngress, GatewayRoleBoth}
+
+// EgressGatewayRoles are the roles eligible to host LLM/MCP artifacts. Not capped:
+// "both" plus "egress" in one environment is the supported shape for an existing
+// environment that gains egress separation.
+var EgressGatewayRoles = []string{GatewayRoleEgress, GatewayRoleBoth}
+
+// IsIngressCapable reports whether this gateway occupies its environment's ingress slot.
+func (g *Gateway) IsIngressCapable() bool {
+	return g.GatewayFunctionalityType == GatewayRoleIngress || g.GatewayFunctionalityType == GatewayRoleBoth
+}
+
+// IsEgressCapable reports whether this gateway is a legal target for LLM/MCP placement.
+func (g *Gateway) IsEgressCapable() bool {
+	return g.GatewayFunctionalityType == GatewayRoleEgress || g.GatewayFunctionalityType == GatewayRoleBoth
+}
+
 // GatewayToken represents an authentication token for an API Platform gateway
 type GatewayToken struct {
 	UUID        uuid.UUID  `gorm:"column:uuid;primaryKey" json:"id"`
