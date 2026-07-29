@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -89,10 +90,10 @@ func newMCPURLTestFixture() *mcpURLTestFixture {
 			if gatewayId == gatewayUUID.String() {
 				return &models.Gateway{UUID: gatewayUUID, Vhost: "https://gw.example.com"}, nil
 			}
-			return nil, nil
+			return nil, gorm.ErrRecordNotFound
 		},
-		// No fallback gateway for the environment: forces resolveGatewayForEnvironment to
-		// fail when the deployment-row lookup above didn't already resolve a gateway.
+		// No fallback gateway for the environment: forces resolveEgressGatewayForEnvironment
+		// to fail when the deployment-row lookup above didn't already resolve a gateway.
 		ListWithFiltersFunc: func(filters repositories.GatewayFilterOptions) ([]*models.Gateway, error) {
 			return nil, nil
 		},

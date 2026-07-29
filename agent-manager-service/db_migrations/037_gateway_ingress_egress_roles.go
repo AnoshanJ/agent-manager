@@ -40,7 +40,8 @@ var migration037 = migration{
 	ID: 37,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
-			if err := runSQL(tx,
+			if err := runSQL(
+				tx,
 				`ALTER TABLE gateways DROP CONSTRAINT IF EXISTS chk_gateway_functionality_type;`,
 				`UPDATE gateways SET gateway_functionality_type = 'both'
 				   WHERE gateway_functionality_type = 'regular';`,
@@ -55,7 +56,8 @@ var migration037 = migration{
 				return err
 			}
 
-			return runSQL(tx,
+			return runSQL(
+				tx,
 				`ALTER TABLE gateways ALTER COLUMN gateway_functionality_type DROP DEFAULT;`,
 				`ALTER TABLE gateways ADD CONSTRAINT chk_gateway_functionality_type
 				   CHECK (gateway_functionality_type IN ('ingress', 'egress', 'both'));`,
