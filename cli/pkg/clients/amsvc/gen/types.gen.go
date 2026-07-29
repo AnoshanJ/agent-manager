@@ -635,19 +635,46 @@ func (e GatewayTokenInfoStatus) Valid() bool {
 
 // Defines values for GatewayType.
 const (
-	BOTH    GatewayType = "BOTH"
-	EGRESS  GatewayType = "EGRESS"
-	INGRESS GatewayType = "INGRESS"
+	GatewayTypeBOTH    GatewayType = "BOTH"
+	GatewayTypeEGRESS  GatewayType = "EGRESS"
+	GatewayTypeINGRESS GatewayType = "INGRESS"
 )
 
 // Valid indicates whether the value is a known member of the GatewayType enum.
 func (e GatewayType) Valid() bool {
 	switch e {
-	case BOTH:
+	case GatewayTypeBOTH:
 		return true
-	case EGRESS:
+	case GatewayTypeEGRESS:
 		return true
-	case INGRESS:
+	case GatewayTypeINGRESS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GatewayTypeInput.
+const (
+	GatewayTypeInputAI      GatewayTypeInput = "AI"
+	GatewayTypeInputBOTH    GatewayTypeInput = "BOTH"
+	GatewayTypeInputEGRESS  GatewayTypeInput = "EGRESS"
+	GatewayTypeInputINGRESS GatewayTypeInput = "INGRESS"
+	GatewayTypeInputREGULAR GatewayTypeInput = "REGULAR"
+)
+
+// Valid indicates whether the value is a known member of the GatewayTypeInput enum.
+func (e GatewayTypeInput) Valid() bool {
+	switch e {
+	case GatewayTypeInputAI:
+		return true
+	case GatewayTypeInputBOTH:
+		return true
+	case GatewayTypeInputEGRESS:
+		return true
+	case GatewayTypeInputINGRESS:
+		return true
+	case GatewayTypeInputREGULAR:
 		return true
 	default:
 		return false
@@ -1038,24 +1065,6 @@ func (e ListCatalogResourcesParamsKind) Valid() bool {
 	case ListCatalogResourcesParamsKindLlmProvider:
 		return true
 	case ListCatalogResourcesParamsKindMcp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ListGatewaysParamsType.
-const (
-	AI      ListGatewaysParamsType = "AI"
-	REGULAR ListGatewaysParamsType = "REGULAR"
-)
-
-// Valid indicates whether the value is a known member of the ListGatewaysParamsType enum.
-func (e ListGatewaysParamsType) Valid() bool {
-	switch e {
-	case AI:
-		return true
-	case REGULAR:
 		return true
 	default:
 		return false
@@ -2219,16 +2228,11 @@ type CreateGatewayRequest struct {
 	// EnvironmentIds List of environment UUIDs to assign the gateway to during creation
 	EnvironmentIds *[]string `json:"environmentIds,omitempty"`
 
-	// GatewayType Gateway placement role. Naming and placement policy, not capability — every
-	// gateway has identical runtime capabilities regardless of role.
-	// - INGRESS: handles inbound agent traffic. At most one per environment.
-	// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
-	// - BOTH: does both. Counts against the ingress cap.
-	//
-	// Immutable once registered. `REGULAR` and `AI` are accepted on input as
-	// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
-	// an older version keep registering; responses always emit canonical values.
-	GatewayType GatewayType `json:"gatewayType"`
+	// GatewayType Gateway placement role accepted on input. `REGULAR` and `AI` are deprecated
+	// aliases kept for gateway charts pinned to an older version (REGULAR -> BOTH,
+	// AI -> EGRESS); prefer INGRESS/EGRESS/BOTH. Responses and the canonical
+	// `GatewayType` schema never emit REGULAR/AI.
+	GatewayType GatewayTypeInput `json:"gatewayType"`
 
 	// IsCritical Flag indicating if this is a critical production gateway
 	IsCritical *bool `json:"isCritical,omitempty"`
@@ -3088,6 +3092,12 @@ type GatewayTokenResponse struct {
 // deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
 // an older version keep registering; responses always emit canonical values.
 type GatewayType string
+
+// GatewayTypeInput Gateway placement role accepted on input. `REGULAR` and `AI` are deprecated
+// aliases kept for gateway charts pinned to an older version (REGULAR -> BOTH,
+// AI -> EGRESS); prefer INGRESS/EGRESS/BOTH. Responses and the canonical
+// `GatewayType` schema never emit REGULAR/AI.
+type GatewayTypeInput string
 
 // GitCredentials Authentication credentials for a git secret.
 type GitCredentials struct {
@@ -5413,8 +5423,9 @@ type ListGatewaysParams struct {
 	// Offset Number of results to skip
 	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// Type Filter by gateway type
-	Type *ListGatewaysParamsType `form:"type,omitempty" json:"type,omitempty"`
+	// Type Filter by gateway type. `REGULAR` and `AI` are deprecated aliases
+	// (REGULAR -> BOTH, AI -> EGRESS) kept for backward compatibility.
+	Type *GatewayTypeInput `form:"type,omitempty" json:"type,omitempty"`
 
 	// Status Filter by gateway status
 	Status *ListGatewaysParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -5422,9 +5433,6 @@ type ListGatewaysParams struct {
 	// Environment Filter by environment name
 	Environment *string `form:"environment,omitempty" json:"environment,omitempty"`
 }
-
-// ListGatewaysParamsType defines parameters for ListGateways.
-type ListGatewaysParamsType string
 
 // ListGatewaysParamsStatus defines parameters for ListGateways.
 type ListGatewaysParamsStatus string

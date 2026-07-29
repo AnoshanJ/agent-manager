@@ -30,10 +30,11 @@ import (
 
 func TestNormalizeGatewayRole(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
+		name      string
+		input     string
+		want      string
+		wantErr   bool
+		wantErrIs error
 	}{
 		{name: "canonical ingress", input: "INGRESS", want: models.GatewayRoleIngress},
 		{name: "canonical egress", input: "EGRESS", want: models.GatewayRoleEgress},
@@ -41,15 +42,18 @@ func TestNormalizeGatewayRole(t *testing.T) {
 		{name: "lowercase accepted", input: "both", want: models.GatewayRoleBoth},
 		{name: "alias REGULAR maps to both", input: "REGULAR", want: models.GatewayRoleBoth},
 		{name: "alias AI maps to egress", input: "AI", want: models.GatewayRoleEgress},
-		{name: "event is rejected", input: "EVENT", wantErr: true},
-		{name: "empty is rejected", input: "", wantErr: true},
-		{name: "unknown is rejected", input: "sideways", wantErr: true},
+		{name: "event is rejected", input: "EVENT", wantErr: true, wantErrIs: utils.ErrBadRequest},
+		{name: "empty is rejected", input: "", wantErr: true, wantErrIs: utils.ErrBadRequest},
+		{name: "unknown is rejected", input: "sideways", wantErr: true, wantErrIs: utils.ErrBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := normalizeGatewayRole(tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
 				return
 			}
 			require.NoError(t, err)

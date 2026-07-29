@@ -20,9 +20,9 @@ type GatewayType string
 
 // List of GatewayType
 const (
-	INGRESS GatewayType = "INGRESS"
-	EGRESS  GatewayType = "EGRESS"
-	BOTH    GatewayType = "BOTH"
+	GATEWAYTYPE_INGRESS GatewayType = "INGRESS"
+	GATEWAYTYPE_EGRESS  GatewayType = "EGRESS"
+	GATEWAYTYPE_BOTH    GatewayType = "BOTH"
 )
 
 // All allowed values of GatewayType enum

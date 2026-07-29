@@ -22,8 +22,8 @@ type CreateGatewayRequest struct {
 	// Unique gateway name (lowercase, alphanumeric with hyphens)
 	Name string `json:"name"`
 	// Human-readable display name
-	DisplayName string      `json:"displayName"`
-	GatewayType GatewayType `json:"gatewayType"`
+	DisplayName string           `json:"displayName"`
+	GatewayType GatewayTypeInput `json:"gatewayType"`
 	// Virtual host for the gateway (FQDN or IP)
 	Vhost string `json:"vhost"`
 	// Deployment region (optional)
@@ -40,7 +40,7 @@ type CreateGatewayRequest struct {
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCreateGatewayRequest(name string, displayName string, gatewayType GatewayType, vhost string) *CreateGatewayRequest {
+func NewCreateGatewayRequest(name string, displayName string, gatewayType GatewayTypeInput, vhost string) *CreateGatewayRequest {
 	this := CreateGatewayRequest{}
 	this.Name = name
 	this.DisplayName = displayName
@@ -110,9 +110,9 @@ func (o *CreateGatewayRequest) SetDisplayName(v string) {
 }
 
 // GetGatewayType returns the GatewayType field value
-func (o *CreateGatewayRequest) GetGatewayType() GatewayType {
+func (o *CreateGatewayRequest) GetGatewayType() GatewayTypeInput {
 	if o == nil {
-		var ret GatewayType
+		var ret GatewayTypeInput
 		return ret
 	}
 
@@ -121,7 +121,7 @@ func (o *CreateGatewayRequest) GetGatewayType() GatewayType {
 
 // GetGatewayTypeOk returns a tuple with the GatewayType field value
 // and a boolean to check if the value has been set.
-func (o *CreateGatewayRequest) GetGatewayTypeOk() (*GatewayType, bool) {
+func (o *CreateGatewayRequest) GetGatewayTypeOk() (*GatewayTypeInput, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -129,7 +129,7 @@ func (o *CreateGatewayRequest) GetGatewayTypeOk() (*GatewayType, bool) {
 }
 
 // SetGatewayType sets field value
-func (o *CreateGatewayRequest) SetGatewayType(v GatewayType) {
+func (o *CreateGatewayRequest) SetGatewayType(v GatewayTypeInput) {
 	o.GatewayType = v
 }
 

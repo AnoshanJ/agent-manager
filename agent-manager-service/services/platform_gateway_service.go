@@ -253,7 +253,16 @@ func (s *PlatformGatewayService) ListGateways(ouID *string, filters *GatewayList
 	}
 
 	if filters != nil {
-		filterOpts.FunctionalityType = filters.FunctionalityType
+		if filters.FunctionalityType != nil {
+			// Route the raw query value through the same alias normalization used at
+			// registration (REGULAR -> both, AI -> egress) so the filter matches the
+			// canonical roles actually stored in the database.
+			normalized, err := normalizeGatewayRole(*filters.FunctionalityType)
+			if err != nil {
+				return nil, err
+			}
+			filterOpts.FunctionalityType = &normalized
+		}
 		filterOpts.Status = filters.Status
 		filterOpts.EnvironmentID = filters.EnvironmentID
 	}
@@ -1094,7 +1103,7 @@ func (s *PlatformGatewayService) validateGatewayInput(ouID, name, displayName, v
 func normalizeGatewayRole(functionalityType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(functionalityType)) {
 	case "":
-		return "", errors.New("gateway functionality type is required")
+		return "", fmt.Errorf("%w: gateway functionality type is required", utils.ErrBadRequest)
 	case models.GatewayRoleIngress:
 		return models.GatewayRoleIngress, nil
 	case models.GatewayRoleEgress, "ai":

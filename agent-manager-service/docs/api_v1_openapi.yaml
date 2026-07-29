@@ -2014,12 +2014,11 @@ paths:
             default: 0
         - name: type
           in: query
-          description: Filter by gateway type
+          description: |
+            Filter by gateway type. `REGULAR` and `AI` are deprecated aliases
+            (REGULAR -> BOTH, AI -> EGRESS) kept for backward compatibility.
           schema:
-            type: string
-            enum:
-              - AI
-              - REGULAR
+            $ref: "#/components/schemas/GatewayTypeInput"
         - name: status
           in: query
           description: Filter by gateway status
@@ -14167,6 +14166,21 @@ components:
         an older version keep registering; responses always emit canonical values.
       example: BOTH
 
+    GatewayTypeInput:
+      type: string
+      enum:
+        - INGRESS
+        - EGRESS
+        - BOTH
+        - REGULAR
+        - AI
+      description: |
+        Gateway placement role accepted on input. `REGULAR` and `AI` are deprecated
+        aliases kept for gateway charts pinned to an older version (REGULAR -> BOTH,
+        AI -> EGRESS); prefer INGRESS/EGRESS/BOTH. Responses and the canonical
+        `GatewayType` schema never emit REGULAR/AI.
+      example: BOTH
+
     GatewayStatus:
       type: string
       enum:
@@ -14448,7 +14462,7 @@ components:
           maxLength: 128
           example: Production AI Gateway
         gatewayType:
-          $ref: "#/components/schemas/GatewayType"
+          $ref: "#/components/schemas/GatewayTypeInput"
         vhost:
           type: string
           description: Virtual host for the gateway (FQDN or IP)

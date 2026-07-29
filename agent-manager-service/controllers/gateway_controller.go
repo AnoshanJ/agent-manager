@@ -257,11 +257,10 @@ func (c *gatewayController) ListGateways(w http.ResponseWriter, r *http.Request)
 	// Parse filter parameters
 	filters := &services.GatewayListFilters{}
 
-	// Filter by type (functionality type)
+	// Filter by type (functionality type). Alias normalization (REGULAR/AI) and
+	// lowercasing happen in the service layer via normalizeGatewayRole.
 	if typeParam := r.URL.Query().Get("type"); typeParam != "" {
-		// Normalize to lowercase for consistent storage/comparison
-		normalizedType := strings.ToLower(typeParam)
-		filters.FunctionalityType = &normalizedType
+		filters.FunctionalityType = &typeParam
 	}
 
 	// Filter by status
@@ -286,7 +285,7 @@ func (c *gatewayController) ListGateways(w http.ResponseWriter, r *http.Request)
 	gatewaysResp, err := c.gatewayService.ListGateways(&ouID, filters, limit, offset)
 	if err != nil {
 		log.Error("ListGateways: failed to list gateways", "error", err)
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to list gateways")
+		handleGatewayErrors(w, err, "Failed to list gateways")
 		return
 	}
 
