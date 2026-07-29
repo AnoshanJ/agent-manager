@@ -446,9 +446,10 @@ log_success "Agent Manager resource server registration complete (all amp permis
 # Identifiers match exactly, so each origin amp-api is reachable on needs its
 # own entry; set one to "" to skip it. The dev origin is the docker-compose
 # stack's published host port.
-AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://api.amp.localhost:8080/}"
-AM_MCP_DEV_RESOURCE="${AM_MCP_DEV_RESOURCE:-http://localhost:9000/}"
-OBSERVER_MCP_RESOURCE="${OBSERVER_MCP_RESOURCE:-http://traces.amp.localhost:11080/}"
+# Unset-only defaults, so an explicit "" survives to the skip above.
+AM_MCP_RESOURCE="${AM_MCP_RESOURCE-http://api.amp.localhost:8080/}"
+AM_MCP_DEV_RESOURCE="${AM_MCP_DEV_RESOURCE-http://localhost:9000/}"
+OBSERVER_MCP_RESOURCE="${OBSERVER_MCP_RESOURCE-http://traces.amp.localhost:11080/}"
 
 log_info "Registering MCP resource servers..."
 register_mcp_resource_server "AMP Agent Manager MCP" "$AM_MCP_RESOURCE" "Resource identifier for the agent-manager MCP endpoint" "amp-minus-observability"
