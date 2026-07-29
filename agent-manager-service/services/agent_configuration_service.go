@@ -3083,7 +3083,12 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 							if parseErr != nil {
 								continue
 							}
-							gateway, gwErr := s.resolveGatewayForMCPArtifact(ctx, mapping.ArtifactUUID, ouID, envEnvUUID)
+							sharedArtifactUUID := s.resolveMCPMappingAPIID(ctx, mapping, ouID)
+							if sharedArtifactUUID == uuid.Nil {
+								s.logger.Warn("Phase 1b: missing MCP shared artifact for re-injection", "environment", envName)
+								continue
+							}
+							gateway, gwErr := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envEnvUUID)
 							if gwErr != nil {
 								s.logger.Warn("Phase 1b: failed to resolve MCP gateway for re-injection", "environment", envName, "err", gwErr)
 								continue
@@ -5020,7 +5025,8 @@ func (s *agentConfigurationService) buildConfigResponse(ctx context.Context, con
 				ProviderName:   utils.StrAsStrPointer(proxyName),
 				AuthHeaderName: utils.StrAsStrPointer(mcpProxyAPIKeyHeaderName(mapping.MCPProxy, mapping.EnvironmentUUID.String())),
 			}
-			if gateway, err := s.resolveGatewayForMCPArtifact(ctx, mapping.ArtifactUUID, config.OUID, mapping.EnvironmentUUID); err == nil {
+			sharedArtifactUUID := s.resolveMCPMappingAPIID(ctx, &mapping, config.OUID)
+			if gateway, err := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, config.OUID, mapping.EnvironmentUUID); err == nil && sharedArtifactUUID != uuid.Nil {
 				deployedProxy := buildAgentMCPConfigProxy(config, &mapping, mapping.MCPProxy, envName, config.OUID,
 					mcpMappingProxyName(config.ProjectName, config.AgentID, config.Name, envName))
 				// User-facing invoke URL in the config response: externally-reachable vhost.
@@ -5155,6 +5161,14 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 				ProviderName:   utils.StrAsStrPointer(proxyName),
 				AuthHeaderName: utils.StrAsStrPointer(mcpProxyAPIKeyHeaderName(mapping.MCPProxy, mapping.EnvironmentUUID.String())),
 			}
+			sharedArtifactUUID := s.resolveMCPMappingAPIID(ctx, &mapping, config.OUID)
+			var gateway *models.Gateway
+			var gwErr error
+			if sharedArtifactUUID != uuid.Nil {
+				gateway, gwErr = s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, config.OUID, mapping.EnvironmentUUID)
+			} else {
+				gwErr = errNoActiveGatewayForEnvironment
+			}
 			if creds, ok := envCredentials[envUUID]; ok {
 				proxyInfo.URL = &creds.proxyURL
 				if creds.apiKey != "" {
@@ -5166,7 +5180,7 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 					"hasProxyURL", creds.proxyURL != "",
 					"hasAPIKey", creds.apiKey != "",
 				)
-			} else if gateway, err := s.resolveGatewayForMCPArtifact(ctx, mapping.ArtifactUUID, config.OUID, mapping.EnvironmentUUID); err == nil {
+			} else if gwErr == nil {
 				deployedProxy := buildAgentMCPConfigProxy(reloadedConfig, &mapping, mapping.MCPProxy, envName, config.OUID,
 					mcpMappingProxyName(config.ProjectName, config.AgentID, config.Name, envName))
 				// External agent's invoke URL: externally-reachable vhost.
