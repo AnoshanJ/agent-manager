@@ -40,12 +40,16 @@ type IdentityProviderWithContext struct {
 
 // GatewayFilterOptions defines filtering options for gateway queries
 type GatewayFilterOptions struct {
-	OrganizationID    string
-	FunctionalityType *string // Filter by gateway_functionality_type (ai, regular, event)
-	Status            *bool   // Filter by is_active
-	EnvironmentID     *string // Filter by environment (via gateway_environment_mappings)
-	Limit             int     // Pagination limit (0 = no limit)
-	Offset            int     // Pagination offset
+	OrganizationID string
+	// FunctionalityType filters on one exact role (ingress, egress, both).
+	FunctionalityType *string
+	// FunctionalityTypeIn filters on a role set, e.g. models.IngressGatewayRoles.
+	// Applied as IN (?) alongside, not instead of, FunctionalityType.
+	FunctionalityTypeIn []string
+	Status              *bool   // Filter by is_active
+	EnvironmentID       *string // Filter by environment (via gateway_environment_mappings)
+	Limit               int     // Pagination limit (0 = no limit)
+	Offset              int     // Pagination offset
 }
 
 // GatewayRepository defines the interface for gateway data access
@@ -198,6 +202,11 @@ func (r *GatewayRepo) buildFilterQuery(filters GatewayFilterOptions) *gorm.DB {
 	// Filter by functionality type
 	if filters.FunctionalityType != nil && *filters.FunctionalityType != "" {
 		query = query.Where("gateway_functionality_type = ?", *filters.FunctionalityType)
+	}
+
+	// Filter by a set of functionality types
+	if len(filters.FunctionalityTypeIn) > 0 {
+		query = query.Where("gateway_functionality_type IN ?", filters.FunctionalityTypeIn)
 	}
 
 	// Filter by status (is_active)

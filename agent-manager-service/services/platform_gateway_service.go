@@ -220,7 +220,7 @@ func (s *PlatformGatewayService) RegisterGateway(
 
 // GatewayListFilters contains optional filters for listing gateways
 type GatewayListFilters struct {
-	FunctionalityType *string // Filter by gateway type (ai, regular, event)
+	FunctionalityType *string // Filter by gateway role (ingress, egress, both)
 	Status            *bool   // Filter by is_active status
 	EnvironmentID     *string // Filter by environment UUID
 }
