@@ -635,16 +635,19 @@ func (e GatewayTokenInfoStatus) Valid() bool {
 
 // Defines values for GatewayType.
 const (
-	GatewayTypeAI      GatewayType = "AI"
-	GatewayTypeREGULAR GatewayType = "REGULAR"
+	BOTH    GatewayType = "BOTH"
+	EGRESS  GatewayType = "EGRESS"
+	INGRESS GatewayType = "INGRESS"
 )
 
 // Valid indicates whether the value is a known member of the GatewayType enum.
 func (e GatewayType) Valid() bool {
 	switch e {
-	case GatewayTypeAI:
+	case BOTH:
 		return true
-	case GatewayTypeREGULAR:
+	case EGRESS:
+		return true
+	case INGRESS:
 		return true
 	default:
 		return false
@@ -1043,16 +1046,16 @@ func (e ListCatalogResourcesParamsKind) Valid() bool {
 
 // Defines values for ListGatewaysParamsType.
 const (
-	ListGatewaysParamsTypeAI      ListGatewaysParamsType = "AI"
-	ListGatewaysParamsTypeREGULAR ListGatewaysParamsType = "REGULAR"
+	AI      ListGatewaysParamsType = "AI"
+	REGULAR ListGatewaysParamsType = "REGULAR"
 )
 
 // Valid indicates whether the value is a known member of the ListGatewaysParamsType enum.
 func (e ListGatewaysParamsType) Valid() bool {
 	switch e {
-	case ListGatewaysParamsTypeAI:
+	case AI:
 		return true
-	case ListGatewaysParamsTypeREGULAR:
+	case REGULAR:
 		return true
 	default:
 		return false
@@ -2216,9 +2219,15 @@ type CreateGatewayRequest struct {
 	// EnvironmentIds List of environment UUIDs to assign the gateway to during creation
 	EnvironmentIds *[]string `json:"environmentIds,omitempty"`
 
-	// GatewayType Gateway type:
-	// - REGULAR: Handles incoming API traffic
-	// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
+	// GatewayType Gateway placement role. Naming and placement policy, not capability — every
+	// gateway has identical runtime capabilities regardless of role.
+	// - INGRESS: handles inbound agent traffic. At most one per environment.
+	// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
+	// - BOTH: does both. Counts against the ingress cap.
+	//
+	// Immutable once registered. `REGULAR` and `AI` are accepted on input as
+	// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
+	// an older version keep registering; responses always emit canonical values.
 	GatewayType GatewayType `json:"gatewayType"`
 
 	// IsCritical Flag indicating if this is a critical production gateway
@@ -2971,9 +2980,15 @@ type GatewayResponse struct {
 	// Environments List of environments mapped to this gateway
 	Environments *[]GatewayEnvironmentResponse `json:"environments,omitempty"`
 
-	// GatewayType Gateway type:
-	// - REGULAR: Handles incoming API traffic
-	// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
+	// GatewayType Gateway placement role. Naming and placement policy, not capability — every
+	// gateway has identical runtime capabilities regardless of role.
+	// - INGRESS: handles inbound agent traffic. At most one per environment.
+	// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
+	// - BOTH: does both. Counts against the ingress cap.
+	//
+	// Immutable once registered. `REGULAR` and `AI` are accepted on input as
+	// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
+	// an older version keep registering; responses always emit canonical values.
 	GatewayType GatewayType `json:"gatewayType"`
 
 	// IsCritical Flag indicating if this is a critical production gateway
@@ -3063,9 +3078,15 @@ type GatewayTokenResponse struct {
 	TokenId string `json:"tokenId"`
 }
 
-// GatewayType Gateway type:
-// - REGULAR: Handles incoming API traffic
-// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
+// GatewayType Gateway placement role. Naming and placement policy, not capability — every
+// gateway has identical runtime capabilities regardless of role.
+// - INGRESS: handles inbound agent traffic. At most one per environment.
+// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
+// - BOTH: does both. Counts against the ingress cap.
+//
+// Immutable once registered. `REGULAR` and `AI` are accepted on input as
+// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
+// an older version keep registering; responses always emit canonical values.
 type GatewayType string
 
 // GitCredentials Authentication credentials for a git secret.
@@ -3756,6 +3777,13 @@ type MCPEndpointEnvironment struct {
 
 	// EnvironmentUuid Target environment UUID.
 	EnvironmentUuid openapi_types.UUID `json:"environmentUuid"`
+
+	// GatewayId Egress gateway to deploy this endpoint→environment binding to. Optional:
+	// inferred when the environment has exactly one egress gateway, and required
+	// when it has more than one. Placement is fixed once deployed — supplying a
+	// different gateway on update is rejected. Emitted on read as the gateway the
+	// binding is actually deployed to.
+	GatewayId *openapi_types.UUID `json:"gatewayId,omitempty"`
 }
 
 // MCPEndpointEnvironmentDeploymentStatus Per-environment deployment status.
@@ -3871,7 +3899,10 @@ type MCPProxyRequest struct {
 	// Endpoints Deployable endpoint definitions of the MCP proxy. Each endpoint is deployed to one or more environments; within a proxy an environment maps to at most one endpoint. At least one endpoint is required.
 	Endpoints *[]MCPProxyEndpoint `json:"endpoints,omitempty"`
 
-	// Gateways Gateway UUIDs to deploy the MCP proxy to after creation
+	// Gateways Deprecated and never implemented. Deployment is per (endpoint, environment),
+	// so this proxy-wide field is at the wrong granularity — use
+	// MCPEndpointEnvironment.gatewayId. Populated on read only.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Gateways *[]openapi_types.UUID `json:"gateways,omitempty"`
 
 	// Id Unique handle for the MCP proxy
