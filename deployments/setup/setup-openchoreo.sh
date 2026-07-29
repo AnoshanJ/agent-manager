@@ -458,8 +458,12 @@ install_thunder_extension() {
         fi
     fi
 
+    # The dev stack runs amp-api on a published host port rather than behind the
+    # gateway, so register that origin as a second MCP resource identifier too —
+    # Thunder matches the authorize request's `resource` value exactly.
     helm upgrade --install amp-thunder-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-thunder-extension" \
-        --namespace amp-thunder --create-namespace
+        --namespace amp-thunder --create-namespace \
+        --set thunder.bootstrap.agentManagerMcpDevBaseUrl=http://localhost:9000
     echo "✅ AMP Thunder Extension installed/upgraded successfully"
 }
 

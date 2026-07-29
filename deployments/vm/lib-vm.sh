@@ -29,6 +29,14 @@ vm_host() {
 # own serving (that is internalServer.tlsEnabled) — it is purely the endpoint
 # scheme. The agent host is only reachable over TLS via Caddy's wildcard site, so
 # without this the console emits http:// and the browser blocks it as mixed content.
+#
+# keyManager.audience is restated even though current charts derive its URL entry
+# (serverPublicURL plus a trailing slash, which is an MCP token's aud): this
+# installer targets whatever published AMP_VERSION the caller asks for, including
+# releases predating that derivation, where the default pins the k3d hostname
+# that serverPublicURL above has just moved. Same reason as
+# observability_helm_args below. Commas stay escaped or helm's --set splits the
+# value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -37,6 +45,7 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
+      "--set" "${k}.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
       "--set" "${k}.config.tlsEnabled=true" \
       "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}"
   done

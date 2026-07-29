@@ -33,7 +33,7 @@ data:
   OTEL_DEFAULT_INSTRUMENTATION_VERSION: {{ .Values.agentManagerService.config.otel.defaultInstrumentationVersion | quote }}
   INSTRUMENTATION_EXTENSION_PATH: "/etc/amp/instrumentation-extension.yaml"
   KEY_MANAGER_ISSUER: {{ .Values.agentManagerService.config.keyManager.issuer | quote }}                                         
-  KEY_MANAGER_AUDIENCE: {{ .Values.agentManagerService.config.keyManager.audience | quote }}                                   
+  KEY_MANAGER_AUDIENCE: {{ include "agent-management-platform.agentManagerService.audience" . | quote }}
   KEY_MANAGER_JWKS_URL: {{ .Values.agentManagerService.config.keyManager.jwksUrl | quote }}                                         
   SERVER_PUBLIC_URL: {{ .Values.agentManagerService.config.serverPublicURL | default "" | quote }}
   OAUTH_AUTHORIZATION_SERVERS: {{ .Values.agentManagerService.config.oauthAuthorizationServers | default .Values.agentManagerService.config.keyManager.issuer | default "" | quote }}

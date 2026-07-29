@@ -355,11 +355,18 @@ register_amp_permissions() {
 # permission (e.g. amp-am:amp:project:read), producing scope strings
 # agent-manager-service will never accept. MCP resource servers are pure
 # mirrors with no independent state, so delete and recreate is safe.
+# An empty identifier skips the resource server, mirroring the chart's
+# `optional: true` entries.
 # Usage: register_mcp_resource_server <name> <identifier> <description> <permission_set>
 # ---------------------------------------------------------------------------
 register_mcp_resource_server() {
   local name="$1" identifier="$2" description="$3" permission_set="$4"
   local rs_id response http_code body handle amp_root
+
+  if [[ -z "$identifier" ]]; then
+    log_info "Skipping MCP resource server '$name' (no identifier configured)"
+    return 0
+  fi
 
   rs_id=$(create_or_get_rs "$name" "" "$identifier" "$description" "$DEFAULT_OU_ID")
   log_info "MCP resource server '$identifier' ready (id: $rs_id)"
@@ -432,10 +439,15 @@ log_success "Agent Manager resource server registration complete (all amp permis
 # handle, and the scope strings must come out identical to the amp resource
 # server's (amp:project:read etc.). The tree is rooted under a top-level
 # "amp" resource instead.
-AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://localhost:9000/}"
+# Identifiers match exactly, so each origin amp-api is reachable on needs its
+# own entry; set one to "" to skip it. The dev origin is the docker-compose
+# stack's published host port.
+AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://api.amp.localhost:8080/}"
+AM_MCP_DEV_RESOURCE="${AM_MCP_DEV_RESOURCE:-http://localhost:9000/}"
 OBSERVER_MCP_RESOURCE="${OBSERVER_MCP_RESOURCE:-http://traces.amp.localhost:11080/}"
 
 log_info "Registering MCP resource servers..."
 register_mcp_resource_server "AMP Agent Manager MCP" "$AM_MCP_RESOURCE" "Resource identifier for the agent-manager MCP endpoint" "amp-minus-observability"
+register_mcp_resource_server "AMP Agent Manager MCP (dev)" "$AM_MCP_DEV_RESOURCE" "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack" "amp-minus-observability"
 register_mcp_resource_server "AMP Observer MCP" "$OBSERVER_MCP_RESOURCE" "Resource identifier for the observer MCP endpoint" "observability-only"
 log_success "MCP resource servers registered."

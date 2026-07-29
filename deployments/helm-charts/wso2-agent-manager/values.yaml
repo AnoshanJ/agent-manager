@@ -188,6 +188,15 @@ agentManagerService:
       additionalInstrumentationVersions: []
 
     # Key Manager configuration
+    #
+    # Thunder (v0.45+) stamps the resource-server identifier named in the
+    # authorize request's RFC 8707 `resource` parameter as the token audience.
+    # Console and CLI logins carry no `resource`, so they resolve to the "amp"
+    # resource server and arrive with aud=amp. MCP logins (am-mcp) DO send
+    # `resource`, and get this service's serverPublicURL WITH a trailing slash
+    # as their audience — the chart appends that entry automatically, so
+    # overriding serverPublicURL below is enough and this list only needs the
+    # client IDs.
     keyManager:
       issuer: "http://thunder.amp.localhost:8080"
       audience: "amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
@@ -196,6 +205,9 @@ agentManagerService:
     # Externally reachable base URL of this service.
     # Used as the `resource` identifier in RFC 9728 protected resource metadata.
     # Routed through the OpenChoreo control-plane gateway (see ocIngress).
+    # Must stay in sync with the thunder extension's
+    # thunder.bootstrap.agentManagerMcpBaseUrl; keyManager.audience above picks
+    # this up on its own.
     serverPublicURL: "http://api.amp.localhost:8080"
 
     # Comma-separated list of OAuth 2.0 authorization server URLs advertised

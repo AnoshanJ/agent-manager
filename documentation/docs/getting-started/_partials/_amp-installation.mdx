@@ -112,7 +112,9 @@ helm install amp \
 hostname. The authorization server the API advertises in its RFC 9728 protected
 resource metadata is derived from it, so
 `agentManagerService.config.oauthAuthorizationServers` only needs setting if it
-must differ.
+must differ. Likewise the MCP audience entry is derived from
+`serverPublicURL` above, so `keyManager.audience` only needs setting to change
+the accepted client IDs.
 :::
 
 Wait for all components:

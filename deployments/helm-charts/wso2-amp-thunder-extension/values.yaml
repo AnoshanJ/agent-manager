@@ -522,23 +522,32 @@ thunder:
     # and silently drops name/handle/description/permissionSet. Point each base
     # URL at the externally reachable origin of its MCP endpoint's service — the
     # same value as agent-manager's serverPublicURL and the observability
-    # extension's amObserver.publicUrl. Defaults suit a k3d/local install.
-    # agentManagerMcpBaseUrl intentionally stays on the local-dev API origin:
-    # `make setup` (deployments/setup/setup-openchoreo.sh) installs this chart
-    # with no overrides and runs agent-manager-service as a host process on
-    # :9000, so an MCP client there asks for resource http://localhost:9000/ and
-    # Thunder answers invalid_target if the registered identifier is anything
-    # else. Installs that front the API with a gateway must override it —
-    # quick-start and the getting-started guides pass their API origin. Unlike
-    # observerMcpBaseUrl below, whose k3d default the dev setup also happens to
-    # use, this one cannot suit both.
-    agentManagerMcpBaseUrl: "http://localhost:9000"
+    # extension's amObserver.publicUrl. Defaults suit a k3d/local install, where
+    # amp-api is reached through the OpenChoreo control-plane gateway rather than
+    # on its container port.
+    #
+    # An identifier is matched EXACTLY, so a service reachable on more than one
+    # origin needs one entry per origin. Entries marked `optional: true` are
+    # skipped when their base URL is empty. agentManagerMcpDevBaseUrl is the
+    # opt-in second origin for the dev stack, where `make setup`
+    # (deployments/setup/setup-openchoreo.sh, this chart's only installer on that
+    # path) runs agent-manager-service as a host process on :9000 — an MCP client
+    # there asks for resource http://localhost:9000/, so without that entry
+    # Thunder answers invalid_target. setup-openchoreo.sh sets it.
+    agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
+    agentManagerMcpDevBaseUrl: ""
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
         handle: ""
         baseUrlValue: "agentManagerMcpBaseUrl"
         description: "Resource identifier for the agent-manager MCP endpoint"
+        permissionSet: "amp-minus-observability"
+      - name: "AMP Agent Manager MCP (dev)"
+        handle: ""
+        baseUrlValue: "agentManagerMcpDevBaseUrl"
+        optional: true
+        description: "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack"
         permissionSet: "amp-minus-observability"
       - name: "AMP Observer MCP"
         handle: ""
