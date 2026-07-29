@@ -360,6 +360,8 @@ For evaluation without a domain, the [nip.io appendix](#appendix-installing-with
 
 Thunder provides authentication and user management for the entire platform — login, API keys, and OAuth token exchange. It must be installed before the Control Plane because the Control Plane, Observability Plane, and Agent Manager all validate JWTs issued by Thunder. The browser reaches it at `https://${THUNDER_PUBLIC_HOST}` through the control-plane gateway.
 
+The `agentManagerMcpBaseUrl` / `observerMcpBaseUrl` settings below register the RFC 8707 resource identifiers that MCP clients send when logging in; they must match the public URLs of the two services, or MCP login fails with `invalid_target`. `agentManagerMcpDevBaseUrl` is emptied because this deployment has no docker-compose dev stack. These are seeded by a `pre-install` hook, so they must be set on the initial install — see the [MCP server reference](../reference/mcp-server.mdx).
+
 ```bash
 helm install amp-thunder-extension \
   oci://${HELM_CHART_REGISTRY}/wso2-amp-thunder-extension \
@@ -374,6 +376,9 @@ helm install amp-thunder-extension \
   --set thunder.configuration.gateClient.port=443 \
   --set "thunder.configuration.cors.allowedOrigins={${CONSOLE_PUBLIC_URL}}" \
   --set "thunder.bootstrap.ampConsoleClient.redirectUris={${CONSOLE_PUBLIC_URL}/login}" \
+  --set thunder.bootstrap.agentManagerMcpBaseUrl="${API_PUBLIC_URL}" \
+  --set thunder.bootstrap.agentManagerMcpDevBaseUrl= \
+  --set thunder.bootstrap.observerMcpBaseUrl="${OBS_API_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \

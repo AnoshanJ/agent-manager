@@ -101,6 +101,7 @@ helm install amp \
   --set agentManagerService.ocIngress.hostname="${API_PUBLIC_HOST}" \
   --set agentManagerService.config.serverPublicURL="${API_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.keyManager.audience="amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,${API_PUBLIC_URL}/" \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
@@ -243,6 +244,7 @@ helm install amp-observability-traces \
   --namespace ${OBSERVABILITY_NS} \
   --set amObserver.ocIngress.hostname="${OBS_API_PUBLIC_HOST}" \
   --set amObserver.publicUrl="${OBS_API_PUBLIC_URL}" \
+  --set amObserver.auth.audience="amp\,amp-api-client\,am-obs-mcp\,${OBS_API_PUBLIC_URL}/" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
