@@ -432,10 +432,23 @@ log_success "Agent Manager resource server registration complete (all amp permis
 # handle, and the scope strings must come out identical to the amp resource
 # server's (amp:project:read etc.). The tree is rooted under a top-level
 # "amp" resource instead.
-AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://localhost:9000/}"
+# An identifier is matched EXACTLY, so a service reachable on more than one
+# origin needs one entry per origin. amp-api has two front doors against this
+# same Thunder: the k3d/quick-start install behind the control-plane gateway,
+# and the docker-compose dev stack on the published host port. Both are
+# registered; set either to the empty string to skip it.
+AM_MCP_RESOURCE="${AM_MCP_RESOURCE:-http://api.amp.localhost:8080/}"
+AM_MCP_DEV_RESOURCE="${AM_MCP_DEV_RESOURCE:-http://localhost:9000/}"
 OBSERVER_MCP_RESOURCE="${OBSERVER_MCP_RESOURCE:-http://traces.amp.localhost:11080/}"
 
 log_info "Registering MCP resource servers..."
-register_mcp_resource_server "AMP Agent Manager MCP" "$AM_MCP_RESOURCE" "Resource identifier for the agent-manager MCP endpoint" "amp-minus-observability"
-register_mcp_resource_server "AMP Observer MCP" "$OBSERVER_MCP_RESOURCE" "Resource identifier for the observer MCP endpoint" "observability-only"
+if [[ -n "$AM_MCP_RESOURCE" ]]; then
+  register_mcp_resource_server "AMP Agent Manager MCP" "$AM_MCP_RESOURCE" "Resource identifier for the agent-manager MCP endpoint" "amp-minus-observability"
+fi
+if [[ -n "$AM_MCP_DEV_RESOURCE" ]]; then
+  register_mcp_resource_server "AMP Agent Manager MCP (dev)" "$AM_MCP_DEV_RESOURCE" "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack" "amp-minus-observability"
+fi
+if [[ -n "$OBSERVER_MCP_RESOURCE" ]]; then
+  register_mcp_resource_server "AMP Observer MCP" "$OBSERVER_MCP_RESOURCE" "Resource identifier for the observer MCP endpoint" "observability-only"
+fi
 log_success "MCP resource servers registered."

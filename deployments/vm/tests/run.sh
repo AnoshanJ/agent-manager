@@ -396,6 +396,11 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core thunder MCP base URL (observer)" \
     "thunder.bootstrap.observerMcpBaseUrl=https://observer.amp.example.com" \
     "$(grep -F 'observerMcpBaseUrl' <<<"$core_th")"
+  # No docker-compose stack on a VM, so the optional dev origin is skipped
+  # rather than registered as a bogus localhost resource server.
+  assert_eq "core thunder MCP dev base URL emptied" \
+    "thunder.bootstrap.agentManagerMcpDevBaseUrl=" \
+    "$(grep -F 'agentManagerMcpDevBaseUrl' <<<"$core_th")"
 
   core_obs="$(observability_helm_args)"
   assert_eq "core observability audience carries the public observer URL" \

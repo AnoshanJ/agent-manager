@@ -525,13 +525,30 @@ thunder:
     # extension's amObserver.publicUrl. Defaults suit a k3d/local install, where
     # amp-api is reached through the OpenChoreo control-plane gateway rather than
     # on its container port.
+    #
+    # An identifier is matched EXACTLY, so a service reachable on more than one
+    # origin needs one entry per origin. This single Thunder serves two amp-api
+    # front doors in a local setup: the k3d/quick-start install behind the
+    # control-plane gateway (agentManagerMcpBaseUrl), and the docker-compose dev
+    # stack published straight onto the host port (agentManagerMcpDevBaseUrl,
+    # matching SERVER_PUBLIC_URL in deployments/docker-compose.yml). Entries
+    # marked `optional: true` are skipped when their base URL is empty, so a
+    # deployment with no dev stack can drop that one with
+    # `--set thunder.bootstrap.agentManagerMcpDevBaseUrl=`.
     agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
+    agentManagerMcpDevBaseUrl: "http://localhost:9000"
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
         handle: ""
         baseUrlValue: "agentManagerMcpBaseUrl"
         description: "Resource identifier for the agent-manager MCP endpoint"
+        permissionSet: "amp-minus-observability"
+      - name: "AMP Agent Manager MCP (dev)"
+        handle: ""
+        baseUrlValue: "agentManagerMcpDevBaseUrl"
+        optional: true
+        description: "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack"
         permissionSet: "amp-minus-observability"
       - name: "AMP Observer MCP"
         handle: ""
