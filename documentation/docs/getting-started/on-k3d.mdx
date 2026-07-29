@@ -268,12 +268,25 @@ helm install amp-thunder-extension \
   --version ${VERSION} \
   --namespace ${THUNDER_NS} \
   --create-namespace \
+  --set thunder.bootstrap.agentManagerMcpBaseUrl="${API_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
   deployment -l app.kubernetes.io/instance=amp-thunder-extension \
   -n ${THUNDER_NS} --timeout=300s
 ```
+
+:::info
+`agentManagerMcpBaseUrl` becomes the OAuth resource-server identifier Thunder
+registers for the API's `/mcp` endpoint, and Thunder answers `invalid_target`
+unless an MCP client's requested `resource` matches it exactly. Its chart default
+is the local-dev API origin (a host process on `:9000`), so a chart install has
+to point it at the gateway-fronted API — the same value as
+`agentManagerService.config.serverPublicURL` in the next step. The observer's
+equivalent, `observerMcpBaseUrl`, already defaults to the k3d URL and needs no
+override here. Both are seeded by the pre-install bootstrap job only, so a
+`helm upgrade` will not re-seed them.
+:::
 
 :::warning
 Thunder persists its configuration (including the issuer URL) in a database on first boot. If you need to change `THUNDER_PUBLIC_URL` after installation, you must **uninstall the chart, delete its PVC, and reinstall** — a `helm upgrade` alone will not change the issuer in issued tokens.
