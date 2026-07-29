@@ -197,21 +197,12 @@ func (c *gatewayController) RegisterGateway(w http.ResponseWriter, r *http.Reque
 		isCritical,
 		functionalityType,
 		properties,
+		req.EnvironmentIds,
 	)
 	if err != nil {
 		log.Error("RegisterGateway: failed to create gateway", "error", err)
 		handleGatewayErrors(w, err, "Failed to register gateway")
 		return
-	}
-
-	// Assign to environments if provided (using gateway_environment_mappings table)
-	if len(req.EnvironmentIds) > 0 {
-		for _, envID := range req.EnvironmentIds {
-			if err := c.gatewayService.AssignGatewayToEnvironment(gateway.ID, envID); err != nil {
-				log.Warn("RegisterGateway: failed to assign gateway to environment", "envID", envID, "error", err)
-				// Continue with other environments
-			}
-		}
 	}
 
 	// Get environments for response

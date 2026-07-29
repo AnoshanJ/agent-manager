@@ -138,3 +138,35 @@ func TestAssignGatewayToEnvironment_IdempotentWhenAlreadyMapped(t *testing.T) {
 	require.NoError(t, svc.AssignGatewayToEnvironment(gw.UUID.String(), envID))
 	require.True(t, existsChecked, "expected the existence check to run inside the transaction")
 }
+
+// A cap rejection during registration rolls the gateway row back — no orphan gateway.
+func TestRegisterGateway_CapRejectionRollsBackGatewayRow(t *testing.T) {
+	var createdInTx bool
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByNameAndOrgIDFunc: func(string, string) (*models.Gateway, error) {
+			return nil, utils.ErrGatewayNotFound
+		},
+		TransactionFunc: func(fn func(tx *gorm.DB) error) error {
+			// Real gorm rolls back on error; emulate by discarding the side effect.
+			if err := fn(nil); err != nil {
+				createdInTx = false
+				return err
+			}
+			return nil
+		},
+		CreateTxFunc: func(*gorm.DB, *models.Gateway) error { createdInTx = true; return nil },
+		GetByUUIDFunc: func(string) (*models.Gateway, error) {
+			return &models.Gateway{UUID: uuid.New(), GatewayFunctionalityType: models.GatewayRoleBoth}, nil
+		},
+		AcquireEnvironmentLockFunc:           func(*gorm.DB, string) error { return nil },
+		EnvironmentMappingExistsFunc:         func(string, string) (bool, error) { return false, nil },
+		CountIngressCapableInEnvironmentFunc: func(*gorm.DB, string) (int64, error) { return 1, nil },
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	_, err := svc.RegisterGateway("org", "gw1", "GW", "", "http://x", false, "BOTH", nil,
+		[]string{uuid.New().String()})
+
+	require.ErrorIs(t, err, utils.ErrGatewayIngressCapExceeded)
+	require.False(t, createdInTx, "gateway row must not survive a cap rejection")
+}

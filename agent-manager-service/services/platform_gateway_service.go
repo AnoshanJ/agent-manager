@@ -152,6 +152,7 @@ func (s *PlatformGatewayService) RegisterGateway(
 	ouID, name, displayName, description, vhost string,
 	isCritical bool, functionalityType string,
 	properties map[string]interface{},
+	environmentIDs []string,
 ) (*GatewayResponse, error) {
 	// 1. Validate inputs
 	if err := s.validateGatewayInput(ouID, name, displayName, vhost); err != nil {
@@ -200,9 +201,18 @@ func (s *PlatformGatewayService) RegisterGateway(
 		UpdatedAt:                time.Now(),
 	}
 
-	err = s.gatewayRepo.Create(gateway)
-	if err != nil {
-		return nil, fmt.Errorf("error while registering gateway: %w", err)
+	if err := s.gatewayRepo.Transaction(func(tx *gorm.DB) error {
+		if err := s.gatewayRepo.CreateTx(tx, gateway); err != nil {
+			return fmt.Errorf("error while registering gateway: %w", err)
+		}
+		for _, envID := range environmentIDs {
+			if err := s.assignGatewayToEnvironmentTx(tx, gateway, envID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	response := &GatewayResponse{
