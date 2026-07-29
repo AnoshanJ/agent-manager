@@ -19,6 +19,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -67,6 +68,15 @@ type GatewayRepository interface {
 	Delete(gatewayID, ouID string) error
 	UpdateGateway(gateway *models.Gateway) error
 	UpdateActiveStatus(gatewayId string, isActive bool) error
+
+	// Transaction-scoped operations. The ingress cap is enforced in the service under
+	// pg_advisory_xact_lock, so the service needs to drive a transaction it can also
+	// insert the gateway row and its mappings into.
+	Transaction(fn func(tx *gorm.DB) error) error
+	AcquireEnvironmentLock(tx *gorm.DB, environmentID string) error
+	CreateTx(tx *gorm.DB, gateway *models.Gateway) error
+	CreateEnvironmentMappingTx(tx *gorm.DB, mapping *models.GatewayEnvironmentMapping) error
+	CountIngressCapableInEnvironment(tx *gorm.DB, environmentID string) (int64, error)
 
 	// Gateway association checking operations
 	HasGatewayDeployments(gatewayID, ouID string) (bool, error)
@@ -556,4 +566,54 @@ func (r *GatewayRepo) ListIdentityProvidersByOrg(ouID string) ([]IdentityProvide
 		Order("gateway_identity_providers.name ASC").
 		Scan(&results).Error
 	return results, err
+}
+
+// gatewayEnvLockNamespace scopes this change's advisory locks so they cannot collide
+// with any other pg_advisory_xact_lock user in the process.
+const gatewayEnvLockNamespace = 4711
+
+// Transaction runs fn inside a database transaction.
+func (r *GatewayRepo) Transaction(fn func(tx *gorm.DB) error) error {
+	return r.db.Transaction(fn)
+}
+
+// AcquireEnvironmentLock takes a transaction-scoped advisory lock keyed on the
+// environment UUID, serialising concurrent ingress-cap checks for that environment.
+// Released automatically on commit or rollback. hashtext maps the UUID text to the
+// int4 the two-key advisory lock form takes.
+func (r *GatewayRepo) AcquireEnvironmentLock(tx *gorm.DB, environmentID string) error {
+	return tx.Exec("SELECT pg_advisory_xact_lock(?, hashtext(?))",
+		gatewayEnvLockNamespace, environmentID).Error
+}
+
+// CreateTx inserts a gateway inside an existing transaction. Mirrors Create,
+// including the is_active=false default at registration.
+func (r *GatewayRepo) CreateTx(tx *gorm.DB, gateway *models.Gateway) error {
+	gateway.CreatedAt = time.Now()
+	gateway.UpdatedAt = time.Now()
+	gateway.IsActive = false
+	return tx.Create(gateway).Error
+}
+
+// CreateEnvironmentMappingTx inserts a gateway↔environment mapping inside an
+// existing transaction.
+func (r *GatewayRepo) CreateEnvironmentMappingTx(tx *gorm.DB, mapping *models.GatewayEnvironmentMapping) error {
+	return tx.Create(mapping).Error
+}
+
+// CountIngressCapableInEnvironment counts non-deleted ingress-capable gateways mapped
+// to the environment. Deliberately omits is_active: the cap is a membership rule, and
+// is_active is WebSocket liveness that flaps.
+func (r *GatewayRepo) CountIngressCapableInEnvironment(tx *gorm.DB, environmentID string) (int64, error) {
+	var count int64
+	err := tx.Table("gateway_environment_mappings AS m").
+		Joins("JOIN gateways g ON g.uuid = m.gateway_uuid").
+		Where("m.environment_uuid = ?", environmentID).
+		Where("g.deleted_at IS NULL").
+		Where("g.gateway_functionality_type IN ?", models.IngressGatewayRoles).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to count ingress-capable gateways in environment %s: %w", environmentID, err)
+	}
+	return count, nil
 }
