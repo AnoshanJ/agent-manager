@@ -68,7 +68,10 @@ func gatewayWithPolicyManifest(nameVersionPairs ...string) *models.Gateway {
 			"version": nameVersionPairs[i+1],
 		})
 	}
-	return &models.Gateway{Manifest: map[string]interface{}{"policies": items}}
+	return &models.Gateway{
+		Manifest:                 map[string]interface{}{"policies": items},
+		GatewayFunctionalityType: models.GatewayRoleBoth,
+	}
 }
 
 func TestDefaultMCPProxySecurity_IdentityVariantSkipsAPIKeyDefaults(t *testing.T) {
@@ -123,7 +126,7 @@ func TestValidateMCPEndpointSecurity_IdentityNeedsGatewayPolicies(t *testing.T) 
 	endpoints := []models.MCPProxyEndpointDTO{
 		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
 	}
-	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints)
+	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil)
 	assert.ErrorIs(t, err, utils.ErrInvalidInput)
 }
 
@@ -137,7 +140,7 @@ func TestValidateMCPEndpointSecurity_IdentityAcceptedWithGatewayPolicies(t *test
 	endpoints := []models.MCPProxyEndpointDTO{
 		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
 	}
-	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints))
+	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil))
 }
 
 func TestValidateMCPEndpointSecurity_IdentityAllowedWhenNoGatewayYet(t *testing.T) {
@@ -152,7 +155,7 @@ func TestValidateMCPEndpointSecurity_IdentityAllowedWhenNoGatewayYet(t *testing.
 	endpoints := []models.MCPProxyEndpointDTO{
 		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
 	}
-	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints))
+	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil))
 }
 
 // newDeleteTestProxy builds a proxy with one identity-enabled endpoint bound to envUUID,
@@ -280,4 +283,70 @@ func TestMCPProxyDelete_CleanupSurvivesResolverError(t *testing.T) {
 	err := svc.Delete(context.Background(), "org-uuid", "org", "gh-proxy")
 
 	assert.NoError(t, err, "Thunder cleanup is best-effort and must never fail the delete")
+}
+
+// gatewayWithPolicyManifestAndRole is gatewayWithPolicyManifest with a distinct UUID/Name
+// and an explicit functionality role, so two-egress-gateway scenarios can tell the
+// candidates apart (by UUID for anchoring, by Name for error messages).
+func gatewayWithPolicyManifestAndRole(role string, nameVersionPairs ...string) *models.Gateway {
+	gw := gatewayWithPolicyManifest(nameVersionPairs...)
+	gw.UUID = uuid.New()
+	gw.Name = "gateway-" + gw.UUID.String()
+	gw.GatewayFunctionalityType = role
+	return gw
+}
+
+func TestValidateMCPEndpointSecurity_TwoEgressGateways_AnchorsOnExistingDeployment(t *testing.T) {
+	// Deployed gateway lacks mcp-authz; the other candidate has full policy support. If
+	// this anchored on the environment instead of the deployment it could pick either —
+	// asserting on the deployed (non-compliant) one proves the anchor, not the fallback.
+	deployed := gatewayWithPolicyManifestAndRole(models.GatewayRoleBoth, "mcp-auth", "v1", "mcp-authz", "v1")
+	other := gatewayWithPolicyManifestAndRole(models.GatewayRoleEgress, "mcp-auth", "v1")
+	gwRepo := gatewayFixtureRepo(t, testMCPEnvUUID, []*models.Gateway{deployed, other})
+
+	artifactUUID := uuid.New()
+	depRepo := &repomocks.DeploymentRepositoryMock{
+		GetDeployedGatewaysByProviderFunc: func(gotArtifactUUID uuid.UUID, _ string) ([]string, error) {
+			assert.Equal(t, artifactUUID, gotArtifactUUID)
+			return []string{deployed.UUID.String()}, nil
+		},
+	}
+	svc := &MCPProxyService{gatewayRepo: gwRepo, deploymentRepo: depRepo}
+	endpoints := []models.MCPProxyEndpointDTO{
+		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
+	}
+	existingArtifactByEnv := map[string]uuid.UUID{testMCPEnvUUID: artifactUUID}
+
+	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, existingArtifactByEnv))
+}
+
+func TestValidateMCPEndpointSecurity_TwoEgressGateways_NoDeployment_AllCandidatesCompliant(t *testing.T) {
+	// No existing deployment to anchor on (create, or a genuinely new binding): this is a
+	// read-only policy probe, so two egress-capable candidates must not be ambiguous —
+	// both support the required policies, so validation passes.
+	gwA := gatewayWithPolicyManifestAndRole(models.GatewayRoleBoth, "mcp-auth", "v1", "mcp-authz", "v1")
+	gwB := gatewayWithPolicyManifestAndRole(models.GatewayRoleEgress, "mcp-auth", "v1", "mcp-authz", "v1")
+	gwRepo := gatewayFixtureRepo(t, testMCPEnvUUID, []*models.Gateway{gwA, gwB})
+	svc := &MCPProxyService{gatewayRepo: gwRepo}
+	endpoints := []models.MCPProxyEndpointDTO{
+		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
+	}
+
+	assert.NoError(t, svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil))
+}
+
+func TestValidateMCPEndpointSecurity_TwoEgressGateways_NoDeployment_OneNonCompliantFails(t *testing.T) {
+	// Same no-anchor situation, but one of the two candidates lacks mcp-authz. The probe
+	// must fail (not silently pick the compliant one) and name the offending gateway.
+	compliant := gatewayWithPolicyManifestAndRole(models.GatewayRoleBoth, "mcp-auth", "v1", "mcp-authz", "v1")
+	nonCompliant := gatewayWithPolicyManifestAndRole(models.GatewayRoleEgress, "mcp-auth", "v1")
+	gwRepo := gatewayFixtureRepo(t, testMCPEnvUUID, []*models.Gateway{compliant, nonCompliant})
+	svc := &MCPProxyService{gatewayRepo: gwRepo}
+	endpoints := []models.MCPProxyEndpointDTO{
+		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
+	}
+
+	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil)
+	assert.ErrorIs(t, err, utils.ErrInvalidInput)
+	assert.Contains(t, err.Error(), nonCompliant.Name)
 }

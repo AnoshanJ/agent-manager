@@ -188,6 +188,7 @@ func TestExecuteMonitorRunStaysWithinSchedulerGrantedActions(t *testing.T) {
 		llmMappingRepo,
 		&repomocks.GatewayRepositoryMock{},
 		&repomocks.LLMProviderRepositoryMock{},
+		&repomocks.DeploymentRepositoryMock{},
 		config.GatewayRuntimeConfig{},
 	)
 

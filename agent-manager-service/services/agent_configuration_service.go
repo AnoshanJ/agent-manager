@@ -1340,12 +1340,12 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 				"environment", envName, "mcpProxyUUID", sourceProxy.UUID)
 		}
 		if configured && sharedArtifactUUID != uuid.Nil {
-			gw, gwErr := s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
-			if gwErr != nil && !errors.Is(gwErr, errNoActiveGatewayForEnvironment) {
+			gw, gwErr := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envUUID)
+			if gwErr != nil && !errors.Is(gwErr, errNoGatewayForEnvironment) {
 				s.cleanupMCPConfig(ctx, config.UUID, ouID)
 				return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)
 			}
-			gateway = gw // nil when the environment has no active gateway
+			gateway = gw // nil when no gateway is mapped to the environment
 		}
 		if gateway == nil {
 			if err := s.provisionUnconfiguredMCPEnv(ctx, config, envUUID, envName, ouID, projectName, agentID,
@@ -2286,8 +2286,8 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 				"environment", envName, "mcpProxyUUID", sourceProxy.UUID)
 		}
 		if configured && sharedArtifactUUID != uuid.Nil {
-			_, gwErr := s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
-			if gwErr != nil && !errors.Is(gwErr, errNoActiveGatewayForEnvironment) {
+			_, gwErr := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envUUID)
+			if gwErr != nil && !errors.Is(gwErr, errNoGatewayForEnvironment) {
 				return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)
 			}
 			deployable = gwErr == nil
@@ -3950,139 +3950,49 @@ func (s *agentConfigurationService) deleteMCPConfigForAgentDeletion(ctx context.
 
 // Helper methods
 
-// resolveGatewayForProvider looks up the gateway where the given LLM provider is deployed.
-// This ensures the proxy is deployed to the same gateway as its provider.
-// Falls back to resolveGatewayForEnvironment if the provider has no active deployments.
-func (s *agentConfigurationService) resolveGatewayForProvider(ctx context.Context, providerUUIDStr string, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
-	providerUUID, err := uuid.Parse(providerUUIDStr)
-	if err != nil {
-		s.logger.Warn("Invalid provider UUID, falling back to environment resolution",
-			"providerUUID", providerUUIDStr, "error", err)
-		return s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
-	}
-
-	gatewayIDs, err := s.llmProxyDeploymentService.GetDeployedGatewaysByProvider(providerUUID, ouID)
-	if err == nil && len(gatewayIDs) > 0 {
-		envIDStr := envUUID.String()
-		// Prefer a gateway that is mapped to the target environment
-		for _, gwID := range gatewayIDs {
-			exists, mapErr := s.gatewayRepo.EnvironmentMappingExists(gwID, envIDStr)
-			if mapErr != nil || !exists {
-				continue
-			}
-			gw, gwErr := s.gatewayRepo.GetByUUID(gwID)
-			if gwErr == nil && gw != nil {
-				return gw, nil
-			}
-		}
-		// No environment-matched gateway; try first as fallback
-		gw, gwErr := s.gatewayRepo.GetByUUID(gatewayIDs[0])
-		if gwErr == nil && gw != nil {
-			return gw, nil
-		}
-		s.logger.Warn("Gateway not found for provider deployment, falling back to environment resolution",
-			"providerUUID", providerUUID, "gatewayUUID", gatewayIDs[0], "error", gwErr)
-	}
-
-	return s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
-}
-
-// resolveGatewayForProxy looks up the gateway that a proxy is actually deployed to.
-// This avoids the bug where resolveGatewayForEnvironment picks the wrong gateway
-// when multiple AI gateways are mapped to the same environment.
-// Falls back to resolveGatewayForEnvironment if no active deployment is found.
-func (s *agentConfigurationService) resolveGatewayForProxy(ctx context.Context, proxyHandle, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
-	deployedStatus := string(models.DeploymentStatusDeployed)
-	deployments, err := s.llmProxyDeploymentService.GetLLMProxyDeployments(proxyHandle, ouID, nil, &deployedStatus)
-	if err == nil && len(deployments) > 0 {
-		envIDStr := envUUID.String()
-		// Find the deployment whose gateway is mapped to the target environment
-		for _, dep := range deployments {
-			gwUUID := dep.GatewayUUID.String()
-			exists, mapErr := s.gatewayRepo.EnvironmentMappingExists(gwUUID, envIDStr)
-			if mapErr != nil || !exists {
-				continue
-			}
-			gw, gwErr := s.gatewayRepo.GetByUUID(gwUUID)
-			if gwErr == nil && gw != nil {
-				return gw, nil
-			}
-		}
-		// No environment-matched deployment found; try first deployment as fallback
-		gw, gwErr := s.gatewayRepo.GetByUUID(deployments[0].GatewayUUID.String())
-		if gwErr == nil && gw != nil {
-			return gw, nil
-		}
-		s.logger.Warn("Gateway not found for proxy deployment, falling back to environment resolution",
-			"proxyHandle", proxyHandle, "gatewayUUID", deployments[0].GatewayUUID, "error", gwErr)
-	}
-
-	return s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
-}
-
-func (s *agentConfigurationService) resolveGatewayForMCPArtifact(ctx context.Context, artifactUUID uuid.UUID, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
+// resolveGatewayForProvider returns the gateway hosting this LLM provider in the given
+// environment, or the environment's single egress gateway when it has no deployment there.
+func (s *agentConfigurationService) resolveGatewayForProvider(
+	ctx context.Context, providerUUIDStr, ouID string, envUUID uuid.UUID,
+) (*models.Gateway, error) {
 	_ = ctx
-	if s.mcpProxyService != nil && s.mcpProxyService.deploymentRepo != nil {
-		gatewayIDs, err := s.mcpProxyService.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, ouID)
-		if err == nil && len(gatewayIDs) > 0 {
-			envIDStr := envUUID.String()
-			for _, gwID := range gatewayIDs {
-				exists, mapErr := s.gatewayRepo.EnvironmentMappingExists(gwID, envIDStr)
-				if mapErr != nil || !exists {
-					continue
-				}
-				gw, gwErr := s.gatewayRepo.GetByUUID(gwID)
-				if gwErr == nil && gw != nil {
-					return gw, nil
-				}
-			}
-			gw, gwErr := s.gatewayRepo.GetByUUID(gatewayIDs[0])
-			if gwErr == nil && gw != nil {
-				return gw, nil
-			}
+	var deployed []string
+	if providerUUID, err := uuid.Parse(providerUUIDStr); err == nil {
+		if ids, gwErr := s.llmProxyDeploymentService.GetDeployedGatewaysByProvider(providerUUID, ouID); gwErr == nil {
+			deployed = ids
 		}
 	}
-	return s.resolveGatewayForEnvironment(ctx, envUUID, ouID)
+	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }
 
-// errNoActiveGatewayForEnvironment is returned by resolveGatewayForEnvironment when the
-// environment has no active gateway. MCP config creation/update treats this like an
-// environment the proxy is not configured for: no deployment, empty env vars.
-var errNoActiveGatewayForEnvironment = errors.New("no active gateway found for environment")
-
-// resolveGatewayForEnvironment selects gateway with AI-first preference
-func (s *agentConfigurationService) resolveGatewayForEnvironment(ctx context.Context, envUUID uuid.UUID, ouID string) (*models.Gateway, error) {
-	envIDStr := envUUID.String()
-	aiType := "ai"
-	activeStatus := true
-
-	// Try AI gateway first
-	gateways, err := s.gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
-		OrganizationID:    ouID,
-		FunctionalityType: &aiType,
-		Status:            &activeStatus,
-		EnvironmentID:     &envIDStr,
-		Limit:             1,
-	})
-	if err == nil && len(gateways) > 0 {
-		return gateways[0], nil
+// resolveGatewayForProxy returns the gateway the LLM proxy is actually deployed to.
+func (s *agentConfigurationService) resolveGatewayForProxy(
+	ctx context.Context, proxyHandle, ouID string, envUUID uuid.UUID,
+) (*models.Gateway, error) {
+	_ = ctx
+	deployedStatus := string(models.DeploymentStatusDeployed)
+	var deployed []string
+	if deployments, err := s.llmProxyDeploymentService.GetLLMProxyDeployments(proxyHandle, ouID, nil, &deployedStatus); err == nil {
+		for _, dep := range deployments {
+			deployed = append(deployed, dep.GatewayUUID.String())
+		}
 	}
+	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
+}
 
-	// Fallback to any active gateway
-	gateways, err = s.gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
-		OrganizationID: ouID,
-		Status:         &activeStatus,
-		EnvironmentID:  &envIDStr,
-		Limit:          1,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to find gateway: %w", err)
+// resolveGatewayForMCPArtifact returns the gateway the MCP proxy's shared per-environment
+// artifact is deployed to.
+func (s *agentConfigurationService) resolveGatewayForMCPArtifact(
+	ctx context.Context, artifactUUID uuid.UUID, ouID string, envUUID uuid.UUID,
+) (*models.Gateway, error) {
+	_ = ctx
+	var deployed []string
+	if s.mcpProxyService != nil && s.mcpProxyService.deploymentRepo != nil {
+		if ids, err := s.mcpProxyService.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, ouID); err == nil {
+			deployed = ids
+		}
 	}
-	if len(gateways) == 0 {
-		return nil, errNoActiveGatewayForEnvironment
-	}
-
-	return gateways[0], nil
+	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }
 
 // buildLLMProxyConfig constructs proxy configuration from request.
@@ -5167,7 +5077,7 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 			if sharedArtifactUUID != uuid.Nil {
 				gateway, gwErr = s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, config.OUID, mapping.EnvironmentUUID)
 			} else {
-				gwErr = errNoActiveGatewayForEnvironment
+				gwErr = errNoGatewayForEnvironment
 			}
 			if creds, ok := envCredentials[envUUID]; ok {
 				proxyInfo.URL = &creds.proxyURL

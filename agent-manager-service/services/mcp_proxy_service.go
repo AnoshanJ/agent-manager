@@ -162,7 +162,7 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 	if err := validateMCPProxyDeploymentHandleLengths(handle, req.Endpoints); err != nil {
 		return nil, err
 	}
-	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints); err != nil {
+	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints, nil); err != nil {
 		return nil, err
 	}
 	endpoints, err := s.buildMCPEndpointsForStorage(req.Endpoints, nil)
@@ -403,7 +403,17 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 	if err := validateMCPProxyDeploymentHandleLengths(handle, req.Endpoints); err != nil {
 		return nil, err
 	}
-	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints); err != nil {
+	// Load the proxy's current (environment -> artifact) mapping so the identity-security
+	// probe can anchor each environment on its existing deployment instead of re-selecting
+	// from the environment — mirrors indexExistingMCPEndpoints below, done here (outside
+	// the transaction) because the probe itself performs DB reads. A lookup failure is
+	// tolerated; GetByHandleForUpdate inside the transaction is the authoritative
+	// existence check.
+	var existingArtifactByEnv map[string]uuid.UUID
+	if existingProxy, err := s.repo.GetByHandle(ctx, handle, orgUUID); err == nil && existingProxy != nil {
+		existingArtifactByEnv = indexExistingMCPEndpoints(existingProxy.Endpoints).artifactByEnv
+	}
+	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints, existingArtifactByEnv); err != nil {
 		return nil, err
 	}
 
@@ -1162,7 +1172,16 @@ func validateMCPEndpoints(ctx context.Context, endpoints []models.MCPProxyEndpoi
 // identity-mode endpoint's target environments must each have a gateway advertising
 // mcp-auth v1 + mcp-authz v1 in its policy manifest. It performs DB reads, so call
 // it outside a transaction.
-func (s *MCPProxyService) validateMCPEndpointSecurity(ctx context.Context, orgName string, endpoints []models.MCPProxyEndpointDTO) error {
+//
+// existingArtifactByEnv is the proxy's current (environment UUID -> artifact UUID)
+// mapping on update (nil on create, from indexExistingMCPEndpoints/GetByHandle — see
+// callers). When an environment already has a deployed artifact, the probe anchors on
+// that artifact's actual gateway — mirroring deployMCPProxyEndpoints — instead of
+// re-selecting from the environment, so a second egress gateway never breaks validation
+// for a binding that already works.
+func (s *MCPProxyService) validateMCPEndpointSecurity(
+	ctx context.Context, orgName string, endpoints []models.MCPProxyEndpointDTO, existingArtifactByEnv map[string]uuid.UUID,
+) error {
 	for _, endpoint := range endpoints {
 		handle := strings.TrimSpace(endpoint.ID)
 		if endpoint.Security == nil || !isBoolTrue(endpoint.Security.Enabled) ||
@@ -1170,23 +1189,80 @@ func (s *MCPProxyService) validateMCPEndpointSecurity(ctx context.Context, orgNa
 			continue
 		}
 		for _, env := range endpoint.Environments {
-			envUUID, err := uuid.Parse(strings.TrimSpace(env.EnvironmentUUID))
+			envIDStr := strings.TrimSpace(env.EnvironmentUUID)
+			envUUID, err := uuid.Parse(envIDStr)
 			if err != nil {
 				continue // already rejected by validateMCPEndpoints
 			}
-			gateway, err := s.resolveGatewayForEnvironment(ctx, envUUID, orgName)
-			if errors.Is(err, errNoActiveGatewayForEnvironment) {
-				continue // no gateway yet: allowed, deploys later; policies checked when one exists
+
+			var candidates []*models.Gateway
+			if artifactUUID, ok := existingArtifactByEnv[envIDStr]; ok && artifactUUID != uuid.Nil {
+				var deployed []string
+				if s.deploymentRepo != nil {
+					if ids, depErr := s.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, orgName); depErr == nil {
+						deployed = ids
+					}
+				}
+				gateway, gwErr := resolveEgressGatewayForArtifact(s.gatewayRepo, orgName, envUUID, deployed, nil)
+				if errors.Is(gwErr, errNoGatewayForEnvironment) {
+					continue // no gateway yet: allowed, deploys later; policies checked when one exists
+				}
+				if gwErr != nil {
+					return fmt.Errorf("endpoint %q environment %q: resolve gateway: %w", handle, env.EnvironmentUUID, gwErr)
+				}
+				candidates = []*models.Gateway{gateway}
+			} else {
+				// No existing deployment to anchor on (create, or a genuinely new
+				// binding): this is a read-only policy probe, not a placement decision —
+				// actual placement is resolved at deploy time — so multiple egress-capable
+				// gateways are tolerated here rather than treated as ambiguous. Accept only
+				// if every candidate supports the required policies.
+				gws, gwErr := egressCandidatesForEnvironment(s.gatewayRepo, orgName, envUUID)
+				if errors.Is(gwErr, errNoGatewayForEnvironment) {
+					continue
+				}
+				if gwErr != nil {
+					return fmt.Errorf("endpoint %q environment %q: resolve gateway: %w", handle, env.EnvironmentUUID, gwErr)
+				}
+				candidates = gws
 			}
-			if err != nil {
-				return fmt.Errorf("endpoint %q environment %q: resolve gateway: %w", handle, env.EnvironmentUUID, err)
-			}
-			if !gatewayHasMCPIdentityPolicies(gateway) {
-				return fmt.Errorf("%w: endpoint %q environment %q: its gateway does not support mcp-auth/mcp-authz v1 policies required for Agent Identity security", utils.ErrInvalidInput, handle, env.EnvironmentUUID)
+
+			for _, gateway := range candidates {
+				if !gatewayHasMCPIdentityPolicies(gateway) {
+					return fmt.Errorf("%w: endpoint %q environment %q: gateway %q does not support mcp-auth/mcp-authz v1 policies required for Agent Identity security", utils.ErrInvalidInput, handle, env.EnvironmentUUID, gateway.Name)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// egressCandidatesForEnvironment returns every egress-capable gateway mapped to the
+// environment, never erroring on multiplicity (unlike resolveEgressGatewayForEnvironment)
+// — used only by the identity-security probe above, which checks policy support rather
+// than choosing a placement.
+func egressCandidatesForEnvironment(repo repositories.GatewayRepository, ouID string, envUUID uuid.UUID) ([]*models.Gateway, error) {
+	envIDStr := envUUID.String()
+	gateways, err := repo.ListWithFilters(repositories.GatewayFilterOptions{
+		OrganizationID: ouID,
+		EnvironmentID:  &envIDStr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list gateways for environment %s: %w", envIDStr, err)
+	}
+	if len(gateways) == 0 {
+		return nil, errNoGatewayForEnvironment
+	}
+	candidates := make([]*models.Gateway, 0, len(gateways))
+	for _, gw := range gateways {
+		if gw.IsEgressCapable() {
+			candidates = append(candidates, gw)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("%w (environment %s)", errNoEgressGatewayForEnvironment, envIDStr)
+	}
+	return candidates, nil
 }
 
 // gatewayHasMCPIdentityPolicies reports whether the gateway's policy manifest
