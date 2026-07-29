@@ -189,14 +189,9 @@ agentManagerService:
 
     # Key Manager configuration
     #
-    # Thunder (v0.45+) stamps the resource-server identifier named in the
-    # authorize request's RFC 8707 `resource` parameter as the token audience.
-    # Console and CLI logins carry no `resource`, so they resolve to the "amp"
-    # resource server and arrive with aud=amp. MCP logins (am-mcp) DO send
-    # `resource`, and get this service's serverPublicURL WITH a trailing slash
-    # as their audience — the chart appends that entry automatically, so
-    # overriding serverPublicURL below is enough and this list only needs the
-    # client IDs.
+    # Token audiences accepted by this service. Console/CLI logins arrive with
+    # aud=amp; MCP logins arrive with serverPublicURL plus a trailing slash,
+    # which the chart appends automatically — list only client IDs here.
     keyManager:
       issuer: "http://thunder.amp.localhost:8080"
       audience: "amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
@@ -210,14 +205,10 @@ agentManagerService:
     # this up on its own.
     serverPublicURL: "http://api.amp.localhost:8080"
 
-    # Comma-separated list of OAuth 2.0 authorization server URLs advertised
-    # in RFC 9728 protected resource metadata. Each entry must be an absolute
-    # http/https URL. Validated at startup. Required for the well-known
-    # endpoint to serve. Left empty on purpose: it defaults to
-    # keyManager.issuer above, which is the same authorization server — startup
-    # validation only checks the URLs are well-formed, so a stale value here
-    # would silently advertise the wrong issuer. Set it only when the advertised
-    # URL must differ from the one tokens are validated against.
+    # Comma-separated absolute http/https URLs advertised in RFC 9728 protected
+    # resource metadata. Empty by design: falls back to keyManager.issuer above.
+    # Startup validation only checks the URLs are well-formed, so a stale value
+    # here silently advertises the wrong issuer. Set only if it must differ.
     oauthAuthorizationServers: ""
 
     # Domain suffix env-Thunder developer-facing hostnames are built from:

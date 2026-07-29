@@ -114,11 +114,9 @@ app.kubernetes.io/component: agent-manager-service
 {{- end }}
 
 {{/*
-Accepted token audiences. serverPublicURL — with the trailing slash Thunder
-stamps on RFC 8707 resource identifiers — is appended so tokens minted for this
-service's own MCP client stay valid when serverPublicURL is overridden, without
-the operator having to restate the whole audience list. nospace keeps a spaced-out
-list from defeating the uniq.
+Accepted token audiences: keyManager.audience plus serverPublicURL with the
+trailing slash Thunder stamps on RFC 8707 resource identifiers. nospace keeps a
+spaced-out list from defeating the uniq. See values.yaml for why it is derived.
 */}}
 {{- define "agent-management-platform.agentManagerService.audience" -}}
 {{- $audiences := .Values.agentManagerService.config.keyManager.audience | nospace | splitList "," | compact -}}

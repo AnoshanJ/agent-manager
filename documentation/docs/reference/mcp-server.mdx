@@ -72,7 +72,7 @@ The docker-compose dev stack publishes `agent-manager-service` straight onto a h
 http://localhost:9000/mcp
 ```
 
-Both origins are registered as resource servers by the Thunder bootstrap, so either works out of the box. If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value — and see the warning below.
+Each install registers only the origins it actually serves: `make setup` registers both (the gateway origin and the dev host port), while a Quick Start or k3d install registers the gateway origin alone. If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value — and see the warning below.
 
 :::warning Moving the public URL is a two-place change
 
@@ -85,6 +85,11 @@ the public URL therefore means changing two settings together, in two charts:
 | -------------------------------------------- | ---------------------------- | ------------------- |
 | `agentManagerService.config.serverPublicURL` | `wso2-agent-manager`         | the public base URL |
 | `thunder.bootstrap.agentManagerMcpBaseUrl`   | `wso2-amp-thunder-extension` | the same base URL   |
+
+On docker-compose there is no chart to derive anything, so all three move together
+by hand in `deployments/docker-compose.yml`: `SERVER_PUBLIC_URL`, the matching
+`KEY_MANAGER_AUDIENCE` entry (the same URL **plus a trailing slash**), and the
+identifier registered in Thunder.
 
 Leaving `agentManagerMcpBaseUrl` behind makes the browser redirect fail with
 `invalid_target: The resource parameter does not match any registered resource

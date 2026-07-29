@@ -51,19 +51,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Authorization servers advertised in RFC 9728 metadata; see values.yaml for why
-this falls back to the token issuer.
-*/}}
-{{- define "amp-observability-extension.authorizationServers" -}}
-{{- .Values.amObserver.oauth.authorizationServers | default .Values.amObserver.auth.issuer -}}
-{{- end }}
-
-{{/*
-Accepted token audiences. publicUrl — with the trailing slash Thunder stamps on
-RFC 8707 resource identifiers — is appended so tokens minted for this service's
-own MCP client stay valid when publicUrl is overridden, without the operator
-having to restate the whole audience list. nospace keeps a spaced-out list from
-defeating the uniq.
+Accepted token audiences: auth.audience plus publicUrl with the trailing slash
+Thunder stamps on RFC 8707 resource identifiers. nospace keeps a spaced-out list
+from defeating the uniq. See values.yaml for why it is derived.
 */}}
 {{- define "amp-observability-extension.audience" -}}
 {{- $audiences := .Values.amObserver.auth.audience | nospace | splitList "," | compact -}}

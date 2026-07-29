@@ -30,13 +30,13 @@ vm_host() {
 # scheme. The agent host is only reachable over TLS via Caddy's wildcard site, so
 # without this the console emits http:// and the browser blocks it as mixed content.
 #
-# keyManager.audience is restated even though current charts derive its URL entry
-# (serverPublicURL plus a trailing slash, which is an MCP token's aud): this
+# VERSION SKEW: current charts derive the advertised authorization server from
+# the issuer, and append publicURL plus a trailing slash to the audience. This
 # installer targets whatever published AMP_VERSION the caller asks for, including
-# releases predating that derivation, where the default pins the k3d hostname
-# that serverPublicURL above has just moved. Same reason as
-# observability_helm_args below. Commas stay escaped or helm's --set splits the
-# value into a list.
+# releases predating that derivation, where the defaults pin the k3d hostnames
+# these functions have just moved. So both this function and
+# observability_helm_args below restate the derived values explicitly. Commas
+# stay escaped or helm's --set splits the value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -135,15 +135,9 @@ build_gateway_helm_args() {
 # observability_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER and
 # AMP_HOST_OBSERVER.
 #
-# oauth.authorizationServers and auth.audience are restated even though current
-# charts derive both (authorizationServers falls back to auth.issuer, and
-# publicUrl plus a trailing slash is appended to the audience automatically):
-# this installer targets whatever published AMP_VERSION the caller asks for,
-# including releases predating that derivation, where the chart defaults pin the
-# k3d hostnames. An observer MCP token carries the RFC 8707 resource identifier (publicUrl
-# plus a trailing slash) as its `aud`, hence the last entry; console and amctl
-# tokens arrive with aud amp or amp-api-client, hence the first three. Commas are
-# escaped because helm's --set otherwise splits the value into a list.
+# authorizationServers/audience are restated for the version-skew reason noted
+# above amp_helm_args. The last audience entry is the observer MCP token's `aud`
+# (publicUrl plus a trailing slash); the first three cover console/amctl tokens.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \

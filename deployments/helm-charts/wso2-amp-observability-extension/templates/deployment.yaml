@@ -78,7 +78,7 @@ spec:
             - name: SERVER_PUBLIC_URL
               value: "{{ .Values.amObserver.publicUrl }}"
             - name: OAUTH_AUTHORIZATION_SERVERS
-              value: "{{ include "amp-observability-extension.authorizationServers" . }}"
+              value: "{{ .Values.amObserver.oauth.authorizationServers | default .Values.amObserver.auth.issuer }}"
             - name: OAUTH_SCOPES_SUPPORTED
               value: "{{ .Values.amObserver.oauth.scopesSupported }}"
           resources:

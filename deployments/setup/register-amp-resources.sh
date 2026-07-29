@@ -1,9 +1,13 @@
 #!/bin/bash
 # Registers the Agent Manager (amp) resource server with its full permission
-# tree in Thunder, plus the two MCP resource servers (RFC 8707 resource
-# indicators) with the permission slices their MCP clients are allowed —
-# mirroring the helm bootstrap (60-amp-resource-server.sh).
+# tree in Thunder, plus the MCP resource servers (RFC 8707 resource indicators)
+# with the permission slices their MCP clients are allowed.
 # Runs against the external Thunder endpoint using amp-system-client credentials.
+#
+# This mirrors the helm bootstrap's 60-amp-resource-server.sh
+# (wso2-amp-thunder-extension/templates/amp-thunder-bootstrap.yaml), which is
+# authoritative — nothing invokes this script automatically, so a change to the
+# identifiers or the permission tree has to land in both.
 #
 # Usage:
 #   ./register-amp-resources.sh
