@@ -196,3 +196,74 @@ func TestResolveEgressGatewayForArtifact(t *testing.T) {
 		require.ErrorIs(t, err, errPlacementFixed)
 	})
 }
+
+// gatewayRepoWithEnvMappings extends gatewayFixtureRepo with
+// GetEnvironmentMappingsByGatewayIDFunc, keyed by gateway UUID string.
+func gatewayRepoWithEnvMappings(
+	t *testing.T, gateways []*models.Gateway, envMappings map[string][]uuid.UUID,
+) *repomocks.GatewayRepositoryMock {
+	t.Helper()
+	repo := gatewayFixtureRepo(t, "", gateways)
+	repo.GetEnvironmentMappingsByGatewayIDFunc = func(gatewayID string) ([]models.GatewayEnvironmentMapping, error) {
+		envs := envMappings[gatewayID]
+		out := make([]models.GatewayEnvironmentMapping, 0, len(envs))
+		for _, envUUID := range envs {
+			out = append(out, models.GatewayEnvironmentMapping{
+				GatewayUUID:     uuid.MustParse(gatewayID),
+				EnvironmentUUID: envUUID,
+			})
+		}
+		return out, nil
+	}
+	return repo
+}
+
+func TestValidateEgressPlacement(t *testing.T) {
+	envA := uuid.New()
+	envB := uuid.New()
+
+	t.Run("ingress-only gateway is rejected regardless of existing deployments", func(t *testing.T) {
+		ingress := newGateway(t, models.GatewayRoleIngress, true)
+		repo := gatewayRepoWithEnvMappings(t, []*models.Gateway{ingress}, nil)
+		err := validateEgressPlacement(repo, ingress, nil)
+		require.ErrorIs(t, err, errInvalidEgressGateway)
+	})
+
+	t.Run("no existing deployments short-circuits without consulting env mappings", func(t *testing.T) {
+		egress := newGateway(t, models.GatewayRoleEgress, true)
+		repo := gatewayRepoWithEnvMappings(t, []*models.Gateway{egress}, nil)
+		err := validateEgressPlacement(repo, egress, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("idempotent redeploy to the same gateway passes", func(t *testing.T) {
+		egress := newGateway(t, models.GatewayRoleEgress, true)
+		repo := gatewayRepoWithEnvMappings(t, []*models.Gateway{egress}, map[string][]uuid.UUID{
+			egress.UUID.String(): {envA},
+		})
+		err := validateEgressPlacement(repo, egress, []string{egress.UUID.String()})
+		require.NoError(t, err)
+	})
+
+	t.Run("same-environment clash with a different gateway is placement-fixed", func(t *testing.T) {
+		target := newGateway(t, models.GatewayRoleEgress, true)
+		existing := newGateway(t, models.GatewayRoleEgress, true)
+		repo := gatewayRepoWithEnvMappings(t, []*models.Gateway{target, existing}, map[string][]uuid.UUID{
+			target.UUID.String():   {envA},
+			existing.UUID.String(): {envA},
+		})
+		err := validateEgressPlacement(repo, target, []string{existing.UUID.String()})
+		require.ErrorIs(t, err, errPlacementFixed)
+	})
+
+	t.Run("disjoint-environment second deployment passes", func(t *testing.T) {
+		target := newGateway(t, models.GatewayRoleEgress, true)
+		existing := newGateway(t, models.GatewayRoleEgress, true)
+		repo := gatewayRepoWithEnvMappings(t, []*models.Gateway{target, existing}, map[string][]uuid.UUID{
+			target.UUID.String():   {envB},
+			existing.UUID.String(): {envA},
+		})
+		err := validateEgressPlacement(repo, target, []string{existing.UUID.String()})
+		require.NoError(t, err)
+	})
+}

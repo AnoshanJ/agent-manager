@@ -143,6 +143,49 @@ func resolveEgressGatewayForArtifact(
 	return resolveEgressGatewayForEnvironment(repo, ouID, envUUID, requested)
 }
 
+// validateEgressPlacement checks that the named gateway may host this artifact: it must
+// be egress-capable, and it must not share an environment with an existing deployment of
+// the same artifact (one gateway per (artifact, environment)).
+//
+// No environment is present in these requests, so the cap is enforced by resolving the
+// target gateway's environments through gateway_environment_mappings and rejecting a
+// gateway that shares one with an existing deployment.
+func validateEgressPlacement(
+	repo repositories.GatewayRepository, gateway *models.Gateway, existingDeployments []string,
+) error {
+	if !gateway.IsEgressCapable() {
+		return fmt.Errorf("%w: gateway %s (%s) is designated for ingress only",
+			errInvalidEgressGateway, gateway.Name, gateway.UUID)
+	}
+	if len(existingDeployments) == 0 {
+		return nil
+	}
+	targetEnvs, err := repo.GetEnvironmentMappingsByGatewayID(gateway.UUID.String())
+	if err != nil {
+		return fmt.Errorf("failed to list environments for gateway %s: %w", gateway.UUID, err)
+	}
+	targetEnvSet := make(map[string]struct{}, len(targetEnvs))
+	for _, m := range targetEnvs {
+		targetEnvSet[m.EnvironmentUUID.String()] = struct{}{}
+	}
+	for _, existingID := range existingDeployments {
+		if existingID == gateway.UUID.String() {
+			continue // already deployed here: idempotent
+		}
+		existingEnvs, err := repo.GetEnvironmentMappingsByGatewayID(existingID)
+		if err != nil {
+			return fmt.Errorf("failed to list environments for gateway %s: %w", existingID, err)
+		}
+		for _, m := range existingEnvs {
+			if _, clash := targetEnvSet[m.EnvironmentUUID.String()]; clash {
+				return fmt.Errorf("%w: already deployed to gateway %s in environment %s",
+					errPlacementFixed, existingID, m.EnvironmentUUID)
+			}
+		}
+	}
+	return nil
+}
+
 // describeGateways renders "name (uuid), name (uuid)" for error messages.
 func describeGateways(gateways []*models.Gateway) string {
 	parts := make([]string, 0, len(gateways))
