@@ -154,7 +154,12 @@ func (s *PlatformGatewayService) RegisterGateway(
 	properties map[string]interface{},
 ) (*GatewayResponse, error) {
 	// 1. Validate inputs
-	if err := s.validateGatewayInput(ouID, name, displayName, vhost, functionalityType); err != nil {
+	if err := s.validateGatewayInput(ouID, name, displayName, vhost); err != nil {
+		return nil, err
+	}
+
+	role, err := normalizeGatewayRole(functionalityType)
+	if err != nil {
 		return nil, err
 	}
 
@@ -190,7 +195,7 @@ func (s *PlatformGatewayService) RegisterGateway(
 		Properties:               properties,
 		Vhost:                    vhost,
 		IsCritical:               isCritical,
-		GatewayFunctionalityType: strings.ToLower(functionalityType),
+		GatewayFunctionalityType: role,
 		CreatedAt:                time.Now(),
 		UpdatedAt:                time.Now(),
 	}
@@ -983,7 +988,7 @@ func (s *PlatformGatewayService) DeleteGatewayEnvironmentMappings(gatewayID stri
 }
 
 // validateGatewayInput validates gateway registration inputs
-func (s *PlatformGatewayService) validateGatewayInput(ouID, name, displayName, vhost, functionalityType string) error {
+func (s *PlatformGatewayService) validateGatewayInput(ouID, name, displayName, vhost string) error {
 	// Organization ID validation
 	if strings.TrimSpace(ouID) == "" {
 		return errors.New("organization name is required")
@@ -1027,23 +1032,32 @@ func (s *PlatformGatewayService) validateGatewayInput(ouID, name, displayName, v
 		return errors.New("vhost is required")
 	}
 
-	// Gateway type validation
-	functionalityType = strings.TrimSpace(functionalityType)
-	if functionalityType == "" {
-		return errors.New("gateway functionality type is required")
-	}
-	// Normalize to lowercase for consistent validation and storage
-	normalized := strings.ToLower(functionalityType)
-	validTypes := map[string]bool{
-		"regular": true,
-		"ai":      true,
-		"event":   true,
-	}
-	if !validTypes[normalized] {
-		return fmt.Errorf("gateway type must be one of: Regular, AI, Event")
-	}
-
 	return nil
+}
+
+// normalizeGatewayRole maps wire input to the canonical stored role.
+//
+// REGULAR and AI are accepted as deprecated input-only aliases: the gateway bootstrap
+// job is the only thing that writes a role and it ships in a separately-versioned OCI
+// chart, so old-chart-against-new-AMS is a routine combination. Responses always emit
+// canonical values. REGULAR maps to "both" (not "ingress") because 100% of registrations
+// in existence send REGULAR, and an ingress-only environment has no legal LLM/MCP target.
+//
+// "event" is no longer accepted. It never worked: the CHECK constraint from migration 002
+// was IN ('regular','ai'), so an event gateway passed validation and then failed at INSERT.
+func normalizeGatewayRole(functionalityType string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(functionalityType)) {
+	case "":
+		return "", errors.New("gateway functionality type is required")
+	case models.GatewayRoleIngress:
+		return models.GatewayRoleIngress, nil
+	case models.GatewayRoleEgress, "ai":
+		return models.GatewayRoleEgress, nil
+	case models.GatewayRoleBoth, "regular":
+		return models.GatewayRoleBoth, nil
+	default:
+		return "", fmt.Errorf("%w: gateway type must be one of: INGRESS, EGRESS, BOTH", utils.ErrBadRequest)
+	}
 }
 
 // Token Generation and Hashing Utilities
