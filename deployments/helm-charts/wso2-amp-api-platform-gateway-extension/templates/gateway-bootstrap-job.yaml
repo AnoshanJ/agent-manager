@@ -274,6 +274,24 @@ spec:
 
               if [ -n "${GATEWAY_ID}" ]; then
                 log_info "Gateway '${GATEWAY_NAME}' already exists with ID: ${GATEWAY_ID}"
+                # Read-only drift check. The role is written only at registration and is
+                # immutable afterwards, so this never writes and cannot fail the hook.
+                # Under the ingress cap, PUTting the role on every upgrade could fail
+                # because a *different* release holds the environment's ingress slot —
+                # and as a pre-upgrade hook that would abort the whole release upgrade,
+                # including the runtime image bump that was the point of it.
+                REGISTERED_TYPE=$(echo "${LIST_RESPONSE}" | \
+                  grep -o '"name":"'"${GATEWAY_NAME}"'"[^}]*"gatewayType":"[^"]*"\|"gatewayType":"[^"]*"[^}]*"name":"'"${GATEWAY_NAME}"'"' | \
+                  grep -o '"gatewayType":"[^"]*"' | cut -d'"' -f4 | head -1)
+                WANTED_TYPE=$(echo "${GATEWAY_TYPE}" | tr '[:lower:]' '[:upper:]')
+                case "${WANTED_TYPE}" in
+                  REGULAR) WANTED_TYPE="BOTH" ;;
+                  AI)      WANTED_TYPE="EGRESS" ;;
+                esac
+                if [ -n "${REGISTERED_TYPE}" ] && [ "${REGISTERED_TYPE}" != "${WANTED_TYPE}" ]; then
+                  log_info "WARNING: gateway '${GATEWAY_NAME}' is registered as '${REGISTERED_TYPE}' but values.yaml requests '${WANTED_TYPE}'."
+                  log_info "         The role is immutable; values.yaml will stay wrong until the gateway is re-registered."
+                fi
               else
                 # ----------------------------------------------------------------
                 # Step 4: Find the environment by name

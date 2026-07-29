@@ -48,8 +48,12 @@ gateway:
   # is forwarded to this gateway's runtime service.
   # Defaults to "<environment>-<orgName>.gateway.localhost" if empty.
   hostname: ""
-  # Gateway type: REGULAR, AI, or EVENT (must match GatewayType enum in Agent Manager API)
-  type: "REGULAR"
+  # Gateway placement role: INGRESS, EGRESS, or BOTH (must match GatewayType enum in
+  # Agent Manager API). BOTH is correct for single topology, where the chart is installed
+  # once per environment; split topology sets this explicitly on both releases from
+  # add-environment.sh. Immutable after first registration — changing it later only logs
+  # a drift warning.
+  type: "BOTH"
   # Environment name in Agent Manager to associate this gateway with.
   # The bootstrap job looks up environments by this name.
   environment: "default"
