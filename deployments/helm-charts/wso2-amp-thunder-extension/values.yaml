@@ -523,7 +523,11 @@ thunder:
     # URL at the externally reachable origin of its MCP endpoint's service — the
     # same value as agent-manager's serverPublicURL and the observability
     # extension's amObserver.publicUrl. Defaults suit a k3d/local install.
-    agentManagerMcpBaseUrl: "http://localhost:9000"
+    # Not http://localhost:9000 — that is the docker-compose dev API, which
+    # reaches Thunder through the non-Helm path in
+    # deployments/setup/register-amp-resources.sh; a chart install always reaches
+    # the API through the control-plane gateway.
+    agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"

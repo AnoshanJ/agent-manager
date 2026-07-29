@@ -126,14 +126,15 @@ build_gateway_helm_args() {
 # observability_helm_args — hostname-driven core. Reads AMP_HOST_THUNDER and
 # AMP_HOST_OBSERVER.
 #
-# auth.audience is restated rather than left at the chart default because the
-# default's last entry is this service's own publicUrl, which publicUrl above
-# has just moved. An observer MCP token carries the RFC 8707 resource
-# identifier (publicUrl plus a trailing slash) as its `aud`, so leaving the
-# default in place means the observer rejects every token it mints for itself.
-# The first three entries mirror the chart and must stay: console and amctl
-# tokens arrive with aud amp or amp-api-client. Commas are escaped because
-# helm's --set otherwise splits the value into a list.
+# oauth.authorizationServers and auth.audience are restated even though current
+# charts derive both (authorizationServers falls back to auth.issuer, and
+# publicUrl plus a trailing slash is appended to the audience automatically):
+# this installer targets whatever published AMP_VERSION the caller asks for,
+# including releases predating that derivation, where the chart defaults pin the
+# k3d hostnames. An observer MCP token carries the RFC 8707 resource identifier (publicUrl
+# plus a trailing slash) as its `aud`, hence the last entry; console and amctl
+# tokens arrive with aud amp or amp-api-client, hence the first three. Commas are
+# escaped because helm's --set otherwise splits the value into a list.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \

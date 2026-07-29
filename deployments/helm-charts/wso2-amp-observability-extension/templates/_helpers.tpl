@@ -51,10 +51,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-OAuth 2.0 authorization servers advertised in RFC 9728 protected resource
-metadata. Defaults to the token issuer: both name the same Thunder deployment,
-and advertising a different URL than the one tokens are validated against sends
-MCP clients to an authorization server whose tokens this service then rejects.
+Authorization servers advertised in RFC 9728 metadata; see values.yaml for why
+this falls back to the token issuer.
 */}}
 {{- define "amp-observability-extension.authorizationServers" -}}
 {{- .Values.amObserver.oauth.authorizationServers | default .Values.amObserver.auth.issuer -}}
@@ -64,17 +62,15 @@ MCP clients to an authorization server whose tokens this service then rejects.
 Accepted token audiences. publicUrl — with the trailing slash Thunder stamps on
 RFC 8707 resource identifiers — is appended so tokens minted for this service's
 own MCP client stay valid when publicUrl is overridden, without the operator
-having to restate the whole audience list.
+having to restate the whole audience list. nospace keeps a spaced-out list from
+defeating the uniq.
 */}}
 {{- define "amp-observability-extension.audience" -}}
-{{- $audiences := .Values.amObserver.auth.audience | splitList "," | compact -}}
-{{- if .Values.amObserver.publicUrl -}}
-{{- $resource := printf "%s/" (trimSuffix "/" .Values.amObserver.publicUrl) -}}
-{{- if not (has $resource $audiences) -}}
-{{- $audiences = append $audiences $resource -}}
+{{- $audiences := .Values.amObserver.auth.audience | nospace | splitList "," | compact -}}
+{{- with .Values.amObserver.publicUrl -}}
+{{- $audiences = append $audiences (printf "%s/" (trimSuffix "/" .)) -}}
 {{- end -}}
-{{- end -}}
-{{- join "," $audiences -}}
+{{- join "," (uniq $audiences) -}}
 {{- end }}
 
 {{/*

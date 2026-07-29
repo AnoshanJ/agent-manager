@@ -143,6 +143,17 @@ jobs:
           echo "Successfully templated common scenarios"
         shell: bash
 
+      - name: Run chart render assertions
+        run: |
+          CHART_PATH="deployments/helm-charts/${{ matrix.chart }}"
+          # Charts that derive values from other values carry their own assertions.
+          if [ -f "$CHART_PATH/tests/render.sh" ]; then
+            bash "$CHART_PATH/tests/render.sh"
+          else
+            echo "No tests/render.sh for ${{ matrix.chart }}, skipping"
+          fi
+        shell: bash
+
   kubeconform:
     name: Kubeconform Validation
     needs: detect-changes

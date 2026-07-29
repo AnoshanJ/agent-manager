@@ -374,6 +374,8 @@ helm install amp-thunder-extension \
   --set thunder.configuration.gateClient.port=443 \
   --set "thunder.configuration.cors.allowedOrigins={${CONSOLE_PUBLIC_URL}}" \
   --set "thunder.bootstrap.ampConsoleClient.redirectUris={${CONSOLE_PUBLIC_URL}/login}" \
+  --set thunder.bootstrap.agentManagerMcpBaseUrl="${API_PUBLIC_URL}" \
+  --set thunder.bootstrap.observerMcpBaseUrl="${OBS_API_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
@@ -383,6 +385,8 @@ kubectl wait --for=condition=Available \
 
 :::warning
 Thunder persists its configuration (including the issuer URL and the console client's OAuth redirect URIs) in a database on first boot. If you need to change `THUNDER_PUBLIC_URL` or `CONSOLE_PUBLIC_URL` after installation, you must **uninstall the chart, delete its PVC, and reinstall** — a `helm upgrade` alone will not change the issuer in issued tokens or the registered redirect URIs. This is why the hostnames are fixed in [Plan Your Deployment](#plan-your-deployment) before anything installs.
+
+The same applies to the two MCP base URLs: they become the OAuth resource-server identifiers Thunder registers for the `/mcp` endpoints, and they are seeded by the pre-install bootstrap job only. Point them at the externally reachable origins of the API and observer — the same values as `agentManagerService.config.serverPublicURL` and `amObserver.publicUrl` in Phase 2 — because Thunder rejects an authorize request with `invalid_target` unless the `resource` an MCP client asks for matches a registered identifier exactly.
 :::
 
 :::tip Verify

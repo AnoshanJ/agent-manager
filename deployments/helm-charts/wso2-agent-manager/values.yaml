@@ -201,8 +201,12 @@ agentManagerService:
     # Comma-separated list of OAuth 2.0 authorization server URLs advertised
     # in RFC 9728 protected resource metadata. Each entry must be an absolute
     # http/https URL. Validated at startup. Required for the well-known
-    # endpoint to serve.
-    oauthAuthorizationServers: "http://thunder.amp.localhost:8080"
+    # endpoint to serve. Left empty on purpose: it defaults to
+    # keyManager.issuer above, which is the same authorization server — startup
+    # validation only checks the URLs are well-formed, so a stale value here
+    # would silently advertise the wrong issuer. Set it only when the advertised
+    # URL must differ from the one tokens are validated against.
+    oauthAuthorizationServers: ""
 
     # Domain suffix env-Thunder developer-facing hostnames are built from:
     # "<org>-<env>.thunder.<thunderHostBaseDomain>". Override on custom-domain /
