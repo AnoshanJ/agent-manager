@@ -33,9 +33,8 @@ func deploymentToolSpecs() []toolTestSpec {
 			descriptionKeywords: []string{"deployment"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
-			optionalParams:      []string{"org_name"},
+			optionalParams:      nil,
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 			},
@@ -60,10 +59,9 @@ func deploymentToolSpecs() []toolTestSpec {
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name", "image_id"},
 			optionalParams: []string{
-				"org_name", "enable_auto_instrumentation", "env",
+				"enable_auto_instrumentation", "env",
 			},
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 				"image_id":     "test-image:v1",
@@ -92,9 +90,8 @@ func deploymentToolSpecs() []toolTestSpec {
 			requiredParams: []string{
 				"project_name", "agent_name", "environment", "state",
 			},
-			optionalParams: []string{"org_name"},
+			optionalParams: nil,
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 				"environment":  testEnvName,

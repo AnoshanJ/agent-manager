@@ -10,14 +10,16 @@ A single OAuth client (`am-mcp`) is pre-registered in Thunder out of the box, so
 
 Each tool is authorized against the same `amp:*` scopes as its REST API equivalent — for example, `build_agent` requires `amp:agent:build`. See [Authorization](./authorization.mdx) for the full scope catalog, the predefined roles, and how the model applies across the Console, REST API, and MCP servers.
 
+The caller's organization is always derived from the OAuth token — no tool takes an organization name or handle as input, and every operation is scoped to the organization the caller authenticated against.
+
 ## Available Tools
 
-The MCP server provides **12 tools** organized into four toolsets covering the agent lifecycle — from creating a project through deploying an agent. Trace, log, and metrics tools live on a separate server; see [Observer MCP Server](./observer-mcp-server.mdx).
+The MCP server provides **13 tools** organized into five toolsets covering the agent lifecycle — from creating a project through deploying an agent. Trace, log, and metrics tools live on a separate server; see [Observer MCP Server](./observer-mcp-server.mdx).
 
 <details>
 <summary><strong>Project Toolset (3 tools)</strong></summary>
 
-- `list_projects` — List projects in an organization. Supports pagination via `limit` and `offset`.
+- `list_projects` — List projects in the caller's organization. Supports pagination via `limit` and `offset`.
 - `create_project` — Create a new project (the logical container for agents and related resources).
 - `list_project_agent_pairs` — Walk every project in the organization and return `(project, agent)` name pairs, with optional case-insensitive substring filters on project and agent names. Useful when an assistant needs to locate an agent without knowing which project it lives in.
 
@@ -27,7 +29,7 @@ The MCP server provides **12 tools** organized into four toolsets covering the a
 <summary><strong>Agent Toolset (3 tools)</strong></summary>
 
 - `list_agents` — List agents in a project. Each entry includes the provisioning type (`internal` or `external`) so the assistant can tell platform-hosted agents apart from externally-hosted ones.
-- `create_external_agent` — Register an externally-hosted agent. Returns the agent identity, a long-lived API token, and language-specific zero-code instrumentation instructions (Python or Ballerina) the assistant can hand back to the user.
+- `create_external_agent` — Register an externally-hosted agent. Returns the agent identity, a long-lived API token, and language-specific zero-code instrumentation instructions (Python or Ballerina) the assistant can hand back to the user. The token can be scoped to a specific environment via the optional `environment` parameter (defaults to the organization's default environment).
 - `create_internal_agent_python` — Create a platform-hosted Python agent from a GitHub repository. Accepts repo URL, branch, app path, Python version, run command, interface type (`DEFAULT` chat-on-`/chat:8000` or `CUSTOM` with port + OpenAPI), environment variables, and an optional auto-instrumentation toggle. Creating the agent automatically triggers its initial build.
 
 </details>
@@ -49,6 +51,13 @@ Internal agents only — external agents are never built by the platform.
 - `list_deployments` — An agent's deployments across all environments, keyed by environment name, with current state (`active`, `in-progress`, `failed`, `not-deployed`, or `suspended`) and image.
 - `deploy_agent` — Deploy a built image to the lowest environment in the deployment pipeline. Accepts runtime environment variables (plain values, sensitive flags, or references to existing secrets) and an `enable_auto_instrumentation` toggle.
 - `update_deployment_state` — Transition a deployment in a specific environment: `redeploy` (fresh rollout of the current deployment) or `undeploy` (remove the deployment from that environment).
+
+</details>
+
+<details>
+<summary><strong>Environment Toolset (1 tool)</strong></summary>
+
+- `list_environments` — Paginated list of the organization's environments, with name, display name, and a production flag. Use it to discover valid environment names for tools that take an `environment` parameter, such as `update_deployment_state` and `create_external_agent`.
 
 </details>
 

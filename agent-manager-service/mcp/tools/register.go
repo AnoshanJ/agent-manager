@@ -50,5 +50,8 @@ func (tools *Toolsets) register(server *gomcp.Server) *toolRegistry {
 	if tools.DeploymentToolset != nil {
 		tools.registerDeploymentTools(server, reg)
 	}
+	if tools.EnvironmentToolset != nil {
+		tools.registerEnvironmentTools(server, reg)
+	}
 	return reg
 }

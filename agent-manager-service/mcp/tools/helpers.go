@@ -41,16 +41,6 @@ func resolveOUID(ctx context.Context) string {
 	return ""
 }
 
-// helper function for resolving the environment of the agent
-const defaultEnvName = "default"
-
-func resolveEnv(value string) string {
-	if trimmed := strings.TrimSpace(value); trimmed != "" {
-		return trimmed
-	}
-	return defaultEnvName
-}
-
 // helper functions  that build JSON Schema snippets
 
 func createSchema(properties map[string]any, required []string) map[string]any {
@@ -108,7 +98,7 @@ func wrapToolError(toolName string, err error) error {
 	}
 	switch {
 	case errors.Is(err, utils.ErrOrganizationNotFound):
-		return fmt.Errorf("%s: invalid org name. Use a valid org name or omit it to use the default value", toolName)
+		return fmt.Errorf("%s: the organization on your token was not found. Re-authenticate and try again", toolName)
 	case errors.Is(err, utils.ErrProjectNotFound):
 		return fmt.Errorf("%s: invalid project name. Call list_projects to see valid projects", toolName)
 	case errors.Is(err, utils.ErrAgentNotFound):
@@ -133,7 +123,7 @@ func wrapToolError(toolName string, err error) error {
 		msg := strings.ToLower(err.Error())
 		switch {
 		case strings.Contains(msg, "namespace not found") || strings.Contains(msg, "organization not found"):
-			return fmt.Errorf("%s: invalid org name. Use a valid org name or omit it to use the default value", toolName)
+			return fmt.Errorf("%s: the organization on your token was not found. Re-authenticate and try again", toolName)
 		case strings.Contains(msg, "project not found"):
 			return fmt.Errorf("%s: invalid project name. Call list_projects to see valid projects", toolName)
 		case strings.Contains(msg, "agent not found") || strings.Contains(msg, "component not found"):

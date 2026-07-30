@@ -32,7 +32,6 @@ import (
 
 // input structs
 type listProjectAgentPairsInput struct {
-	OrgName       string `json:"org_name"`
 	ProjectSearch string `json:"project_search"`
 	AgentSearch   string `json:"agent_search"`
 	ProjectLimit  *int   `json:"project_limit"`
@@ -42,25 +41,23 @@ type listProjectAgentPairsInput struct {
 }
 
 type listAgentsInput struct {
-	OrgName     string `json:"org_name"`
 	ProjectName string `json:"project_name"`
 	Limit       *int   `json:"limit,omitempty"`
 	Offset      *int   `json:"offset,omitempty"`
 }
 type createExternalAgentInput struct {
-	OrgName     string  `json:"org_name"`
 	ProjectName string  `json:"project_name"`
 	AgentName   string  `json:"agent_name"`
 	DisplayName string  `json:"display_name"`
 	Description *string `json:"description"`
 	Language    string  `json:"language"`
+	Environment string  `json:"environment"`
 }
 type envVarInput struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 type createInternalAgentPythonInput struct {
-	OrgName     string  `json:"org_name"`
 	ProjectName string  `json:"project_name"`
 	AgentName   string  `json:"agent_name"`
 	DisplayName string  `json:"display_name"`
@@ -108,7 +105,6 @@ type listAgentItem struct {
 	Provisioning spec.Provisioning `json:"provisioning"`
 }
 type listAgentsOutput struct {
-	OrgName     string          `json:"org_name"`
 	Total       int32           `json:"total"`
 	ProjectName string          `json:"project_name"`
 	Agents      []listAgentItem `json:"agents"`
@@ -127,7 +123,6 @@ type tokenDetails struct {
 	ExpiresAt string `json:"expires_at"`
 }
 type createExternalAgentOutput struct {
-	OrgName                     string       `json:"org_name"`
 	ProjectName                 string       `json:"project_name"`
 	AgentName                   string       `json:"agent_name"`
 	Language                    string       `json:"language"`
@@ -142,7 +137,6 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 		Description: "List agents in a project. " +
 			"An agent is an AI application registered in Agent Manager. Provisioning indicates whether the platform hosts the agent internally or the agent runs externally.",
 		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
 			"project_name": stringProperty("Required. Project name to list agents from."),
 			"limit":        intProperty(fmt.Sprintf("Optional. Max agents to return (default %d, min %d, max %d).", utils.DefaultLimit, utils.MinLimit, utils.MaxLimit)),
 			"offset":       intProperty(fmt.Sprintf("Optional. Pagination offset (default %d, min %d).", utils.DefaultOffset, utils.MinOffset)),
@@ -152,10 +146,9 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 	if t.ProjectToolset != nil {
 		addTool(reg, server, &gomcp.Tool{
 			Name: "list_project_agent_pairs",
-			Description: "List project-agent name pairs within an organization, with optional project and agent name filters. " +
+			Description: "List project-agent name pairs within your organization (resolved from the caller's token), with optional project and agent name filters. " +
 				"Each pair shows the project and the registered agent inside that project.",
 			InputSchema: createSchema(map[string]any{
-				"org_name":       stringProperty("Optional. Organization name."),
 				"project_search": stringProperty("Optional. Filter project names by substring (case-insensitive)."),
 				"agent_search":   stringProperty("Optional. Filter agent names by substring (case-insensitive)."),
 				"project_limit":  intProperty("Optional. Project pagination limit (1-50)."),
@@ -170,12 +163,12 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 		Description: "Register an external agent in a project. " +
 			"Returns the agent identity, the API token, and step-by-step instrumentation instructions to follow in order to start sending observability data to the platform.",
 		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
 			"project_name": stringProperty("Required. Project name where the agent will be registered."),
 			"agent_name":   stringProperty("Required. Unique name for the agent."),
 			"display_name": stringProperty("Required. Human-readable display name for the agent."),
 			"description":  stringProperty("Optional. Short description about what the agent does."),
 			"language":     stringProperty("Required. Agent language for setup guide (python or ballerina)."),
+			"environment":  stringProperty("Optional. Environment the generated API token is scoped to. Defaults to the organization's default environment. Use list_environments to discover valid names."),
 		}, []string{"project_name", "agent_name", "display_name", "language"}),
 	}, createExternalAgent(t.AgentToolset), rbac.AgentCreate, rbac.AgentTokenManage)
 
@@ -186,7 +179,6 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 			"Creating the agent automatically starts its initial build.",
 
 		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
 			"project_name": stringProperty("Required. Project name where the agent will be created."),
 			"agent_name":   stringProperty("Required. Unique name for the agent."),
 			"display_name": stringProperty("Required. Human-readable display name for the agent."),
@@ -257,7 +249,6 @@ func listAgents(handler AgentToolsetHandler) func(context.Context, *gomcp.CallTo
 			})
 		}
 		response := listAgentsOutput{
-			OrgName:     ouID,
 			Total:       total,
 			ProjectName: input.ProjectName,
 			Agents:      formatted,
@@ -379,7 +370,8 @@ func createExternalAgent(handler AgentToolsetHandler) func(context.Context, *gom
 
 		// generate a token for the agent that allows instrumentation
 		expiresIn := "8760h"
-		tokenResp, err := handler.GenerateToken(ctx, ouID, input.ProjectName, agentName, "", expiresIn)
+		environment := strings.TrimSpace(input.Environment)
+		tokenResp, err := handler.GenerateToken(ctx, ouID, input.ProjectName, agentName, environment, expiresIn)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create_external_agent: agent %q was created but token generation failed: %w", agentName, err)
 		}
@@ -400,7 +392,6 @@ func createExternalAgent(handler AgentToolsetHandler) func(context.Context, *gom
 		}
 
 		response := createExternalAgentOutput{
-			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   agentName,
 			Language:    language,
@@ -482,7 +473,6 @@ func createInternalAgentPython(handler AgentToolsetHandler) func(context.Context
 		}
 
 		response := map[string]any{
-			"org_name":     ouID,
 			"project_name": input.ProjectName,
 			"agent_name":   agentName,
 			"display_name": input.DisplayName,

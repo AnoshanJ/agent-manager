@@ -33,9 +33,8 @@ func buildToolSpecs() []toolTestSpec {
 			descriptionKeywords: []string{"list", "build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
-			optionalParams:      []string{"org_name", "limit", "offset"},
+			optionalParams:      []string{"limit", "offset"},
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 			},
@@ -59,9 +58,8 @@ func buildToolSpecs() []toolTestSpec {
 			descriptionKeywords: []string{"build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name", "build_name"},
-			optionalParams:      []string{"org_name"},
+			optionalParams:      nil,
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 				"build_name":   testBuildName,
@@ -89,9 +87,8 @@ func buildToolSpecs() []toolTestSpec {
 			descriptionKeywords: []string{"build"},
 			descriptionMinLen:   20,
 			requiredParams:      []string{"project_name", "agent_name"},
-			optionalParams:      []string{"org_name", "commit_id"},
+			optionalParams:      []string{"commit_id"},
 			testArgs: map[string]any{
-				"org_name":     testOrgName,
 				"project_name": testProjectName,
 				"agent_name":   testAgentName,
 			},

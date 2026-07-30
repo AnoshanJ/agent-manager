@@ -30,7 +30,6 @@ import (
 
 // input structs
 type listDeploymentsInput struct {
-	OrgName     string `json:"org_name"`
 	ProjectName string `json:"project_name"`
 	AgentName   string `json:"agent_name"`
 }
@@ -41,7 +40,6 @@ type deployEnvVarInput struct {
 	SecretRef   *string `json:"secret_ref,omitempty"`
 }
 type deployAgentInput struct {
-	OrgName                   string              `json:"org_name"`
 	ProjectName               string              `json:"project_name"`
 	AgentName                 string              `json:"agent_name"`
 	ImageID                   string              `json:"image_id"`
@@ -49,7 +47,6 @@ type deployAgentInput struct {
 	EnableAutoInstrumentation *bool               `json:"enable_auto_instrumentation,omitempty"`
 }
 type updateDeploymentStateInput struct {
-	OrgName     string `json:"org_name"`
 	ProjectName string `json:"project_name"`
 	AgentName   string `json:"agent_name"`
 	Environment string `json:"environment"`
@@ -58,13 +55,11 @@ type updateDeploymentStateInput struct {
 
 // output structs
 type listDeploymentsOutput struct {
-	OrgName     string                                    `json:"org_name"`
 	ProjectName string                                    `json:"project_name"`
 	AgentName   string                                    `json:"agent_name"`
 	Deployments map[string]spec.DeploymentDetailsResponse `json:"deployments"`
 }
 type deployAgentOutput struct {
-	OrgName     string `json:"org_name"`
 	ProjectName string `json:"project_name"`
 	AgentName   string `json:"agent_name"`
 	Environment string `json:"environment"`
@@ -72,7 +67,6 @@ type deployAgentOutput struct {
 }
 type updateDeploymentStateOutput struct {
 	Message     string `json:"message"`
-	OrgName     string `json:"org_name"`
 	ProjectName string `json:"project_name"`
 	AgentName   string `json:"agent_name"`
 	Environment string `json:"environment"`
@@ -85,7 +79,6 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server, reg *toolRegist
 		Description: "List an agent's deployments across environments. " +
 			"A deployment is a released agent image running in a specific environment, and each deployment includes its current state such as active, in-progress, failed, not-deployed, or suspended.",
 		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
 			"project_name": stringProperty("Required. Project name where the agent exists."),
 			"agent_name":   stringProperty("Required. Name of the agent to check deployments for."),
 		}, []string{"project_name", "agent_name"}),
@@ -97,7 +90,6 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server, reg *toolRegist
 			"A deployment releases a built agent image to the lowest environment in the deployment pipeline. " +
 			"This tool accepts a specific image together with optional runtime environment variables and observability settings.",
 		InputSchema: createSchema(map[string]any{
-			"org_name":                    stringProperty("Optional. Organization name."),
 			"project_name":                stringProperty("Required. Project name where the agent exists."),
 			"agent_name":                  stringProperty("Required. Name of the agent to be deployed."),
 			"image_id":                    stringProperty("Required. Image identifier produced by a build."),
@@ -116,10 +108,9 @@ func (t *Toolsets) registerDeploymentTools(server *gomcp.Server, reg *toolRegist
 		Description: "Change the state of an agent deployment in a specific environment. " +
 			"`redeploy` requests a fresh rollout of the current deployment, and `undeploy` removes the deployment from that environment.",
 		InputSchema: createSchema(map[string]any{
-			"org_name":     stringProperty("Optional. Organization name."),
 			"project_name": stringProperty("Required. Project name where the agent is been registered."),
 			"agent_name":   stringProperty("Required. Name of the specific agent."),
-			"environment":  stringProperty("Required. Environment name."),
+			"environment":  stringProperty("Required. Environment name. Use list_environments to discover valid names."),
 			"state":        enumProperty("Required. Desired deployment action for the selected environment.", []string{"redeploy", "undeploy"}),
 		}, []string{"project_name", "agent_name", "environment", "state"}),
 	}, updateDeploymentState(t.DeploymentToolset), rbac.AgentSuspend)
@@ -142,7 +133,6 @@ func listDeployments(handler DeploymentToolsetHandler) func(context.Context, *go
 		}
 
 		response := listDeploymentsOutput{
-			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Deployments: utils.ConvertToDeploymentDetailsResponse(deployments),
@@ -188,7 +178,6 @@ func deployAgent(handler DeploymentToolsetHandler) func(context.Context, *gomcp.
 		}
 
 		response := deployAgentOutput{
-			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Environment: environment,
@@ -231,7 +220,6 @@ func updateDeploymentState(handler DeploymentToolsetHandler) func(context.Contex
 
 		response := updateDeploymentStateOutput{
 			Message:     fmt.Sprintf("Deployment state transition request accepted. %s'.", actionMessage),
-			OrgName:     ouID,
 			ProjectName: input.ProjectName,
 			AgentName:   input.AgentName,
 			Environment: input.Environment,

@@ -33,7 +33,7 @@ func callListProjects(t *testing.T, session *gomcp.ClientSession) *gomcp.CallToo
 	t.Helper()
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
 		Name:      "list_projects",
-		Arguments: map[string]any{"org_name": testOrgName},
+		Arguments: map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("CallTool failed: %v", err)
@@ -44,10 +44,11 @@ func callListProjects(t *testing.T, session *gomcp.ClientSession) *gomcp.CallToo
 func newFullToolsets() (*Toolsets, *MockToolsetHandler) {
 	mock := NewMockToolsetHandler()
 	return &Toolsets{
-		ProjectToolset:    mock,
-		AgentToolset:      mock,
-		BuildToolset:      mock,
-		DeploymentToolset: mock,
+		ProjectToolset:     mock,
+		AgentToolset:       mock,
+		BuildToolset:       mock,
+		DeploymentToolset:  mock,
+		EnvironmentToolset: mock,
 	}, mock
 }
 

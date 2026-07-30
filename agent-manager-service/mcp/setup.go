@@ -32,6 +32,7 @@ type Dependencies struct {
 	InfraResourceManager     services.InfraResourceManager
 	AgentManagerService      services.AgentManagerService
 	AgentTokenManagerService services.AgentTokenManagerService
+	EnvironmentService       services.EnvironmentService
 }
 
 // RegisterRoute builds the MCP HTTP handler, wraps it with the standard middleware chain,
@@ -39,10 +40,11 @@ type Dependencies struct {
 func RegisterRoute(mux *http.ServeMux, deps Dependencies, authMiddleware func(http.Handler) http.Handler,
 ) {
 	toolsets := &tools.Toolsets{
-		ProjectToolset:    handlers.NewProjectHandler(deps.InfraResourceManager),
-		AgentToolset:      handlers.NewAgentHandler(deps.AgentManagerService, deps.AgentTokenManagerService),
-		BuildToolset:      handlers.NewBuildHandler(deps.AgentManagerService),
-		DeploymentToolset: handlers.NewDeploymentHandler(deps.AgentManagerService),
+		ProjectToolset:     handlers.NewProjectHandler(deps.InfraResourceManager),
+		AgentToolset:       handlers.NewAgentHandler(deps.AgentManagerService, deps.AgentTokenManagerService),
+		BuildToolset:       handlers.NewBuildHandler(deps.AgentManagerService),
+		DeploymentToolset:  handlers.NewDeploymentHandler(deps.AgentManagerService),
+		EnvironmentToolset: handlers.NewEnvironmentHandler(deps.EnvironmentService),
 	}
 
 	handler := NewHTTPServer(toolsets)
