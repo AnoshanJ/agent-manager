@@ -1423,6 +1423,36 @@ func SanitizeString(s string) string {
 	}, strings.ToLower(s))
 }
 
+// riskyEvaluatorSourcePatterns are basic, easily-bypassed heuristics for catching unintentional
+// or low-effort misuse of custom evaluator source at request time. This is defense-in-depth/UX
+// only, not a security boundary: evaluator source still runs with full builtins access at
+// execution time (evaluation-job/main.py's _load_custom_code_evaluator / _eval_template).
+var riskyEvaluatorSourcePatterns = []struct {
+	label   string
+	pattern *regexp.Regexp
+}{
+	{"import os", regexp.MustCompile(`(?m)^\s*(?:import\s+os\b|from\s+os\b)`)},
+	{"import subprocess", regexp.MustCompile(`(?m)^\s*(?:import\s+subprocess\b|from\s+subprocess\b)`)},
+	{"import socket", regexp.MustCompile(`(?m)^\s*(?:import\s+socket\b|from\s+socket\b)`)},
+	{"import ctypes", regexp.MustCompile(`(?m)^\s*(?:import\s+ctypes\b|from\s+ctypes\b)`)},
+	{"import importlib", regexp.MustCompile(`(?m)^\s*(?:import\s+importlib\b|from\s+importlib\b)`)},
+	{"__import__() call", regexp.MustCompile(`__import__\s*\(`)},
+}
+
+func validateEvaluatorSourceContent(source string) error {
+	for _, p := range riskyEvaluatorSourcePatterns {
+		if p.pattern.MatchString(source) {
+			return fmt.Errorf(
+				"source contains a disallowed pattern (%s); "+
+					"custom evaluator source may not import or reference os, subprocess, socket, ctypes, or importlib, "+
+					"or use __import__()",
+				p.label,
+			)
+		}
+	}
+	return nil
+}
+
 func ValidateCreateCustomEvaluatorPayload(payload spec.CreateCustomEvaluatorRequest) error {
 	if strings.TrimSpace(payload.DisplayName) == "" {
 		return fmt.Errorf("display name is required")
@@ -1436,6 +1466,9 @@ func ValidateCreateCustomEvaluatorPayload(payload spec.CreateCustomEvaluatorRequ
 	if strings.TrimSpace(payload.Source) == "" {
 		return fmt.Errorf("source is required")
 	}
+	if err := validateEvaluatorSourceContent(payload.Source); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1443,8 +1476,13 @@ func ValidateUpdateCustomEvaluatorPayload(payload spec.UpdateCustomEvaluatorRequ
 	if payload.DisplayName != nil && strings.TrimSpace(*payload.DisplayName) == "" {
 		return fmt.Errorf("display name cannot be empty")
 	}
-	if payload.Source != nil && strings.TrimSpace(*payload.Source) == "" {
-		return fmt.Errorf("source cannot be empty")
+	if payload.Source != nil {
+		if strings.TrimSpace(*payload.Source) == "" {
+			return fmt.Errorf("source cannot be empty")
+		}
+		if err := validateEvaluatorSourceContent(*payload.Source); err != nil {
+			return err
+		}
 	}
 	return nil
 }
