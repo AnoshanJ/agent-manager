@@ -333,8 +333,8 @@ export function EnvironmentViewPage() {
                       onClick={() =>
                         navigate(
                           generatePath(
-                            absoluteRouteMap.children.org.children.thunderInstances.children.view
-                              .path,
+                            absoluteRouteMap.children.org.children.environments.children.view
+                              .children.identityProvider.path,
                             { orgId: orgId ?? "", envName: thunderInstance.envName },
                           ),
                         )

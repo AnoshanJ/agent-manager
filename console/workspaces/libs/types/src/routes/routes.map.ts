@@ -39,55 +39,6 @@ export const rootRouteMap: AppRoute = {
                     path: 'thunder-instances',
                     index: true,
                     children: {
-                        view: {
-                            path: 'view/:envName',
-                            index: true,
-                            children: {
-                                agents: {
-                                    path: 'agents',
-                                    index: true,
-                                    children: {
-                                        detail: {
-                                            path: ':projectName/:agentName',
-                                            index: true,
-                                            children: {},
-                                        },
-                                    },
-                                },
-                                groups: {
-                                    path: 'groups',
-                                    index: true,
-                                    children: {
-                                        create: {
-                                            path: 'create',
-                                            index: true,
-                                            children: {},
-                                        },
-                                        detail: {
-                                            path: ':groupId',
-                                            index: true,
-                                            children: {},
-                                        },
-                                    },
-                                },
-                                roles: {
-                                    path: 'roles',
-                                    index: true,
-                                    children: {
-                                        create: {
-                                            path: 'create',
-                                            index: true,
-                                            children: {},
-                                        },
-                                        detail: {
-                                            path: ':roleId',
-                                            index: true,
-                                            children: {},
-                                        },
-                                    },
-                                },
-                            },
-                        },
                         agents: {
                             path: 'agents',
                             index: true,
@@ -276,7 +227,13 @@ export const rootRouteMap: AppRoute = {
                         view: {
                             path: ':envName',
                             index: true,
-                            children: {},
+                            children: {
+                                identityProvider: {
+                                    path: 'identity-provider',
+                                    index: true,
+                                    children: {},
+                                },
+                            },
                         },
                     },
                 },

@@ -18,6 +18,7 @@
 import React, { useCallback } from "react";
 import {
   Alert,
+  Button,
   Card,
   Chip,
   Grid,
@@ -25,7 +26,7 @@ import {
   Stack,
   Tooltip,
 } from "@wso2/oxygen-ui";
-import { AlertTriangle, CheckCircle } from "@wso2/oxygen-ui-icons-react";
+import { AlertTriangle, CheckCircle, ExternalLink } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useParams } from "react-router-dom";
 import { useListThunderInstances } from "@agent-management-platform/api-client";
 import { absoluteRouteMap } from "@agent-management-platform/types";
@@ -53,21 +54,36 @@ export const ViewThunderInstance: React.FC = () => {
     [pushSnackBar],
   );
 
-  const displayName = instance?.displayName || instance?.envName || envName || "";
-
   const backHref = generatePath(
-    absoluteRouteMap.children.org.children.thunderInstances.path,
-    { orgId: orgId ?? "" },
+    absoluteRouteMap.children.org.children.environments.children.view.path,
+    { orgId: orgId ?? "", envName: envName ?? "" },
   );
+
+  const consoleUrl = instance ? `${instance.issuerUrl.replace(/\/$/, "")}/console` : undefined;
 
   return (
       <PageLayout
-        title={displayName}
+        title="Thunder Id"
         backHref={backHref}
-        backLabel="Back to Agent ID"
+        backLabel="Back to Environment"
         description={`The agent identity used to manage agents, users, roles, and groups for the ${envName} environment.`}
         disableIcon
         isLoading={isLoading}
+        actions={
+          consoleUrl ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<ExternalLink size={16} />}
+              component="a"
+              href={consoleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Visit Thunder Console
+            </Button>
+          ) : undefined
+        }
         titleTail={
           instance && !error ? (
             <Tooltip title="Thunder identity provider is active for this environment">

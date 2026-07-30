@@ -42,7 +42,7 @@ import {
 import {
   AlertTriangle,
   Folder,
-  Info,
+  HelpCircle,
   RotateCcwKey,
   Shield,
   ShieldAlert,
@@ -291,8 +291,10 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
   const allRoles: ThunderRole[] = useMemo(() => allRolesData?.roles ?? [], [allRolesData]);
   const allGroups: ThunderGroup[] = useMemo(() => allGroupsData?.groups ?? [], [allGroupsData]);
 
-  const roleDelta = useAssignmentDelta<ThunderRole>(roles.map((role) => role.id), (role) => role.id);
-  const groupDelta = useAssignmentDelta<ThunderGroup>(groups.map((group) => group.id), (group) => group.id);
+  const roleIds = useMemo(() => roles.map((role) => role.id), [roles]);
+  const groupIds = useMemo(() => groups.map((group) => group.id), [groups]);
+  const roleDelta = useAssignmentDelta<ThunderRole>(roleIds, (role) => role.id);
+  const groupDelta = useAssignmentDelta<ThunderGroup>(groupIds, (group) => group.id);
 
   const displayedRoles = useMemo(
     () => [
@@ -384,20 +386,23 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
 
   const clientSecretLabelAction = !isExternal ? (
     <Tooltip title="This agent's client secret is injected directly into the workload — the values above are shown for reference, but you don't need to copy anything from here to configure the agent itself.">
-      <Info size={14} />
+      <HelpCircle size={16} />
     </Tooltip>
   ) : undefined;
 
   let body: React.ReactNode;
-  if (revealed) {
-    // Only shown once, right after regenerating — the backend never stores
-    // the secret, so this is the only chance to see it.
+  if (revealed || binding.clientId) {
+    // The client ID itself isn't sensitive, unlike the secret, so it's always
+    // safe to show. Outside of `revealed` (only populated once, right after
+    // regenerating — the backend never stores the secret) the secret field is
+    // a static placeholder, not a real masked value the user could reveal,
+    // just an indicator that a secret exists.
     body = (
       <Stack spacing={1.5}>
         <TextInput
           slotProps={{ input: { readOnly: true } }}
           label="Client ID"
-          value={revealed.clientId}
+          value={revealed?.clientId ?? binding.clientId}
           copyable
           fullWidth
           size="small"
@@ -407,15 +412,17 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
           slotProps={{ input: { readOnly: true } }}
           label="Client Secret"
           labelAction={clientSecretLabelAction}
-          value={revealed.clientSecret}
-          type="password"
-          showPasswordToggle
+          value={revealed?.clientSecret ?? "••••••••"}
+          type={revealed ? "password" : undefined}
+          showPasswordToggle={!!revealed}
           fullWidth
           size="small"
           sx={monospaceInputSx}
         />
         <Typography variant="body2" color="text.secondary">
-          This secret will not be shown again — copy it now.
+          {revealed
+            ? "This secret will not be shown again — copy it now."
+            : "This secret was already generated and can't be shown again — regenerate to get a new one."}
         </Typography>
       </Stack>
     );
@@ -424,38 +431,6 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
       <Typography variant="body2" color="text.secondary">
         Provisioning failed — check the identity settings for details.
       </Typography>
-    );
-  } else if (binding.clientId) {
-    // The client ID itself isn't sensitive, unlike the secret, so it's always
-    // safe to show. The secret field is a static placeholder here — it's not
-    // a real masked value the user could reveal, just an indicator that a
-    // secret exists; the real value only ever shows up above, right after a
-    // regenerate.
-    body = (
-      <Stack spacing={1.5}>
-        <TextInput
-          slotProps={{ input: { readOnly: true } }}
-          label="Client ID"
-          value={binding.clientId}
-          copyable
-          fullWidth
-          size="small"
-          sx={monospaceInputSx}
-        />
-        <TextInput
-          slotProps={{ input: { readOnly: true } }}
-          label="Client Secret"
-          labelAction={clientSecretLabelAction}
-          value="••••••••"
-          fullWidth
-          size="small"
-          sx={monospaceInputSx}
-        />
-        <Typography variant="body2" color="text.secondary">
-          This secret was already generated and can&apos;t be shown again — regenerate to get a
-          new one.
-        </Typography>
-      </Stack>
     );
   } else {
     body = (
@@ -720,15 +695,13 @@ export const AgentIdComponent: React.FC = () => {
     );
   } else {
     content = (
-      <>
-        <AgentIdentitySection
-          key={envName}
-          orgId={orgId ?? ""}
-          projectId={projectId ?? ""}
-          agentId={agentId ?? ""}
-          envId={envName}
-        />
-      </>
+      <AgentIdentitySection
+        key={envName}
+        orgId={orgId ?? ""}
+        projectId={projectId ?? ""}
+        agentId={agentId ?? ""}
+        envId={envName}
+      />
     );
   }
 

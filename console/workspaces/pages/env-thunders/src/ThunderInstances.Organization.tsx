@@ -19,10 +19,7 @@
 import React from "react";
 import { Navigate, Route, Routes, generatePath, useParams } from "react-router-dom";
 import { absoluteRouteMap } from "@agent-management-platform/types";
-import { PageLayout } from "@agent-management-platform/views";
 import { AgentIdentityEnvironmentProvider } from "./context/AgentIdentityEnvironmentContext";
-import { ThunderInstancesTable } from "./subComponents/ThunderInstancesTable";
-import { ViewThunderInstance } from "./subComponents/ViewThunderInstance";
 import { AgentsOrganization } from "./AgentsOrganization";
 import { RolesOrganization } from "./RolesOrganization";
 import { GroupsOrganization } from "./GroupsOrganization";
@@ -33,19 +30,6 @@ export const ThunderInstancesOrganization: React.FC = () => {
   return (
     <AgentIdentityEnvironmentProvider>
       <Routes>
-        <Route
-          index
-          element={
-            <PageLayout
-              title="Agent ID"
-              description="Environment-scoped agent identities for agent authentication"
-              disableIcon
-            >
-              <ThunderInstancesTable />
-            </PageLayout>
-          }
-        />
-        <Route path="view/:envName/*" element={<ViewThunderInstance />} />
         <Route path="agents/*" element={<AgentsOrganization />} />
         <Route path="roles/*" element={<RolesOrganization />} />
         <Route path="groups/*" element={<GroupsOrganization />} />
@@ -54,7 +38,7 @@ export const ThunderInstancesOrganization: React.FC = () => {
           element={
             <Navigate
               to={generatePath(
-                absoluteRouteMap.children.org.children.thunderInstances.path,
+                absoluteRouteMap.children.org.children.environments.path,
                 { orgId },
               )}
             />
