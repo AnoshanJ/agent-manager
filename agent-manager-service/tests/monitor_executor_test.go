@@ -369,7 +369,7 @@ func TestExecuteMonitorRun_LLMCredentials(t *testing.T) {
 		Vhost:                    "https://gw.example.com",
 		IsActive:                 true,
 		Properties:               map[string]interface{}{},
-		GatewayFunctionalityType: "regular",
+		GatewayFunctionalityType: "both",
 	}
 	require.NoError(t, gdb.Create(gw).Error)
 	require.NoError(t, gdb.Exec(
