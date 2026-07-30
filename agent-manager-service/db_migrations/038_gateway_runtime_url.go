@@ -35,8 +35,7 @@ var migration038 = migration{
 			if err := runSQL(
 				tx,
 				`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS runtime_url TEXT;`,
-				`COMMENT ON COLUMN gateways.runtime_url IS
-				   'In-cluster base URL of the gateway runtime, supplied at registration. NULL means no internal address; consumers fall back to vhost';`,
+				`COMMENT ON COLUMN gateways.runtime_url IS 'In-cluster base URL of the gateway runtime, supplied at registration. NULL means no internal address; consumers fall back to vhost';`,
 			); err != nil {
 				return err
 			}
@@ -57,9 +56,9 @@ const (
 // have computed for each row. Rows whose name does not carry the configured prefix derived
 // "" before this change and are left NULL, which the consumers treat identically.
 //
-// Reads GATEWAY_RUNTIME_* from the environment because all three inputs are
-// deployment-overridable and this runs inside the AMS process, so a deployment that
-// overrode a knob gets the address its own AMS would actually have derived.
+// Reads GATEWAY_RUNTIME_* from the environment for the legacy/compose case, where those
+// keys may still be set. The Helm path has already dropped them, so the hardcoded defaults
+// below are what actually applies there.
 func BackfillGatewayRuntimeURL(tx *gorm.DB) error {
 	prefix := strings.TrimSpace(envOrDefault("GATEWAY_RUNTIME_NAME_PREFIX", defaultGatewayRuntimeNamePrefix))
 	suffix := strings.TrimSpace(envOrDefault("GATEWAY_RUNTIME_SERVICE_SUFFIX", defaultGatewayRuntimeServiceSuffix))
@@ -78,7 +77,8 @@ func BackfillGatewayRuntimeURL(tx *gorm.DB) error {
 	}
 
 	// strpos(...) = 1 rather than LIKE: the prefix is data and may contain % or _.
-	// btrim mirrors the strings.TrimSpace the derivation applied to the name.
+	// btrim approximates strings.TrimSpace: it strips ASCII spaces only, not \t\n\v\f\r —
+	// unreachable here because names are Kubernetes resource names.
 	// length(name) > length(prefix) reproduces the namespace != "" guard.
 	// Every parameter is bound as text so the driver never has to infer a type for a
 	// value used in string concatenation.

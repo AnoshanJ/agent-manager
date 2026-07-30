@@ -232,20 +232,23 @@ spec:
               # otherwise abort this pre-upgrade hook, killing the runtime image bump that
               # was the point of the upgrade.
               sync_runtime_url() {
-                _want="$1"; _have="$2"
-                if [ -z "${_want}" ] || [ "${_want}" = "${_have}" ]; then
+                # _ru_ prefix: POSIX sh has no portable `local`, so these leak as globals.
+                _ru_want="$1"; _ru_have="$2"
+                if [ -z "${_ru_want}" ] || [ "${_ru_want}" = "${_ru_have}" ]; then
                   return 0
                 fi
-                log_info "Updating gateway runtimeUrl from '${_have}' to '${_want}'..."
+                log_info "Updating gateway runtimeUrl from '${_ru_have}' to '${_ru_want}'..."
                 if http_put \
                     "${AMP_API_URL}/orgs/${ORG_NAME}/gateways/${GATEWAY_ID}" \
                     "application/json" \
-                    '{"runtimeUrl":"'"${_want}"'"}' \
+                    '{"runtimeUrl":"'"${_ru_want}"'"}' \
                     "Bearer ${ACCESS_TOKEN}" >/dev/null; then
                   log_info "Gateway runtimeUrl updated."
                 else
-                  log_error "Failed to update gateway runtimeUrl to '${_want}' (continuing). Sandboxed agents will keep using the registered value."
+                  log_error "Failed to update gateway runtimeUrl to '${_ru_want}' (continuing). Sandboxed agents will keep using the registered value."
                 fi
+                # Explicit: without it an appended statement could make this fatal again.
+                return 0
               }
 
               # ----------------------------------------------------------------

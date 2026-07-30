@@ -217,6 +217,11 @@ apiGateway:
     systemEnv: {}
 
 # Bootstrap Job configuration
+#
+# The job runs as a pre-install, pre-upgrade AND pre-rollback hook, so `helm rollback` now
+# runs it too and can fail (leaving the release in pending-rollback) when Agent Manager is
+# unreachable — rollbacks could not fail before. Recovery: re-run `helm rollback`, or
+# `helm rollback --no-hooks` to skip the job entirely.
 bootstrap:
   enabled: true
   backoffLimit: 3
