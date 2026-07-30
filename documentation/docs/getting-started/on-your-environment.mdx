@@ -45,6 +45,7 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | LoadBalancer support | Required |
 | Default StorageClass | Required |
 | Node kernel (build nodes) | Linux **6.3+** for user-namespaced agent builds (idmapped-mount support). On older kernels (Ubuntu 22.04's 5.15, Amazon Linux 2's 5.10) set `buildWorkflows.userNamespaces=false` on the Platform Resources chart — see [Troubleshooting](#build-pods-fail-with-mount_attr_idmap--idmap-mounts-errors) |
+| NetworkPolicy-enforcing CNI | Recommended. The Observability and Evaluation extension charts each ship a `NetworkPolicy` (collector ingress, evaluation-job egress) — inert on a CNI that doesn't implement the NetworkPolicy API. EKS's default VPC CNI, AKS, and legacy GKE don't enforce it out of the box; enable your provider's policy add-on (or install Calico/Cilium) if you want these to actually take effect. k3s (local/CI) enforces it by default. |
 
 ### Supported Providers
 
@@ -1328,7 +1329,10 @@ The main flow above already covers real domains, trusted wildcard TLS, and gatew
 2. **Identity provider** — the seeded `admin`/`admin` user is for bootstrap only; connect your organization's IdP or manage users in Thunder before exposing the platform
 3. **JWT authentication** — Set `IS_LOCAL_DEV_ENV=false` and configure `KEY_MANAGER_JWKS_URL` for `agent-manager-service` and `agent-manager-observer` before exposing either service; when unset, JWT signature verification is skipped and only the token payload is decoded
 4. **High availability** — deploy multiple replicas across availability zones and adjust resource requests/limits to workload
-5. **Security hardening** — network policies, scoped RBAC, pod security standards
+5. **Security hardening** — scoped RBAC, pod security standards, and confirm your CNI actually
+   enforces the `NetworkPolicy` resources this platform ships (see the Cluster Requirements note
+   above) — an EKS/AKS/GKE cluster without a policy engine selected silently accepts these
+   objects without blocking anything
 6. **Certificate operations** — with Let's Encrypt, renewals are automatic; monitor cert-manager and keep the DNS-provider credentials Secret rotated
 
 ---
