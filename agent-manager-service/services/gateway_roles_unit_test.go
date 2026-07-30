@@ -37,14 +37,17 @@ func newGateway(t *testing.T, role string, active bool) *models.Gateway {
 	id := uuid.New()
 	now := time.Now()
 	return &models.Gateway{
-		UUID:                     id,
-		OUID:                     "org",
-		Name:                     "gateway-" + id.String(),
-		DisplayName:              "Gateway " + id.String(),
-		Description:              "test gateway fixture",
-		Properties:               map[string]interface{}{},
-		Manifest:                 map[string]interface{}{},
-		Vhost:                    "vhost-" + id.String() + ".example.com",
+		UUID:        id,
+		OUID:        "org",
+		Name:        "gateway-" + id.String(),
+		DisplayName: "Gateway " + id.String(),
+		Description: "test gateway fixture",
+		Properties:  map[string]interface{}{},
+		Manifest:    map[string]interface{}{},
+		Vhost:       "vhost-" + id.String() + ".example.com",
+		// Seeded so internal-URL consumers resolve the real address instead of logging the
+		// missing-runtimeUrl ERROR and falling back to the vhost.
+		RuntimeURL:               "http://gateway-" + id.String() + ".acme-dev:22893",
 		IsCritical:               false,
 		GatewayFunctionalityType: role,
 		IsActive:                 active,

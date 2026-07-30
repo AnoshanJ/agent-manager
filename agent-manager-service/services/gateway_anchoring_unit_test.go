@@ -186,7 +186,9 @@ func TestAnchoring_MonitorRunAgainstDeployedProxy(t *testing.T) {
 		}
 		url, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
 		require.NoError(t, err)
-		require.Contains(t, url, both.Vhost)
+		// The monitor runs in-cluster, so the stored internal address is the correct base —
+		// asserting it rules out the vhost fallback as well as the wrong gateway.
+		require.Equal(t, both.RuntimeURL, url)
 	})
 
 	t.Run("ambiguity fires only with no deployment", func(t *testing.T) {
