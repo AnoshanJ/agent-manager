@@ -252,6 +252,13 @@ export function useNavigationItems(): Array<
               { orgId, projectId, agentId },
             ),
           },
+        ],
+      },
+      {
+        title: "Security",
+        type: "section",
+        icon: <ShieldCheck />,
+        items: [
           {
             label: "Agent ID",
             type: "item",
@@ -354,20 +361,6 @@ export function useNavigationItems(): Array<
             }),
           },
           {
-            label: "Agent ID",
-            type: "item",
-            icon: <thunderInstancesMetadata.icon size={20} />,
-            isActive: !!matchPath(
-              agentsChildren.agentId?.wildPath ?? "",
-              pathname,
-            ),
-            href: generatePath(agentsChildren.agentId?.path ?? "", {
-              orgId,
-              projectId,
-              agentId,
-            }),
-          },
-          {
             label: "Deploy",
             type: "item",
             icon: <Rocket size={20} />,
@@ -399,13 +392,27 @@ export function useNavigationItems(): Array<
           },
         ],
       },
-      ...(agent?.agentType?.type === "agent-api"
-        ? [
-            {
-              title: "Security",
-              type: "section" as const,
-              icon: <ShieldCheck />,
-              items: [
+      {
+        title: "Security",
+        type: "section",
+        icon: <ShieldCheck />,
+        items: [
+          {
+            label: "Agent ID",
+            type: "item" as const,
+            icon: <thunderInstancesMetadata.icon size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.agentId?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.agentId?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          ...(agent?.agentType?.type === "agent-api"
+            ? [
                 {
                   label: "Credentials",
                   type: "item" as const,
@@ -421,10 +428,10 @@ export function useNavigationItems(): Array<
                     { orgId, projectId, agentId, envId: defaultEnv },
                   ),
                 },
-              ],
-            },
-          ]
-        : []),
+              ]
+            : []),
+        ],
+      },
       {
         title: "Observability",
         type: "section",
@@ -551,20 +558,6 @@ export function useNavigationItems(): Array<
             }),
           },
           {
-            label: "Agent ID",
-            type: "item",
-            icon: <thunderInstancesMetadata.icon size={20} />,
-            isActive: !!matchPath(
-              agentsChildren.agentId?.wildPath ?? "",
-              pathname,
-            ),
-            href: generatePath(agentsChildren.agentId?.path ?? "", {
-              orgId,
-              projectId,
-              agentId,
-            }),
-          },
-          {
             label: "Build",
             type: "item",
             icon: <Wrench size={20} />,
@@ -626,13 +619,27 @@ export function useNavigationItems(): Array<
           },
         ],
       },
-      ...(agent?.agentType?.type === "agent-api"
-        ? [
-            {
-              title: "Security",
-              type: "section" as const,
-              icon: <ShieldCheck />,
-              items: [
+      {
+        title: "Security",
+        type: "section",
+        icon: <ShieldCheck />,
+        items: [
+          {
+            label: "Agent ID",
+            type: "item" as const,
+            icon: <thunderInstancesMetadata.icon size={20} />,
+            isActive: !!matchPath(
+              agentsChildren.agentId?.wildPath ?? "",
+              pathname,
+            ),
+            href: generatePath(agentsChildren.agentId?.path ?? "", {
+              orgId,
+              projectId,
+              agentId,
+            }),
+          },
+          ...(agent?.agentType?.type === "agent-api"
+            ? [
                 {
                   label: "Credentials",
                   type: "item" as const,
@@ -648,10 +655,10 @@ export function useNavigationItems(): Array<
                     { orgId, projectId, agentId, envId: defaultEnv },
                   ),
                 },
-              ],
-            },
-          ]
-        : []),
+              ]
+            : []),
+        ],
+      },
       {
         title: "Observability",
         type: "section",
