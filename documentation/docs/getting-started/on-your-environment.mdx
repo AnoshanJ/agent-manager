@@ -1326,9 +1326,10 @@ The main flow above already covers real domains, trusted wildcard TLS, and gatew
 
 1. **Managed dependencies** — apply the **Production** callouts inline above: external PostgreSQL, OpenBao without dev mode, OpenSearch persistence
 2. **Identity provider** — the seeded `admin`/`admin` user is for bootstrap only; connect your organization's IdP or manage users in Thunder before exposing the platform
-3. **High availability** — deploy multiple replicas across availability zones and adjust resource requests/limits to workload
-4. **Security hardening** — network policies, scoped RBAC, pod security standards
-5. **Certificate operations** — with Let's Encrypt, renewals are automatic; monitor cert-manager and keep the DNS-provider credentials Secret rotated
+3. **JWT authentication** — Set `IS_LOCAL_DEV_ENV=false` and configure `KEY_MANAGER_JWKS_URL` for `agent-manager-service` and `agent-manager-observer` before exposing either service; when unset, JWT signature verification is skipped and only the token payload is decoded
+4. **High availability** — deploy multiple replicas across availability zones and adjust resource requests/limits to workload
+5. **Security hardening** — network policies, scoped RBAC, pod security standards
+6. **Certificate operations** — with Let's Encrypt, renewals are automatic; monitor cert-manager and keep the DNS-provider credentials Secret rotated
 
 ---
 
