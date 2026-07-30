@@ -164,8 +164,31 @@ assert_env "sslRootCert reaches the migration job" "$MIG_TMPL" DB_SSL_ROOT_CERT 
 assert_env "sslMode is ignored for the in-cluster database" \
   "$API_TMPL" DB_SSL_MODE "" --set postgresql.external.sslMode=require
 
-# mounts_ca <template-path> [helm --set args...] -> "yes" when the named volume
-# reaches both the pod spec and the container, else "no".
+# flatten_items <block-key> — reads YAML on stdin and prints one line per list
+# item in the first block with that key, fields joined by "; ". Flattening is
+# what lets a check require two fields on the SAME item, which independent greps
+# over the whole document cannot express.
+flatten_items() {
+  awk -v key="$1" '
+    function ind(s) { match(s, /^ */); return RLENGTH }
+    !inblk && $0 ~ "^ *"key":[ ]*$" { inblk = 1; bi = ind($0); next }
+    inblk {
+      if ($0 ~ /^[ ]*$/) { next }
+      if (ind($0) <= bi) { if (buf != "") print buf; exit }
+      if ($0 ~ /^ *- /) { if (buf != "") print buf; buf = "" }
+      line = $0
+      sub(/^ *-? */, "", line)
+      sub(/ +$/, "", line)
+      buf = (buf == "" ? line : buf "; " line)
+    }
+    END { if (buf != "") print buf }
+  '
+}
+
+# mounts_ca <template-path> [helm --set args...] -> "yes" only when the container
+# has a volumeMounts item carrying BOTH the volume name and the mount path, and
+# the pod spec declares a volume of that name. A template emitting one without
+# the other is broken, so both are required rather than matched independently.
 mounts_ca() {
   local tmpl="$1" rendered
   shift
@@ -174,7 +197,9 @@ mounts_ca() {
     printf 'helm template failed: %s\n' "$rendered" >&2
     return 1
   fi
-  if grep -q 'name: db-ca' <<<"$rendered" && grep -q 'mountPath: /etc/db-ca' <<<"$rendered"; then
+  if flatten_items volumeMounts <<<"$rendered" \
+       | grep 'name: db-ca' | grep -q 'mountPath: /etc/db-ca' \
+     && flatten_items volumes <<<"$rendered" | grep -q 'name: db-ca'; then
     printf 'yes\n'
   else
     printf 'no\n'
