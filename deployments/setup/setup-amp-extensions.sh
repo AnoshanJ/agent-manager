@@ -80,6 +80,14 @@ install_thunder_extension() {
 
 install_evaluation_workflows() {
     echo "📦 Installing/Upgrading Evaluation Workflows Extension..."
+
+    # The chart's NetworkPolicy targets "workflows-<env>" (workflows-default here) — the
+    # namespace OpenChoreo's control plane runs that environment's Argo workflows in. On a
+    # fresh cluster nothing has triggered a workflow yet, so OpenChoreo hasn't created it and
+    # `helm install` fails with "namespaces \"workflows-default\" not found". Pre-create it
+    # (idempotent) so install order doesn't depend on a workflow having already run.
+    kubectl create namespace workflows-default --dry-run=client -o yaml | kubectl apply -f -
+
     helm upgrade --install amp-evaluation-workflows-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-evaluation-extension" \
         --namespace openchoreo-workflow-plane \
         --set ampEvaluation.image.repository="amp-evaluation-monitor" \
