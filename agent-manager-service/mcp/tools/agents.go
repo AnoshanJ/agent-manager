@@ -168,9 +168,9 @@ func (t *Toolsets) registerAgentTools(server *gomcp.Server, reg *toolRegistry) {
 			"display_name": stringProperty("Required. Human-readable display name for the agent."),
 			"description":  stringProperty("Optional. Short description about what the agent does."),
 			"language":     stringProperty("Required. Agent language for setup guide (python or ballerina)."),
-			"environment":  stringProperty("Optional. Environment the generated API token is scoped to. Defaults to the organization's default environment. Use list_environments to discover valid names."),
+			"environment":  stringProperty("Optional. Environment the generated API token is scoped to. If omitted, the organization's only environment is used; required when more than one environment is configured. Use list_environments to discover valid names."),
 		}, []string{"project_name", "agent_name", "display_name", "language"}),
-	}, createExternalAgent(t.AgentToolset), rbac.AgentCreate, rbac.AgentTokenManage)
+	}, createExternalAgent(t.AgentToolset, t.EnvironmentToolset), rbac.AgentCreate, rbac.AgentTokenManage)
 
 	addTool(reg, server, &gomcp.Tool{
 		Name: "create_internal_agent_python",
@@ -331,7 +331,7 @@ func listProjectAgentPairs(agentHandler AgentToolsetHandler, projectHandler Proj
 	}
 }
 
-func createExternalAgent(handler AgentToolsetHandler) func(context.Context, *gomcp.CallToolRequest, createExternalAgentInput) (*gomcp.CallToolResult, any, error) {
+func createExternalAgent(handler AgentToolsetHandler, envHandler EnvironmentToolsetHandler) func(context.Context, *gomcp.CallToolRequest, createExternalAgentInput) (*gomcp.CallToolResult, any, error) {
 	return func(ctx context.Context, _ *gomcp.CallToolRequest, input createExternalAgentInput) (*gomcp.CallToolResult, any, error) {
 		if input.ProjectName == "" {
 			return nil, nil, fmt.Errorf("project_name is required")
@@ -358,6 +358,13 @@ func createExternalAgent(handler AgentToolsetHandler) func(context.Context, *gom
 
 		ouID := resolveOUID(ctx)
 
+		// resolve the token environment before creating the agent so a bad
+		// environment never leaves an agent behind without a token
+		environment, err := resolveTokenEnvironment(ctx, "create_external_agent", envHandler, ouID, input.Environment)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		// external agent creation
 		req := buildExternalAgentRequest(agentName, input.DisplayName, normalizeOptionalString(input.Description))
 		if err := utils.ValidateAgentCreatePayload(req); err != nil {
@@ -370,7 +377,6 @@ func createExternalAgent(handler AgentToolsetHandler) func(context.Context, *gom
 
 		// generate a token for the agent that allows instrumentation
 		expiresIn := "8760h"
-		environment := strings.TrimSpace(input.Environment)
 		tokenResp, err := handler.GenerateToken(ctx, ouID, input.ProjectName, agentName, environment, expiresIn)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create_external_agent: agent %q was created but token generation failed: %w", agentName, err)

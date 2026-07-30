@@ -19,6 +19,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -77,6 +78,9 @@ func listEnvironments(handler EnvironmentToolsetHandler) func(context.Context, *
 		if err != nil {
 			return nil, nil, wrapToolError("list_environments", err)
 		}
+		if result == nil {
+			return nil, nil, fmt.Errorf("list_environments: environment service returned an empty response")
+		}
 
 		formatted := make([]listEnvironmentItem, 0, len(result.Environments))
 		for _, env := range result.Environments {
@@ -92,4 +96,39 @@ func listEnvironments(handler EnvironmentToolsetHandler) func(context.Context, *
 		}
 		return handleToolResult(response, nil)
 	}
+}
+
+// resolveTokenEnvironment validates an explicit environment name against the org's
+// environments, or resolves the org's only environment when the name is empty.
+func resolveTokenEnvironment(ctx context.Context, toolName string, handler EnvironmentToolsetHandler, ouID string, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if handler == nil {
+		if name == "" {
+			return "", fmt.Errorf("%s: environment is required", toolName)
+		}
+		return name, nil
+	}
+	result, err := handler.ListEnvironments(ctx, ouID, int32(utils.MaxLimit), int32(utils.DefaultOffset))
+	if err != nil {
+		return "", wrapToolError(toolName, err)
+	}
+	if result == nil || len(result.Environments) == 0 {
+		return "", fmt.Errorf("%s: no environments are configured for your organization", toolName)
+	}
+	if name == "" {
+		if result.Total == 1 && len(result.Environments) == 1 {
+			return result.Environments[0].Name, nil
+		}
+		return "", fmt.Errorf("%s: environment is required when the organization has more than one environment. Call list_environments to see valid names", toolName)
+	}
+	for _, env := range result.Environments {
+		if env.Name == name {
+			return name, nil
+		}
+	}
+	if int(result.Total) > len(result.Environments) {
+		// incomplete page; let the token service validate the name
+		return name, nil
+	}
+	return "", fmt.Errorf("%s: unknown environment %q. Call list_environments to see valid names", toolName, name)
 }

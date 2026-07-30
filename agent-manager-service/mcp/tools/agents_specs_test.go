@@ -81,6 +81,7 @@ func agentToolSpecs() []toolTestSpec {
 				"agent_name":   testAgentName,
 				"display_name": testDisplayName,
 				"language":     "python",
+				"environment":  testEnvName,
 			},
 			expectedMethod: "CreateAgent",
 			validateCall: func(t *testing.T, args []interface{}) {

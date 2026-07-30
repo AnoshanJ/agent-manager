@@ -29,7 +29,7 @@ The MCP server provides **13 tools** organized into five toolsets covering the a
 <summary><strong>Agent Toolset (3 tools)</strong></summary>
 
 - `list_agents` — List agents in a project. Each entry includes the provisioning type (`internal` or `external`) so the assistant can tell platform-hosted agents apart from externally-hosted ones.
-- `create_external_agent` — Register an externally-hosted agent. Returns the agent identity, a long-lived API token, and language-specific zero-code instrumentation instructions (Python or Ballerina) the assistant can hand back to the user. The token can be scoped to a specific environment via the optional `environment` parameter (defaults to the organization's default environment).
+- `create_external_agent` — Register an externally-hosted agent. Returns the agent identity, a long-lived API token, and language-specific zero-code instrumentation instructions (Python or Ballerina) the assistant can hand back to the user. The token is scoped to an environment: pass one via the optional `environment` parameter, or omit it when the organization has a single environment (with several environments configured, the parameter is required — use `list_environments` to discover valid names).
 - `create_internal_agent_python` — Create a platform-hosted Python agent from a GitHub repository. Accepts repo URL, branch, app path, Python version, run command, interface type (`DEFAULT` chat-on-`/chat:8000` or `CUSTOM` with port + OpenAPI), environment variables, and an optional auto-instrumentation toggle. Creating the agent automatically triggers its initial build.
 
 </details>
