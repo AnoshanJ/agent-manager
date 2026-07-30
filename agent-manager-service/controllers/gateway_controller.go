@@ -188,12 +188,18 @@ func (c *gatewayController) RegisterGateway(w http.ResponseWriter, r *http.Reque
 	}
 	var properties map[string]interface{}
 
+	runtimeURL := ""
+	if req.RuntimeUrl != nil {
+		runtimeURL = *req.RuntimeUrl
+	}
+
 	gateway, err := c.gatewayService.RegisterGateway(
 		ouID,
 		req.Name,
 		req.DisplayName,
 		description,
 		req.Vhost,
+		runtimeURL,
 		isCritical,
 		functionalityType,
 		properties,
@@ -337,7 +343,7 @@ func (c *gatewayController) UpdateGateway(w http.ResponseWriter, r *http.Request
 	// Update using local service
 	var properties *map[string]interface{}
 	var description *string // Description not in spec
-	gateway, err := c.gatewayService.UpdateGateway(gatewayID, ouID, description, req.DisplayName, req.IsCritical, properties)
+	gateway, err := c.gatewayService.UpdateGateway(gatewayID, ouID, description, req.DisplayName, req.IsCritical, properties, req.RuntimeUrl)
 	if err != nil {
 		log.Error("UpdateGateway: failed to update gateway", "error", err)
 		handleGatewayErrors(w, err, "Failed to update gateway")
@@ -713,6 +719,7 @@ func convertGatewayToSpecResponse(gw *services.GatewayResponse, ouID string, env
 		DisplayName: gw.DisplayName,
 		GatewayType: canonicalGatewayType(gw.FunctionalityType),
 		Vhost:       gw.Vhost,
+		RuntimeUrl:  runtimeURLPtr(gw.RuntimeURL),
 		IsCritical:  gw.IsCritical,
 		Status:      convertStatusToGatewayStatus(gw.IsActive),
 		CreatedAt:   gw.CreatedAt,
@@ -729,6 +736,14 @@ func convertGatewayToSpecResponse(gw *services.GatewayResponse, ouID string, env
 	}
 
 	return response
+}
+
+// runtimeURLPtr omits an unset runtime URL from the response rather than emitting "".
+func runtimeURLPtr(runtimeURL string) *string {
+	if runtimeURL == "" {
+		return nil
+	}
+	return &runtimeURL
 }
 
 func convertStatusToGatewayStatus(isActive bool) spec.GatewayStatus {

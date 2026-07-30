@@ -26,7 +26,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +76,7 @@ type GatewayResponse struct {
 	Description       string                 `json:"description"`
 	Properties        map[string]interface{} `json:"properties,omitempty"`
 	Vhost             string                 `json:"vhost"`
+	RuntimeURL        string                 `json:"runtimeUrl,omitempty"`
 	IsCritical        bool                   `json:"isCritical"`
 	FunctionalityType string                 `json:"functionalityType"`
 	IsActive          bool                   `json:"isActive"`
@@ -149,13 +153,16 @@ type Pagination struct {
 
 // RegisterGateway registers a new gateway with organization validation
 func (s *PlatformGatewayService) RegisterGateway(
-	ouID, name, displayName, description, vhost string,
+	ouID, name, displayName, description, vhost, runtimeURL string,
 	isCritical bool, functionalityType string,
 	properties map[string]interface{},
 	environmentIDs []string,
 ) (*GatewayResponse, error) {
 	// 1. Validate inputs
 	if err := s.validateGatewayInput(ouID, name, displayName, vhost); err != nil {
+		return nil, err
+	}
+	if err := validateGatewayRuntimeURL(runtimeURL); err != nil {
 		return nil, err
 	}
 
@@ -195,6 +202,7 @@ func (s *PlatformGatewayService) RegisterGateway(
 		Description:              description,
 		Properties:               properties,
 		Vhost:                    vhost,
+		RuntimeURL:               strings.TrimSpace(runtimeURL),
 		IsCritical:               isCritical,
 		GatewayFunctionalityType: role,
 		CreatedAt:                time.Now(),
@@ -223,6 +231,7 @@ func (s *PlatformGatewayService) RegisterGateway(
 		Description:       gateway.Description,
 		Properties:        gateway.Properties,
 		Vhost:             gateway.Vhost,
+		RuntimeURL:        gateway.RuntimeURL,
 		IsCritical:        gateway.IsCritical,
 		FunctionalityType: gateway.GatewayFunctionalityType,
 		IsActive:          gateway.IsActive,
@@ -290,6 +299,7 @@ func (s *PlatformGatewayService) ListGateways(ouID *string, filters *GatewayList
 			Description:       gw.Description,
 			Properties:        gw.Properties,
 			Vhost:             gw.Vhost,
+			RuntimeURL:        gw.RuntimeURL,
 			IsCritical:        gw.IsCritical,
 			FunctionalityType: gw.GatewayFunctionalityType,
 			IsActive:          gw.IsActive,
@@ -340,6 +350,7 @@ func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayRes
 		Description:       gateway.Description,
 		Properties:        gateway.Properties,
 		Vhost:             gateway.Vhost,
+		RuntimeURL:        gateway.RuntimeURL,
 		IsCritical:        gateway.IsCritical,
 		FunctionalityType: gateway.GatewayFunctionalityType,
 		IsActive:          gateway.IsActive,
@@ -372,6 +383,7 @@ func (s *PlatformGatewayService) UpdateGateway(
 	description, displayName *string,
 	isCritical *bool,
 	properties *map[string]interface{},
+	runtimeURL *string,
 ) (*GatewayResponse, error) {
 	// Get existing gateway
 	gateway, err := s.gatewayRepo.GetByUUID(gatewayID)
@@ -397,6 +409,14 @@ func (s *PlatformGatewayService) UpdateGateway(
 	if properties != nil {
 		gateway.Properties = *properties
 	}
+	// The address is mutable — unlike the role it is a fact about placement, so a stale
+	// one is simply wrong. Validated on every write for the same reason as at registration.
+	if runtimeURL != nil {
+		if err := validateGatewayRuntimeURL(*runtimeURL); err != nil {
+			return nil, err
+		}
+		gateway.RuntimeURL = strings.TrimSpace(*runtimeURL)
+	}
 	gateway.UpdatedAt = time.Now()
 
 	err = s.gatewayRepo.UpdateGateway(gateway)
@@ -412,6 +432,7 @@ func (s *PlatformGatewayService) UpdateGateway(
 		Description:       gateway.Description,
 		Properties:        gateway.Properties,
 		Vhost:             gateway.Vhost,
+		RuntimeURL:        gateway.RuntimeURL,
 		IsCritical:        gateway.IsCritical,
 		FunctionalityType: gateway.GatewayFunctionalityType,
 		IsActive:          gateway.IsActive,
@@ -1088,6 +1109,76 @@ func (s *PlatformGatewayService) validateGatewayInput(ouID, name, displayName, v
 	}
 
 	return nil
+}
+
+var dnsLabelPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+// validateGatewayRuntimeURL enforces the shape of the stored in-cluster gateway address.
+// Empty is legal and means "no internal address; use vhost".
+//
+// Validated rather than treated as opaque because the value is materialized into sandboxed
+// agent pod env vars alongside the minted gateway API key. Refusing ports 80 and 443 is the
+// control that matters: the sandbox NetworkPolicy reaches the public internet on exactly
+// those two ports, so a value pinned off them cannot exfiltrate regardless of hostname.
+func validateGatewayRuntimeURL(runtimeURL string) error {
+	runtimeURL = strings.TrimSpace(runtimeURL)
+	if runtimeURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(runtimeURL)
+	if err != nil {
+		return fmt.Errorf("%w: runtimeUrl is not a valid URL: %w", utils.ErrBadRequest, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%w: runtimeUrl scheme must be http or https", utils.ErrBadRequest)
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("%w: runtimeUrl must not carry userinfo, a query or a fragment", utils.ErrBadRequest)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("%w: runtimeUrl must specify an explicit numeric port", utils.ErrBadRequest)
+	}
+	if port == 80 || port == 443 {
+		return fmt.Errorf("%w: runtimeUrl must not use port 80 or 443; the agent sandbox egress "+
+			"policy reaches the public internet on those ports", utils.ErrBadRequest)
+	}
+	if !isClusterLocalHost(parsed.Hostname()) {
+		return fmt.Errorf("%w: runtimeUrl host must be cluster-local: a dotless Service name, "+
+			"name.namespace[.svc[.cluster.local]], or a private-range IP", utils.ErrBadRequest)
+	}
+	return nil
+}
+
+// isClusterLocalHost matches in-cluster address shapes. Shape only — a two-label host is
+// indistinguishable from a public domain, which is why the port rule above carries the weight.
+func isClusterLocalHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	labels := strings.Split(strings.TrimSuffix(host, "."), ".")
+	switch len(labels) {
+	case 1, 2: // "runtime" or "runtime.namespace"
+	case 3:
+		if labels[2] != "svc" {
+			return false
+		}
+	case 5:
+		if labels[2] != "svc" || labels[3] != "cluster" || labels[4] != "local" {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, label := range labels {
+		if !dnsLabelPattern.MatchString(label) {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeGatewayRole maps wire input to the canonical stored role.

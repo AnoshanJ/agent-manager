@@ -168,7 +168,7 @@ func TestRegisterGateway_CapRejectionRollsBackGatewayRow(t *testing.T) {
 	}
 	svc := NewPlatformGatewayService(repo, nil)
 
-	_, err := svc.RegisterGateway("org", "gw1", "GW", "", "http://x", false, "BOTH", nil,
+	_, err := svc.RegisterGateway("org", "gw1", "GW", "", "http://x", "", false, "BOTH", nil,
 		[]string{uuid.New().String()})
 
 	require.ErrorIs(t, err, utils.ErrGatewayIngressCapExceeded)

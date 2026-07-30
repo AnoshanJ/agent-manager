@@ -14231,6 +14231,15 @@ components:
           description: Virtual host for the gateway
           maxLength: 253
           example: api.production.example.com
+        runtimeUrl:
+          type: string
+          description: >-
+            In-cluster base URL of the gateway runtime, used by sandboxed
+            platform-hosted agents. Empty means no internal address is
+            registered and the vhost is used instead. Must carry an explicit
+            port other than 80 or 443 and a cluster-local host.
+          maxLength: 512
+          example: http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893
         region:
           type: string
           description: Deployment region
@@ -14469,6 +14478,15 @@ components:
           minLength: 1
           maxLength: 253
           example: api.production.example.com
+        runtimeUrl:
+          type: string
+          description: >-
+            In-cluster base URL of the gateway runtime, used by sandboxed
+            platform-hosted agents. Empty means no internal address is
+            registered and the vhost is used instead. Must carry an explicit
+            port other than 80 or 443 and a cluster-local host.
+          maxLength: 512
+          example: http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893
         region:
           type: string
           description: Deployment region (optional)
@@ -14516,6 +14534,15 @@ components:
           type: boolean
           description: Updated critical flag
           example: false
+        runtimeUrl:
+          type: string
+          description: >-
+            In-cluster base URL of the gateway runtime, used by sandboxed
+            platform-hosted agents. Empty means no internal address is
+            registered and the vhost is used instead. Must carry an explicit
+            port other than 80 or 443 and a cluster-local host.
+          maxLength: 512
+          example: http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893
         status:
           $ref: "#/components/schemas/GatewayStatus"
 

@@ -2246,6 +2246,9 @@ type CreateGatewayRequest struct {
 	// Region Deployment region (optional)
 	Region *string `json:"region,omitempty"`
 
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
+
 	// Vhost Virtual host for the gateway (FQDN or IP)
 	Vhost string `json:"vhost"`
 }
@@ -3003,6 +3006,9 @@ type GatewayResponse struct {
 
 	// Region Deployment region
 	Region *string `json:"region,omitempty"`
+
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
 
 	// Status Gateway operational status:
 	// - ACTIVE: Gateway is operational and ready
@@ -5097,6 +5103,9 @@ type UpdateGatewayRequest struct {
 
 	// IsCritical Updated critical flag
 	IsCritical *bool `json:"isCritical,omitempty"`
+
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
 
 	// Status Gateway operational status:
 	// - ACTIVE: Gateway is operational and ready
