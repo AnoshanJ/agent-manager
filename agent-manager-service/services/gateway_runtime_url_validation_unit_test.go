@@ -58,6 +58,8 @@ func TestValidateGatewayRuntimeURL(t *testing.T) {
 		{name: "userinfo rejected", input: "http://user:pw@runtime.acme-dev:22893", wantErr: true},
 		{name: "query rejected", input: "http://runtime.acme-dev:22893?x=1", wantErr: true},
 		{name: "fragment rejected", input: "http://runtime.acme-dev:22893#f", wantErr: true},
+		{name: "trailing slash rejected", input: "http://runtime.acme-dev:22893/", wantErr: true},
+		{name: "path rejected", input: "http://runtime.acme-dev:22893/a/b", wantErr: true},
 		{name: "public four-label host rejected by shape", input: "http://a.b.c.d.example.com:22893", wantErr: true},
 		{name: "public IP rejected", input: "http://8.8.8.8:22893", wantErr: true},
 	}

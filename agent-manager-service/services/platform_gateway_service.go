@@ -1135,6 +1135,10 @@ func validateGatewayRuntimeURL(runtimeURL string) error {
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("%w: runtimeUrl must not carry userinfo, a query or a fragment", utils.ErrBadRequest)
 	}
+	// Any path, "/" included, would concatenate into a double slash Envoy does not merge.
+	if parsed.Path != "" {
+		return fmt.Errorf("%w: runtimeUrl must be a base URL without a path", utils.ErrBadRequest)
+	}
 	port, err := strconv.Atoi(parsed.Port())
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("%w: runtimeUrl must specify an explicit numeric port", utils.ErrBadRequest)
