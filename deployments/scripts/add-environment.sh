@@ -32,6 +32,8 @@ set -euo pipefail
 #   - GATEWAY_CHART: path to a local chart directory or tarball (e.g. ./deployments/helm-charts/wso2-amp-api-platform-gateway-extension).
 #     When set, CHART_VERSION is ignored and the local chart is used directly.
 #   - IS_PRODUCTION (default: false)
+#   - GATEWAY_TOPOLOGY (default: single): single|split. split installs a second Helm
+#     release for the egress role and lowers the ENV_NAME ceiling by 7 characters.
 #   - ORG_NAME (default: default), DATAPLANE_REF (default: default)
 #   - AGENT_MANAGER_URL (default: http://api.amp.localhost:8080)
 #   - ENV_INGRESS_HOST (default: am-gateway.localhost): agent-facing gateway host.
