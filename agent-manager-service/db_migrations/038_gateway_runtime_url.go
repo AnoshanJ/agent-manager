@@ -32,7 +32,8 @@ var migration038 = migration{
 	ID: 38,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
-			if err := runSQL(tx,
+			if err := runSQL(
+				tx,
 				`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS runtime_url TEXT;`,
 				`COMMENT ON COLUMN gateways.runtime_url IS
 				   'In-cluster base URL of the gateway runtime, supplied at registration. NULL means no internal address; consumers fall back to vhost';`,

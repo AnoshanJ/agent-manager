@@ -53,7 +53,8 @@ func seedRuntimeURLGateway(t *testing.T, tx *gorm.DB, name string) uuid.UUID {
 		 VALUES (?, 'runtime-url-test-org', ?, ?, '', '{}'::jsonb,
 		         'https://ext.example.com', false, 'both', false,
 		         NULL, now(), now())`,
-		id, name, name).Error)
+		id, name, name,
+	).Error)
 	return id
 }
 
