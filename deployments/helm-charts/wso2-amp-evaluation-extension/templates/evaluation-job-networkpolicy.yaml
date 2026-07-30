@@ -14,8 +14,17 @@ spec:
       app.kubernetes.io/component: evaluation-job
   policyTypes: [Egress]
   egress:
-    # DNS resolution for all the service hostnames below.
-    - ports:
+    # DNS resolution for the service hostnames below. Scoped to the cluster DNS workload
+    # (not left open to any destination) — this pod runs untrusted evaluator code, so an
+    # unscoped rule would let it reach anything else reachable on TCP/UDP 53 too.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.evaluationJob.dns.namespace }}
+          podSelector:
+            matchLabels:
+              {{ .Values.networkPolicy.evaluationJob.dns.podLabel.key }}: {{ .Values.networkPolicy.evaluationJob.dns.podLabel.value }}
+      ports:
         - port: 53
           protocol: UDP
         - port: 53

@@ -70,6 +70,16 @@ networkPolicy:
     # (openchoreo-workflow-plane). Only set this explicitly to override the derived value.
     namespace: ""
 
+    # -- DNS resolver target the pod is allowed to reach on port 53. Defaults to the
+    # standard CoreDNS/kube-dns labeling used by k3s and stock Kubernetes distributions.
+    # Scoped (not left wide open) because this pod runs untrusted, user-submitted code —
+    # an unscoped rule would let it reach any reachable endpoint on TCP/UDP 53, not just DNS.
+    dns:
+      namespace: "kube-system"
+      podLabel:
+        key: "k8s-app"
+        value: "kube-dns"
+
     observer:
       namespace: "openchoreo-observability-plane"
       port: 9098
