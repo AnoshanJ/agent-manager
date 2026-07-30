@@ -70,7 +70,7 @@ var _ = Describe("Environment management: split gateway topology", Label("enviro
 	})
 
 	It("ends up with exactly one INGRESS gateway and one EGRESS gateway", func() {
-		gateways := gateway.WaitForActiveGatewaysForEnv(Client, Cfg.DefaultOrg, envName, 5*time.Minute)
+		gateways := gateway.WaitForActiveGatewaysForEnv(Client, Cfg.DefaultOrg, envName, 2, 5*time.Minute)
 
 		var ingress, egress int
 		for _, gw := range gateways {
@@ -88,7 +88,7 @@ var _ = Describe("Environment management: split gateway topology", Label("enviro
 	})
 
 	It("registers a cluster-local runtimeUrl for both roles", func() {
-		gateways := gateway.WaitForActiveGatewaysForEnv(Client, Cfg.DefaultOrg, envName, 5*time.Minute)
+		gateways := gateway.WaitForActiveGatewaysForEnv(Client, Cfg.DefaultOrg, envName, 2, 5*time.Minute)
 
 		for _, gw := range gateways {
 			// The chart is the only producer; empty here means the POST body lost the field
