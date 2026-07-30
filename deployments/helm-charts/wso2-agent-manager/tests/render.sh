@@ -164,6 +164,51 @@ assert_env "sslRootCert reaches the migration job" "$MIG_TMPL" DB_SSL_ROOT_CERT 
 assert_env "sslMode is ignored for the in-cluster database" \
   "$API_TMPL" DB_SSL_MODE "" --set postgresql.external.sslMode=require
 
+# mounts_ca <template-path> [helm --set args...] -> "yes" when the named volume
+# reaches both the pod spec and the container, else "no".
+mounts_ca() {
+  local tmpl="$1" rendered
+  shift
+  if ! rendered="$(helm template test-release "$CHART_DIR" \
+    --show-only "$tmpl" "$@" 2>&1)"; then
+    printf 'helm template failed: %s\n' "$rendered" >&2
+    return 1
+  fi
+  if grep -q 'name: db-ca' <<<"$rendered" && grep -q 'mountPath: /etc/db-ca' <<<"$rendered"; then
+    printf 'yes\n'
+  else
+    printf 'no\n'
+  fi
+}
+
+assert_ca_mount() {
+  local label="$1" tmpl="$2" expected="$3"
+  shift 3
+  local actual
+  actual="$(mounts_ca "$tmpl" "$@")"
+  if [[ "$expected" == "$actual" ]]; then
+    printf 'ok   - %s\n' "$label"
+  else
+    printf 'FAIL - %s\n      expected %q, got %q\n' "$label" "$expected" "$actual"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+# verify-ca/verify-full against a private CA needs the PEM readable by every
+# process that opens a connection. The migration job runs as a post-install hook,
+# so a CA reaching only the API would fail the install with x509 "unknown
+# authority" rather than at request time.
+CA_VOLUME=(
+  --set 'volumes[0].name=db-ca'
+  --set 'volumes[0].secret.secretName=db-ca'
+  --set 'volumeMounts[0].name=db-ca'
+  --set 'volumeMounts[0].mountPath=/etc/db-ca'
+  --set 'volumeMounts[0].readOnly=true'
+)
+assert_ca_mount "a private CA volume reaches the API" "$API_TMPL" yes "${CA_VOLUME[@]}"
+assert_ca_mount "a private CA volume reaches the migration job" "$MIG_TMPL" yes "${CA_VOLUME[@]}"
+assert_ca_mount "no CA volume is invented for the migration job by default" "$MIG_TMPL" no
+
 if ((FAILURES > 0)); then
   printf '\n%d assertion(s) failed\n' "$FAILURES"
   exit 1
