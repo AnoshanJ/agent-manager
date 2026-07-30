@@ -201,6 +201,7 @@ export function ViewMCPProxy() {
   const selectedEnvironments = useMemo(
     () =>
       selectedEnvironmentBindings
+        .filter(({ binding }) => binding.deploymentStatus === "Deployed")
         .map(({ env }) => env)
         .filter((env): env is Environment => !!env),
     [selectedEnvironmentBindings],

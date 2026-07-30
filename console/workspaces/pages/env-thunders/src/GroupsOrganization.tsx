@@ -50,9 +50,21 @@ function GroupCreateWrapper() {
   const [searchParams] = useSearchParams();
   const backHref = withSearchParams(generatePath(groupsNode.path, { orgId: orgId ?? "" }), searchParams);
   return (
-    <PageLayout title="Create Group" backHref={backHref} backLabel="Back to Groups" disableIcon>
-      <GroupCreatePage />
-    </PageLayout>
+    <AgentIdentityEnvironmentGate title="Create Group">
+      {() => (
+        <PageLayout title="Create Group" backHref={backHref} backLabel="Back to Groups" disableIcon>
+          <GroupCreatePage />
+        </PageLayout>
+      )}
+    </AgentIdentityEnvironmentGate>
+  );
+}
+
+function GroupEditWrapper() {
+  return (
+    <AgentIdentityEnvironmentGate title="Group">
+      {() => <GroupEditPage />}
+    </AgentIdentityEnvironmentGate>
   );
 }
 
@@ -61,7 +73,7 @@ export const GroupsOrganization: React.FC = () => {
     <Routes>
       <Route index element={<GroupsListPage />} />
       <Route path="create" element={<GroupCreateWrapper />} />
-      <Route path=":groupId" element={<GroupEditPage />} />
+      <Route path=":groupId" element={<GroupEditWrapper />} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

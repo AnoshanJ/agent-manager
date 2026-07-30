@@ -43,11 +43,19 @@ function AgentsListPage() {
   );
 }
 
+function AgentDetailWrapper() {
+  return (
+    <AgentIdentityEnvironmentGate title={TITLE}>
+      {() => <AgentDetailPage />}
+    </AgentIdentityEnvironmentGate>
+  );
+}
+
 export const AgentsOrganization: React.FC = () => {
   return (
     <Routes>
       <Route index element={<AgentsListPage />} />
-      <Route path=":projectName/:agentName" element={<AgentDetailPage />} />
+      <Route path=":projectName/:agentName" element={<AgentDetailWrapper />} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

@@ -24,12 +24,47 @@ import { AgentsOrganization } from "./AgentsOrganization";
 import { RolesOrganization } from "./RolesOrganization";
 import { GroupsOrganization } from "./GroupsOrganization";
 
+const thunderInstancesNode = absoluteRouteMap.children.org.children.thunderInstances;
+
+// Back-compat redirect: agent/role/group management moved from
+// /thunder-instances/view/:envName/(agents|roles|groups) to the top-level
+// /thunder-instances/(agents|roles|groups) pages, which read the environment
+// from an `envName` query param instead of the URL path. The old
+// view/:envName overview (gateways, identity provider) moved to
+// /environments/:envName. Preserve any trailing sub-path so existing deep
+// links keep working.
+function LegacyThunderInstanceViewRedirect() {
+  const { orgId, envName, "*": rest } = useParams<{
+    orgId: string;
+    envName: string;
+    "*": string;
+  }>();
+  const [section, ...tail] = (rest ?? "").split("/").filter(Boolean);
+
+  if (section === "agents" || section === "roles" || section === "groups") {
+    const base = generatePath(thunderInstancesNode.children[section].path, { orgId });
+    const target = tail.length > 0 ? `${base}/${tail.join("/")}` : base;
+    return <Navigate to={`${target}?envName=${encodeURIComponent(envName ?? "")}`} replace />;
+  }
+
+  return (
+    <Navigate
+      to={generatePath(
+        absoluteRouteMap.children.org.children.environments.children.view.path,
+        { orgId, envName },
+      )}
+      replace
+    />
+  );
+}
+
 export const ThunderInstancesOrganization: React.FC = () => {
   const { orgId } = useParams<{ orgId: string }>();
 
   return (
     <AgentIdentityEnvironmentProvider>
       <Routes>
+        <Route path="view/:envName/*" element={<LegacyThunderInstanceViewRedirect />} />
         <Route path="agents/*" element={<AgentsOrganization />} />
         <Route path="roles/*" element={<RolesOrganization />} />
         <Route path="groups/*" element={<GroupsOrganization />} />
@@ -41,6 +76,7 @@ export const ThunderInstancesOrganization: React.FC = () => {
                 absoluteRouteMap.children.org.children.environments.path,
                 { orgId },
               )}
+              replace
             />
           }
         />

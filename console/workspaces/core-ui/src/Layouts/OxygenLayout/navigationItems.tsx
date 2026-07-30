@@ -194,10 +194,6 @@ export function useNavigationItems(): Array<
     >
   ).environments;
   const evaluatorsOrgRoute = absoluteRouteMap.children.org.children.evaluators;
-  const thunderInstancesBasePath = generatePath(
-    absoluteRouteMap.children.org.children.thunderInstances.path,
-    { orgId },
-  );
 
   if (isLoadingAgent || (isLoadingEnvironments && agentId)) {
     return [];
@@ -893,24 +889,38 @@ export function useNavigationItems(): Array<
                 },
               ],
             },
+          ]
+        : []),
+      ...(navVisibility.identityGroups || navVisibility.identityRoles
+        ? [
             {
               title: "Identities",
               type: "section" as const,
               icon: <thunderInstancesMetadata.icon />,
-              items: (["groups", "roles"] as const).map((key) => {
-                const ChildIcon = thunderInstancesMetadata.children[key].icon;
-                return {
-                  label: thunderInstancesMetadata.children[key].title,
-                  type: "item" as const,
-                  icon: <ChildIcon size={20} />,
-                  href: `${thunderInstancesBasePath}/${key}`,
-                  isActive: !!matchPath(
+              items: (["groups", "roles"] as const)
+                .filter((key) =>
+                  key === "groups"
+                    ? navVisibility.identityGroups
+                    : navVisibility.identityRoles,
+                )
+                .map((key) => {
+                  const ChildIcon = thunderInstancesMetadata.children[key].icon;
+                  const thunderInstancesChildRoute =
                     absoluteRouteMap.children.org.children.thunderInstances
-                      .children[key].wildPath,
-                    pathname,
-                  ),
-                };
-              }),
+                      .children[key];
+                  return {
+                    label: thunderInstancesMetadata.children[key].title,
+                    type: "item" as const,
+                    icon: <ChildIcon size={20} />,
+                    href: generatePath(thunderInstancesChildRoute.path, {
+                      orgId,
+                    }),
+                    isActive: !!matchPath(
+                      thunderInstancesChildRoute.wildPath,
+                      pathname,
+                    ),
+                  };
+                }),
             },
           ]
         : []),

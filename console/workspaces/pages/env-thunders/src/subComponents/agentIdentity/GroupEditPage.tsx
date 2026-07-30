@@ -174,25 +174,79 @@ export const GroupEditPage: React.FC = () => {
       const idsToRemove = [...removedIds];
       const roleIdsToAdd = [...roleDelta.pendingAdds.map((r) => r.id)];
       const roleIdsToRemove = [...roleDelta.removedIds];
-      await Promise.all([
-        idsToAdd.length > 0 ? addMembers({ params, body: { agentIds: idsToAdd } }) : null,
-        idsToRemove.length > 0 ? removeMembers({ params, body: { agentIds: idsToRemove } }) : null,
-        ...roleIdsToAdd.map((roleId) =>
+
+      // Each entry below is one network call; track which call each settled
+      // result corresponds to so a partial failure only leaves the failed
+      // part of the delta queued for retry, instead of losing track of
+      // what actually saved.
+      type Op =
+        | { kind: "memberAdd" }
+        | { kind: "memberRemove" }
+        | { kind: "roleAdd"; roleId: string }
+        | { kind: "roleRemove"; roleId: string };
+      const ops: Op[] = [];
+      const tasks: Promise<unknown>[] = [];
+
+      if (idsToAdd.length > 0) {
+        ops.push({ kind: "memberAdd" });
+        tasks.push(addMembers({ params, body: { agentIds: idsToAdd } }));
+      }
+      if (idsToRemove.length > 0) {
+        ops.push({ kind: "memberRemove" });
+        tasks.push(removeMembers({ params, body: { agentIds: idsToRemove } }));
+      }
+      roleIdsToAdd.forEach((roleId) => {
+        ops.push({ kind: "roleAdd", roleId });
+        tasks.push(
           addRoleAssignees({
             params: { orgName: orgId, envName, roleId },
             body: { assignments: [{ id: groupId, type: "group" }] },
           }),
-        ),
-        ...roleIdsToRemove.map((roleId) =>
+        );
+      });
+      roleIdsToRemove.forEach((roleId) => {
+        ops.push({ kind: "roleRemove", roleId });
+        tasks.push(
           removeRoleAssignees({
             params: { orgName: orgId, envName, roleId },
             body: { assignments: [{ id: groupId, type: "group" }] },
           }),
-        ),
-      ]);
-      setSaveSuccess(true);
-      memberDelta.reset();
-      roleDelta.reset();
+        );
+      });
+
+      const results = await Promise.allSettled(tasks);
+
+      let memberAddFailed = false;
+      let memberRemoveFailed = false;
+      const failedRoleIds = new Set<string>();
+
+      results.forEach((result, i) => {
+        if (result.status === "fulfilled") return;
+        const op = ops[i];
+        if (op.kind === "memberAdd") memberAddFailed = true;
+        else if (op.kind === "memberRemove") memberRemoveFailed = true;
+        else failedRoleIds.add(op.roleId);
+      });
+
+      // Clear only the parts of the delta that were confirmed saved; failed
+      // parts stay queued so the user can see and retry them.
+      if (idsToAdd.length > 0 && !memberAddFailed) memberDelta.clearPendingAdds(idsToAdd);
+      if (idsToRemove.length > 0 && !memberRemoveFailed) memberDelta.clearRemovedIds(idsToRemove);
+      const succeededRoleAdds = roleIdsToAdd.filter((id) => !failedRoleIds.has(id));
+      const succeededRoleRemoves = roleIdsToRemove.filter((id) => !failedRoleIds.has(id));
+      if (succeededRoleAdds.length > 0) roleDelta.clearPendingAdds(succeededRoleAdds);
+      if (succeededRoleRemoves.length > 0) roleDelta.clearRemovedIds(succeededRoleRemoves);
+
+      const failedParts: string[] = [];
+      if (memberAddFailed) failedParts.push("adding members");
+      if (memberRemoveFailed) failedParts.push("removing members");
+      if (failedRoleIds.size > 0) failedParts.push("updating role assignments");
+
+      if (failedParts.length > 0) {
+        setSaveError(`Failed to update group (${failedParts.join(", ")}). Please try again.`);
+      } else {
+        setSaveSuccess(true);
+      }
     } catch {
       setSaveError("Failed to update group. Please try again.");
     } finally {

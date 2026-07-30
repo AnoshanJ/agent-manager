@@ -69,6 +69,7 @@ export const GroupCreatePage: React.FC = () => {
   );
 
   const handleSubmit = useCallback(async () => {
+    if (!orgId || !envName) return;
     if (!validateForm(formData)) {
       setLastSubmittedValidationErrors(errors);
       return;

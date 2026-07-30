@@ -16,8 +16,8 @@
  */
 
 import type { ReactNode } from "react";
-import { ListingTable } from "@wso2/oxygen-ui";
-import { KeyRound } from "@wso2/oxygen-ui-icons-react";
+import { Button, ListingTable } from "@wso2/oxygen-ui";
+import { AlertTriangle, KeyRound } from "@wso2/oxygen-ui-icons-react";
 import { Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { PageLayout } from "@agent-management-platform/views";
 import { useAgentIdentityEnvName } from "../../context/AgentIdentityEnvironmentContext";
@@ -38,7 +38,27 @@ export function AgentIdentityEnvironmentGate({
 }: AgentIdentityEnvironmentGateProps) {
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
-  const { envName, defaultEnvName, hasNoEnvironments } = useAgentIdentityEnvName();
+  const { envName, defaultEnvName, hasNoEnvironments, hasEnvironmentsError, refetchEnvironments } =
+    useAgentIdentityEnvName();
+
+  if (hasEnvironmentsError) {
+    return (
+      <PageLayout title={title} disableIcon>
+        <ListingTable.Container>
+          <ListingTable.EmptyState
+            illustration={<AlertTriangle size={64} />}
+            title="Failed to load environments"
+            description="Something went wrong while loading environments for this organization."
+            action={
+              <Button variant="contained" color="primary" onClick={() => refetchEnvironments()}>
+                Retry
+              </Button>
+            }
+          />
+        </ListingTable.Container>
+      </PageLayout>
+    );
+  }
 
   if (hasNoEnvironments) {
     return (

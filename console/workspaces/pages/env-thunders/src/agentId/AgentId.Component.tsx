@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -127,14 +127,13 @@ function IdentityAssignmentTable({
         <ListingTable.Head>
           <ListingTable.Row>
             <ListingTable.Cell>Name</ListingTable.Cell>
-            <ListingTable.Cell>Description</ListingTable.Cell>
             {canEdit && <ListingTable.Cell align="right" width="80px" />}
           </ListingTable.Row>
         </ListingTable.Head>
         <ListingTable.Body>
           {items.map((item) => (
             <ListingTable.Row key={item.id} variant="table">
-              <ListingTable.Cell width="40%">
+              <ListingTable.Cell>
                 <ListingTable.CellIcon
                   icon={
                     <Avatar sx={{ width: 28, height: 28, fontSize: 12 }}>
@@ -145,7 +144,6 @@ function IdentityAssignmentTable({
                   secondary={item.description ?? undefined}
                 />
               </ListingTable.Cell>
-              <ListingTable.Cell>{item.description ?? "-"}</ListingTable.Cell>
               {canEdit && onRemove && (
                 <ListingTable.Cell align="right">
                   <Tooltip title={removeTooltip ?? "Remove"}>
@@ -290,6 +288,11 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
 
   const allRoles: ThunderRole[] = useMemo(() => allRolesData?.roles ?? [], [allRolesData]);
   const allGroups: ThunderGroup[] = useMemo(() => allGroupsData?.groups ?? [], [allGroupsData]);
+  // The picker below fetches a single page of the catalog and filters it
+  // client-side, so roles/groups beyond this page are invisible to search —
+  // surface that instead of silently hiding them.
+  const hasMoreRoles = (allRolesData?.total ?? 0) > allRoles.length;
+  const hasMoreGroups = (allGroupsData?.total ?? 0) > allGroups.length;
 
   const roleIds = useMemo(() => roles.map((role) => role.id), [roles]);
   const groupIds = useMemo(() => groups.map((group) => group.id), [groups]);
@@ -334,37 +337,83 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
     setIsSaving(true);
     const envParams = { orgName: orgId, envName: envId };
 
-    try {
-      await Promise.all([
-        ...roleDelta.pendingAdds.map((role) =>
-          addRoleAssignees({
-            params: { ...envParams, roleId: role.id },
-            body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
-          })),
-        ...[...roleDelta.removedIds].map((roleId) =>
-          removeRoleAssignees({
-            params: { ...envParams, roleId },
-            body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
-          })),
-        ...groupDelta.pendingAdds.map((group) =>
-          addGroupMembers({
-            params: { ...envParams, groupId: group.id },
-            body: { agentIds: [thunderAgentId] },
-          })),
-        ...[...groupDelta.removedIds].map((groupId) =>
-          removeGroupMembers({
-            params: { ...envParams, groupId },
-            body: { agentIds: [thunderAgentId] },
-          })),
-      ]);
+    // Each pending mutation is tracked with its own id/name/kind so a
+    // partial failure (Promise.allSettled, not Promise.all) only clears the
+    // ones that actually succeeded — the rest stay queued in roleDelta /
+    // groupDelta for the user to retry, instead of the whole batch being
+    // silently lost or resubmitted.
+    type PendingOp = {
+      kind: "roleAdd" | "roleRemove" | "groupAdd" | "groupRemove";
+      id: string;
+      name: string;
+    };
 
-      roleDelta.reset();
-      groupDelta.reset();
-    } catch {
-      setSaveError("Failed to update roles/groups. Please try again.");
-    } finally {
-      setIsSaving(false);
+    const ops: PendingOp[] = [
+      ...roleDelta.pendingAdds.map((role): PendingOp => ({ kind: "roleAdd", id: role.id, name: role.name })),
+      ...[...roleDelta.removedIds].map((roleId): PendingOp => ({
+        kind: "roleRemove", id: roleId, name: roles.find((role) => role.id === roleId)?.name ?? roleId,
+      })),
+      ...groupDelta.pendingAdds.map((group): PendingOp => ({ kind: "groupAdd", id: group.id, name: group.name })),
+      ...[...groupDelta.removedIds].map((groupId): PendingOp => ({
+        kind: "groupRemove", id: groupId, name: groups.find((group) => group.id === groupId)?.name ?? groupId,
+      })),
+    ];
+
+    const results = await Promise.allSettled(
+      ops.map((op) => {
+        switch (op.kind) {
+          case "roleAdd":
+            return addRoleAssignees({
+              params: { ...envParams, roleId: op.id },
+              body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
+            });
+          case "roleRemove":
+            return removeRoleAssignees({
+              params: { ...envParams, roleId: op.id },
+              body: { assignments: [{ id: thunderAgentId, type: "agent" }] },
+            });
+          case "groupAdd":
+            return addGroupMembers({
+              params: { ...envParams, groupId: op.id },
+              body: { agentIds: [thunderAgentId] },
+            });
+          case "groupRemove":
+            return removeGroupMembers({
+              params: { ...envParams, groupId: op.id },
+              body: { agentIds: [thunderAgentId] },
+            });
+        }
+      }),
+    );
+
+    const succeeded = {
+      roleAdd: new Set<string>(),
+      roleRemove: new Set<string>(),
+      groupAdd: new Set<string>(),
+      groupRemove: new Set<string>(),
+    };
+    const failed: PendingOp[] = [];
+    results.forEach((result, index) => {
+      const op = ops[index];
+      if (result.status === "fulfilled") {
+        succeeded[op.kind].add(op.id);
+      } else {
+        failed.push(op);
+      }
+    });
+
+    roleDelta.clearPendingAdds(succeeded.roleAdd);
+    roleDelta.clearRemovedIds(succeeded.roleRemove);
+    groupDelta.clearPendingAdds(succeeded.groupAdd);
+    groupDelta.clearRemovedIds(succeeded.groupRemove);
+
+    if (failed.length > 0) {
+      setSaveError(
+        `Failed to update: ${failed.map((op) => op.name).join(", ")}. The rest were saved — ` +
+        "retry to apply the remaining changes.",
+      );
     }
+    setIsSaving(false);
   };
 
   if (isLoading || isError || !binding) {
@@ -567,14 +616,22 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
               {isLoadingAllGroups ? (
                 <CircularProgress size={20} />
               ) : (
-                <Autocomplete
-                  options={availableGroups}
-                  getOptionLabel={(option) => option.name}
-                  onChange={groupDelta.handleAdd}
-                  value={null}
-                  renderInput={(params) => <TextField {...params} placeholder="Search groups..." />}
-                  noOptionsText="No groups available"
-                />
+                <Stack spacing={0.5}>
+                  <Autocomplete
+                    options={availableGroups}
+                    getOptionLabel={(option) => option.name}
+                    onChange={groupDelta.handleAdd}
+                    value={null}
+                    renderInput={(params) => <TextField {...params} placeholder="Search groups..." />}
+                    noOptionsText="No groups available"
+                  />
+                  {hasMoreGroups && (
+                    <Typography variant="caption" color="text.secondary">
+                      Showing the first {CATALOG_PAGE_SIZE} groups. Refine the group name in your
+                      identity provider if you can&apos;t find the one you&apos;re looking for.
+                    </Typography>
+                  )}
+                </Stack>
               )}
             </Form.ElementWrapper>
           )}
@@ -598,14 +655,22 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
               {isLoadingAllRoles ? (
                 <CircularProgress size={20} />
               ) : (
-                <Autocomplete
-                  options={availableRoles}
-                  getOptionLabel={(option) => option.name}
-                  onChange={roleDelta.handleAdd}
-                  value={null}
-                  renderInput={(params) => <TextField {...params} placeholder="Search roles..." />}
-                  noOptionsText="No roles available"
-                />
+                <Stack spacing={0.5}>
+                  <Autocomplete
+                    options={availableRoles}
+                    getOptionLabel={(option) => option.name}
+                    onChange={roleDelta.handleAdd}
+                    value={null}
+                    renderInput={(params) => <TextField {...params} placeholder="Search roles..." />}
+                    noOptionsText="No roles available"
+                  />
+                  {hasMoreRoles && (
+                    <Typography variant="caption" color="text.secondary">
+                      Showing the first {CATALOG_PAGE_SIZE} roles. Refine the role name in your
+                      identity provider if you can&apos;t find the one you&apos;re looking for.
+                    </Typography>
+                  )}
+                </Stack>
               )}
             </Form.ElementWrapper>
           )}
@@ -676,6 +741,18 @@ export const AgentIdComponent: React.FC = () => {
       { replace: true },
     );
   };
+
+  // Once environments have loaded, a requested env that doesn't exist (e.g. a
+  // stale/invalid deep link) falls back to envNames[0] above — normalize the
+  // query param to match so the URL and the rendered environment agree,
+  // rather than leaving the query param pointing at an environment that
+  // isn't actually being shown.
+  useEffect(() => {
+    if (envNames.length > 0 && requestedEnvName && !envNames.includes(requestedEnvName)) {
+      setSelectedEnvName(envName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envNames, requestedEnvName, envName]);
 
   const showEnvSelector = envNames.length > 1;
 

@@ -154,10 +154,10 @@ export const RoleEditPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!hasEditedScopes.current && catalogScopes.length > 0) {
+    if (!hasEditedScopes.current && !isLoadingScopes) {
       setSelectedScopeIds(initialScopeNames);
     }
-  }, [initialScopeNames, catalogScopes]);
+  }, [initialScopeNames, isLoadingScopes]);
 
   const rolesNode =
     absoluteRouteMap.children.org.children.thunderInstances.children.roles;

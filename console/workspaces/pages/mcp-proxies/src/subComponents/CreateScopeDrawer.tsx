@@ -45,6 +45,7 @@ import {
 import type {
   AgentIdentityRoleListResponse,
   Environment,
+  MCPProxyScopeResponse,
   ThunderRole,
 } from "@agent-management-platform/types";
 import { z } from "zod";
@@ -107,11 +108,12 @@ export function CreateScopeDrawer({
   const [formData, setFormData] = useState<CreateScopeFormValues>(DEFAULT_FORM);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  // Indexed the same way as `environments`/`roleOptionsByEnv` — roles are
-  // picked one environment at a time rather than from one combined list,
-  // since a role only ever lives in a single environment and the save step
-  // already updates them per-env.
-  const [selectedRolesByEnv, setSelectedRolesByEnv] = useState<ThunderRole[][]>([]);
+  // Keyed by `env.name` (not position in `environments`) so a reorder or
+  // refetch of the environments list can't silently misapply a selection to
+  // the wrong environment. Roles are picked one environment at a time rather
+  // than from one combined list, since a role only ever lives in a single
+  // environment and the save step already updates them per-env.
+  const [selectedRolesByEnv, setSelectedRolesByEnv] = useState<Record<string, ThunderRole[]>>({});
   const [isAssigningRoles, setIsAssigningRoles] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -128,7 +130,7 @@ export function CreateScopeDrawer({
     setFormData(DEFAULT_FORM);
     setSelectedTools([]);
     setToolsError(null);
-    setSelectedRolesByEnv([]);
+    setSelectedRolesByEnv({});
     setSubmitError(null);
     clearErrors();
     resetCreateScope();
@@ -166,12 +168,8 @@ export function CreateScopeDrawer({
     [environments, roleQueries],
   );
 
-  const handleRolesChangeForEnv = useCallback((index: number, roles: ThunderRole[]) => {
-    setSelectedRolesByEnv((prev) => {
-      const next = [...prev];
-      next[index] = roles;
-      return next;
-    });
+  const handleRolesChangeForEnv = useCallback((envName: string, roles: ThunderRole[]) => {
+    setSelectedRolesByEnv((prev) => ({ ...prev, [envName]: roles }));
   }, []);
 
   const handleFieldChange = useCallback(
@@ -195,8 +193,9 @@ export function CreateScopeDrawer({
       if (!formValid || !toolsValid) return;
 
       setSubmitError(null);
+      let created: MCPProxyScopeResponse;
       try {
-        const created = await createScope.mutateAsync({
+        created = await createScope.mutateAsync({
           params: { orgName, proxyId },
           body: {
             action: formData.name.trim(),
@@ -204,40 +203,48 @@ export function CreateScopeDrawer({
             tools: selectedTools,
           },
         });
-
-        const roleAssignments = environments.flatMap((env, index) =>
-          (selectedRolesByEnv[index] ?? []).map((role) => ({
-            role,
-            envName: env.name,
-          })),
-        );
-
-        if (roleAssignments.length > 0) {
-          setIsAssigningRoles(true);
-          try {
-            // Roles have no incremental "grant this one scope" endpoint —
-            // each update PUTs the role's full desired scope set, merged
-            // from the permissions already on hand from the roles fetch.
-            await Promise.all(
-              roleAssignments.map(({ role, envName }) => {
-                const existingScopes = role.permissions?.flatMap((p) => p.permissions) ?? [];
-                const nextScopes = existingScopes.includes(created.scope)
-                  ? existingScopes
-                  : [...existingScopes, created.scope];
-                return updateRole.mutateAsync({
-                  params: { orgName, envName, roleId: role.id },
-                  body: { name: role.name, description: role.description, scopes: nextScopes },
-                });
-              }),
-            );
-          } finally {
-            setIsAssigningRoles(false);
-          }
-        }
-
-        onClose();
       } catch {
         setSubmitError("Failed to create scope. Please try again.");
+        return;
+      }
+
+      // Scope creation succeeded — close now rather than waiting on role
+      // assignment below. A role-assignment failure is a separate, partial
+      // failure and must not be reported through (or mistaken for) the
+      // scope-creation error above.
+      onClose();
+
+      const roleAssignments = environments.flatMap((env) =>
+        (selectedRolesByEnv[env.name] ?? []).map((role) => ({
+          role,
+          envName: env.name,
+        })),
+      );
+
+      if (roleAssignments.length === 0) return;
+
+      setIsAssigningRoles(true);
+      try {
+        // Roles have no incremental "grant this one scope" endpoint — each
+        // update PUTs the role's full desired scope set, merged from the
+        // permissions already on hand from the roles fetch. Settled (not
+        // Promise.all) so one role failing to update doesn't stop the rest
+        // from being assigned; each mutation reports its own failure via its
+        // built-in error notification.
+        await Promise.allSettled(
+          roleAssignments.map(({ role, envName }) => {
+            const existingScopes = role.permissions?.flatMap((p) => p.permissions) ?? [];
+            const nextScopes = existingScopes.includes(created.scope)
+              ? existingScopes
+              : [...existingScopes, created.scope];
+            return updateRole.mutateAsync({
+              params: { orgName, envName, roleId: role.id },
+              body: { name: role.name, description: role.description, scopes: nextScopes },
+            });
+          }),
+        );
+      } finally {
+        setIsAssigningRoles(false);
       }
     },
     [
@@ -358,9 +365,10 @@ export function CreateScopeDrawer({
                       multiple
                       size="small"
                       disableCloseOnSelect
+                      loading={roleQueries[index]?.isLoading}
                       options={roleOptionsByEnv[index] ?? EMPTY_ROLES}
-                      value={selectedRolesByEnv[index] ?? EMPTY_ROLES}
-                      onChange={(_e, value) => handleRolesChangeForEnv(index, value)}
+                      value={selectedRolesByEnv[env.name] ?? EMPTY_ROLES}
+                      onChange={(_e, value) => handleRolesChangeForEnv(env.name, value)}
                       getOptionLabel={(role) => role.name}
                       isOptionEqualToValue={(option, value) => option.id === value.id}
                       renderTags={(value, getTagProps) =>
@@ -376,7 +384,11 @@ export function CreateScopeDrawer({
                       renderInput={(params) => (
                         <TextField {...params} placeholder="Search roles..." />
                       )}
-                      noOptionsText="No roles available"
+                      noOptionsText={
+                        roleQueries[index]?.isError
+                          ? "Failed to load roles"
+                          : "No roles available"
+                      }
                       disabled={isSubmitting}
                     />
                   </FormControl>

@@ -152,10 +152,10 @@ export const RoleEditPage: React.FC = () => {
 
   // Initialise selectedPermissionIds from server data once (guard against refetch overwrites)
   useEffect(() => {
-    if (!hasEditedPermissions.current && catalogPermissions.length > 0) {
+    if (!hasEditedPermissions.current && !isLoadingCatalog) {
       setSelectedPermissionIds(initialPermissions);
     }
-  }, [initialPermissions, catalogPermissions]);
+  }, [initialPermissions, isLoadingCatalog]);
 
   const rolesPath = orgId
     ? generatePath(

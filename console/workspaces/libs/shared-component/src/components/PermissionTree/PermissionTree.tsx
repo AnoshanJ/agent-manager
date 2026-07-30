@@ -138,6 +138,11 @@ const PermissionTreeRow: React.FC<PermissionTreeRowProps> = ({
   const checked = total > 0 && selectedCount === total;
   const indeterminate = selectedCount > 0 && selectedCount < total;
   const rowLabel = formatLabel(node.segment, node.path);
+  // Full path (not just the leaf segment) so rows sharing a leaf name in
+  // different branches still get a unique, unambiguous accessible name.
+  const fullPathLabel = node.path
+    .map((segment) => formatLabel(segment, node.path))
+    .join(" / ");
   const canToggle = !readOnly && total > 0;
 
   return (
@@ -165,7 +170,7 @@ const PermissionTreeRow: React.FC<PermissionTreeRowProps> = ({
           indeterminate={indeterminate}
           disabled={!canToggle}
           onChange={() => onToggleNode(node)}
-          inputProps={{ "aria-label": rowLabel }}
+          inputProps={{ "aria-label": fullPathLabel }}
         />
         <Stack
           direction="row"
@@ -237,9 +242,12 @@ export const PermissionTree: React.FC<PermissionTreeProps> = ({
   formatSegmentLabel = defaultFormatSegmentLabel,
   emptyMessage = "No permissions available.",
 }) => {
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-
   const tree = useMemo(() => buildTree(items), [items]);
+  // Top-level/group nodes are expanded by default so the catalog isn't fully
+  // collapsed on mount; the user can still collapse/expand any node from there.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
+    () => new Set(tree.map((node) => node.key)),
+  );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const isExpanded = (key: string) => expandedKeys.has(key);

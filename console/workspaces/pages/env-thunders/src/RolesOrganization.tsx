@@ -50,9 +50,21 @@ function RoleCreateWrapper() {
   const [searchParams] = useSearchParams();
   const backHref = withSearchParams(generatePath(rolesNode.path, { orgId: orgId ?? "" }), searchParams);
   return (
-    <PageLayout title="Create Role" backHref={backHref} backLabel="Back to Roles" disableIcon>
-      <RoleCreatePage />
-    </PageLayout>
+    <AgentIdentityEnvironmentGate title="Create Role">
+      {() => (
+        <PageLayout title="Create Role" backHref={backHref} backLabel="Back to Roles" disableIcon>
+          <RoleCreatePage />
+        </PageLayout>
+      )}
+    </AgentIdentityEnvironmentGate>
+  );
+}
+
+function RoleEditWrapper() {
+  return (
+    <AgentIdentityEnvironmentGate title="Role">
+      {() => <RoleEditPage />}
+    </AgentIdentityEnvironmentGate>
   );
 }
 
@@ -61,7 +73,7 @@ export const RolesOrganization: React.FC = () => {
     <Routes>
       <Route index element={<RolesListPage />} />
       <Route path="create" element={<RoleCreateWrapper />} />
-      <Route path=":roleId" element={<RoleEditPage />} />
+      <Route path=":roleId" element={<RoleEditWrapper />} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

@@ -49,11 +49,12 @@ interface LeftNavigationProps {
 // render without a link — the Sidebar.Item then acts purely as an
 // expand/collapse toggle for the nested items.
 function renderItem(item: NavigationItem) {
+  const isLeaf = !item.children?.length;
   return (
     <Sidebar.Item
       id={item.label}
       key={item.label}
-      link={item.href ? <Link to={item.href} /> : undefined}
+      link={isLeaf && item.href ? <Link to={item.href} /> : undefined}
     >
       <Sidebar.ItemIcon>{item.icon}</Sidebar.ItemIcon>
       <Sidebar.ItemLabel>{item.label}</Sidebar.ItemLabel>
@@ -63,9 +64,18 @@ function renderItem(item: NavigationItem) {
 }
 
 function findParentLabel(items: NavigationItem[], childLabel: string): string | undefined {
-  return items.find((item) =>
-    item.children?.some((child) => child.label === childLabel),
-  )?.label;
+  for (const item of items) {
+    if (item.children?.some((child) => child.label === childLabel)) {
+      return item.label;
+    }
+    if (item.children) {
+      const nestedParentLabel = findParentLabel(item.children, childLabel);
+      if (nestedParentLabel) {
+        return nestedParentLabel;
+      }
+    }
+  }
+  return undefined;
 }
 
 export const flattenWithChildren = (items: NavigationItem[]): NavigationItem[] =>

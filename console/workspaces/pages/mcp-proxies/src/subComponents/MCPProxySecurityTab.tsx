@@ -207,7 +207,7 @@ export function MCPProxySecurityTab({
     [toolEntries, config?.policies],
   );
 
-  const { data: scopesData } = useListMCPProxyScopes(
+  const { data: scopesData, isPending: scopesPending } = useListMCPProxyScopes(
     { orgName: orgName ?? "", proxyId: proxyId ?? "" },
     { enabled: authenticationType === "identity" && !!proxyId },
   );
@@ -366,6 +366,16 @@ export function MCPProxySecurityTab({
         },
       });
 
+      // Record the auth snapshot as soon as the auth mutation itself
+      // succeeds — independent of whether the scope-update step below
+      // (a separate set of REST calls) succeeds, so a failure there doesn't
+      // leave the already-saved auth settings looking dirty.
+      lastSavedAuthRef.current = {
+        type: authenticationType,
+        key: authenticationType === "apiKey" ? keyValue.trim() : "",
+        in: keyIn,
+      };
+
       // Scopes belong to the proxy, not this endpoint's auth mode, and are
       // saved via their own REST calls rather than bundled into the security
       // payload above.
@@ -384,11 +394,6 @@ export function MCPProxySecurityTab({
         lastSavedToolScopeRowsRef.current = toolScopeRows;
       }
 
-      lastSavedAuthRef.current = {
-        type: authenticationType,
-        key: authenticationType === "apiKey" ? keyValue.trim() : "",
-        in: keyIn,
-      };
       setStatus({
         message: "Updated security settings.",
         severity: "success",
@@ -430,11 +435,17 @@ export function MCPProxySecurityTab({
           // Drop it from any row referencing it immediately — the reseed
           // effect above only reseeds while there are no unsaved edits, and a
           // deleted scope shouldn't linger as a selectable/selected option.
-          setToolScopeRows((prev) =>
-            prev.map((row) => ({
+          // Also drop it from the last-saved snapshot: it's been deleted on
+          // the server, so keeping it there would make toolScopesDirty
+          // compare against a stale scope and let Discard resurrect it.
+          const dropDeletedScope = (rows: ToolScopeRow[]) =>
+            rows.map((row) => ({
               ...row,
               scopes: row.scopes.filter((s) => s.action !== scope.action),
-            })),
+            }));
+          setToolScopeRows(dropDeletedScope);
+          lastSavedToolScopeRowsRef.current = dropDeletedScope(
+            lastSavedToolScopeRowsRef.current,
           );
         },
       });
@@ -578,6 +589,7 @@ export function MCPProxySecurityTab({
                             multiple
                             size="small"
                             disableCloseOnSelect
+                            disabled={isDisabled || isUpdating}
                             options={catalogScopes}
                             value={row.scopes}
                             onChange={(_e, value) =>
@@ -610,7 +622,7 @@ export function MCPProxySecurityTab({
             ))}
 
           {authorizationTab === "scopes" &&
-            (catalogScopes.length === 0 ? (
+            (!scopesPending && catalogScopes.length === 0 ? (
               <ListingTable.Container>
                 <ListingTable.EmptyState
                   illustration={<ShieldX size={64} />}

@@ -52,12 +52,16 @@ export function useAgentIdentityEnvironment(): AgentIdentityEnvironmentContextVa
 }
 
 interface ResolvedAgentIdentityEnvName {
-  /** The current `envName` search param, if present. */
+  /** The current `envName` search param, if present and valid for this org. */
   envName: string | undefined;
   /** The environment to redirect to when `envName` is missing from the URL. */
   defaultEnvName: string | undefined;
-  /** True once environments have loaded and there isn't one to default to. */
+  /** True once environments have loaded successfully and there isn't one to default to. */
   hasNoEnvironments: boolean;
+  /** True when the environments list failed to load. */
+  hasEnvironmentsError: boolean;
+  /** Re-runs the environments query; exposed for an error/retry UI. */
+  refetchEnvironments: () => void;
 }
 
 /**
@@ -70,10 +74,20 @@ export function useAgentIdentityEnvName(): ResolvedAgentIdentityEnvName {
   const { orgId } = useParams<{ orgId: string }>();
   const [searchParams] = useSearchParams();
   const { lastEnvName, setLastEnvName } = useAgentIdentityEnvironment();
-  const { data: environments, isLoading } = useListEnvironments({ orgName: orgId });
+  const { data: environments, isLoading, isError, refetch } = useListEnvironments({
+    orgName: orgId,
+  });
 
-  const envName = searchParams.get("envName") ?? undefined;
-  const defaultEnvName = lastEnvName ?? environments?.[0]?.name;
+  // `lastEnvName` lives in a provider that isn't remounted when the org
+  // changes, and the `envName` search param can be stale or edited by hand —
+  // only trust either once it's confirmed to belong to this org's
+  // currently-loaded environments.
+  const isKnownEnvName = (name: string | undefined): name is string =>
+    !!name && (environments ?? []).some((environment) => environment.name === name);
+
+  const rawEnvName = searchParams.get("envName") ?? undefined;
+  const envName = isKnownEnvName(rawEnvName) ? rawEnvName : undefined;
+  const defaultEnvName = isKnownEnvName(lastEnvName) ? lastEnvName : environments?.[0]?.name;
 
   useEffect(() => {
     if (envName) {
@@ -84,6 +98,8 @@ export function useAgentIdentityEnvName(): ResolvedAgentIdentityEnvName {
   return {
     envName,
     defaultEnvName,
-    hasNoEnvironments: !isLoading && !defaultEnvName,
+    hasNoEnvironments: !isLoading && !isError && !defaultEnvName,
+    hasEnvironmentsError: isError,
+    refetchEnvironments: refetch,
   };
 }
