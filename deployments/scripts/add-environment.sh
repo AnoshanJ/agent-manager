@@ -381,13 +381,12 @@ RELEASE_NAME=$(echo "$RELEASE_NAME" | head -c 53 | sed 's/-*$//')
 # Shared across both releases in split topology (chart ref, agentManager.*,
 # gateway.environment, apiGateway.controlPlane.*, keymanager/identityProvider
 # wiring). Per-release settings (--namespace, apiGateway.namespace, gateway.type,
-# gateway.vhost, and for egress gateway.name/gateway.hostname) are passed
-# explicitly on each `helm upgrade --install` invocation below.
+# gateway.vhost, gateway.displayName, and for egress gateway.name/gateway.hostname)
+# are passed explicitly on each `helm upgrade --install` invocation below.
 HELM_ARGS=(
     --create-namespace
     --set agentManager.orgName="${ORG_NAME}"
     --set gateway.environment="${ENV_NAME}"
-    --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway"
     --set agentManager.apiUrl="${AGENT_MANAGER_INTERNAL_API}"
     --set apiGateway.controlPlane.host="${AGENT_MANAGER_INTERNAL_CP}"
     --set apiGateway.controlPlane.tls.insecureSkipVerify=true
@@ -447,6 +446,7 @@ helm upgrade --install "${RELEASE_NAME}" "${CHART_REF}" \
     --namespace "${GATEWAY_NAMESPACE}" \
     --set apiGateway.namespace="${GATEWAY_NAMESPACE}" \
     --set gateway.type="${INGRESS_TYPE}" \
+    --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway" \
     --set gateway.vhost="http://${ENV_NAME}-${ORG_NAME}.gateway.localhost:${GATEWAY_VHOST_PORT}" \
     "${HELM_ARGS[@]}"
 
@@ -484,6 +484,7 @@ if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
         --set apiGateway.namespace="${EGRESS_NAMESPACE}" \
         --set gateway.type="EGRESS" \
         --set gateway.name="${EGRESS_GATEWAY_NAME}" \
+        --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway (Egress)" \
         --set gateway.hostname="${EGRESS_HOSTNAME}" \
         --set gateway.vhost="http://${EGRESS_HOSTNAME}:${GATEWAY_VHOST_PORT}" \
         "${HELM_ARGS[@]}"
