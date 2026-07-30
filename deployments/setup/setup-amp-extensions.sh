@@ -88,12 +88,28 @@ install_evaluation_workflows() {
     # (idempotent) so install order doesn't depend on a workflow having already run.
     kubectl create namespace workflows-default --dry-run=client -o yaml | kubectl apply -f -
 
+    # agent-manager-service runs outside the cluster (docker-compose) in local dev, so it
+    # needs an ipBlock exception to the NetworkPolicy; disable the policy if we can't compute it.
+    local dev_egress_cidr network_policy_enabled
+    dev_egress_cidr=$(docker network inspect "k3d-${CLUSTER_NAME}" \
+        --format '{{ (index .IPAM.Config 0).Subnet }}' 2>/dev/null || echo "")
+    if [[ -z "$dev_egress_cidr" ]]; then
+        echo "⚠️  Could not determine k3d docker network subnet for k3d-${CLUSTER_NAME} — disabling"
+        echo "   the evaluation-job egress NetworkPolicy for this install so local eval runs keep working."
+        network_policy_enabled="false"
+    else
+        network_policy_enabled="true"
+    fi
+
     helm upgrade --install amp-evaluation-workflows-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-evaluation-extension" \
         --namespace openchoreo-workflow-plane \
         --set ampEvaluation.image.repository="amp-evaluation-monitor" \
         --set ampEvaluation.publisher.endpoint="http://agent-manager-service:8080" \
         --set ampEvaluation.publisher.idpTokenUrl="http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token" \
-        --set ampEvaluation.publisher.clientId="amp-publisher-client"
+        --set ampEvaluation.publisher.clientId="amp-publisher-client" \
+        --set networkPolicy.evaluationJob.enabled="${network_policy_enabled}" \
+        --set networkPolicy.evaluationJob.devEgress.cidr="${dev_egress_cidr}" \
+        --set networkPolicy.evaluationJob.devEgress.port=8080
     echo "✅ Evaluation Workflows Extension installed/upgraded successfully"
 }
 

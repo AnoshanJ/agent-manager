@@ -94,3 +94,13 @@ networkPolicy:
 
     llmGateway:
       port: 22893
+
+    # -- Local-dev only: additional egress target for reaching agent-manager-service when
+    # it runs outside the cluster entirely (e.g. via docker-compose, bridged onto the k3d
+    # node's docker network). That's not a Kubernetes-native destination, so it can't be
+    # expressed with a namespaceSelector rule like publisher.namespace/port above — it needs
+    # an ipBlock instead. Leave cidr empty (the default) for any real deployment where
+    # agent-manager-service runs in-cluster; setup-amp-extensions.sh sets this for local dev.
+    devEgress:
+      cidr: ""
+      port: 8080

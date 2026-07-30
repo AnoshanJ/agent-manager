@@ -70,4 +70,18 @@ spec:
       ports:
         - port: {{ .Values.networkPolicy.evaluationJob.llmGateway.port }}
           protocol: TCP
+
+    {{- if .Values.networkPolicy.evaluationJob.devEgress.cidr }}
+    # Local-dev only: agent-manager-service running outside the cluster (e.g. via
+    # docker-compose bridged onto the k3d node's docker network) isn't a Kubernetes-native
+    # destination, so it can't be matched by a namespaceSelector rule like the publisher
+    # rule above. setup-amp-extensions.sh sets devEgress.cidr to that docker network's
+    # subnet for local dev only; this block is a no-op (cidr empty) everywhere else.
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.evaluationJob.devEgress.cidr }}
+      ports:
+        - port: {{ .Values.networkPolicy.evaluationJob.devEgress.port }}
+          protocol: TCP
+    {{- end }}
 {{- end }}
