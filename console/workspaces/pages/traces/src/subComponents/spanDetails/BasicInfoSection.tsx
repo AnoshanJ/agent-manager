@@ -24,7 +24,7 @@ import {
   RetrieverData,
   EvaluatorScoreWithMonitor,
 } from "@agent-management-platform/types";
-import { Chip, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Chip, Stack, Tooltip } from "@wso2/oxygen-ui";
 import {
   Brain,
   Check,
@@ -238,15 +238,6 @@ export function BasicInfoSection({ span, evaluatorScores }: BasicInfoSectionProp
             );
           })}
       </Stack>
-      {statusMessage && (
-        <Typography
-          variant="body2"
-          color={span.ampAttributes?.status?.error ? "error" : "text.secondary"}
-          sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-        >
-          {statusMessage}
-        </Typography>
-      )}
     </Stack>
   );
 }

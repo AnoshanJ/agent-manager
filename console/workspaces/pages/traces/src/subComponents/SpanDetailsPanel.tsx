@@ -50,6 +50,88 @@ function getTools(span: Span): ToolDefinition[] | string[] | undefined {
   return undefined;
 }
 
+// Converts a Python dict literal into JSON text.
+function pythonDictToJson(input: string): string {
+  const ESCAPES: Record<string, string> = {
+    n: "\n",
+    t: "\t",
+    r: "\r",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+  };
+  let out = "";
+  let buf = ""; 
+  const flush = () => {
+    out += buf
+      .replace(/\bNone\b/g, "null")
+      .replace(/\bTrue\b/g, "true")
+      .replace(/\bFalse\b/g, "false");
+    buf = "";
+  };
+  let i = 0;
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === "'" || ch === '"') {
+      flush();
+      const quote = ch;
+      i++;
+      let str = "";
+      while (i < input.length) {
+        const c = input[i];
+        if (c === "\\") {
+          const next = input[i + 1] ?? "";
+          str += next in ESCAPES ? ESCAPES[next] : next;
+          i += 2;
+          continue;
+        }
+        if (c === quote) {
+          i++;
+          break;
+        }
+        str += c;
+        i++;
+      }
+      out += JSON.stringify(str); // re-encode with proper JSON escaping
+      continue;
+    }
+    buf += ch;
+    i++;
+  }
+  flush();
+  return out;
+}
+
+function parseEmbeddedObject(message: string): Record<string, unknown> | undefined {
+  const start = message.indexOf("{");
+  const end = message.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return undefined;
+  }
+  const candidate = message.slice(start, end + 1);
+
+  for (const text of [candidate, pythonDictToJson(candidate)]) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
+}
+
+// build the span status content rendered in the Status Message tab.
+function getStatusDetails(span: Span): Record<string, unknown> | string | undefined {
+  const status = span.ampAttributes?.status;
+  if (!status?.message) {
+    return undefined;
+  }
+  return parseEmbeddedObject(status.message) ?? status.message;
+}
+
 // Helper function to check if span has overview content
 function hasOverviewContent(span: Span): boolean {
   const { kind, data, input, output } = span.ampAttributes || {};
@@ -93,6 +175,8 @@ export function SpanDetailsPanel({ span, evaluatorScores }: SpanDetailsPanelProp
   const hasTools = !!tools;
   const hasAttributes = !!span?.attributes;
   const hasScores = !!(evaluatorScores && evaluatorScores.length > 0);
+  const statusDetails = span ? getStatusDetails(span) : undefined;
+  const hasStatus = !!statusDetails;
 
   useEffect(() => {
     if (!span) return;
@@ -102,6 +186,8 @@ export function SpanDetailsPanel({ span, evaluatorScores }: SpanDetailsPanelProp
     } else if (selectedTab === "tools" && hasTools) {
       return;
     } else if (selectedTab === "attributes" && hasAttributes) {
+      return;
+    } else if (selectedTab === "status" && hasStatus) {
       return;
     } else if (selectedTab === "scores" && hasScores) {
       return;
@@ -118,11 +204,15 @@ export function SpanDetailsPanel({ span, evaluatorScores }: SpanDetailsPanelProp
     else if (hasAttributes) {
       setSelectedTab("attributes");
     }
+    // for status message
+    else if (hasStatus) {
+      setSelectedTab("status");
+    }
     // for scores
     else if (hasScores) {
       setSelectedTab("scores");
     }
-  }, [span, span?.spanId, hasOverview, hasTools, hasAttributes, hasScores, selectedTab]);
+  }, [span, span?.spanId, hasOverview, hasTools, hasAttributes, hasStatus, hasScores, selectedTab]);
 
   if (!span) {
     return null;
@@ -160,6 +250,7 @@ export function SpanDetailsPanel({ span, evaluatorScores }: SpanDetailsPanelProp
           <Tab label="Overview" value="overview" disabled={!hasOverview} />
           {hasTools && <Tab label="Tools" value="tools" />}
           {span?.attributes && <Tab label="Attributes" value="attributes" />}
+          {hasStatus && <Tab label="Status Message" value="status" />}
           {hasScores && <Tab label="Scores" value="scores" />}
         </Tabs>
       </Stack>
@@ -175,6 +266,11 @@ export function SpanDetailsPanel({ span, evaluatorScores }: SpanDetailsPanelProp
         {selectedTab === "attributes" && (
           <FadeIn>
             <AttributesSection attributes={span?.attributes} />
+          </FadeIn>
+        )}
+        {selectedTab === "status" && statusDetails && (
+          <FadeIn>
+            <AttributesSection attributes={statusDetails} />
           </FadeIn>
         )}
         {selectedTab === "tools" && (
