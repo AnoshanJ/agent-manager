@@ -1,0 +1,63 @@
+{{- if .Values.networkPolicy.evaluationJob.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: amp-evaluation-job-egress
+  namespace: {{ .Values.networkPolicy.evaluationJob.namespace }}
+  labels:
+{{- include "amp-evaluation-extension.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: amp-monitor
+      app.kubernetes.io/component: evaluation-job
+  policyTypes: [Egress]
+  egress:
+    # DNS resolution for all the service hostnames below.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+    # amp-observer (traces-observer-service) — fetch trace data to evaluate.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.evaluationJob.observer.namespace }}
+      ports:
+        - port: {{ .Values.networkPolicy.evaluationJob.observer.port }}
+          protocol: TCP
+
+    # amp-thunder IDP — mints the OAuth2 token used to call both amp-observer and
+    # amp-api below. Not one of the issue's three named targets, but required: without
+    # it the pod can authenticate to neither of the other two allowed services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.evaluationJob.idp.namespace }}
+      ports:
+        - port: {{ .Values.networkPolicy.evaluationJob.idp.port }}
+          protocol: TCP
+
+    # agent-manager-service publisher endpoint (amp-api) — publish evaluation scores.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.evaluationJob.publisher.namespace }}
+      ports:
+        - port: {{ .Values.networkPolicy.evaluationJob.publisher.port }}
+          protocol: TCP
+
+    # API Platform gateway runtime — LLM proxy endpoint for llm_judge evaluators. Kept
+    # unconditional (not scoped to llm_judge-only runs): NetworkPolicy can't distinguish
+    # workflow context, and this only reaches the org's own gateway runtime port, matching
+    # the same egress rule already granted to agent-api components.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              amp.wso2.com/api-platform-gateway: "true"
+      ports:
+        - port: {{ .Values.networkPolicy.evaluationJob.llmGateway.port }}
+          protocol: TCP
+{{- end }}

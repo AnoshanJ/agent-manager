@@ -49,3 +49,34 @@ ampEvaluation:
     # Note: clientSecret is loaded dynamically from OpenBao via ExternalSecret at workflow runtime
     idpTokenUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token"
     clientId: "amp-publisher-client"
+
+# NetworkPolicy restricting the evaluation-job pod's egress. The pod runs user-submitted
+# custom evaluator code via exec()/eval() with no sandboxing, so its egress is limited to
+# only what it actually needs: DNS, the traces observer, Thunder (token minting), the
+# agent-manager-service publisher endpoint, and the API Platform LLM gateway.
+networkPolicy:
+  evaluationJob:
+    # -- Enable the egress-restricting NetworkPolicy for the evaluation-job pod.
+    # No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel).
+    enabled: true
+
+    # -- Namespace the NetworkPolicy is created in. Must match the namespace evaluation-job
+    # pods actually run in (agent-manager-service's OPEN_CHOREO_DEFAULT_NAMESPACE, "default"
+    # unless overridden) — NOT this chart's own release namespace, and not
+    # ampEvaluation.workflowNamespace (that only controls where the Workflow CR lives).
+    namespace: "default"
+
+    observer:
+      namespace: "openchoreo-observability-plane"
+      port: 9098
+
+    publisher:
+      namespace: "wso2-amp"
+      port: 9000
+
+    idp:
+      namespace: "amp-thunder"
+      port: 8090
+
+    llmGateway:
+      port: 22893
