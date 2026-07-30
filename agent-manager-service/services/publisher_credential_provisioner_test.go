@@ -205,3 +205,69 @@ func TestGetOCClientForOrg_ReadsFromSchedulerCredRepo(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, ocClient)
 }
+
+// TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing covers orgs whose monitors
+// were created before the scheduler/publisher credential split (or otherwise never had
+// EnsureCredentials called): the periodic scheduler calls GetOCClientForOrg directly and never
+// calls EnsureCredentials itself, so a missing scheduler credential must be provisioned here
+// rather than left as a permanent failure.
+func TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing(t *testing.T) {
+	var upserted *models.OrgSchedulerCredential
+
+	schedulerCredRepo := &repomocks.OrgSchedulerCredentialRepositoryMock{
+		// Models "not found until provisioned": both GetOCClientForOrg's own lookup and
+		// provisionSchedulerCredentials' internal existence check must see not-found here.
+		GetByOrgNameFunc: func(ouID string) (*models.OrgSchedulerCredential, error) {
+			if upserted == nil {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return upserted, nil
+		},
+		UpsertFunc: func(cred *models.OrgSchedulerCredential) error {
+			upserted = cred
+			return nil
+		},
+	}
+
+	var boundClientID string
+	thunderMock := &clientmocks.ThunderClientMock{
+		EnsureAppFunc: func(_ context.Context, appName, _ string) (string, string, bool, error) {
+			assert.Equal(t, "amp-scheduler-acme", appName)
+			return appName, "scheduler-secret", true, nil
+		},
+	}
+	ocMock := &clientmocks.OpenChoreoClientMock{
+		EnsureClusterRoleBindingFunc: func(_ context.Context, clientID string, roleName string) error {
+			boundClientID = clientID
+			assert.Equal(t, schedulerRoleName, roleName)
+			return nil
+		},
+		GetSecretReferenceFunc: func(_ context.Context, _ string, secretRefName string) (*occlient.SecretReferenceInfo, error) {
+			return newTestSecretRef("kv/"+secretRefName, "client-secret"), nil
+		},
+	}
+	secretClient := &clientmocks.SecretManagementClientMock{
+		CreateSecretFunc: func(_ context.Context, location secretmanagersvc.SecretLocation, _ map[string]string) (string, error) {
+			return "ref-" + location.EntityName, nil
+		},
+	}
+
+	p := &publisherCredentialProvisioner{
+		thunderClient:     thunderMock,
+		secretClient:      secretClient,
+		ocClient:          ocMock,
+		schedulerCredRepo: schedulerCredRepo,
+		logger:            discardLogger(),
+		encryptionKey:     testEncryptionKey,
+		idpTokenURL:       "http://thunder.test/oauth2/token",
+		ocBaseURL:         "http://openchoreo.test",
+		orgOCClients:      make(map[string]occlient.OpenChoreoClient),
+	}
+
+	ocClient, err := p.GetOCClientForOrg(context.Background(), "acme")
+	require.NoError(t, err)
+	assert.NotNil(t, ocClient)
+	require.NotNil(t, upserted, "the missing scheduler credential should have been provisioned")
+	assert.Equal(t, "amp-scheduler-acme", upserted.ClientID)
+	assert.Equal(t, "amp-scheduler-acme", boundClientID)
+}

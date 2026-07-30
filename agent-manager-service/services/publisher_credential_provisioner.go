@@ -45,6 +45,11 @@ var ErrNotThunderMode = errors.New("not in Thunder mode")
 // Distinct from real DB errors so callers can decide whether to provision-on-demand vs retry.
 var ErrPublisherCredentialNotFound = errors.New("publisher credentials not found")
 
+// ErrSchedulerCredentialNotFound indicates GetOCClientForOrg's on-demand provisioning attempt
+// still didn't find a scheduler credential row immediately after provisioning one. Distinct from
+// ErrPublisherCredentialNotFound: the two credentials are looked up from different tables.
+var ErrSchedulerCredentialNotFound = errors.New("scheduler credentials not found")
+
 // PublisherCredentials holds the provisioned OAuth2 credentials for publishing scores.
 type PublisherCredentials struct {
 	ClientID     string // OAuth2 client ID (becomes JWT subject)
@@ -458,18 +463,28 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 		// concurrent callers for this ouID.
 		cred, err := p.schedulerCredRepo.GetByOrgName(ouID)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, fmt.Errorf("%w: org %s — call EnsureCredentials first", ErrPublisherCredentialNotFound, ouID)
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("failed to look up scheduler credentials for org %s: %w", ouID, err)
 			}
-			return nil, fmt.Errorf("failed to look up scheduler credentials for org %s: %w", ouID, err)
+			// No row yet — orgs whose monitors were created before the scheduler/publisher
+			// credential split (or before EnsureCredentials otherwise ran) have no scheduler
+			// credential. Provision on demand rather than failing: the periodic scheduler
+			// calls this directly and never calls EnsureCredentials itself.
+			p.logger.Info("No scheduler credentials found for org, provisioning on demand", "ouID", ouID)
+			if provErr := p.provisionSchedulerCredentials(ctx, ouID, ""); provErr != nil {
+				return nil, fmt.Errorf("failed to provision scheduler credentials for org %s: %w", ouID, provErr)
+			}
+			cred, err = p.schedulerCredRepo.GetByOrgName(ouID)
+			if err != nil {
+				return nil, fmt.Errorf("%w: org %s — provisioned but still not found: %w", ErrSchedulerCredentialNotFound, ouID, err)
+			}
 		}
 		if len(cred.ClientSecretEncrypted) == 0 {
-			// Record exists but has no encrypted secret — orgs provisioned before migration 014
-			// have a null client_secret_encrypted column. Regenerate the Thunder client secret,
+			// Record exists but has no encrypted secret — regenerate the Thunder client secret,
 			// push it to the secret store, and persist the encrypted copy to DB.
 			p.logger.Info("No encrypted secret for org, regenerating Thunder client secret",
 				"ouID", ouID, "clientID", cred.ClientID)
-			newSecret, backfillErr := p.thunderClient.RegenerateAppClientSecret(ctx, "amp-scheduler-"+ouID)
+			newSecret, backfillErr := p.thunderClient.RegenerateAppClientSecret(ctx, cred.ClientID)
 			if backfillErr != nil {
 				return nil, fmt.Errorf("failed to regenerate client secret for org %s: %w", ouID, backfillErr)
 			}
