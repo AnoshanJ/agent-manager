@@ -246,6 +246,77 @@ func TestValidateObserverURLs(t *testing.T) {
 	}
 }
 
+func TestValidatePostgresTLSConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		sslMode     string
+		wantErrors  int
+		errContains string
+	}{
+		{
+			name:       "empty is allowed and leaves the driver default in place",
+			sslMode:    "",
+			wantErrors: 0,
+		},
+		{
+			name:       "whitespace-only is treated as unset",
+			sslMode:    "   ",
+			wantErrors: 0,
+		},
+		{
+			name:       "require accepted",
+			sslMode:    "require",
+			wantErrors: 0,
+		},
+		{
+			name:       "disable accepted",
+			sslMode:    "disable",
+			wantErrors: 0,
+		},
+		{
+			name:       "verify-full accepted",
+			sslMode:    "verify-full",
+			wantErrors: 0,
+		},
+		{
+			name:        "typo rejected",
+			sslMode:     "requrie",
+			wantErrors:  1,
+			errContains: "DB_SSL_MODE",
+		},
+		{
+			name:        "uppercase rejected because libpq is case sensitive",
+			sslMode:     "REQUIRE",
+			wantErrors:  1,
+			errContains: "is not a valid PostgreSQL sslmode",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{POSTGRESQL: POSTGRESQL{SSLMode: tc.sslMode}}
+			r := &configReader{}
+			validatePostgresTLSConfig(cfg, r)
+
+			if len(r.errors) != tc.wantErrors {
+				t.Fatalf("expected %d errors, got %d: %v", tc.wantErrors, len(r.errors), r.errors)
+			}
+			if tc.errContains != "" {
+				found := false
+				for _, e := range r.errors {
+					if strings.Contains(e.Error(), tc.errContains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected an error containing %q, got %v", tc.errContains, r.errors)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadEnvs_ObserverConfig(t *testing.T) {
 	requiredEnv := map[string]string{
 		"OPEN_CHOREO_BASE_URL": "http://localhost/api/v1",

@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -79,6 +80,11 @@ func loadEnvs() {
 		User:     r.readRequiredString("DB_USER"),
 		Password: r.readRequiredString("DB_PASSWORD"),
 		DBName:   r.readRequiredString("DB_NAME"),
+		// Left empty by default so the connection string stays byte-identical to
+		// pre-DB_SSL_MODE builds: pgx applies its libpq-compatible "prefer"
+		// default and still honours PGSSLMODE/PGSSLROOTCERT from the environment.
+		SSLMode:     strings.TrimSpace(r.readOptionalString("DB_SSL_MODE", "")),
+		SSLRootCert: strings.TrimSpace(r.readOptionalString("DB_SSL_ROOT_CERT", "")),
 	}
 	config.POSTGRESQL.DbConfigs = DbConfigs{
 		// gorm configs
@@ -265,11 +271,39 @@ func loadEnvs() {
 	validateInstrumentationURL(config, r)
 	validateObserverURLs(config, r)
 	validateResourceLimitsConfig(config, r)
+	validatePostgresTLSConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
 
 	r.logAndExitIfErrorsFound()
 
 	slog.Info("configReader: configs loaded")
+}
+
+// validPostgresSSLModes is the set of libpq sslmode values pgx accepts. Kept as
+// an explicit allowlist so a typo fails config load with a clear message instead
+// of surfacing as an opaque driver parse error at first connect.
+var validPostgresSSLModes = map[string]struct{}{
+	"disable":     {},
+	"allow":       {},
+	"prefer":      {},
+	"require":     {},
+	"verify-ca":   {},
+	"verify-full": {},
+}
+
+func validatePostgresTLSConfig(cfg *Config, r *configReader) {
+	// loadEnvs already trims, so in the real flow this value is exactly what
+	// makeConnString puts in the DSN. Trimmed again here so the check holds for
+	// callers that build a Config directly rather than from the environment.
+	mode := strings.TrimSpace(cfg.POSTGRESQL.SSLMode)
+	if mode == "" {
+		return
+	}
+	if _, ok := validPostgresSSLModes[mode]; !ok {
+		r.errors = append(r.errors, fmt.Errorf(
+			"DB_SSL_MODE %q is not a valid PostgreSQL sslmode (disable, allow, prefer, require, verify-ca, verify-full)", mode,
+		))
+	}
 }
 
 func validateHTTPServerConfigs(cfg *Config, r *configReader) {

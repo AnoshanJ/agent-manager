@@ -198,6 +198,7 @@ helm install amp \
   --set postgresql.external.username=agentmanager \
   --set postgresql.external.existingSecret=amp-db-credentials \
   --set postgresql.external.existingSecretPasswordKey=password \
+  --set postgresql.external.sslMode=require \
   --timeout 1800s
 ```
 
@@ -215,10 +216,12 @@ kubectl wait --for=condition=Available \
 
 `agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
 
-:::warning Enforce TLS on the database server
-The chart passes the connection details as separate host, port, and credential values, and the service builds its connection string without an explicit SSL mode — so the driver's default of `prefer` applies. That negotiates TLS when the server offers it but **silently falls back to an unencrypted connection** when it does not, and there is currently no chart value to require it from the client side.
+:::warning Require TLS on the database connection
+`postgresql.external.sslMode=require` above makes the connection **fail closed**. Left unset, the driver's default of `prefer` applies: it negotiates TLS when the server offers it but silently falls back to an unencrypted connection when it does not, so a misconfigured or replaced instance downgrades without any error.
 
-Enforce it on the database instead, where it cannot be downgraded: *Require SSL* on Cloud SQL, `rds.force_ssl=1` on RDS, or *require secure transport* on Azure Database for PostgreSQL. Keep the database on a private network as well, so it is never reachable from outside the VPC.
+`require` encrypts but does **not** verify the server's identity. To also authenticate the database, use `sslMode=verify-full` with `postgresql.external.sslRootCert`. Set it to `system` when the certificate chains to a public CA — true for the managed services — which needs no CA mounted; for a private CA, mount the PEM through the chart's `volumes`/`volumeMounts` values and point `sslRootCert` at that path.
+
+Enforce it on the server as well, where the client cannot downgrade it: *Require SSL* on Cloud SQL, `rds.force_ssl=1` on RDS, or *require secure transport* on Azure Database for PostgreSQL. Keep the database on a private network so it is never reachable from outside the VPC.
 :::
 
 </Prod>

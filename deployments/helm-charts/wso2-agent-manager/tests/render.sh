@@ -94,6 +94,76 @@ assert_cm "a stray comma in the audience does not produce an empty entry" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com \
   --set 'agentManagerService.config.keyManager.audience=amp\,'
 
+# env_value <template-path> <env-name> [helm --set args...] -> value of that env var,
+# or empty when the variable is not rendered at all.
+env_value() {
+  local tmpl="$1" name="$2" rendered
+  shift 2
+  if ! rendered="$(helm template test-release "$CHART_DIR" \
+    --show-only "$tmpl" "$@" 2>&1)"; then
+    printf 'helm template failed: %s\n' "$rendered" >&2
+    return 1
+  fi
+  awk -v n="$name" '
+    $1 == "-" && $2 == "name:" { in_var = ($3 == n); next }
+    in_var && $1 == "value:" {
+      sub(/^[[:space:]]*value:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      gsub(/^"|"$/, "")
+      print
+      exit
+    }
+  ' <<<"$rendered"
+}
+
+assert_env() {
+  local label="$1" tmpl="$2" key="$3" expected="$4"
+  shift 4
+  local actual
+  actual="$(env_value "$tmpl" "$key" "$@")"
+  if [[ "$expected" == "$actual" ]]; then
+    printf 'ok   - %s\n' "$label"
+  else
+    printf 'FAIL - %s\n      expected %s: %q\n      actual   %s: %q\n' \
+      "$label" "$key" "$expected" "$key" "$actual"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+API_TMPL=templates/agent-manager-service/deployment.yaml
+MIG_TMPL=templates/jobs/db-migration-job.yaml
+EXTERNAL=(--set postgresql.enabled=false --set postgresql.external.host=db.example.com)
+
+# The database connection carries no TLS settings unless asked for, so the DSN
+# stays byte-identical to pre-DB_SSL_MODE builds and pgx keeps its "prefer"
+# default. Both workloads connect, so both must agree.
+assert_env "default renders no SSL mode for the API" "$API_TMPL" DB_SSL_MODE ""
+assert_env "default renders no SSL mode for the migration job" "$MIG_TMPL" DB_SSL_MODE ""
+assert_env "external without an SSL mode renders none for the API" \
+  "$API_TMPL" DB_SSL_MODE "" "${EXTERNAL[@]}"
+assert_env "external without an SSL mode renders none for the migration job" \
+  "$MIG_TMPL" DB_SSL_MODE "" "${EXTERNAL[@]}"
+
+# A configured mode has to reach the migration job too: it runs the same binary
+# against the same database, so a mode set only on the API would leave the
+# post-install migration hook connecting in plaintext.
+assert_env "sslMode reaches the API" "$API_TMPL" DB_SSL_MODE "require" \
+  "${EXTERNAL[@]}" --set postgresql.external.sslMode=require
+assert_env "sslMode reaches the migration job" "$MIG_TMPL" DB_SSL_MODE "require" \
+  "${EXTERNAL[@]}" --set postgresql.external.sslMode=require
+assert_env "sslRootCert reaches the API" "$API_TMPL" DB_SSL_ROOT_CERT "system" \
+  "${EXTERNAL[@]}" --set postgresql.external.sslMode=verify-full \
+  --set postgresql.external.sslRootCert=system
+assert_env "sslRootCert reaches the migration job" "$MIG_TMPL" DB_SSL_ROOT_CERT "system" \
+  "${EXTERNAL[@]}" --set postgresql.external.sslMode=verify-full \
+  --set postgresql.external.sslRootCert=system
+
+# The bundled PostgreSQL serves plaintext, so an sslMode left over from an
+# external configuration must not be applied to it — that would fail the API pod
+# and the migration hook on an otherwise working default install.
+assert_env "sslMode is ignored for the in-cluster database" \
+  "$API_TMPL" DB_SSL_MODE "" --set postgresql.external.sslMode=require
+
 if ((FAILURES > 0)); then
   printf '\n%d assertion(s) failed\n' "$FAILURES"
   exit 1
