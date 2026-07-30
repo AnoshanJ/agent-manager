@@ -42,6 +42,7 @@ import {
 import {
   AlertTriangle,
   Folder,
+  Info,
   RotateCcwKey,
   Shield,
   ShieldAlert,
@@ -381,6 +382,12 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
 
   const isExternal = binding.provisioningType === "external";
 
+  const clientSecretLabelAction = !isExternal ? (
+    <Tooltip title="This agent's client secret is injected directly into the workload — the values above are shown for reference, but you don't need to copy anything from here to configure the agent itself.">
+      <Info size={14} />
+    </Tooltip>
+  ) : undefined;
+
   let body: React.ReactNode;
   if (revealed) {
     // Only shown once, right after regenerating — the backend never stores
@@ -399,6 +406,7 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
         <TextInput
           slotProps={{ input: { readOnly: true } }}
           label="Client Secret"
+          labelAction={clientSecretLabelAction}
           value={revealed.clientSecret}
           type="password"
           showPasswordToggle
@@ -437,6 +445,7 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
         <TextInput
           slotProps={{ input: { readOnly: true } }}
           label="Client Secret"
+          labelAction={clientSecretLabelAction}
           value="••••••••"
           fullWidth
           size="small"
@@ -504,12 +513,16 @@ const AgentIdentitySection: React.FC<AgentIdentitySectionProps> = ({
 
             {body}
 
-            {!isExternal && (
-              <Typography variant="body2" color="text.secondary">
-                This agent&apos;s client secret is injected directly into the workload —
-                the values above are shown for reference, but you don&apos;t need to copy
-                anything from here to configure the agent itself.
-              </Typography>
+            {thunderAgentId && (
+              <TextInput
+                slotProps={{ input: { readOnly: true } }}
+                label="Thunder Agent ID"
+                value={thunderAgentId}
+                copyable
+                fullWidth
+                size="small"
+                sx={monospaceInputSx}
+              />
             )}
           </Form.Section>
 

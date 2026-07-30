@@ -354,7 +354,7 @@ export function EnvironmentViewPage() {
                               <KeyRound size={16} />
                             </Avatar>
                           }
-                          primary="Thunder"
+                          primary="Thunder Id"
                           secondary="System identity provider"
                         />
                       </ListingTable.Cell>
