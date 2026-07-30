@@ -61,10 +61,15 @@ networkPolicy:
     enabled: true
 
     # -- Namespace the NetworkPolicy is created in. Must match the namespace evaluation-job
-    # pods actually run in (agent-manager-service's OPEN_CHOREO_DEFAULT_NAMESPACE, "default"
-    # unless overridden) — NOT this chart's own release namespace, and not
-    # ampEvaluation.workflowNamespace (that only controls where the Workflow CR lives).
-    namespace: "default"
+    # PODS actually run in, which is NOT the same as ampEvaluation.workflowNamespace /
+    # OPEN_CHOREO_DEFAULT_NAMESPACE ("default") — that value names the OpenChoreo
+    # environment/org, and OpenChoreo's own control plane runs that environment's Argo
+    # workflows in a K8s namespace it names "workflows-<environment-name>" (confirmed by
+    # this repo's own CI log-collection steps in .github/workflows/{e2e,nightly,release}.yml,
+    # which pull Argo workflow pod logs from "workflows-default"). Also NOT this chart's own
+    # release namespace (openchoreo-workflow-plane). Update this value in lockstep if the
+    # environment name ampEvaluation.workflowNamespace points at ever changes from "default".
+    namespace: "workflows-default"
 
     observer:
       namespace: "openchoreo-observability-plane"
