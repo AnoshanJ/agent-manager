@@ -86,4 +86,21 @@ var _ = Describe("Environment management: split gateway topology", Label("enviro
 		Expect(ingress).To(Equal(1), "expected exactly one INGRESS gateway for env %q", envName)
 		Expect(egress).To(Equal(1), "expected exactly one EGRESS gateway for env %q", envName)
 	})
+
+	It("registers a cluster-local runtimeUrl for both roles", func() {
+		gateways := gateway.WaitForActiveGatewaysForEnv(Client, Cfg.DefaultOrg, envName, 5*time.Minute)
+
+		for _, gw := range gateways {
+			// The chart is the only producer; empty here means the POST body lost the field
+			// or the exists-path PUT never ran, and sandboxed agents would silently fall
+			// back to the unroutable vhost.
+			Expect(gw.RuntimeUrl).NotTo(BeEmpty(),
+				"gateway %q (%s) has no runtimeUrl", gw.Name, gw.GatewayType)
+			Expect(gw.RuntimeUrl).To(HavePrefix("http://"+gw.Name+"-gw-gateway-gateway-runtime."),
+				"gateway %q runtimeUrl does not address its own runtime Service: %s", gw.Name, gw.RuntimeUrl)
+			Expect(gw.RuntimeUrl).To(HaveSuffix(":22893"),
+				"gateway %q runtimeUrl is missing the runtime port: %s", gw.Name, gw.RuntimeUrl)
+			GinkgoWriter.Printf("Gateway %s (%s) runtimeUrl: %s\n", gw.Name, gw.GatewayType, gw.RuntimeUrl)
+		}
+	})
 })
