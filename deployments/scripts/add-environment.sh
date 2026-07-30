@@ -468,10 +468,9 @@ if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
 
     # gateway.name MUST be set: apiGatewayName (_helpers.tpl:56-62) defaults to
     # api-platform-<org>-<env> with no discriminator, so both releases would produce the
-    # same gateway name. The name is also load-bearing for in-cluster routing —
-    # gatewayRuntimeInClusterURL (agent_configuration_service.go:271-280) derives the
-    # runtime namespace by stripping the configured "api-platform-" prefix, so name and
-    # namespace must stay in lockstep. See agent_configuration_proxy_url_test.go.
+    # same gateway name. The name also feeds the chart-computed runtimeUrl
+    # (<apiGatewayName>-gw-gateway-gateway-runtime.<apiGateway.namespace>:22893), which the
+    # chart POSTs/PUTs to AMS at registration — AMS just stores it, no name-based derivation.
     #
     # gateway.hostname MUST be set and MUST equal the host inside gateway.vhost:
     # gatewayHostname (_helpers.tpl:68-74) defaults to <env>-<org>.gateway.localhost with
