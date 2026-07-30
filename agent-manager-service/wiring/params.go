@@ -81,6 +81,7 @@ type AppParams struct {
 	AgentManagerService           services.AgentManagerService
 	AgentTokenManagerService      services.AgentTokenManagerService
 	AgentIdentityInjectionService services.AgentIdentityInjectionService
+	EnvironmentService            services.EnvironmentService
 
 	// Clients
 	OpenChoreoClient  occlient.OpenChoreoClient

@@ -52,10 +52,11 @@ func TestToolRegistration(t *testing.T) {
 func TestToolPermissionsMatchSpecs(t *testing.T) {
 	mock := NewMockToolsetHandler()
 	toolsets := &Toolsets{
-		ProjectToolset:    mock,
-		AgentToolset:      mock,
-		BuildToolset:      mock,
-		DeploymentToolset: mock,
+		ProjectToolset:     mock,
+		AgentToolset:       mock,
+		BuildToolset:       mock,
+		DeploymentToolset:  mock,
+		EnvironmentToolset: mock,
 	}
 	server := gomcp.NewServer(&gomcp.Implementation{Name: "t", Version: "0"}, nil)
 	reg := toolsets.register(server)

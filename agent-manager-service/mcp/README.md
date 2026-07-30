@@ -10,6 +10,10 @@ JWT middleware, which means every tool call goes through the standard OAuth
 declares the `rbac` permission(s) it requires; calls are denied unless the
 token carries the matching `amp:*` scopes (when `RBAC_ENABLED=true`).
 
+The caller's organization is always derived from the token's claims — tools
+take no `org_name`/`org_handle` input, and every operation is scoped to the
+org the caller authenticated against.
+
 ## Quick start with Claude Code
 
 1. **Make sure Agent Manager is running** — `make dev-up` brings up the
@@ -41,16 +45,16 @@ That's it — Claude Code now sees the platform's tools alongside its own.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_projects` | Paginated list of projects within an organization |
+| `list_projects` | Paginated list of projects within the caller's organization |
 | `create_project` | Create a new project |
-| `list_project_agent_pairs` | All `(project, agent)` pairs across an org with optional substring filters |
+| `list_project_agent_pairs` | All `(project, agent)` pairs across the org with optional substring filters |
 
 ### Agents
 
 | Tool | Purpose |
 | --- | --- |
 | `list_agents` | Paginated list of agents within a project |
-| `create_external_agent` | Register an externally-hosted agent. Returns the agent identity, an API token, and step-by-step instrumentation instructions for Python or Ballerina runtimes |
+| `create_external_agent` | Register an externally-hosted agent. Returns the agent identity, an API token (scoped to the optional `environment`; defaults to the org's only environment, required when several exist), and step-by-step instrumentation instructions for Python or Ballerina runtimes |
 | `create_internal_agent_python` | Create a platform-managed Python agent: source repo, branch, app path, optional config schema, env vars. Triggers the initial build automatically |
 
 ### Builds
@@ -70,6 +74,12 @@ Internal agents only — external agents are never built by the platform.
 | `list_deployments` | An agent's deployments across all environments, keyed by env name, with state and image |
 | `deploy_agent` | Deploy a built image to the lowest environment in the pipeline. Accepts runtime env vars (plain values, sensitive flags, or references to existing secrets) and an `enable_auto_instrumentation` toggle |
 | `update_deployment_state` | Transition a deployment in a specific environment — `redeploy` (active rollout) or `undeploy` (suspend) |
+
+### Environments
+
+| Tool | Purpose |
+| --- | --- |
+| `list_environments` | Paginated list of the org's environments (name, display name, production flag). Discovers valid names for tools that take an `environment` argument |
 
 ## Configuration
 
@@ -105,9 +115,10 @@ registered by `wso2-amp-thunder-extension/templates/amp-thunder-bootstrap.yaml`
 4. **Register the tool** inside the package's `register*Tools` function using
    `addTool(reg, server, tool, handler, perms...)`. Provide a clear
    description; the LLM relies on it to decide when to call the tool.
-5. **Implement the handler closure** — validate input, resolve org name
-   via `resolveOrgName`, call into the toolset handler interface, format
-   the output struct, and return via `handleToolResult`.
+5. **Implement the handler closure** — validate input, resolve the caller's
+   org via `resolveOUID` (never from tool input), call into the toolset
+   handler interface, format the output struct, and return via
+   `handleToolResult`.
 6. **Wire the toolset interface method** in `mcp/tools/types.go` and
    implement it in the corresponding `mcp/handlers/*_handler.go` (which
    delegates to the existing service-layer interface).
