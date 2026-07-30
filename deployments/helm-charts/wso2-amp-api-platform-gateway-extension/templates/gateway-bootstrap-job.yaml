@@ -11,7 +11,7 @@ metadata:
     {{- include "wso2-amp-gateway-extension.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-bootstrap
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "1"
     "helm.sh/hook-delete-policy": before-hook-creation
 ---
@@ -25,7 +25,7 @@ metadata:
     {{- include "wso2-amp-gateway-extension.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-bootstrap
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "2"
     "helm.sh/hook-delete-policy": before-hook-creation
 rules:
@@ -48,7 +48,7 @@ metadata:
     {{- include "wso2-amp-gateway-extension.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-bootstrap
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "3"
     "helm.sh/hook-delete-policy": before-hook-creation
 subjects:
@@ -80,7 +80,7 @@ metadata:
     {{- include "wso2-amp-gateway-extension.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-bootstrap
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "10"
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
@@ -122,6 +122,8 @@ spec:
               value: {{ .Values.gateway.displayName | quote }}
             - name: GATEWAY_VHOST
               value: {{ .Values.gateway.vhost | quote }}
+            - name: GATEWAY_RUNTIME_URL
+              value: {{ include "wso2-amp-gateway-extension.runtimeUrl" . | quote }}
             - name: GATEWAY_TYPE
               value: {{ .Values.gateway.type | quote }}
             - name: ENVIRONMENT_NAME
@@ -223,6 +225,29 @@ spec:
                 fi
               }
 
+              # sync_runtime_url wanted registered — PUTs the in-cluster runtime address when
+              # it differs from what AMS holds. Unlike the role, the address is mutable: it is
+              # a fact about placement, so a stale one is simply wrong. Non-fatal like
+              # seed_identity_provider — http_put returns 1 on non-2xx and set -eu would
+              # otherwise abort this pre-upgrade hook, killing the runtime image bump that
+              # was the point of the upgrade.
+              sync_runtime_url() {
+                _want="$1"; _have="$2"
+                if [ -z "${_want}" ] || [ "${_want}" = "${_have}" ]; then
+                  return 0
+                fi
+                log_info "Updating gateway runtimeUrl from '${_have}' to '${_want}'..."
+                if http_put \
+                    "${AMP_API_URL}/orgs/${ORG_NAME}/gateways/${GATEWAY_ID}" \
+                    "application/json" \
+                    '{"runtimeUrl":"'"${_want}"'"}' \
+                    "Bearer ${ACCESS_TOKEN}" >/dev/null; then
+                  log_info "Gateway runtimeUrl updated."
+                else
+                  log_error "Failed to update gateway runtimeUrl to '${_want}' (continuing). Sandboxed agents will keep using the registered value."
+                fi
+              }
+
               # ----------------------------------------------------------------
               # Step 1: Wait for Agent Manager API to be healthy
               # ----------------------------------------------------------------
@@ -292,6 +317,13 @@ spec:
                   log_info "WARNING: gateway '${GATEWAY_NAME}' is registered as '${REGISTERED_TYPE}' but values.yaml requests '${WANTED_TYPE}'."
                   log_info "         The role is immutable; values.yaml will stay wrong until the gateway is re-registered."
                 fi
+                # Window is safe because JSON object keys are emitted alphabetically: the only
+                # }-bearing value, environments, precedes name, and only scalar region can fall
+                # between name and runtimeUrl.
+                REGISTERED_RUNTIME_URL=$(echo "${LIST_RESPONSE}" | \
+                  grep -o '"name":"'"${GATEWAY_NAME}"'"[^}]*"runtimeUrl":"[^"]*"' | \
+                  grep -o '"runtimeUrl":"[^"]*"' | cut -d'"' -f4 | head -1)
+                sync_runtime_url "${GATEWAY_RUNTIME_URL}" "${REGISTERED_RUNTIME_URL}"
               else
                 # ----------------------------------------------------------------
                 # Step 4: Find the environment by name
@@ -320,7 +352,7 @@ spec:
                 REGISTER_RESPONSE=$(http_post \
                   "${AMP_API_URL}/orgs/${ORG_NAME}/gateways" \
                   "application/json" \
-                  '{"name":"'"${GATEWAY_NAME}"'","displayName":"'"${GATEWAY_DISPLAY_NAME}"'","gatewayType":"'"${GATEWAY_TYPE}"'","vhost":"'"${GATEWAY_VHOST}"'","environmentIds":["'"${ENVIRONMENT_ID}"'"]}' \
+                  '{"name":"'"${GATEWAY_NAME}"'","displayName":"'"${GATEWAY_DISPLAY_NAME}"'","gatewayType":"'"${GATEWAY_TYPE}"'","vhost":"'"${GATEWAY_VHOST}"'","runtimeUrl":"'"${GATEWAY_RUNTIME_URL}"'","environmentIds":["'"${ENVIRONMENT_ID}"'"]}' \
                   "Bearer ${ACCESS_TOKEN}")
 
                 GATEWAY_ID=$(echo "${REGISTER_RESPONSE}" | \
