@@ -76,21 +76,9 @@ func listProjects(handler ProjectToolsetHandler) func(context.Context, *gomcp.Ca
 	return func(ctx context.Context, _ *gomcp.CallToolRequest, input listProjectsInput) (*gomcp.CallToolResult, any, error) {
 		ouID := resolveOUID(ctx)
 
-		// Apply default limit. Validate bounds.
-		limit := utils.DefaultLimit
-		if input.Limit != nil {
-			limit = *input.Limit
-		}
-		if limit < utils.MinLimit || limit > utils.MaxLimit {
-			return nil, nil, fmt.Errorf("limit must be between %d and %d", utils.MinLimit, utils.MaxLimit)
-		}
-		// Apply default offset. Validate bounds.
-		offset := utils.DefaultOffset
-		if input.Offset != nil {
-			offset = *input.Offset
-		}
-		if offset < utils.MinOffset {
-			return nil, nil, fmt.Errorf("offset must be >= %d", utils.MinOffset)
+		limit, offset, err := resolvePagination(input.Limit, input.Offset)
+		if err != nil {
+			return nil, nil, err
 		}
 		// Calls the service-layer interface
 		projects, total, err := handler.ListProjects(ctx, ouID, limit, offset)

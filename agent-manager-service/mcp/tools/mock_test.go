@@ -22,6 +22,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // MockToolsetHandler implements every toolset interface for use in tool-package tests.
@@ -156,4 +157,14 @@ func (m *MockToolsetHandler) ListEnvironments(
 		Limit:  limit,
 		Offset: offset,
 	}, nil
+}
+
+func (m *MockToolsetHandler) GetEnvironment(
+	ctx context.Context, ouID string, envName string,
+) (*models.GatewayEnvironmentResponse, error) {
+	m.recordCall("GetEnvironment", ouID, envName)
+	if envName != testEnvName {
+		return nil, utils.ErrEnvironmentNotFound
+	}
+	return &models.GatewayEnvironmentResponse{Name: testEnvName, DisplayName: "Default Env", IsProduction: false}, nil
 }

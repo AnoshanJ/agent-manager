@@ -57,4 +57,5 @@ type DeploymentToolsetHandler interface {
 
 type EnvironmentToolsetHandler interface {
 	ListEnvironments(ctx context.Context, ouID string, limit int32, offset int32) (*models.EnvironmentListResponse, error)
+	GetEnvironment(ctx context.Context, ouID string, envName string) (*models.GatewayEnvironmentResponse, error)
 }

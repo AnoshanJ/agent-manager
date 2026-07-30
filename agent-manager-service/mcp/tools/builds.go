@@ -131,20 +131,9 @@ func listBuilds(handler BuildToolsetHandler) func(context.Context, *gomcp.CallTo
 		}
 		ouID := resolveOUID(ctx)
 
-		limit := utils.DefaultLimit
-		if input.Limit != nil {
-			limit = *input.Limit
-		}
-		if limit < utils.MinLimit || limit > utils.MaxLimit {
-			return nil, nil, fmt.Errorf("limit must be between %d and %d", utils.MinLimit, utils.MaxLimit)
-		}
-
-		offset := utils.DefaultOffset
-		if input.Offset != nil {
-			offset = *input.Offset
-		}
-		if offset < utils.MinOffset {
-			return nil, nil, fmt.Errorf("offset must be >= %d", utils.MinOffset)
+		limit, offset, err := resolvePagination(input.Limit, input.Offset)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		builds, total, err := handler.ListAgentBuilds(ctx, ouID, projectName, agentName, int32(limit), int32(offset))

@@ -34,3 +34,7 @@ func NewEnvironmentHandler(envSvc services.EnvironmentService) *EnvironmentHandl
 func (h *EnvironmentHandler) ListEnvironments(ctx context.Context, ouID string, limit int32, offset int32) (*models.EnvironmentListResponse, error) {
 	return h.envSvc.ListEnvironments(ctx, ouID, limit, offset)
 }
+
+func (h *EnvironmentHandler) GetEnvironment(ctx context.Context, ouID string, envName string) (*models.GatewayEnvironmentResponse, error) {
+	return h.envSvc.GetEnvironment(ctx, ouID, envName)
+}

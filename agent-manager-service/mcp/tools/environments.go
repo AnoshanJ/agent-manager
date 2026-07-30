@@ -59,19 +59,9 @@ func listEnvironments(handler EnvironmentToolsetHandler) func(context.Context, *
 	return func(ctx context.Context, _ *gomcp.CallToolRequest, input listEnvironmentsInput) (*gomcp.CallToolResult, any, error) {
 		ouID := resolveOUID(ctx)
 
-		limit := utils.DefaultLimit
-		if input.Limit != nil {
-			limit = *input.Limit
-		}
-		if limit < utils.MinLimit || limit > utils.MaxLimit {
-			return nil, nil, fmt.Errorf("limit must be between %d and %d", utils.MinLimit, utils.MaxLimit)
-		}
-		offset := utils.DefaultOffset
-		if input.Offset != nil {
-			offset = *input.Offset
-		}
-		if offset < utils.MinOffset {
-			return nil, nil, fmt.Errorf("offset must be >= %d", utils.MinOffset)
+		limit, offset, err := resolvePagination(input.Limit, input.Offset)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		result, err := handler.ListEnvironments(ctx, ouID, int32(limit), int32(offset))
@@ -98,13 +88,12 @@ func listEnvironments(handler EnvironmentToolsetHandler) func(context.Context, *
 	}
 }
 
-// resolveTokenEnvironment validates an explicit environment name against the org's
-// environments, or resolves the org's only environment when the name is empty.
+// resolveTokenEnvironment validates an explicit environment name, or resolves
+// the org's only environment when the name is empty.
 func resolveTokenEnvironment(ctx context.Context, toolName string, handler EnvironmentToolsetHandler, ouID string, name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if handler == nil {
-		if name == "" {
-			return "", fmt.Errorf("%s: environment is required", toolName)
+	if name = strings.TrimSpace(name); name != "" {
+		if _, err := handler.GetEnvironment(ctx, ouID, name); err != nil {
+			return "", wrapToolError(toolName, err)
 		}
 		return name, nil
 	}
@@ -115,20 +104,8 @@ func resolveTokenEnvironment(ctx context.Context, toolName string, handler Envir
 	if result == nil || len(result.Environments) == 0 {
 		return "", fmt.Errorf("%s: no environments are configured for your organization", toolName)
 	}
-	if name == "" {
-		if result.Total == 1 && len(result.Environments) == 1 {
-			return result.Environments[0].Name, nil
-		}
+	if len(result.Environments) > 1 {
 		return "", fmt.Errorf("%s: environment is required when the organization has more than one environment. Call list_environments to see valid names", toolName)
 	}
-	for _, env := range result.Environments {
-		if env.Name == name {
-			return name, nil
-		}
-	}
-	if int(result.Total) > len(result.Environments) {
-		// incomplete page; let the token service validate the name
-		return name, nil
-	}
-	return "", fmt.Errorf("%s: unknown environment %q. Call list_environments to see valid names", toolName, name)
+	return result.Environments[0].Name, nil
 }
