@@ -60,13 +60,52 @@ The MCP server URL follows the public URL of the `agent-manager-service`:
 <server-public-url>/mcp
 ```
 
-For a stock local installation (Quick Start, docker-compose, or k3d via the bundled Helm chart), the API is served through the OpenChoreo control-plane gateway at `api.amp.localhost:8080`, so the MCP server URL is:
+For a Quick Start or k3d install via the bundled Helm chart, the API is served through the OpenChoreo control-plane gateway, so the MCP server URL is:
 
 ```
 http://api.amp.localhost:8080/mcp
 ```
 
-If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value.
+The docker-compose dev stack publishes `agent-manager-service` straight onto a host port instead (`SERVER_PUBLIC_URL=http://localhost:9000`), so there the URL is:
+
+```
+http://localhost:9000/mcp
+```
+
+Each install registers only the origins it actually serves: `make setup` registers both (the gateway origin and the dev host port), while a Quick Start or k3d install registers the gateway origin alone. If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value — and see the warning below.
+
+:::warning Moving the public URL is a two-place change
+
+MCP clients send the server's public URL — with a trailing slash — as the OAuth
+`resource` parameter (RFC 8707), and Thunder both validates that value against
+its registered resource servers and stamps it into the token's `aud`. Changing
+the public URL therefore means changing two settings together, in two charts:
+
+| Setting                                      | Chart                        | Value               |
+| -------------------------------------------- | ---------------------------- | ------------------- |
+| `agentManagerService.config.serverPublicURL` | `wso2-agent-manager`         | the public base URL |
+| `thunder.bootstrap.agentManagerMcpBaseUrl`   | `wso2-amp-thunder-extension` | the same base URL   |
+
+On docker-compose there is no chart to derive anything, so all three move together
+by hand in `deployments/docker-compose.yml`: `SERVER_PUBLIC_URL`, the matching
+`KEY_MANAGER_AUDIENCE` entry (the same URL **plus a trailing slash**), and the
+identifier registered in Thunder.
+
+Leaving `agentManagerMcpBaseUrl` behind makes the browser redirect fail with
+`invalid_target: The resource parameter does not match any registered resource
+server`.
+
+The matching `aud` entry needs no separate setting: `wso2-agent-manager` appends
+`serverPublicURL` plus a trailing slash to `keyManager.audience` when it renders,
+so that list only carries client IDs. (Charts released before that derivation
+list the URL literally — there, moving the public URL is a three-place change.)
+
+Identifiers are matched exactly, so a deployment reachable on more than one
+origin needs one resource server per origin. `thunder.bootstrap.agentManagerMcpDevBaseUrl`
+is the opt-in second origin for the docker-compose dev stack; `make setup-openchoreo`
+sets it, and other installs leave it empty.
+
+:::
 
 ## Default OAuth Client
 
@@ -80,7 +119,13 @@ The client is public (no secret), PKCE is required, and the callback port is pin
 
 The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
 
-*Upgrading an existing install: the token scopes for MCP clients come from permissions registered on the MCP resource server in Thunder (script `60-amp-resource-server.sh`), which are seeded by the bootstrap job only. On existing installs, re-run the bootstrap job — it replaces legacy MCP resource servers automatically and seeds the permissions; a `helm upgrade` alone will not re-seed, and without the permissions MCP tokens are issued with an empty scope list and every tool call returns 403.*
+:::note Upgrading an existing install
+
+Both the MCP resource-server identifiers and the permissions that become MCP token scopes are seeded by `60-amp-resource-server.sh`, which lives in a ConfigMap annotated `helm.sh/hook: pre-install`. Helm does **not** re-apply that ConfigMap on `helm upgrade`, so upgrading the chart leaves the old scripts in place and re-running the setup job would just re-seed the old values.
+
+To pick up either, **reinstall the `amp-thunder-extension` release** (or replace the `amp-thunder-bootstrap` ConfigMap, then re-run the job). Symptoms if you skip it: an install seeded before the gateway origin was added registered only `http://localhost:9000/`, so a Quick Start or k3d client fails authorize with `invalid_target`; an install seeded without the permissions issues MCP tokens with an empty scope list and every tool call returns 403. Identifiers no longer in use are inert and can be left in place.
+
+:::
 
 ## Configuring AI Assistants
 

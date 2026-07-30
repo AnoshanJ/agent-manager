@@ -275,6 +275,17 @@ kubectl wait --for=condition=Available \
   -n ${THUNDER_NS} --timeout=300s
 ```
 
+:::info
+No MCP overrides are needed here: `thunder.bootstrap.agentManagerMcpBaseUrl` and
+`observerMcpBaseUrl` become the OAuth resource-server identifiers Thunder
+registers for the `/mcp` endpoints, and their chart defaults are already the k3d
+gateway URLs used throughout this guide. If you deviate from those hostnames,
+override both to match `agentManagerService.config.serverPublicURL` and
+`amObserver.publicUrl` — Thunder answers `invalid_target` unless an MCP client's
+requested `resource` matches a registered identifier exactly. Both are seeded by
+the pre-install bootstrap job only, so a `helm upgrade` will not re-seed them.
+:::
+
 :::warning
 Thunder persists its configuration (including the issuer URL) in a database on first boot. If you need to change `THUNDER_PUBLIC_URL` after installation, you must **uninstall the chart, delete its PVC, and reinstall** — a `helm upgrade` alone will not change the issuer in issued tokens.
 :::

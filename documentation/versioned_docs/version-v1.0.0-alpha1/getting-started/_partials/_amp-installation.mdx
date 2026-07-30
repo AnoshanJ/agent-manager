@@ -101,11 +101,20 @@ helm install amp \
   --set agentManagerService.ocIngress.hostname="${API_PUBLIC_HOST}" \
   --set agentManagerService.config.serverPublicURL="${API_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.oauthAuthorizationServers="${THUNDER_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --timeout 1800s
 ```
+
+:::info
+Both are the public Thunder URL, and the chart defaults are the k3d hostname:
+`keyManager.issuer` is what the API validates user tokens against, and
+`oauthAuthorizationServers` is the authorization server it advertises in its RFC
+9728 protected resource metadata. Startup validation only checks that the
+advertised URLs are well-formed, so a stale value here fails silently.
+:::
 
 Wait for all components:
 
@@ -243,11 +252,26 @@ helm install amp-observability-traces \
   --namespace ${OBSERVABILITY_NS} \
   --set amObserver.ocIngress.hostname="${OBS_API_PUBLIC_HOST}" \
   --set amObserver.publicUrl="${OBS_API_PUBLIC_URL}" \
+  --set amObserver.auth.issuer="${THUNDER_PUBLIC_URL}" \
+  --set amObserver.oauth.authorizationServers="${THUNDER_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
   deployment/amp-observer -n ${OBSERVABILITY_NS} --timeout=600s
 ```
+
+:::warning
+Both values must be set, and both are the **public** Thunder URL — not the
+in-cluster service URL used for `jwksUrl`. `amObserver.auth.issuer` has to match
+`agentManagerService.config.keyManager.issuer` from Step 2, because the observer
+validates the same user token the console and `amctl` send to the Agent Manager
+API. Leave it at the chart default on a custom-domain install and the traces
+page stays empty while the observer logs
+`JWT validation failed ... invalid issuer`.
+`amObserver.oauth.authorizationServers` is the authorization server advertised in
+this service's RFC 9728 protected resource metadata and must name the same
+Thunder deployment as the issuer.
+:::
 
 #### Step 6: Evaluation Extension
 

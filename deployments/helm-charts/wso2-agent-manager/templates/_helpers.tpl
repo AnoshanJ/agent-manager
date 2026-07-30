@@ -114,6 +114,19 @@ app.kubernetes.io/component: agent-manager-service
 {{- end }}
 
 {{/*
+Accepted token audiences: keyManager.audience plus serverPublicURL with the
+trailing slash Thunder stamps on RFC 8707 resource identifiers. nospace keeps a
+spaced-out list from defeating the uniq. See values.yaml for why it is derived.
+*/}}
+{{- define "agent-management-platform.agentManagerService.audience" -}}
+{{- $audiences := .Values.agentManagerService.config.keyManager.audience | nospace | splitList "," | compact -}}
+{{- with .Values.agentManagerService.config.serverPublicURL -}}
+{{- $audiences = append $audiences (printf "%s/" (trimSuffix "/" .)) -}}
+{{- end -}}
+{{- join "," (uniq $audiences) -}}
+{{- end }}
+
+{{/*
 ==============================================
 Console Helpers
 ==============================================

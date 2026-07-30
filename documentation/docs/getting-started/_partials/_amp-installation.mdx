@@ -107,6 +107,16 @@ helm install amp \
   --timeout 1800s
 ```
 
+:::info
+`keyManager.issuer` must be the public Thunder URL — the chart default is the k3d
+hostname. The authorization server the API advertises in its RFC 9728 protected
+resource metadata is derived from it, so
+`agentManagerService.config.oauthAuthorizationServers` only needs setting if it
+must differ. Likewise the MCP audience entry is derived from
+`serverPublicURL` above, so `keyManager.audience` only needs setting to change
+the accepted client IDs.
+:::
+
 Wait for all components:
 
 ```bash
@@ -243,11 +253,24 @@ helm install amp-observability-traces \
   --namespace ${OBSERVABILITY_NS} \
   --set amObserver.ocIngress.hostname="${OBS_API_PUBLIC_HOST}" \
   --set amObserver.publicUrl="${OBS_API_PUBLIC_URL}" \
+  --set amObserver.auth.issuer="${THUNDER_PUBLIC_URL}" \
   --timeout 1800s
 
 kubectl wait --for=condition=Available \
   deployment/amp-observer -n ${OBSERVABILITY_NS} --timeout=600s
 ```
+
+:::warning
+`amObserver.auth.issuer` must be the **public** Thunder URL, not the in-cluster
+service URL. The observer validates the same user token the console and `amctl`
+send to the Agent Manager API, so its issuer has to match
+`agentManagerService.config.keyManager.issuer` from Step 2. Leave it at the
+chart default on a custom-domain install and the traces page stays empty while
+the observer logs `JWT validation failed ... invalid issuer`.
+
+The chart derives `amObserver.oauth.authorizationServers` and the MCP audience
+entry from the values above; set them explicitly only if they must differ.
+:::
 
 #### Step 6: Evaluation Extension
 

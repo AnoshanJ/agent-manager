@@ -299,7 +299,9 @@ install_amp_thunder_extension() {
     local chart_version="${VERSION}"
     local release_name="amp-thunder-extension"
 
-    # Install Helm chart
+    # Install Helm chart. The chart's agentManagerMcpBaseUrl/observerMcpBaseUrl
+    # defaults are already this install's gateway origins, so no MCP resource
+    # identifier override is needed here.
     if ! install_amp_helm_chart "${release_name}" "${chart_ref}" "${THUNDER_NS}" "${TIMEOUT_AMP_INSTALL}" \
         --version "${chart_version}" \
         "${THUNDER_HELM_ARGS[@]}"; then

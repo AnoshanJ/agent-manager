@@ -53,17 +53,24 @@ amObserver:
   # the observer's auth middleware and do not need to be listed here.
   # MCP tokens minted for the observer MCP client (am-obs-mcp) carry the
   # RFC 8707 resource identifier — this service's publicUrl WITH a trailing
-  # slash — as their audience, so that URL is listed. "am-obs-mcp" is listed
-  # defensively; MCP logins normally carry the resource URL above as the
+  # slash — as their audience. That URL is NOT listed here: the chart appends
+  # publicUrl (slash included) to this list automatically, so overriding
+  # publicUrl alone keeps MCP tokens valid. "am-obs-mcp" is listed
+  # defensively; MCP logins normally carry that resource URL as the
   # audience, not the client ID (unlike amp-api-client's client-credentials
   # fallback, this can't occur for am-obs-mcp, a public client restricted to
   # authorization_code).
-  # Keep the audience URL entry in sync with publicUrl below.
   auth:
     isLocalDevEnv: false
     jwksUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/jwks"
+    # MUST be the PUBLIC Thunder URL the platform issues tokens from (the `iss`
+    # claim), not the in-cluster service URL used for jwksUrl above. The console
+    # and amctl send the same user token here that they send to
+    # agent-manager-service, so this has to match that chart's
+    # agentManagerService.config.keyManager.issuer — otherwise every traces
+    # request 401s with "invalid issuer".
     issuer: "http://thunder.amp.localhost:8080"
-    audience: "amp,amp-api-client,am-obs-mcp,http://traces.amp.localhost:11080/"
+    audience: "amp,amp-api-client,am-obs-mcp"
     # Enables scope-based authorization on the observer REST data routes.
     # Mirrors agent-manager-service's rbacEnabled. MUST stay a quoted string:
     # Helm's `default` treats boolean false as unset, which would make the
@@ -81,8 +88,12 @@ amObserver:
   # enforcement on the REST data routes is governed by auth.rbacEnabled above.
   oauth:
     # Comma-separated list of OAuth 2.0 authorization server URLs advertised
-    # in RFC 9728 protected resource metadata. Must match auth.issuer above.
-    authorizationServers: "http://thunder.amp.localhost:8080"
+    # in RFC 9728 protected resource metadata. Left empty on purpose: it
+    # defaults to auth.issuer above, which is the same authorization server.
+    # Only set it when the advertised URL must differ from the token issuer.
+    # To suppress the metadata endpoint instead, empty publicUrl — the handler
+    # checks that first, and an empty auth.issuer fails startup validation.
+    authorizationServers: ""
     # Comma-separated list of OAuth 2.0 scopes supported by this resource,
     # advertised in RFC 9728 protected resource metadata.
     scopesSupported: "amp:observability:log-read,amp:observability:trace-read,amp:observability:metric-read,amp:observability:build-log-read"

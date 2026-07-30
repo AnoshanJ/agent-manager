@@ -1569,7 +1569,8 @@ data:
     # authorization checks expect.
     log_info "Registering MCP resource servers..."
     {{- range .Values.thunder.bootstrap.mcpResourceServers }}
-    {{- $base := index $.Values.thunder.bootstrap .baseUrlValue | required (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}
+    {{- $base := index $.Values.thunder.bootstrap .baseUrlValue }}
+    {{- if $base }}
     {{- $identifier := printf "%s/" (trimSuffix "/" $base) }}
     MCP_RS_ID=$(create_or_get_rs "{{ .name }}" "{{ .handle }}" "{{ $identifier }}" "{{ .description }}" "$DEFAULT_OU_ID")
     log_info "MCP resource server '{{ $identifier }}' ready (id: $MCP_RS_ID)"
@@ -1603,6 +1604,9 @@ data:
     MCP_AMP_ROOT=$(create_or_get_resource "$MCP_RS_ID" "Agent Manager" "amp" "Root of the amp permission tree")
     register_amp_permissions "$MCP_RS_ID" "{{ .permissionSet }}" "$MCP_AMP_ROOT"
     log_info "MCP resource server '{{ $identifier }}': '{{ .permissionSet }}' permission set registered."
+    {{- else if not .optional }}
+    {{- fail (printf "thunder.bootstrap.%s must be set (base URL for the %s resource server)" .baseUrlValue .name) }}
+    {{- end }}
     {{- end }}
     log_success "MCP resource servers registered."
 

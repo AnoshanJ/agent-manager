@@ -80,7 +80,9 @@ complete OAuth discovery.
 
 In the Helm deployment these come from
 `wso2-amp-observability-extension/values.yaml` under `amObserver.publicUrl`
-and `amObserver.oauth.*`. The `am-obs-mcp` OAuth client itself is registered
+and `amObserver.oauth.*`; `amObserver.oauth.authorizationServers` is empty by
+default and falls back to `amObserver.auth.issuer`, so overriding the issuer for
+a custom domain moves both. The `am-obs-mcp` OAuth client itself is registered
 by `wso2-amp-thunder-extension` (script `64-am-obs-mcp-client.sh`; see
 `amObsMcpClient` in its `values.yaml`).
 
