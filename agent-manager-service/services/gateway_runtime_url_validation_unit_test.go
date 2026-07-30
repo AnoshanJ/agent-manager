@@ -24,8 +24,9 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
-// The port rule is the load-bearing one: the agent sandbox NetworkPolicy permits egress
-// on 80/443 to any public address, so refusing those two ports is what stops a stored
+// The port rule is the load-bearing one: the agent sandbox NetworkPolicy permits egress to
+// any destination on exactly three ports — 80 and 443 via its public ipBlock rule, and 53
+// TCP+UDP via its `to:`-less DNS rule — so refusing all three is what stops a stored
 // runtimeUrl from redirecting a sandboxed agent's LLM/MCP traffic — API key included — off
 // the cluster. The host-shape rule is defence in depth only.
 func TestValidateGatewayRuntimeURL(t *testing.T) {
@@ -51,6 +52,13 @@ func TestValidateGatewayRuntimeURL(t *testing.T) {
 		{name: "public FQDN on 80 rejected", input: "http://evil.example.com:80", wantErr: true},
 		{name: "port 443 rejected even cluster-local", input: "https://runtime.acme-dev:443", wantErr: true},
 		{name: "port 80 rejected even cluster-local", input: "http://runtime.acme-dev:80", wantErr: true},
+		{
+			name:    "port 53 rejected — sandbox DNS egress rule reaches any destination",
+			input:   "http://exfil.dev:53",
+			wantErr: true,
+		},
+		{name: "port 53 rejected even cluster-local", input: "http://runtime.acme-dev:53", wantErr: true},
+		{name: "link-local metadata address rejected", input: "http://169.254.169.254:22893", wantErr: true},
 		{name: "missing port rejected", input: "http://runtime.acme-dev", wantErr: true},
 		{name: "non-numeric port rejected", input: "http://runtime.acme-dev:abc", wantErr: true},
 		{name: "non-http scheme rejected", input: "ftp://runtime.acme-dev:22893", wantErr: true},

@@ -1117,9 +1117,11 @@ var dnsLabelPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 // Empty is legal and means "no internal address; use vhost".
 //
 // Validated rather than treated as opaque because the value is materialized into sandboxed
-// agent pod env vars alongside the minted gateway API key. Refusing ports 80 and 443 is the
-// control that matters: the sandbox NetworkPolicy reaches the public internet on exactly
-// those two ports, so a value pinned off them cannot exfiltrate regardless of hostname.
+// agent pod env vars alongside the minted gateway API key. The port rule is the control that
+// matters: the sandbox NetworkPolicy permits arbitrary destinations on exactly three ports —
+// 80 and 443 via its public ipBlock rule, and 53 TCP+UDP via its DNS rule, which carries no
+// `to:` selector and so reaches every address — so all three are refused. Host shape is
+// defence in depth only, since a two-label host is indistinguishable from a public domain.
 func validateGatewayRuntimeURL(runtimeURL string) error {
 	runtimeURL = strings.TrimSpace(runtimeURL)
 	if runtimeURL == "" {
@@ -1143,9 +1145,9 @@ func validateGatewayRuntimeURL(runtimeURL string) error {
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("%w: runtimeUrl must specify an explicit numeric port", utils.ErrBadRequest)
 	}
-	if port == 80 || port == 443 {
-		return fmt.Errorf("%w: runtimeUrl must not use port 80 or 443; the agent sandbox egress "+
-			"policy reaches the public internet on those ports", utils.ErrBadRequest)
+	if port == 80 || port == 443 || port == 53 {
+		return fmt.Errorf("%w: runtimeUrl must not use port 80, 443 or 53; the agent sandbox "+
+			"egress policy permits arbitrary destinations on those ports", utils.ErrBadRequest)
 	}
 	if !isClusterLocalHost(parsed.Hostname()) {
 		return fmt.Errorf("%w: runtimeUrl host must be cluster-local: a dotless Service name, "+
@@ -1161,7 +1163,8 @@ func isClusterLocalHost(host string) bool {
 		return false
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+		// Link-local is deliberately absent: it would admit the 169.254.169.254 metadata address.
+		return ip.IsLoopback() || ip.IsPrivate()
 	}
 	labels := strings.Split(strings.TrimSuffix(host, "."), ".")
 	switch len(labels) {
