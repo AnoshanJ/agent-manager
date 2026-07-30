@@ -239,6 +239,7 @@ export const ViewLLMProvider: React.FC = () => {
                 isLoading={isLoading}
                 error={providerError instanceof Error ? providerError
                   : providerError ? new Error(getErrorMessage(providerError)) : null}
+                onGoToSecurityTab={() => setTabIndex(TABS.indexOf("Security"))}
               />
             </TabPanel>
 
