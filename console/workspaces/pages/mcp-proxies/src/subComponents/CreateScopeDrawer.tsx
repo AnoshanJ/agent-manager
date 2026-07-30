@@ -1,0 +1,414 @@
+/**
+ * Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+ *
+ * WSO2 LLC. licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueries, type UseQueryOptions } from "@tanstack/react-query";
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  FormControl,
+  FormLabel,
+  Stack,
+  TextField,
+  Typography,
+} from "@wso2/oxygen-ui";
+import { Plus } from "@wso2/oxygen-ui-icons-react";
+import {
+  DrawerContent,
+  DrawerHeader,
+  DrawerWrapper,
+  useFormValidation,
+} from "@agent-management-platform/views";
+import { useAuthHooks } from "@agent-management-platform/auth";
+import {
+  listAgentIdentityRoles,
+  useCreateMCPProxyScope,
+  useUpdateAgentIdentityRole,
+} from "@agent-management-platform/api-client";
+import type {
+  AgentIdentityRoleListResponse,
+  Environment,
+  ThunderRole,
+} from "@agent-management-platform/types";
+import { z } from "zod";
+
+// Stable empty-array identity for environments whose role query hasn't
+// resolved yet — a fresh `[]` literal per render would make Autocomplete
+// treat `options` as changed on every parent re-render.
+const EMPTY_ROLES: ThunderRole[] = [];
+
+interface CreateScopeFormValues {
+  name: string;
+  description?: string;
+}
+
+// Mirrors the backend's action format constraint (mcp_proxy_scope_service.go):
+// 1-100 chars, letters/digits/./_/- only.
+const SCOPE_ACTION_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
+
+const createScopeSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .regex(
+      SCOPE_ACTION_PATTERN,
+      "Only letters, numbers, '.', '_' and '-' are allowed (max 100 characters)",
+    ),
+  description: z.string().trim().optional(),
+});
+
+const DEFAULT_FORM: CreateScopeFormValues = { name: "", description: "" };
+
+const ROLES_PAGE_SIZE = 100;
+
+// Thunder seeds this role natively in every environment's default OU (like
+// "Administrator", which agent-manager-service already excludes server-side
+// in ListRoles) — not a role a user should be granting scopes to here.
+// Compared case-insensitively since Thunder's exact casing isn't guaranteed.
+const NATIVE_DEFAULT_ROLE_NAME = "default";
+
+interface CreateScopeDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  orgName: string;
+  proxyId: string;
+  /** Environments the current endpoint is deployed to with identity security enabled. */
+  environments: Environment[];
+  /** Tool identifiers discovered on the current endpoint — a scope must authorize at least one. */
+  tools: string[];
+}
+
+export function CreateScopeDrawer({
+  open,
+  onClose,
+  orgName,
+  proxyId,
+  environments,
+  tools,
+}: CreateScopeDrawerProps) {
+  const [formData, setFormData] = useState<CreateScopeFormValues>(DEFAULT_FORM);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  // Indexed the same way as `environments`/`roleOptionsByEnv` — roles are
+  // picked one environment at a time rather than from one combined list,
+  // since a role only ever lives in a single environment and the save step
+  // already updates them per-env.
+  const [selectedRolesByEnv, setSelectedRolesByEnv] = useState<ThunderRole[][]>([]);
+  const [isAssigningRoles, setIsAssigningRoles] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const { errors, validateField, validateForm, clearErrors, setFieldError } =
+    useFormValidation<CreateScopeFormValues>(createScopeSchema);
+
+  const { getToken } = useAuthHooks();
+  const createScope = useCreateMCPProxyScope();
+  const { reset: resetCreateScope } = createScope;
+  const updateRole = useUpdateAgentIdentityRole();
+
+  useEffect(() => {
+    if (!open) return;
+    setFormData(DEFAULT_FORM);
+    setSelectedTools([]);
+    setToolsError(null);
+    setSelectedRolesByEnv([]);
+    setSubmitError(null);
+    clearErrors();
+    resetCreateScope();
+  }, [open, clearErrors, resetCreateScope]);
+
+  const roleQueries = useQueries({
+    queries: environments.map(
+      (env): UseQueryOptions<AgentIdentityRoleListResponse> => ({
+        queryKey: [
+          "agent-identity-roles",
+          { orgName, envName: env.name },
+          { offset: 0, limit: ROLES_PAGE_SIZE },
+        ],
+        queryFn: () =>
+          listAgentIdentityRoles(
+            { orgName, envName: env.name },
+            { offset: 0, limit: ROLES_PAGE_SIZE },
+            getToken,
+          ),
+        enabled: open && !!orgName && !!env.name,
+      }),
+    ),
+  });
+
+  // Assignable roles per environment, in the same order as `environments`.
+  const roleOptionsByEnv: ThunderRole[][] = useMemo(
+    () =>
+      environments.map((_env, index) => {
+        const roles = roleQueries[index]?.data?.roles ?? [];
+        return roles.filter(
+          (role) =>
+            !role.isReadOnly && role.name.trim().toLowerCase() !== NATIVE_DEFAULT_ROLE_NAME,
+        );
+      }),
+    [environments, roleQueries],
+  );
+
+  const handleRolesChangeForEnv = useCallback((index: number, roles: ThunderRole[]) => {
+    setSelectedRolesByEnv((prev) => {
+      const next = [...prev];
+      next[index] = roles;
+      return next;
+    });
+  }, []);
+
+  const handleFieldChange = useCallback(
+    (field: keyof CreateScopeFormValues, value: string) => {
+      const error = validateField(field, value);
+      setFieldError(field, error);
+      setFormData((prev) => ({ ...prev, [field]: value }));
+    },
+    [validateField, setFieldError],
+  );
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const formValid = validateForm(formData);
+      // A scope must authorize at least one tool — enforced server-side too,
+      // but checked here so the failure surfaces next to the field instead of
+      // as a raw error after a round trip.
+      const toolsValid = selectedTools.length > 0;
+      setToolsError(toolsValid ? null : "Select at least one tool");
+      if (!formValid || !toolsValid) return;
+
+      setSubmitError(null);
+      try {
+        const created = await createScope.mutateAsync({
+          params: { orgName, proxyId },
+          body: {
+            action: formData.name.trim(),
+            description: formData.description?.trim() || undefined,
+            tools: selectedTools,
+          },
+        });
+
+        const roleAssignments = environments.flatMap((env, index) =>
+          (selectedRolesByEnv[index] ?? []).map((role) => ({
+            role,
+            envName: env.name,
+          })),
+        );
+
+        if (roleAssignments.length > 0) {
+          setIsAssigningRoles(true);
+          try {
+            // Roles have no incremental "grant this one scope" endpoint —
+            // each update PUTs the role's full desired scope set, merged
+            // from the permissions already on hand from the roles fetch.
+            await Promise.all(
+              roleAssignments.map(({ role, envName }) => {
+                const existingScopes = role.permissions?.flatMap((p) => p.permissions) ?? [];
+                const nextScopes = existingScopes.includes(created.scope)
+                  ? existingScopes
+                  : [...existingScopes, created.scope];
+                return updateRole.mutateAsync({
+                  params: { orgName, envName, roleId: role.id },
+                  body: { name: role.name, description: role.description, scopes: nextScopes },
+                });
+              }),
+            );
+          } finally {
+            setIsAssigningRoles(false);
+          }
+        }
+
+        onClose();
+      } catch {
+        setSubmitError("Failed to create scope. Please try again.");
+      }
+    },
+    [
+      formData,
+      validateForm,
+      selectedTools,
+      createScope,
+      orgName,
+      proxyId,
+      environments,
+      selectedRolesByEnv,
+      updateRole,
+      onClose,
+    ],
+  );
+
+  const isSubmitting = createScope.isPending || isAssigningRoles;
+  const isValid =
+    !errors.name && formData.name.trim().length > 0 && selectedTools.length > 0;
+
+  return (
+    <DrawerWrapper open={open} onClose={onClose}>
+      <DrawerHeader icon={<Plus size={24} />} title="Create Scope" onClose={onClose} />
+      <DrawerContent>
+        <form onSubmit={handleSubmit}>
+          <Stack spacing={3}>
+            {submitError && (
+              <Alert severity="error">
+                <Typography variant="body2">{submitError}</Typography>
+              </Alert>
+            )}
+
+            <Typography variant="body2" color="text.secondary">
+              A scope is a named permission callers must hold to invoke the
+              tools it's attached to. It must authorize at least one tool.
+            </Typography>
+
+            <FormControl fullWidth error={Boolean(errors.name)}>
+              <FormLabel required>Name</FormLabel>
+              <TextField
+                fullWidth
+                size="small"
+                value={formData.name}
+                onChange={(e) => handleFieldChange("name", e.target.value)}
+                placeholder="e.g., read-only"
+                error={Boolean(errors.name)}
+                helperText={errors.name}
+                disabled={isSubmitting}
+              />
+            </FormControl>
+
+            <FormControl fullWidth error={Boolean(errors.description)}>
+              <FormLabel>Description</FormLabel>
+              <TextField
+                fullWidth
+                size="small"
+                multiline
+                minRows={2}
+                value={formData.description}
+                onChange={(e) => handleFieldChange("description", e.target.value)}
+                error={Boolean(errors.description)}
+                helperText={errors.description}
+                disabled={isSubmitting}
+              />
+            </FormControl>
+
+            <FormControl fullWidth error={Boolean(toolsError)}>
+              <FormLabel required>Tools</FormLabel>
+              <Autocomplete
+                multiple
+                size="small"
+                disableCloseOnSelect
+                options={tools}
+                value={selectedTools}
+                onChange={(_e, value) => {
+                  setSelectedTools(value);
+                  if (value.length > 0) setToolsError(null);
+                }}
+                renderTags={(value, getTagProps) =>
+                  value.map((tool, index) => (
+                    <Chip {...getTagProps({ index })} key={tool} label={tool} size="small" />
+                  ))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder="Search tools..."
+                    error={Boolean(toolsError)}
+                  />
+                )}
+                noOptionsText="No tools discovered on this endpoint"
+                disabled={isSubmitting}
+              />
+              {toolsError && (
+                <Typography variant="caption" color="error">
+                  {toolsError}
+                </Typography>
+              )}
+            </FormControl>
+
+            <Stack spacing={1.5}>
+              <FormLabel>
+                {environments.length > 1
+                  ? "Assigned Roles for each environment"
+                  : "Assigned Roles"}
+              </FormLabel>
+              {environments.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  This endpoint isn't deployed to any environment yet.
+                </Typography>
+              ) : (
+                environments.map((env, index) => (
+                  <FormControl fullWidth key={env.id ?? env.name}>
+                    <FormLabel sx={{ fontSize: "0.8125rem" }}>
+                      {env.displayName ?? env.name}
+                    </FormLabel>
+                    <Autocomplete
+                      multiple
+                      size="small"
+                      disableCloseOnSelect
+                      options={roleOptionsByEnv[index] ?? EMPTY_ROLES}
+                      value={selectedRolesByEnv[index] ?? EMPTY_ROLES}
+                      onChange={(_e, value) => handleRolesChangeForEnv(index, value)}
+                      getOptionLabel={(role) => role.name}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      renderTags={(value, getTagProps) =>
+                        value.map((role, tagIndex) => (
+                          <Chip
+                            {...getTagProps({ index: tagIndex })}
+                            key={role.id}
+                            label={role.name}
+                            size="small"
+                          />
+                        ))
+                      }
+                      renderInput={(params) => (
+                        <TextField {...params} placeholder="Search roles..." />
+                      )}
+                      noOptionsText="No roles available"
+                      disabled={isSubmitting}
+                    />
+                  </FormControl>
+                ))
+              )}
+              <Typography variant="caption" color="text.secondary">
+                Roles to grant this scope to, per environment this MCP Server is
+                deployed to.
+              </Typography>
+            </Stack>
+
+            <Box display="flex" justifyContent="flex-end" gap={1} mt={2}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                disabled={!isValid || isSubmitting}
+              >
+                {isSubmitting ? "Creating..." : "Create Scope"}
+              </Button>
+            </Box>
+          </Stack>
+        </form>
+      </DrawerContent>
+    </DrawerWrapper>
+  );
+}
