@@ -85,7 +85,7 @@ Every environment gets an API Platform Gateway. Its **topology** decides whether
 
 In split topology each release is a complete gateway of its own — its own `APIGateway` resource, its own runtime, its own routing hostname (`<env>-<org>.gateway.localhost` for ingress, `<env>-<org>-egress.gateway.localhost` for egress) — and each registers with Agent Manager separately, with its own cluster-local runtime URL.
 
-A gateway's type is fixed when it first registers and cannot be changed afterwards, so an environment's topology cannot be switched in place. To move an existing environment to split topology, delete it and create it again.
+A gateway's type is fixed when it first registers and cannot be changed afterward, so an environment's topology cannot be switched in place. To move an existing environment to split topology, delete it and create it again.
 
 :::warning
 Split topology shortens the maximum `ENV_NAME` by 7 characters, to leave room for the `-egress` suffix on the second release's Kubernetes resource names. The limit is `22 - len(ORG_NAME)` characters, minus a further 7 in split topology — for the default organization `default` that leaves **8 characters**, so `ENV_NAME=production` is rejected. Use a shorter name such as `prod`.
