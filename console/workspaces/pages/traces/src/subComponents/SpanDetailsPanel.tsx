@@ -104,12 +104,30 @@ function pythonDictToJson(input: string): string {
 
 function parseEmbeddedObject(message: string): Record<string, unknown> | undefined {
   const start = message.indexOf("{");
-  const end = message.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
+  if (start === -1) {
+    return undefined;
+  }
+  let depth = 0;
+  let quote: string | null = null;
+  let end = -1;
+  for (let i = start; i < message.length; i++) {
+    const ch = message[i];
+    if (quote) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) {
     return undefined;
   }
   const candidate = message.slice(start, end + 1);
-
   for (const text of [candidate, pythonDictToJson(candidate)]) {
     try {
       const parsed = JSON.parse(text);
