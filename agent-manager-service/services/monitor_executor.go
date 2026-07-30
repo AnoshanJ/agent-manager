@@ -258,9 +258,11 @@ func (e *monitorExecutor) resolveProxyURL(ctx context.Context, ouID, environment
 
 	var deployed []string
 	if e.deploymentRepo != nil {
-		if ids, depErr := e.deploymentRepo.GetDeployedGatewaysByProvider(proxy.UUID, ouID); depErr == nil {
-			deployed = ids
+		ids, depErr := e.deploymentRepo.GetDeployedGatewaysByProvider(proxy.UUID, ouID)
+		if depErr != nil {
+			return "", fmt.Errorf("failed to list deployed gateways for proxy %s: %w", proxy.UUID, depErr)
 		}
+		deployed = ids
 	}
 	gateway, err := resolveEgressGatewayForArtifact(e.gatewayRepo, ouID, envUUID, deployed, nil)
 	if err != nil {

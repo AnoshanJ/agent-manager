@@ -298,9 +298,9 @@ func gatewayWithPolicyManifestAndRole(role string, nameVersionPairs ...string) *
 }
 
 func TestValidateMCPEndpointSecurity_TwoEgressGateways_AnchorsOnExistingDeployment(t *testing.T) {
-	// Deployed gateway lacks mcp-authz; the other candidate has full policy support. If
-	// this anchored on the environment instead of the deployment it could pick either —
-	// asserting on the deployed (non-compliant) one proves the anchor, not the fallback.
+	// The deployed gateway has full policy support; the other egress candidate lacks
+	// mcp-authz. Environment-based selection requires every candidate to comply and
+	// would therefore fail, so NoError here proves the probe anchored on the deployment.
 	deployed := gatewayWithPolicyManifestAndRole(models.GatewayRoleBoth, "mcp-auth", "v1", "mcp-authz", "v1")
 	other := gatewayWithPolicyManifestAndRole(models.GatewayRoleEgress, "mcp-auth", "v1")
 	gwRepo := gatewayFixtureRepo(t, testMCPEnvUUID, []*models.Gateway{deployed, other})

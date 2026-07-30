@@ -221,6 +221,9 @@ func (s *monitorManagerService) CreateMonitor(ctx context.Context, ouID string, 
 			if delErr := s.monitorRepo.DeleteMonitor(monitor); delErr != nil {
 				s.logger.Error("Failed to rollback monitor on error", "error", delErr)
 			}
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				err = fmt.Errorf("%w: %s", utils.ErrLLMProviderNotFound, req.LLMProvider.ProviderName)
+			}
 			return nil, fmt.Errorf("failed to resolve LLM provider %q: %w", req.LLMProvider.ProviderName, err)
 		}
 
@@ -547,6 +550,9 @@ func (s *monitorManagerService) UpdateMonitor(ctx context.Context, ouID, project
 
 			provider, err := s.llmProvisioner.ProviderRepo().GetByHandle(req.LLMProvider.ProviderName, ouID)
 			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					err = fmt.Errorf("%w: %s", utils.ErrLLMProviderNotFound, req.LLMProvider.ProviderName)
+				}
 				return nil, fmt.Errorf("failed to resolve LLM provider %q: %w", req.LLMProvider.ProviderName, err)
 			}
 
@@ -1414,9 +1420,11 @@ func (s *monitorManagerService) resolveMonitorGateway(
 	_ = ctx
 	var deployed []string
 	if providerUUID, err := uuid.Parse(providerUUIDStr); err == nil {
-		if ids, depErr := s.llmProvisioner.ProxyDeploymentService().GetDeployedGatewaysByProvider(providerUUID, ouID); depErr == nil {
-			deployed = ids
+		ids, depErr := s.llmProvisioner.ProxyDeploymentService().GetDeployedGatewaysByProvider(providerUUID, ouID)
+		if depErr != nil {
+			return nil, fmt.Errorf("failed to list deployed gateways for provider %s: %w", providerUUIDStr, depErr)
 		}
+		deployed = ids
 	}
 	return resolveEgressGatewayForArtifact(s.llmProvisioner.gatewayRepo, ouID, envUUID, deployed, nil)
 }

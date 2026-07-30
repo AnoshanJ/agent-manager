@@ -3942,9 +3942,11 @@ func (s *agentConfigurationService) resolveGatewayForProvider(
 	_ = ctx
 	var deployed []string
 	if providerUUID, err := uuid.Parse(providerUUIDStr); err == nil {
-		if ids, gwErr := s.llmProxyDeploymentService.GetDeployedGatewaysByProvider(providerUUID, ouID); gwErr == nil {
-			deployed = ids
+		ids, gwErr := s.llmProxyDeploymentService.GetDeployedGatewaysByProvider(providerUUID, ouID)
+		if gwErr != nil {
+			return nil, fmt.Errorf("failed to list deployed gateways for provider %s: %w", providerUUIDStr, gwErr)
 		}
+		deployed = ids
 	}
 	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }
@@ -3956,10 +3958,12 @@ func (s *agentConfigurationService) resolveGatewayForProxy(
 	_ = ctx
 	deployedStatus := string(models.DeploymentStatusDeployed)
 	var deployed []string
-	if deployments, err := s.llmProxyDeploymentService.GetLLMProxyDeployments(proxyHandle, ouID, nil, &deployedStatus); err == nil {
-		for _, dep := range deployments {
-			deployed = append(deployed, dep.GatewayUUID.String())
-		}
+	deployments, err := s.llmProxyDeploymentService.GetLLMProxyDeployments(proxyHandle, ouID, nil, &deployedStatus)
+	if err != nil && !errors.Is(err, utils.ErrLLMProxyNotFound) {
+		return nil, fmt.Errorf("failed to list deployments for proxy %s: %w", proxyHandle, err)
+	}
+	for _, dep := range deployments {
+		deployed = append(deployed, dep.GatewayUUID.String())
 	}
 	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }
@@ -3972,9 +3976,11 @@ func (s *agentConfigurationService) resolveGatewayForMCPArtifact(
 	_ = ctx
 	var deployed []string
 	if s.mcpProxyService != nil && s.mcpProxyService.deploymentRepo != nil {
-		if ids, err := s.mcpProxyService.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, ouID); err == nil {
-			deployed = ids
+		ids, err := s.mcpProxyService.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, ouID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list deployed gateways for MCP artifact %s: %w", artifactUUID, err)
 		}
+		deployed = ids
 	}
 	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }

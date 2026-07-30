@@ -253,9 +253,12 @@ func (s *MCPProxyService) deployMCPProxyEndpoints(ctx context.Context, proxy *mo
 			// binding. Only a genuinely new binding reaches inference.
 			var deployed []string
 			if s.deploymentRepo != nil {
-				if ids, depErr := s.deploymentRepo.GetDeployedGatewaysByProvider(ee.ArtifactUUID, ouID); depErr == nil {
-					deployed = ids
+				ids, depErr := s.deploymentRepo.GetDeployedGatewaysByProvider(ee.ArtifactUUID, ouID)
+				if depErr != nil {
+					errs = append(errs, fmt.Errorf("endpoint %q environment %q: failed to list existing deployments: %w", endpoint.Handle, envID, depErr))
+					continue
 				}
+				deployed = ids
 			}
 			gateway, err := resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, ee.EnvironmentUUID, deployed, ee.RequestedGatewayUUID)
 			if errors.Is(err, errNoGatewayForEnvironment) {

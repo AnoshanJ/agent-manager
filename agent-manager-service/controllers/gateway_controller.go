@@ -106,7 +106,7 @@ func (c *gatewayController) resolveEnvironmentUUID(ctx context.Context, ouID, en
 		}
 	}
 
-	return "", fmt.Errorf("environment not found: %s", envIdentifier)
+	return "", fmt.Errorf("%w: %s", utils.ErrEnvironmentNotFound, envIdentifier)
 }
 
 func handleGatewayErrors(w http.ResponseWriter, err error, fallbackMsg string) {
@@ -388,8 +388,8 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 
 	resolvedEnvID, err := c.resolveEnvironmentUUID(ctx, ouID, envID)
 	if err != nil {
-		log.Error("AssignGatewayToEnvironment: environment not found", "envID", envID, "error", err)
-		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		log.Error("AssignGatewayToEnvironment: failed to resolve environment", "envID", envID, "error", err)
+		handleGatewayErrors(w, err, "Failed to resolve environment")
 		return
 	}
 
@@ -419,8 +419,8 @@ func (c *gatewayController) RemoveGatewayFromEnvironment(w http.ResponseWriter, 
 
 	resolvedEnvID, err := c.resolveEnvironmentUUID(ctx, ouID, envID)
 	if err != nil {
-		log.Error("RemoveGatewayFromEnvironment: environment not found", "envID", envID, "error", err)
-		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		log.Error("RemoveGatewayFromEnvironment: failed to resolve environment", "envID", envID, "error", err)
+		handleGatewayErrors(w, err, "Failed to resolve environment")
 		return
 	}
 

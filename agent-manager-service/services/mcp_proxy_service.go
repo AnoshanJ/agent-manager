@@ -135,28 +135,19 @@ func NewMCPProxyService(
 }
 
 // mcpDeployErrorIsFatal reports whether a deployMCPProxyEndpoints failure must fail the
-// request. Only errNoGatewayForEnvironment is tolerated — it is a timing condition, and
-// the binding deploys on the next update once a gateway exists. Every placement error is
-// caller error and must surface, or an invalid gatewayId returns 201 with nothing deployed.
+// request. Fatal means one of the four placement errors — caller misconfiguration that
+// must surface, or an invalid gatewayId returns 201 with nothing deployed. Everything
+// else is non-fatal by design: errNoGatewayForEnvironment is a timing condition and
+// unexpected infra errors are best-effort — both are logged and retried on the next
+// update. Fatal errors take precedence in a join.
 func mcpDeployErrorIsFatal(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check fatal errors first: they take precedence in a join. Any fatal placement error
-	// (caller misconfiguration) must surface, even if a tolerated timing error is present.
-	if errors.Is(err, errNoEgressGatewayForEnvironment) ||
+	return errors.Is(err, errNoEgressGatewayForEnvironment) ||
 		errors.Is(err, errAmbiguousEgressGateway) ||
 		errors.Is(err, errInvalidEgressGateway) ||
-		errors.Is(err, errPlacementFixed) {
-		return true
-	}
-	// Only if no fatal errors: check if this is the tolerated timing condition.
-	for _, tolerated := range []error{errNoGatewayForEnvironment} {
-		if errors.Is(err, tolerated) {
-			return false
-		}
-	}
-	return false
+		errors.Is(err, errPlacementFixed)
 }
 
 // Create creates a new MCP proxy and its endpoints.
@@ -1241,9 +1232,11 @@ func (s *MCPProxyService) validateMCPEndpointSecurity(
 			if artifactUUID, ok := existingArtifactByEnv[envIDStr]; ok && artifactUUID != uuid.Nil {
 				var deployed []string
 				if s.deploymentRepo != nil {
-					if ids, depErr := s.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, orgName); depErr == nil {
-						deployed = ids
+					ids, depErr := s.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, orgName)
+					if depErr != nil {
+						return fmt.Errorf("endpoint %q environment %q: list deployed gateways: %w", handle, env.EnvironmentUUID, depErr)
 					}
+					deployed = ids
 				}
 				gateway, gwErr := resolveEgressGatewayForArtifact(s.gatewayRepo, orgName, envUUID, deployed, nil)
 				if errors.Is(gwErr, errNoGatewayForEnvironment) {
