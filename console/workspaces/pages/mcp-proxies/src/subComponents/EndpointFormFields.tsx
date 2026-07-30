@@ -213,7 +213,16 @@ export function EndpointFormFields({
     !sameIdSet(selectedEnvIds, initialDraft.environments) ||
     !sameGatewayMap(effectiveGatewayByEnv, initialDraft.gatewayByEnv ?? {}) ||
     capabilitiesChanged(fetchedInfo, initialDraft.fetchedInfo);
-  const canSave = canAdd && hasChanges;
+  // An environment with 2+ egress candidates and no pick would be rejected by the
+  // server as ambiguous, so require a selection wherever the picker renders.
+  const hasGatewaySelection = selectedEnvIds.every((envId) => {
+    const candidates = egressGatewaysByEnv[envId] ?? [];
+    return (
+      candidates.length <= 1 ||
+      Boolean(deployedGatewayByEnv[envId] ?? selectedGatewayByEnv[envId])
+    );
+  });
+  const canSave = canAdd && hasChanges && hasGatewaySelection;
 
   const clearFetched = useCallback(() => {
     setFetchedInfo(null);
@@ -537,7 +546,7 @@ export function EndpointFormFields({
                 </MenuItem>
               ))}
             </Select>
-            {deployed && (
+            {deployed ? (
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -546,6 +555,12 @@ export function EndpointFormFields({
                 Placement is fixed once deployed. Delete and recreate the
                 binding to change it.
               </Typography>
+            ) : (
+              !selectedGatewayByEnv[envId] && (
+                <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
+                  Select an egress gateway for this environment.
+                </Typography>
+              )
             )}
           </FormControl>
         );
