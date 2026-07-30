@@ -272,7 +272,7 @@ export function CreateScopeDrawer({
 
             <Typography variant="body2" color="text.secondary">
               A scope is a named permission callers must hold to invoke the
-              tools it's attached to. It must authorize at least one tool.
+              tools it&apos;s attached to. It must authorize at least one tool.
             </Typography>
 
             <FormControl fullWidth error={Boolean(errors.name)}>
@@ -346,7 +346,7 @@ export function CreateScopeDrawer({
               </FormLabel>
               {environments.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  This endpoint isn't deployed to any environment yet.
+                  This endpoint isn&apos;t deployed to any environment yet.
                 </Typography>
               ) : (
                 environments.map((env, index) => (

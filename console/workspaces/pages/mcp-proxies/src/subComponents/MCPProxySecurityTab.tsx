@@ -116,7 +116,10 @@ export type MCPProxySecurityTabProps = {
   selectedEndpointId: string;
   orgName: string | undefined;
   proxyId: string | undefined;
-  /** Environments the selected endpoint is deployed to (for the Create Scope panel's role picker). */
+  /**
+   * Environments the selected endpoint is deployed to, for the Create Scope
+   * panel's role picker.
+   */
   environments: Environment[];
   isLoading?: boolean;
   onUpdate: (fields: Partial<MCPEndpointConfig>) => Promise<MCPProxy>;
