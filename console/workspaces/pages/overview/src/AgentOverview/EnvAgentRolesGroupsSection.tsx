@@ -22,7 +22,7 @@ import {
   RolesGroupsChips,
   useAgentRolesAndGroups,
 } from "@agent-management-platform/shared-component";
-import { buildManageIdentityHref } from "./manageIdentityLink";
+import { buildAgentIdHref } from "./agentIdLink";
 import { SectionHeader } from "./SectionHeader";
 
 interface EnvAgentRolesGroupsSectionProps {
@@ -35,9 +35,9 @@ interface EnvAgentRolesGroupsSectionProps {
 /**
  * Per-environment "Agent Identity" roles/groups display, rendered inside an
  * EnvironmentCard for both internal and external agents — the client
- * ID/secret/regenerate flow lives on the Configure Agent page's "Manage
- * AgentID" drawer instead, linked to via the "View all" button here (styled
- * the same way as the Agent Performance / Recent Traces section headers).
+ * ID/secret/regenerate flow lives on the agent-level "Agent ID" page
+ * instead, linked to via the "View all" button here (styled the same way as
+ * the Agent Performance / Recent Traces section headers).
  */
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
@@ -55,8 +55,8 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
   return (
     <CollapsibleSection show={show}>
       <SectionHeader
-        title="Agent Identity"
-        viewAllHref={buildManageIdentityHref(orgId, projectId, agentId, envId)}
+        title="Agent ID"
+        viewAllHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
       />
 
       <Box sx={{ mt: 1 }}>

@@ -184,10 +184,11 @@ function findEndpointForEnvUuid(
 
 /**
  * Compact loading/error fallback shared by ConnectIdentityCredentials and
- * ConnectIdentityEndpoints below — lighter-weight than ManageIdentityDrawer's
- * ListingTable.EmptyState-based QueryStateFallback, since these render as
- * stacked sections inside an already content-dense drawer rather than each
- * owning their own dedicated panel.
+ * ConnectIdentityEndpoints below — lighter-weight than the Agent ID page's
+ * (@agent-management-platform/env-thunders) ListingTable.EmptyState-based
+ * QueryStateFallback, since these render as stacked sections inside an
+ * already content-dense drawer rather than each owning their own dedicated
+ * panel.
  */
 const ConnectQueryFallback: React.FC<{
   isLoading: boolean;

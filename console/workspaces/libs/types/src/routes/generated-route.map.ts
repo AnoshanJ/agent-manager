@@ -20,52 +20,46 @@ export const generatedRouteMap =  {
           "path": "/org/:orgId/thunder-instances",
           "wildPath": "/org/:orgId/thunder-instances/*",
           "children": {
-            "view": {
-              "path": "/org/:orgId/thunder-instances/view/:envName",
-              "wildPath": "/org/:orgId/thunder-instances/view/:envName/*",
+            "agents": {
+              "path": "/org/:orgId/thunder-instances/agents",
+              "wildPath": "/org/:orgId/thunder-instances/agents/*",
               "children": {
-                "agents": {
-                  "path": "/org/:orgId/thunder-instances/view/:envName/agents",
-                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/agents/*",
-                  "children": {
-                    "detail": {
-                      "path": "/org/:orgId/thunder-instances/view/:envName/agents/:projectName/:agentName",
-                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/agents/:projectName/:agentName/*",
-                      "children": {}
-                    }
-                  }
+                "detail": {
+                  "path": "/org/:orgId/thunder-instances/agents/:projectName/:agentName",
+                  "wildPath": "/org/:orgId/thunder-instances/agents/:projectName/:agentName/*",
+                  "children": {}
+                }
+              }
+            },
+            "roles": {
+              "path": "/org/:orgId/thunder-instances/roles",
+              "wildPath": "/org/:orgId/thunder-instances/roles/*",
+              "children": {
+                "create": {
+                  "path": "/org/:orgId/thunder-instances/roles/create",
+                  "wildPath": "/org/:orgId/thunder-instances/roles/create/*",
+                  "children": {}
                 },
-                "groups": {
-                  "path": "/org/:orgId/thunder-instances/view/:envName/groups",
-                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/*",
-                  "children": {
-                    "create": {
-                      "path": "/org/:orgId/thunder-instances/view/:envName/groups/create",
-                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/create/*",
-                      "children": {}
-                    },
-                    "detail": {
-                      "path": "/org/:orgId/thunder-instances/view/:envName/groups/:groupId",
-                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/groups/:groupId/*",
-                      "children": {}
-                    }
-                  }
+                "detail": {
+                  "path": "/org/:orgId/thunder-instances/roles/:roleId",
+                  "wildPath": "/org/:orgId/thunder-instances/roles/:roleId/*",
+                  "children": {}
+                }
+              }
+            },
+            "groups": {
+              "path": "/org/:orgId/thunder-instances/groups",
+              "wildPath": "/org/:orgId/thunder-instances/groups/*",
+              "children": {
+                "create": {
+                  "path": "/org/:orgId/thunder-instances/groups/create",
+                  "wildPath": "/org/:orgId/thunder-instances/groups/create/*",
+                  "children": {}
                 },
-                "roles": {
-                  "path": "/org/:orgId/thunder-instances/view/:envName/roles",
-                  "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/*",
-                  "children": {
-                    "create": {
-                      "path": "/org/:orgId/thunder-instances/view/:envName/roles/create",
-                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/create/*",
-                      "children": {}
-                    },
-                    "detail": {
-                      "path": "/org/:orgId/thunder-instances/view/:envName/roles/:roleId",
-                      "wildPath": "/org/:orgId/thunder-instances/view/:envName/roles/:roleId/*",
-                      "children": {}
-                    }
-                  }
+                "detail": {
+                  "path": "/org/:orgId/thunder-instances/groups/:groupId",
+                  "wildPath": "/org/:orgId/thunder-instances/groups/:groupId/*",
+                  "children": {}
                 }
               }
             }
@@ -214,7 +208,13 @@ export const generatedRouteMap =  {
             "view": {
               "path": "/org/:orgId/environments/:envName",
               "wildPath": "/org/:orgId/environments/:envName/*",
-              "children": {}
+              "children": {
+                "identityProvider": {
+                  "path": "/org/:orgId/environments/:envName/identity-provider",
+                  "wildPath": "/org/:orgId/environments/:envName/identity-provider/*",
+                  "children": {}
+                }
+              }
             }
           }
         },
@@ -275,6 +275,11 @@ export const generatedRouteMap =  {
               "path": "/org/:orgId/project/:projectId/agents/:agentId",
               "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/*",
               "children": {
+                "agentId": {
+                  "path": "/org/:orgId/project/:projectId/agents/:agentId/agent-id",
+                  "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/agent-id/*",
+                  "children": {}
+                },
                 "configure": {
                   "path": "/org/:orgId/project/:projectId/agents/:agentId/configure",
                   "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/configure/*",

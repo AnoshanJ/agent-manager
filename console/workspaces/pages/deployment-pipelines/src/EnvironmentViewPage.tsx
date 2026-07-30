@@ -18,8 +18,6 @@
 import {
   Alert,
   Avatar,
-  Card,
-  CardContent,
   Chip,
   Grid,
   IconButton,
@@ -37,6 +35,7 @@ import {
   GatewayTypeChip,
   getAvatarInitials,
   getErrorMessage,
+  InfoCard,
 } from "@agent-management-platform/shared-component";
 import {
   useGetEnvironment,
@@ -73,26 +72,6 @@ const GATEWAY_AVATAR_SX = {
   bgcolor: "primary.main",
   color: "primary.contrastText",
 } as const;
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card variant="outlined" sx={{ height: "100%" }}>
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-        <Stack spacing={0.5}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-            {label}
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{ fontFamily: "monospace", wordBreak: "break-all" }}
-          >
-            {value}
-          </Typography>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
 
 export function EnvironmentViewPage() {
   const { orgId, envName } = useParams<{ orgId: string; envName: string }>();
@@ -301,7 +280,7 @@ export function EnvironmentViewPage() {
 
           <Stack spacing={1.5}>
             <Typography variant="overline" color="text.secondary">
-              Identity Providers
+              Thunder Id
             </Typography>
             {isLoadingProviders ? (
               <Stack spacing={1}>
@@ -311,8 +290,8 @@ export function EnvironmentViewPage() {
               <ListingTable.Container>
                 <ListingTable.EmptyState
                   illustration={<KeyRound size={56} />}
-                  title="No identity providers in this environment"
-                  description="Each environment automatically gets a Thunder identity provider."
+                  title="No Thunder Id in this environment"
+                  description="Each environment automatically gets a Thunder Id."
                 />
               </ListingTable.Container>
             ) : (
@@ -333,8 +312,8 @@ export function EnvironmentViewPage() {
                       onClick={() =>
                         navigate(
                           generatePath(
-                            absoluteRouteMap.children.org.children.thunderInstances.children.view
-                              .path,
+                            absoluteRouteMap.children.org.children.environments.children.view
+                              .children.identityProvider.path,
                             { orgId: orgId ?? "", envName: thunderInstance.envName },
                           ),
                         )
@@ -354,7 +333,7 @@ export function EnvironmentViewPage() {
                               <KeyRound size={16} />
                             </Avatar>
                           }
-                          primary="Thunder"
+                          primary="Thunder Id"
                           secondary="System identity provider"
                         />
                       </ListingTable.Cell>

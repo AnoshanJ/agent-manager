@@ -29,6 +29,7 @@ export * from "./LabelChips";
 export * from "./FileMountSection";
 export * from "./ResourceMetricChip";
 export * from "./GatewayTypeChip";
+export * from "./InfoCard";
 export * from "./EnvironmentCard";
 export * from "./IsolationTierIndicator";
 export * from "./InvokeEndpoints";
@@ -85,3 +86,8 @@ export {
   SingleAPIKeyManager,
   type SingleAPIKeyManagerProps,
 } from "./APIKeysManager/SingleAPIKeyManager";
+export {
+  PermissionTree,
+  type PermissionTreeItem,
+  type PermissionTreeProps,
+} from "./PermissionTree/PermissionTree";

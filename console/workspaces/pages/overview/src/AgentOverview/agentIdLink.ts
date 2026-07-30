@@ -20,27 +20,25 @@ import { generatePath } from "react-router-dom";
 import {
   absoluteRouteMap,
   IDENTITY_ENV_PARAM,
-  MANAGE_IDENTITY_PARAM,
 } from "@agent-management-platform/types";
 
 /**
- * Deep-links to the Configure Agent page with the "Manage AgentID" drawer
- * already open and pre-selected to `envName`, so clicking through from an
- * EnvironmentCard lands directly on that environment's credentials instead
- * of the drawer's default (first environment).
+ * Deep-links to the agent-level "Agent ID" page, pre-selected to `envName`,
+ * so clicking through from an EnvironmentCard lands directly on that
+ * environment's credentials instead of the page's default (first
+ * environment).
  */
-export function buildManageIdentityHref(
+export function buildAgentIdHref(
   orgId: string,
   projectId: string,
   agentId: string,
   envName: string,
 ): string {
   const path = generatePath(
-    absoluteRouteMap.children.org.children.projects.children.agents.children.configure.path,
+    absoluteRouteMap.children.org.children.projects.children.agents.children.agentId.path,
     { orgId, projectId, agentId },
   );
   const query = new URLSearchParams({
-    [MANAGE_IDENTITY_PARAM]: "true",
     [IDENTITY_ENV_PARAM]: envName,
   });
   return `${path}?${query.toString()}`;

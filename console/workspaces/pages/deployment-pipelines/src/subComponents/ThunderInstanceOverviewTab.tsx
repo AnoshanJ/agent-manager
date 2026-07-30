@@ -16,36 +16,11 @@
  * under the License.
  */
 
-import { Card, Grid, IconButton, InputAdornment, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Grid, IconButton, InputAdornment, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Copy } from "@wso2/oxygen-ui-icons-react";
 import type { ThunderInstanceResponse } from "@agent-management-platform/types";
 import { TextInput } from "@agent-management-platform/views";
-
-function InfoCard({
-  label,
-  value,
-  monospace = false,
-}: {
-  label: string;
-  value: string;
-  monospace?: boolean;
-}) {
-  return (
-    <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
-      <Stack spacing={0.5}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-          {label}
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{ fontFamily: monospace ? "monospace" : undefined, wordBreak: "break-all" }}
-        >
-          {value}
-        </Typography>
-      </Stack>
-    </Card>
-  );
-}
+import { InfoCard } from "@agent-management-platform/shared-component";
 
 function EndpointField({
   label,

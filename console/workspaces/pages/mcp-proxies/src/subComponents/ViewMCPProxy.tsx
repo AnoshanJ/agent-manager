@@ -29,6 +29,7 @@ import {
 } from "@agent-management-platform/api-client";
 import {
   absoluteRouteMap,
+  type Environment,
   type MCPEndpointConfig,
   type MCPProxy,
   type MCPProxyEndpoint,
@@ -172,20 +173,39 @@ export function ViewMCPProxy() {
   // bindings and per-env deployment status are surfaced separately as chips.
   const selectedConfig: MCPEndpointConfig | undefined = selectedEndpoint;
 
+  // Joins the selected endpoint's environment bindings against the org's full
+  // environment list once — chips and the resolved Environment objects below
+  // both derive from this instead of each re-doing the same lookup.
+  const selectedEnvironmentBindings = useMemo(() => {
+    return (selectedEndpoint?.environments ?? []).map((binding) => ({
+      binding,
+      env: environments.find((item) => item.id === binding.environmentUuid),
+    }));
+  }, [selectedEndpoint, environments]);
+
   // Chips describing each environment the selected endpoint is bound to, with its
   // per-environment deployment status.
-  const selectedEnvChips = useMemo(() => {
-    return (selectedEndpoint?.environments ?? []).map((binding) => {
-      const env = environments.find(
-        (item) => item.id === binding.environmentUuid,
-      );
-      return {
+  const selectedEnvChips = useMemo(
+    () =>
+      selectedEnvironmentBindings.map(({ binding, env }) => ({
         id: binding.environmentUuid,
         label: env?.displayName ?? env?.name ?? binding.environmentUuid,
         status: binding.deploymentStatus,
-      };
-    });
-  }, [selectedEndpoint, environments]);
+      })),
+    [selectedEnvironmentBindings],
+  );
+
+  // The full Environment objects (name/displayName) the selected endpoint is
+  // bound to — used by the Security tab's Create Scope panel to offer roles
+  // from every environment this MCP Server is actually reachable from.
+  const selectedEnvironments = useMemo(
+    () =>
+      selectedEnvironmentBindings
+        .filter(({ binding }) => binding.deploymentStatus === "Deployed")
+        .map(({ env }) => env)
+        .filter((env): env is Environment => !!env),
+    [selectedEnvironmentBindings],
+  );
 
   // Merge-and-save callback used by every config tab. It merges a partial into the
   // selected endpoint's flat config and PUTs the whole proxy with that one endpoint
@@ -428,6 +448,7 @@ export function ViewMCPProxy() {
                       selectedEndpointId={selectedEndpointId}
                       orgName={orgId}
                       proxyId={routeProxyId}
+                      environments={selectedEnvironments}
                       isLoading={isTabContentLoading}
                       onUpdate={updateSelectedEndpointConfig}
                       isUpdating={updateMCPProxy.isPending}
