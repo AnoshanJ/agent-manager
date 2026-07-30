@@ -209,11 +209,23 @@ func (s *PlatformGatewayService) RegisterGateway(
 		UpdatedAt:                time.Now(),
 	}
 
+	// Dedupe: a repeated environment ID would re-enter assignGatewayToEnvironmentTx in the
+	// same tx, where the pooled-connection existence check cannot see the first insert.
+	seenEnvIDs := make(map[string]struct{}, len(environmentIDs))
+	uniqueEnvIDs := make([]string, 0, len(environmentIDs))
+	for _, envID := range environmentIDs {
+		if _, ok := seenEnvIDs[envID]; ok {
+			continue
+		}
+		seenEnvIDs[envID] = struct{}{}
+		uniqueEnvIDs = append(uniqueEnvIDs, envID)
+	}
+
 	if err := s.gatewayRepo.Transaction(func(tx *gorm.DB) error {
 		if err := s.gatewayRepo.CreateTx(tx, gateway); err != nil {
 			return fmt.Errorf("error while registering gateway: %w", err)
 		}
-		for _, envID := range environmentIDs {
+		for _, envID := range uniqueEnvIDs {
 			if err := s.assignGatewayToEnvironmentTx(tx, gateway, envID); err != nil {
 				return err
 			}

@@ -67,7 +67,7 @@ func TestRegisterGateway_DeprecatedAliasesDecodeAndNormalize(t *testing.T) {
 					return nil
 				},
 				GetEnvironmentMappingsByGatewayIDFunc: func(_ string) ([]models.GatewayEnvironmentMapping, error) {
-					return nil, nil
+					return []models.GatewayEnvironmentMapping{}, nil
 				},
 			}
 			svc := services.NewPlatformGatewayService(gatewayRepo, nil)
