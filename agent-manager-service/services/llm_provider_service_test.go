@@ -139,6 +139,35 @@ func TestLLMProviderService_CreateAndDeploy_RejectsIngressOnlyGateway(t *testing
 	assert.False(t, createCalled, "CreateAndDeploy must not create the provider when the sole named gateway fails placement")
 }
 
+func TestLLMProviderService_CreateAndDeploy_TreatsForeignOrgGatewayAsNotFound(t *testing.T) {
+	// GetByUUID is not org-scoped, so a caller naming another org's gateway UUID gets a
+	// real row back. It must be treated exactly like not-found — no placement validation,
+	// no echoing the foreign gateway's name in any error.
+	foreign := newGateway(t, models.GatewayRoleIngress, true)
+	foreign.OUID = "other-org"
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByUUIDFunc: func(id string) (*models.Gateway, error) {
+			require.Equal(t, foreign.UUID.String(), id)
+			return foreign, nil
+		},
+	}
+	createCalled := false
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		CreateFunc: func(_ *gorm.DB, _ *models.LLMProvider, _, _, _, _ string) error {
+			createCalled = true
+			return nil
+		},
+	}
+	svc := &LLMProviderService{gatewayRepo: repo, providerRepo: providerRepo}
+
+	_, err := svc.CreateAndDeploy(context.Background(), "org", "creator",
+		&models.LLMProvider{}, []string{foreign.UUID.String()}, nil)
+
+	require.Error(t, err, "sole requested gateway is invalid, so the request must fail")
+	assert.NotContains(t, err.Error(), foreign.Name, "foreign gateway name must not leak into the error")
+	assert.False(t, createCalled, "CreateAndDeploy must not create the provider when the sole named gateway is foreign")
+}
+
 func TestLLMProviderService_CreateAndDeploy_RejectsSameEnvironmentClashWithinRequest(t *testing.T) {
 	// Two ingress-only gateways requested in the same call: both fail on the role check
 	// alone (independent of each other). The first failure must hard-fail the whole

@@ -669,6 +669,12 @@ func (s *LLMProviderService) UpdateAndSync(ctx context.Context, providerID, ouID
 			slog.Warn("LLMProviderService.UpdateAndSync: could not resolve gateway for placement check, deferring to deploy step", "providerID", providerID, "gatewayID", gatewayID, "error", err)
 			continue
 		}
+		if gateway == nil || gateway.OUID != ouID {
+			// Foreign-org gateway: never inspect or echo it here; the deploy step below
+			// enforces org ownership and records the per-gateway failure.
+			slog.Warn("LLMProviderService.UpdateAndSync: gateway not found in organization, deferring to deploy step", "providerID", providerID, "gatewayID", gatewayID)
+			continue
+		}
 		if err := validateEgressPlacement(s.gatewayRepo, gateway, placementAccumulator); err != nil {
 			slog.Error("LLMProviderService.UpdateAndSync: gateway failed egress placement check", "providerID", providerID, "gatewayID", gatewayID, "error", err)
 			return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, err)
@@ -899,6 +905,16 @@ func (s *LLMProviderService) CreateAndDeploy(ctx context.Context, ouID, createdB
 				GatewayID: gatewayID,
 				Success:   false,
 				Error:     fmt.Sprintf("Gateway not found: %v", err),
+			})
+			continue
+		}
+		if gateway == nil || gateway.OUID != ouID {
+			// Foreign-org gateway: treat as not found without inspecting or echoing it.
+			slog.Error("LLMProviderService.CreateAndDeploy: gateway not found in organization", "ouID", ouID, "gatewayID", gatewayID)
+			deploymentResults = append(deploymentResults, DeploymentResult{
+				GatewayID: gatewayID,
+				Success:   false,
+				Error:     "Gateway not found",
 			})
 			continue
 		}
