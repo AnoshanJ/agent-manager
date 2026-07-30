@@ -31,7 +31,6 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/catalog"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
-	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 )
@@ -88,7 +87,6 @@ type monitorExecutor struct {
 	gatewayRepo           repositories.GatewayRepository
 	llmProviderRepo       repositories.LLMProviderRepository
 	deploymentRepo        repositories.DeploymentRepository
-	gatewayRuntimeConfig  config.GatewayRuntimeConfig
 }
 
 // NewMonitorExecutor creates a new monitor executor instance
@@ -102,7 +100,6 @@ func NewMonitorExecutor(
 	gatewayRepo repositories.GatewayRepository,
 	llmProviderRepo repositories.LLMProviderRepository,
 	deploymentRepo repositories.DeploymentRepository,
-	gatewayRuntimeConfig config.GatewayRuntimeConfig,
 ) MonitorExecutor {
 	return &monitorExecutor{
 		ocClient:              ocClient,
@@ -114,7 +111,6 @@ func NewMonitorExecutor(
 		gatewayRepo:           gatewayRepo,
 		llmProviderRepo:       llmProviderRepo,
 		deploymentRepo:        deploymentRepo,
-		gatewayRuntimeConfig:  gatewayRuntimeConfig,
 	}
 }
 
@@ -270,7 +266,7 @@ func (e *monitorExecutor) resolveProxyURL(ctx context.Context, ouID, environment
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve gateway for environment %s: %w", environmentID, err)
 	}
-	return buildProxyURL(gateway, proxy.Configuration.Context, true, e.gatewayRuntimeConfig), nil
+	return buildProxyURL(gateway, proxy.Configuration.Context, true), nil
 }
 
 // buildWorkflowRunRequest constructs the workflow run request for a monitor.

@@ -31,7 +31,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
-	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -111,7 +110,6 @@ type LLMProxyProvisioner struct {
 	llmProviderAPIKeyService  *LLMProviderAPIKeyService
 	secretClient              secretmanagersvc.SecretManagementClient
 	encryptionKey             []byte
-	gatewayRuntimeConfig      config.GatewayRuntimeConfig
 }
 
 // NewLLMProxyProvisioner creates a new LLMProxyProvisioner.
@@ -125,7 +123,6 @@ func NewLLMProxyProvisioner(
 	llmProviderAPIKeyService *LLMProviderAPIKeyService,
 	secretClient secretmanagersvc.SecretManagementClient,
 	encryptionKey []byte,
-	gatewayRuntimeConfig config.GatewayRuntimeConfig,
 ) *LLMProxyProvisioner {
 	return &LLMProxyProvisioner{
 		logger:                    logger,
@@ -137,7 +134,6 @@ func NewLLMProxyProvisioner(
 		llmProviderAPIKeyService:  llmProviderAPIKeyService,
 		secretClient:              secretClient,
 		encryptionKey:             encryptionKey,
-		gatewayRuntimeConfig:      gatewayRuntimeConfig,
 	}
 }
 
@@ -290,7 +286,7 @@ func (p *LLMProxyProvisioner) ProvisionProxy(ctx context.Context, params Provisi
 		rb.ProxySecretLoc = &proxySecretLoc
 	}
 
-	proxyURL := buildProxyURL(params.Gateway, proxy.Configuration.Context, true, p.gatewayRuntimeConfig)
+	proxyURL := buildProxyURL(params.Gateway, proxy.Configuration.Context, true)
 
 	p.logger.Info(
 		"Provisioned LLM proxy",

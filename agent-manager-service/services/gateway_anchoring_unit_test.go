@@ -23,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 )
@@ -184,7 +183,6 @@ func TestAnchoring_MonitorRunAgainstDeployedProxy(t *testing.T) {
 					return []string{both.UUID.String()}, nil
 				},
 			},
-			gatewayRuntimeConfig: config.GatewayRuntimeConfig{},
 		}
 		url, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
 		require.NoError(t, err)
@@ -199,7 +197,6 @@ func TestAnchoring_MonitorRunAgainstDeployedProxy(t *testing.T) {
 					return nil, nil
 				},
 			},
-			gatewayRuntimeConfig: config.GatewayRuntimeConfig{},
 		}
 		_, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
 		require.ErrorIs(t, err, errAmbiguousEgressGateway)
