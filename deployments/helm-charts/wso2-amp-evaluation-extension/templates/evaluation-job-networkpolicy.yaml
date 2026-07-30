@@ -1,9 +1,10 @@
 {{- if .Values.networkPolicy.evaluationJob.enabled }}
+{{- $evalJobNamespace := .Values.networkPolicy.evaluationJob.namespace | default (printf "workflows-%s" (.Values.ampEvaluation.workflowNamespace | default "default")) }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: amp-evaluation-job-egress
-  namespace: {{ .Values.networkPolicy.evaluationJob.namespace }}
+  namespace: {{ $evalJobNamespace }}
   labels:
 {{- include "amp-evaluation-extension.labels" . | nindent 4 }}
 spec:

@@ -60,16 +60,15 @@ networkPolicy:
     # No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel).
     enabled: true
 
-    # -- Namespace the NetworkPolicy is created in. Must match the namespace evaluation-job
-    # PODS actually run in, which is NOT the same as ampEvaluation.workflowNamespace /
-    # OPEN_CHOREO_DEFAULT_NAMESPACE ("default") — that value names the OpenChoreo
-    # environment/org, and OpenChoreo's own control plane runs that environment's Argo
-    # workflows in a K8s namespace it names "workflows-<environment-name>" (confirmed by
-    # this repo's own CI log-collection steps in .github/workflows/{e2e,nightly,release}.yml,
-    # which pull Argo workflow pod logs from "workflows-default"). Also NOT this chart's own
-    # release namespace (openchoreo-workflow-plane). Update this value in lockstep if the
-    # environment name ampEvaluation.workflowNamespace points at ever changes from "default".
-    namespace: "workflows-default"
+    # -- Namespace the NetworkPolicy is created in. Left empty by default so the template
+    # derives it as "workflows-<ampEvaluation.workflowNamespace>" — the K8s namespace
+    # OpenChoreo's control plane actually runs that environment's Argo workflows in, which is
+    # NOT ampEvaluation.workflowNamespace/OPEN_CHOREO_DEFAULT_NAMESPACE itself (that names the
+    # OpenChoreo environment/org, "default" unless overridden — confirmed by this repo's own
+    # CI log-collection steps in .github/workflows/{e2e,nightly,release}.yml, which pull Argo
+    # workflow pod logs from "workflows-default"), and NOT this chart's own release namespace
+    # (openchoreo-workflow-plane). Only set this explicitly to override the derived value.
+    namespace: ""
 
     observer:
       namespace: "openchoreo-observability-plane"

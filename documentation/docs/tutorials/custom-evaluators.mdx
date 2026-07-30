@@ -86,7 +86,7 @@ Use `EvalResult.skip()` instead of returning a score of 0.0 when the evaluator i
 :::
 
 :::info Disallowed imports
-Source containing `os`, `subprocess`, `socket`, `ctypes`, or `importlib` imports (or a dynamic `__import__()` call) is rejected at creation/update time with a 400 error naming the pattern. This is a basic content check, not a full sandbox — write evaluators that don't need these regardless, since your code's actual runtime environment restricts what it can reach anyway (see [Network access](../concepts/evaluation.mdx#custom-evaluators)).
+Source containing `os`, `subprocess`, `socket`, `ctypes`, or `importlib` imports (or a dynamic `__import__()` call) is rejected at creation/update time with a 400 error naming the pattern. This check always applies regardless of deployment, but it's a basic content check, not a full sandbox — write evaluators that don't need these regardless, since network egress is only restricted on deployments where it's enabled and enforced (see [Network access](../concepts/evaluation.mdx#custom-evaluators)).
 :::
 
   </TabItem>
