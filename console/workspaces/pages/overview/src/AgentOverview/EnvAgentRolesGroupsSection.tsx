@@ -17,6 +17,7 @@
 
 import { Box } from "@wso2/oxygen-ui";
 import { useAgentIdentityBinding } from "@agent-management-platform/api-client";
+import { isAgentIdentityEnabled } from "@agent-management-platform/types";
 import {
   CollapsibleSection,
   RolesGroupsChips,
@@ -42,15 +43,20 @@ interface EnvAgentRolesGroupsSectionProps {
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
 }) => {
-  const { provisioned, isLoading: isLoadingIdentity } = useAgentIdentityBinding({
-    orgId, projectId, agentId, envId,
-  });
+  // useAgentIdentityBinding has no `enabled` option, so the ids are withheld
+  // when Agent ID is disabled to keep the identity request from firing.
+  const agentIdEnabled = isAgentIdentityEnabled();
+  const { provisioned, isLoading: isLoadingIdentity } = useAgentIdentityBinding(
+    agentIdEnabled
+      ? { orgId, projectId, agentId, envId }
+      : { orgId: "", projectId: "", agentId: "", envId: "" },
+  );
 
   const { roles, groups, isLoading } = useAgentRolesAndGroups({
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
 
-  const show = !isLoadingIdentity && provisioned;
+  const show = agentIdEnabled && !isLoadingIdentity && provisioned;
 
   return (
     <CollapsibleSection show={show}>
