@@ -88,3 +88,7 @@ networkPolicy:
     devEgress:
       cidr: ""
       port: 8080
+
+    # -- kube-apiserver CIDR for the wait sidecar; empty falls back to a live lookup (RBAC + install/upgrade only, so set explicitly otherwise).
+    apiServer:
+      cidr: ""

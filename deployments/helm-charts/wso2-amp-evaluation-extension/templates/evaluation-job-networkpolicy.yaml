@@ -74,12 +74,17 @@ spec:
           protocol: TCP
     {{- end }}
 
-    {{- $kubeSvc := lookup "v1" "Service" "default" "kubernetes" }}
-    {{- if $kubeSvc }}
+    {{- $apiServerCIDR := .Values.networkPolicy.evaluationJob.apiServer.cidr }}
+    {{- if not $apiServerCIDR }}
+    {{- with lookup "v1" "Service" "default" "kubernetes" }}
+    {{- $apiServerCIDR = printf "%s/32" .spec.clusterIP }}
+    {{- end }}
+    {{- end }}
+    {{- if $apiServerCIDR }}
     # wait reports WorkflowTaskResults to the API server; no pod backs it, so only ipBlock matches.
     - to:
         - ipBlock:
-            cidr: {{ $kubeSvc.spec.clusterIP }}/32
+            cidr: {{ $apiServerCIDR }}
       ports:
         - port: 443
           protocol: TCP
