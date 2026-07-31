@@ -216,7 +216,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                     <OverviewSectionCard
                         title="Agent Interface"
                         actionHref={tryItHref}
-                        actionLabel="Try It"
+                        actionLabel="TryIt"
                         variant="plain"
                         sx={{ height: "100%" }}
                     >

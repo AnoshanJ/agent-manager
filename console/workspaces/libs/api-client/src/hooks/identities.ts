@@ -17,6 +17,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   listUsers,
   getUser,
@@ -188,12 +189,24 @@ function readAttribute(attributes: ThunderUser['attributes'], key: string): stri
  */
 export function useUserDisplayName(params: UserPathParams): string | undefined {
   const { getToken } = useAuthHooks();
-  const { data } = useApiQuery<ThunderUser>({
+  const { data, error } = useApiQuery<ThunderUser>({
     ...userProfileQuery(params, getToken),
     retry: false,
     staleTime: 5 * 60 * 1000,
     silent: true,
   });
+
+  // A deleted user (404) or a caller without user-read permission (403) are
+  // expected outcomes here and just leave the fallback in place. Anything else
+  // means the identity service itself is unhealthy: still no toast for a
+  // decoration, but don't let an outage disappear without a trace.
+  useEffect(() => {
+    if (!error) return;
+    const status = (error as { status?: number })?.status;
+    if (status === 403 || status === 404) return;
+    // eslint-disable-next-line no-console
+    console.warn('Failed to resolve user display name', { userId: params.userId, status }, error);
+  }, [error, params.userId]);
 
   const fullName = [
     readAttribute(data?.attributes, 'given_name'),

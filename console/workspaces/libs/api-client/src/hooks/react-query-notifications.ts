@@ -180,12 +180,32 @@ export function useApiQuery<
   const { isAuthenticated, logout } = useAuthHooks();
   const query = useQuery(options);
   const lastErrorMessageRef = useRef<string | null>(null);
+  const handledErrorRef = useRef<unknown>(undefined);
 
   useEffect(() => {
     if (!query.isError) {
       lastErrorMessageRef.current = null;
+      handledErrorRef.current = undefined;
       return;
     }
+
+    // Nothing to act on without an initialized session. `isAuthenticated` is
+    // `isSignedIn && isInitialized`, so it is also false mid-bootstrap, and
+    // `logout()` is a hard `window.location.assign` — running either branch
+    // here would bounce the user to /login before the app finished starting.
+    if (!isAuthenticated) {
+      lastErrorMessageRef.current = null;
+      return;
+    }
+
+    // Act once per distinct error. This effect re-runs on every render for the
+    // many callers that build `queryKey` inline (a fresh array each time), and
+    // without this an invalidated session would call `logout()` — a redirect —
+    // repeatedly while the error sticks around.
+    if (handledErrorRef.current === query.error) {
+      return;
+    }
+    handledErrorRef.current = query.error;
 
     // Auth failures are handled (and can log the user out) even when silent.
     if (handleAuthAndExpectedErrors(query.error, logout)) {
@@ -193,7 +213,7 @@ export function useApiQuery<
       return;
     }
 
-    if (silent || !isAuthenticated) {
+    if (silent) {
       lastErrorMessageRef.current = null;
       return;
     }
