@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
+	"gorm.io/gorm"
 )
 
 // Gateway placement errors.
@@ -120,6 +121,12 @@ func resolveEgressGatewayForEnvironment(
 // The anchor's role is deliberately NOT re-validated: the role is immutable after
 // registration, so an artifact's existing gateway is always still egress-capable. Role is
 // checked only when selecting a new placement.
+//
+// Lookup failures are returned rather than skipped. The anchor is load-bearing: swallowing
+// them would fall through to environment-only selection as if the artifact had no
+// deployment, and a caller naming a different gateway would then dual-home the binding that
+// errPlacementFixed exists to prevent. Only a genuinely absent anchor — no mapping to this
+// environment, or a deleted gateway — continues to the next candidate.
 func resolveEgressGatewayForArtifact(
 	repo repositories.GatewayRepository, ouID string, envUUID uuid.UUID,
 	deployedGatewayIDs []string, requested *string,
@@ -127,11 +134,20 @@ func resolveEgressGatewayForArtifact(
 	envIDStr := envUUID.String()
 	for _, gwID := range deployedGatewayIDs {
 		exists, err := repo.EnvironmentMappingExists(gwID, envIDStr)
-		if err != nil || !exists {
+		if err != nil {
+			return nil, fmt.Errorf("failed to check gateway %s mapping to environment %s: %w", gwID, envIDStr, err)
+		}
+		if !exists {
 			continue
 		}
 		gw, err := repo.GetByUUID(gwID)
-		if err != nil || gw == nil {
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue // gateway deleted; its deployment row is stale
+			}
+			return nil, fmt.Errorf("failed to load anchor gateway %s: %w", gwID, err)
+		}
+		if gw == nil {
 			continue
 		}
 		if requested != nil && *requested != "" && *requested != gwID {

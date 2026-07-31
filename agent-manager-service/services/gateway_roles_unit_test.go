@@ -17,6 +17,7 @@
 package services
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -197,6 +198,44 @@ func TestResolveEgressGatewayForArtifact(t *testing.T) {
 		other := egress.UUID.String()
 		_, err := resolveEgressGatewayForArtifact(repo, "org", env, []string{both.UUID.String()}, &other)
 		require.ErrorIs(t, err, errPlacementFixed)
+	})
+
+	// A swallowed anchor-lookup error would fall through to environment-only selection,
+	// where the caller's conflicting gatewayId validates cleanly and dual-homes the binding
+	// errPlacementFixed exists to prevent. Both lookups therefore surface the error.
+	errLookupFailed := errors.New("connection refused")
+
+	t.Run("a failed mapping lookup never degrades into environment-only selection", func(t *testing.T) {
+		repo := gatewayFixtureRepo(t, env.String(), []*models.Gateway{both, egress})
+		repo.EnvironmentMappingExistsFunc = func(string, string) (bool, error) {
+			return false, errLookupFailed
+		}
+		other := egress.UUID.String()
+		_, err := resolveEgressGatewayForArtifact(repo, "org", env, []string{both.UUID.String()}, &other)
+		require.ErrorIs(t, err, errLookupFailed)
+	})
+
+	t.Run("a failed anchor load never degrades into environment-only selection", func(t *testing.T) {
+		repo := gatewayFixtureRepo(t, env.String(), []*models.Gateway{both, egress})
+		repo.GetByUUIDFunc = func(string) (*models.Gateway, error) {
+			return nil, errLookupFailed
+		}
+		other := egress.UUID.String()
+		_, err := resolveEgressGatewayForArtifact(repo, "org", env, []string{both.UUID.String()}, &other)
+		require.ErrorIs(t, err, errLookupFailed)
+	})
+
+	t.Run("a deleted anchor gateway still falls through to environment-only selection", func(t *testing.T) {
+		// Distinguishes an absent anchor from a failed lookup: the deployment row is stale
+		// (gateway soft-deleted, so GetByUUID reports not-found) and selection must proceed.
+		deleted := uuid.New().String()
+		repo := gatewayFixtureRepo(t, env.String(), []*models.Gateway{egress})
+		repo.EnvironmentMappingExistsFunc = func(gatewayID, environmentID string) (bool, error) {
+			return gatewayID == deleted && environmentID == env.String(), nil
+		}
+		got, err := resolveEgressGatewayForArtifact(repo, "org", env, []string{deleted}, nil)
+		require.NoError(t, err)
+		require.Equal(t, egress.UUID, got.UUID)
 	})
 }
 
