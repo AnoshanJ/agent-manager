@@ -455,12 +455,15 @@ helm install api-platform-default-default \
   --namespace ${DATA_PLANE_NS} \
   --set agentManager.orgName=default \
   --set gateway.environment=default \
+  --set gateway.type=BOTH \
   --set agentManager.idp.existingSecret=gateway-idp-credentials \
   --timeout 1800s
 
 kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap \
   -n ${DATA_PLANE_NS} --timeout=300s
 ```
+
+`gateway.type=BOTH` registers this gateway to serve both inbound and outbound traffic, which is what a single-gateway environment needs. It matches the chart default and is set explicitly here because the role is written once at registration and never rewritten — see [Gateway roles and topology](#gateway-roles-and-topology) for the split alternative and its constraints.
 
 :::warning Development mode is still on
 This release defaults to `developmentMode: true`, which relaxes gateway security checks such as auto-generating encryption keys. Turning it off requires supplying encryption keys that the extension chart does not yet expose as a value — see [Gateway hardening](#gateway-hardening) for the procedure and its caveats.

@@ -149,6 +149,7 @@ Each install step below carries its production configuration inline, so you can 
 | The MCP resource identifiers (`API_PUBLIC_URL`, `OBS_API_PUBLIC_URL`) | [Step 4](#step-4-install-thunder-extension-identity-provider) | Registered as OAuth resource servers by the same seeding job; an identifier is matched exactly, so a later change makes MCP logins fail with `invalid_target` |
 | Thunder replica count > 1 | [Step 4](#step-4-install-thunder-extension-identity-provider) | Requires external PostgreSQL **and** a shared Redis cache — the default in-pod SQLite cannot be shared across pods |
 | Agent Manager's database | [Phase 2](#phase-2-agent-manager-installation) | Switching later is a data migration, not a configuration change |
+| Each environment's gateway topology | [Phase 2](#phase-2-agent-manager-installation) | A gateway's ingress/egress role is written at first registration and never rewritten, so a single-gateway environment cannot be split later — the environment has to be deleted and recreated |
 
 Everything else — OpenSearch sizing, the container registry, gateway hardening, resource quotas, replica counts, isolation tiers — can be changed on a running platform. The [Production Reference](#production-reference) at the end summarises all of it.
 
@@ -1433,11 +1434,24 @@ With development mode off the gateway requires explicit encryption keys (`gatewa
 
 Rate-limiting policies default to an **in-memory** backend, which does not share counters across gateway replicas. When running more than one replica, switch to Redis through the extension's `apiGateway.config.policyConfigurations.ratelimit_v1` values (`backend: redis` plus the `redis` connection block).
 
-:::info Recommended architecture — separate API and AI gateways
-The production direction for this platform is **two gateways per environment**: an API Platform Gateway for agent ingress and a dedicated AI Gateway for LLM egress, scaled and configured independently (see the [AI Gateway Kubernetes deployment guide](https://wso2.com/api-platform/docs/ai-gateway/1.1.0/deployment-modes/kubernetes/gateway-operator/)). Today the default installation provisions a single gateway per environment that serves both roles; support for the split deployment is planned.
+:::warning Rolling back the gateway extension needs the API reachable
+The extension's bootstrap job runs as a `pre-install`, `pre-upgrade` **and `pre-rollback`** hook, so `helm rollback` executes it too and can fail — leaving the release stuck in `pending-rollback` — when the Agent Manager API is unreachable. If you are rolling back precisely because the platform is unhealthy, that is exactly when it will bite. Recovery is to re-run `helm rollback` once the API is back, or `helm rollback --no-hooks` to skip the job entirely.
 :::
 
-AI gateways can also run **outside** the cluster (for example, close to a private LLM endpoint), connecting back through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}` — see [Register an AI Gateway](../administration/register-ai-gateway.mdx).
+#### Gateway roles and topology
+
+Every gateway declares a role: **`INGRESS`** for traffic arriving at the agents in an environment, **`EGRESS`** for the calls those agents make out to LLMs and MCP servers, or **`BOTH`**. The install above registers the default environment's gateway as `BOTH`, which is what a single-gateway environment needs.
+
+Running the two directions on separate gateways lets you scale and harden them independently — an internet-facing ingress gateway and an egress gateway that reaches your model providers are rarely under the same load or the same threat model. That **split topology** is created per environment with `GATEWAY_TOPOLOGY=split`, which installs a second, egress-only release beside the ingress one. See [Gateway topology](../administration/environment-management.mdx#gateway-topology) for how to create an environment that way, including the shorter name limit it imposes.
+
+Two constraints are worth knowing before you choose:
+
+- An environment may hold **at most one** ingress-capable gateway (`INGRESS` or `BOTH`). Egress gateways are uncapped.
+- A gateway's role is fixed when it first registers. A later `helm upgrade` with a different `gateway.type` only logs a drift warning — it never rewrites the role — so an environment's topology cannot be switched in place. Moving an existing environment to a split topology means deleting and recreating it.
+
+`REGULAR` and `AI` are still accepted as input, mapping to `BOTH` and `EGRESS`, but they are deprecated; prefer the role names.
+
+AI gateways can also run **outside** the cluster (for example, close to a private LLM endpoint), connecting back through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Register those as `EGRESS`, since they serve outbound traffic only — see [Register an AI Gateway](../administration/register-ai-gateway.mdx). The WSO2 [AI Gateway Kubernetes deployment guide](https://wso2.com/api-platform/docs/ai-gateway/1.1.0/deployment-modes/kubernetes/gateway-operator/) covers running one under the gateway operator.
 
 ### Build Workflows
 
