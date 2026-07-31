@@ -19,7 +19,7 @@ thunder:
     image:
       registry: ghcr.io/thunder-id
       repository: thunderid
-      tag: "1.0.0-alpha"
+      tag: "1.0.0-alpha2"
       pullPolicy: Always
     container:
       port: 8090
@@ -177,13 +177,16 @@ thunder:
     # reusing this same native user). That account already sits in Thunder's built-in
     # "Administrators" group (system permission), so it works for both the AMP console
     # and ThunderID's own native console without needing a second AMP-side role for it.
-    # admin.password (inherited from the thunderid subchart's own default: "admin") is
-    # what actually sets this merged account's real credential — 67-amp-default-users.yaml
-    # deliberately never touches credentials on it (see that file's comment for why). Keep
-    # this in sync with thunder.bootstrap.defaultUsers[0].password below if you change
-    # either one.
+    # admin.password is what actually sets this merged account's real credential —
+    # 67-amp-default-users.yaml deliberately never touches credentials on it (see that
+    # file's comment for why). Must be set explicitly: ThunderID 1.0.0-alpha2 removed the
+    # subchart's own "admin" default (it now generates a random password if left unset,
+    # per the thunderid chart's own values.yaml comment), so leaving this unset silently
+    # breaks the documented admin/admin console login. Keep this in sync with
+    # thunder.bootstrap.defaultUsers[0].password below if you change either one.
     admin:
       username: "admin"
+      password: "admin"
     resources:
       limits:
         cpu: 500m
@@ -671,10 +674,8 @@ thunder:
                 primary: "#ffffff"
                 secondary: "#cccccc"
     # Agent Manager Console Layout (split-screen sign-in page for amp-console-client).
-    # No fixed id here: ThunderID's declarative layout importer has no create-fallback
-    # for a caller-chosen id (see amp-thunder-bootstrap.yaml's 52-amp-console-layout.yaml
-    # comment), so this is created fresh each time and matched by handle instead.
     ampConsoleLayout:
+      id: "0e0dc039-bae9-4563-82b9-ee4e76f9a58c"
       handle: "wso2-agent-manager-console"
       displayName: "WSO2 Agent Manager Console Layout"
       layout:

@@ -39,7 +39,7 @@ set -euo pipefail
 #   - ORG_NAME (default: default)
 #   - THUNDER_CHART: override the chart ref (default: oci://ghcr.io/thunder-id/helm-charts/thunderid —
 #     the upstream ThunderID release chart, pulled directly, NOT the agent-manager chart)
-#   - CHART_VERSION: pin the chart version (default: 1.0.0-alpha; OCI charts only)
+#   - CHART_VERSION: pin the chart version (default: 1.0.0-alpha2; OCI charts only)
 #   - SYSTEM_CLIENT_SECRET (default: generated; reused if one already exists)
 #   - THUNDER_ADMIN_PASSWORD (default: generated 10-char password w/ letters, digits,
 #     and symbols; reused if one already exists) — native ThunderID superadmin password
@@ -68,9 +68,12 @@ set -euo pipefail
 #   Platform Thunder trusted-issuer (env-Thunder accepts platform Thunder tokens):
 #   - PLATFORM_THUNDER_ISSUER   (default: http://thunder.amp.localhost:8080)
 #   - PLATFORM_THUNDER_JWKS_URL (default: HTTPS JWKS endpoint of platform Thunder)
-#   - PLATFORM_THUNDER_TOKEN_AUDIENCE (default: amp — the aud claim platform Thunder's
-#     tokens carry once any amp:* scope is requested, since ThunderID composes aud from
-#     the resource server(s) resolved via the granted scopes. A scopeless
+#   - PLATFORM_THUNDER_TOKEN_AUDIENCE (default: urn:wso2:amp — the aud claim platform
+#     Thunder's tokens carry once any amp:* scope is requested, since ThunderID composes
+#     aud from the resource server(s) resolved via the granted scopes. Must match the amp
+#     resource server's identifier in the Thunder extension chart's
+#     60-amp-resource-server.yaml; it was the bare string "amp" before ThunderID
+#     1.0.0-alpha2 required resource identifiers to be absolute URIs. A scopeless
 #     client_credentials token instead carries the calling client's own ID as aud.)
 #   Non-local-dev deployments (e.g. a VM — see deployments/vm/lib-vm.sh, which sets
 #   all three of these together, deployment-wide, whenever it provisions env-Thunder):
@@ -303,12 +306,24 @@ store_via_ams() {
 # env-Thunder (agent identities only) does not need.
 render_system_client_bootstrap_resource() {
   local secret="$1" doc
+  # ouId (not ouHandle): same declarative-importer gap as platform Thunder's
+  # bootstrap (amp-thunder-bootstrap.yaml) — the importer never resolves
+  # ouHandle for `application` documents, so this app would otherwise end up
+  # with no OU at all. "01900000-0000-7000-8000-000000000001" is ThunderID's
+  # own built-in "default" OU, fixed on every install (platform or env-Thunder
+  # alike), not something generated per instance.
+  #
+  # clientConfig.attributes opts this client_credentials app into embedding
+  # ouId/ouHandle as token claims (Thunder never does this by default, even
+  # once the app has a resolved OU) — required wherever this token is used
+  # against org-scoped endpoints.
   doc="$(cat <<'BOOTSTRAP_RESOURCE'
 resource_type: application
 id: amp-system-client
+type: m2m
 name: AMP System Client
 description: System client for agent-manager to provision per-org OAuth apps
-ouHandle: default
+ouId: "01900000-0000-7000-8000-000000000001"
 inboundAuthConfig:
   - type: oauth2
     config:
@@ -323,6 +338,7 @@ inboundAuthConfig:
         accessToken:
           clientConfig:
             validityPeriod: 3600
+            attributes: ["ouId", "ouHandle"]
 BOOTSTRAP_RESOURCE
 )"
   printf '%s' "${doc//__SYSTEM_CLIENT_SECRET__/$secret}"
@@ -597,7 +613,7 @@ main() {
   local pt_issuer pt_jwks pt_audience
   pt_issuer="${PLATFORM_THUNDER_ISSUER:-$(platform_thunder_issuer)}"
   pt_jwks="${PLATFORM_THUNDER_JWKS_URL:-$(platform_thunder_jwks_url)}"
-  pt_audience="${PLATFORM_THUNDER_TOKEN_AUDIENCE:-amp}"
+  pt_audience="${PLATFORM_THUNDER_TOKEN_AUDIENCE:-urn:wso2:amp}"
 
   # pt_issuer feeds both cors_origins below and trustedIssuer.issuer further down.
   # If TLS_ENABLED=true but PLATFORM_THUNDER_ISSUER was never explicitly set,
@@ -642,7 +658,7 @@ main() {
   # whatever version platform Thunder happens to run.
   local version_args=()
   if printf '%s' "$chart" | grep -q '^oci://'; then
-    local chart_version="${CHART_VERSION:-1.0.0-alpha}"
+    local chart_version="${CHART_VERSION:-1.0.0-alpha2}"
     echo "📌 Using Thunder chart version: ${chart_version}"
     version_args=(--version "$chart_version")
   fi
@@ -704,7 +720,7 @@ main() {
     # AMP component assumes, e.g. agent-manager-service/clients/thundersvc/naming.go's
     # "<release>-service" convention) instead of the chart's default fullname suffix.
     --set-string "fullnameOverride=${release}"
-    --set-string "deployment.image.tag=${CHART_VERSION:-1.0.0-alpha}"
+    --set-string "deployment.image.tag=${CHART_VERSION:-1.0.0-alpha2}"
     # Single replica + writable root FS: required for SQLite (single-pod, local file DB).
     --set "deployment.replicaCount=1"
     --set "deployment.securityContext.readOnlyRootFilesystem=false"
@@ -925,7 +941,7 @@ ${ca_pem}"
   echo "  Environment:     ${ENV_NAME}"
   echo "  Namespace:       ${ns}"
   echo "  Release:         ${release}"
-  echo "  Chart:           ${chart} (${CHART_VERSION:-1.0.0-alpha})"
+  echo "  Chart:           ${chart} (${CHART_VERSION:-1.0.0-alpha2})"
   echo "  Issuer:          ${issuer}"
   echo "  JWKS:            ${issuer}/oauth2/jwks"
   echo "  Trusted issuer:  ${pt_issuer}"

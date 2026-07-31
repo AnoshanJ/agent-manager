@@ -421,7 +421,7 @@ install_thunder_extension() {
 
     # Detect an image mismatch and do a clean uninstall+install so the
     # pre-install setup job re-runs and re-bootstraps the database.
-    local target_image="ghcr.io/thunder-id/thunderid:1.0.0-alpha"
+    local target_image="ghcr.io/thunder-id/thunderid:1.0.0-alpha2"
     local selector="app.kubernetes.io/instance=amp-thunder-extension"
     if helm status amp-thunder-extension -n amp-thunder &>/dev/null; then
         local current_image
@@ -580,17 +580,6 @@ echo "🔍 Final Verification - Waiting for remaining components..."
 echo ""
 
 wait_for_namespace_ready amp-thunder 'Thunder Extension'
-
-# Provision the AMP Console sign-in layout on platform Thunder. This is a separate
-# step (not part of the declarative bootstrap) because ThunderID 1.0.0-alpha cannot
-# create a layout with a fixed id declaratively — see provision-console-layout.sh.
-# Non-fatal: a failure here only affects sign-in-page branding, not functionality.
-echo ""
-echo "🎨 Provisioning AMP Console sign-in layout..."
-if ! bash "${SCRIPT_DIR}/../scripts/provision-console-layout.sh"; then
-    echo "⚠️  Console layout provisioning failed — sign-in page will use the default layout."
-    echo "    Re-run manually: bash deployments/scripts/provision-console-layout.sh"
-fi
 
 echo ""
 echo "📊 Final Pod Status:"
