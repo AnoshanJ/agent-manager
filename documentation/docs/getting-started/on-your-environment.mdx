@@ -1419,6 +1419,13 @@ kubectl delete pvc -n amp-thunder --all
 </details>
 
 <details>
+<summary>Evaluations mysteriously fail or hang with connection errors</summary>
+
+The evaluation-job NetworkPolicy scopes DNS egress to a specific namespace/pod label (default: `kube-system` / `k8s-app=kube-dns`). If your cluster's DNS runs elsewhere — NodeLocal DNSCache, a relabeled CoreDNS, a managed provider's own DNS add-on — that egress rule won't match it, DNS resolution fails inside the eval-job pod, and *every* other egress rule fails right along with it, since nothing can resolve first. Check this first when evaluations fail with generic connection errors: point `networkPolicy.evaluationJob.dns.namespace`/`podLabel` at your cluster's actual DNS workload.
+
+</details>
+
+<details>
 <summary>OpenSearch connectivity issues</summary>
 
 ```bash
