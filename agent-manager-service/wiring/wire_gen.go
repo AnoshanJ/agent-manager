@@ -109,7 +109,8 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
 	scoreRepository := ProvideScoreRepository(db)
 	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
-	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository)
+	orgSchedulerCredentialRepository := ProvideOrgSchedulerCredentialRepository(db)
+	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository, orgSchedulerCredentialRepository)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +285,8 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
 	scoreRepository := ProvideScoreRepository(db)
 	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
-	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository)
+	orgSchedulerCredentialRepository := ProvideOrgSchedulerCredentialRepository(db)
+	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository, orgSchedulerCredentialRepository)
 	if err != nil {
 		return nil, err
 	}
@@ -576,8 +578,8 @@ func ProvideGitCredentialsService(ocClient client.OpenChoreoClient, cfg config.C
 
 // ProvidePublisherProvisioner creates the publisher credential provisioner
 // for per-org Thunder OAuth app creation and secret storage via SecretManagementClient
-func ProvidePublisherProvisioner(cfg config.Config, encryptionKey []byte, logger *slog.Logger, secretClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, credRepo repositories.OrgPublisherCredentialRepository) (services.PublisherCredentialProvisioner, error) {
-	return services.NewPublisherCredentialProvisioner(cfg, encryptionKey, logger, secretClient, ocClient, credRepo)
+func ProvidePublisherProvisioner(cfg config.Config, encryptionKey []byte, logger *slog.Logger, secretClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, credRepo repositories.OrgPublisherCredentialRepository, schedulerCredRepo repositories.OrgSchedulerCredentialRepository) (services.PublisherCredentialProvisioner, error) {
+	return services.NewPublisherCredentialProvisioner(cfg, encryptionKey, logger, secretClient, ocClient, credRepo, schedulerCredRepo)
 }
 
 var loggerProviderSet = wire.NewSet(
@@ -598,6 +600,7 @@ var repositoryProviderSet = wire.NewSet(
 	ProvideAgentConfigRepository,
 	ProvideCustomEvaluatorRepository,
 	ProvideAPIKeyRepository, repositories.NewAgentConfigurationRepository, repositories.NewEnvAgentModelMappingRepository, repositories.NewEnvAgentMCPMappingRepository, repositories.NewAgentEnvConfigVariableRepository, repositories.NewMonitorLLMMappingRepository, ProvideOrgPublisherCredentialRepository,
+	ProvideOrgSchedulerCredentialRepository,
 	ProvideAIApplicationRepository,
 	ProvideAgentThunderClientRepository,
 	ProvideEnvThunderSystemClientRepository, repositories.NewMCPProxyScopeRepository,
@@ -723,6 +726,10 @@ func ProvideCustomEvaluatorRepository(db *gorm.DB) repositories.CustomEvaluatorR
 
 func ProvideOrgPublisherCredentialRepository(db *gorm.DB) repositories.OrgPublisherCredentialRepository {
 	return repositories.NewOrgPublisherCredentialRepo(db)
+}
+
+func ProvideOrgSchedulerCredentialRepository(db *gorm.DB) repositories.OrgSchedulerCredentialRepository {
+	return repositories.NewOrgSchedulerCredentialRepo(db)
 }
 
 func ProvideAgentKindRepository(db *gorm.DB) repositories.AgentKindRepository {

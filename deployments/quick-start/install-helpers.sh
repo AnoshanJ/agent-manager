@@ -317,6 +317,14 @@ install_evaluation_extension() {
     local chart_version="${VERSION}"
     local release_name="amp-evaluation-extension"
 
+    # The chart's NetworkPolicy targets "workflows-<env>" (workflows-default unless
+    # ampEvaluation.workflowNamespace is overridden) — the namespace OpenChoreo's control
+    # plane runs that environment's Argo workflows in. On a fresh cluster nothing has
+    # triggered a workflow yet, so OpenChoreo hasn't created it and the install fails with
+    # "namespaces \"workflows-default\" not found". Pre-create it (idempotent) so install
+    # order doesn't depend on a workflow having already run.
+    kubectl create namespace workflows-default --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
     # Install Helm chart
     if ! install_amp_helm_chart "${release_name}" "${chart_ref}" "${EVALUATION_NS}" "${TIMEOUT_AMP_INSTALL}" \
         --version "${chart_version}" \
