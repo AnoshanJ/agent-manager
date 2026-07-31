@@ -539,6 +539,7 @@ func (c *thunderClient) createApp(ctx context.Context, token, appName, ouID stri
 	payload := map[string]any{
 		"name": appName,
 		"ouId": ouID,
+		"type": "m2m", // client_credentials only, no interactive login
 		"inboundAuthConfig": []map[string]any{
 			{
 				"type": "oauth2",
@@ -546,6 +547,17 @@ func (c *thunderClient) createApp(ctx context.Context, token, appName, ouID stri
 					"clientId":                appName,
 					"grantTypes":              []string{"client_credentials"},
 					"tokenEndpointAuthMethod": "client_secret_basic",
+					// Thunder only embeds ouId/ouHandle as token claims when a client's own
+					// clientConfig.attributes opts in — without this, RequireOrgMatch in
+					// agent-manager-service rejects this app's tokens as "missing ou
+					// identity in token" even though ouId above is set correctly.
+					"token": map[string]any{
+						"accessToken": map[string]any{
+							"clientConfig": map[string]any{
+								"attributes": []string{"ouId", "ouHandle"},
+							},
+						},
+					},
 				},
 			},
 		},
