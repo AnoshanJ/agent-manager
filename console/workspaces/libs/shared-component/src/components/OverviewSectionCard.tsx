@@ -21,26 +21,33 @@ import { ChevronRight } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
 
 interface OverviewSectionCardProps {
-  /** Uppercase caption shown in the card's own header row. */
+  /** Uppercase caption shown in the section's own header row. */
   title: string;
   /** Omit when there's nowhere to link out to — the action button is skipped entirely. */
   actionHref?: string;
   actionLabel?: string;
+  /**
+   * "card" (default) wraps the content in an outlined Card; "plain" keeps the
+   * same header row but wraps the content in a bare Box — no border/padding
+   * chrome — for sections that shouldn't read as their own card.
+   */
+  variant?: "card" | "plain";
   sx?: SxProps<Theme>;
   children: ReactNode;
 }
 
 /**
- * Outlined Card with a built-in header row (uppercase title + a "View all"-style
- * action link in the top-right corner), used for the standalone cards on an
+ * Section with a built-in header row (uppercase title + a "View all"-style
+ * action link in the top-right corner), used for the standalone sections on an
  * agent's overview page (e.g. Invoke URL, Capabilities). Bakes in the
- * Card/CardContent/header-row boilerplate so call sites only supply the body.
+ * Card/header-row boilerplate so call sites only supply the body; pass
+ * variant="plain" to drop the card chrome and render into a plain Box instead.
  */
 export const OverviewSectionCard: React.FC<OverviewSectionCardProps> = ({
-  title, actionHref, actionLabel = "View all", sx, children,
-}) => (
-  <Card variant="outlined" sx={{ px: 2, py: 1, mt:1, pb:3, ...sx }}>
-
+  title, actionHref, actionLabel = "View all", variant = "card", sx, children,
+}) => {
+  const content = (
+    <>
       <Box display="flex" justifyContent="space-between" pb={1} alignItems="center">
         <Typography
           variant="caption"
@@ -64,5 +71,16 @@ export const OverviewSectionCard: React.FC<OverviewSectionCardProps> = ({
         )}
       </Box>
       {children}
-  </Card>
-);
+    </>
+  );
+
+  if (variant === "plain") {
+    return <Box sx={{ m: 1, ...sx }}>{content}</Box>;
+  }
+
+  return (
+    <Card variant="outlined" sx={{ px: 2, my: 1, pb: 3, ...sx }}>
+      {content}
+    </Card>
+  );
+};

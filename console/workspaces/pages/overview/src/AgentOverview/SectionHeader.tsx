@@ -15,8 +15,8 @@
  * under the License.
  */
 
-import { Box, Button, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
-import { ChevronRight } from "@wso2/oxygen-ui-icons-react";
+import { Box, Button, Tooltip, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
+import { ChevronRight, Info } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
 
 interface UppercaseCaptionLabelProps {
@@ -39,6 +39,8 @@ export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ ch
 interface SectionHeaderProps {
   /** Omit to draw just the "View all" link (if given) with no caption. */
   title?: string;
+  /** Shown as a tooltip on a trailing info icon right after the title. */
+  titleInfo?: React.ReactNode;
   /**
    * Omit when a section has nowhere to link out to (e.g. no deployment page
    * for external agents) — the "View all" button is skipped entirely.
@@ -55,10 +57,19 @@ interface SectionHeaderProps {
  * Recent Traces, System Metrics) that links out to its own full listing page.
  */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
-  title, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2,
+  title, titleInfo, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2,
 }) => (
   <Box display="flex" justifyContent={title ? "space-between" : "flex-end"} alignItems="center" mt={mt} mb={mb}>
-    {title && <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>}
+    {title && (
+      <Box display="flex" alignItems="center" gap={0.5}>
+        <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
+        {titleInfo && (
+          <Tooltip title={titleInfo}>
+            <Info size={13} style={{ cursor: "default", opacity: 0.7 }} />
+          </Tooltip>
+        )}
+      </Box>
+    )}
     {viewAllHref && (
       <Button
         size="small"

@@ -186,6 +186,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                             title="Invoke URL"
                             actionHref={deploymentPath}
                             actionLabel="Deployments"
+                            variant="plain"
                             sx={{ height: "100%" }}
                         >
                             <TextInput
@@ -216,6 +217,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                         title="Capabilities"
                         actionHref={tryItHref}
                         actionLabel="Try It"
+                        variant="plain"
                         sx={{ height: "100%" }}
                     >
                         {resources.length === 0 ? (

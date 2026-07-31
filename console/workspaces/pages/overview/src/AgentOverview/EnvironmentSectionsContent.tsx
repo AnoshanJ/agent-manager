@@ -23,6 +23,7 @@ import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
 import { EnvConfigsSection } from "./EnvConfigsSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
+import { Divider } from "@wso2/oxygen-ui";
 
 interface EnvironmentSectionsContentProps {
     orgId: string;
@@ -47,6 +48,7 @@ export function EnvironmentSectionsContent({
 }: EnvironmentSectionsContentProps) {
     return (
         <>
+        <Divider/>
             <EnvCapabilitiesSection
                 orgId={orgId}
                 projectId={projectId}
