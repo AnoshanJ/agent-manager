@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listUsers,
   getUser,
@@ -157,13 +157,52 @@ export function useDeleteUser() {
   });
 }
 
-export function useGetUserProfile(params: UserPathParams) {
-  const { getToken } = useAuthHooks();
-  return useApiQuery<ThunderUser>({
-    queryKey: ['identity-user-profile', params],
+/** Shared by the two hooks below so they hit one cache entry, one way. */
+function userProfileQuery(params: UserPathParams, getToken: () => Promise<string>) {
+  return {
+    queryKey: ['identity-user-profile', params] as const,
     queryFn: () => getUserProfile(params, getToken),
     enabled: !!params.orgName && !!params.userId,
+  };
+}
+
+export function useGetUserProfile(params: UserPathParams) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<ThunderUser>(userProfileQuery(params, getToken));
+}
+
+/** Reads a name out of a user's profile attributes, if it has one. */
+function readAttribute(attributes: ThunderUser['attributes'], key: string): string {
+  const value = attributes?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Resolves a user id to "First Last" for display, falling back to the profile's
+ * username. Returns undefined until (or unless) the profile resolves, so the
+ * caller decides what to show in the meantime.
+ *
+ * Uses a plain `useQuery` rather than `useApiQuery` on purpose: this only
+ * decorates someone else's record, so a caller without permission to read user
+ * profiles should silently fall back instead of getting an error snackbar on a
+ * page whose own content loaded fine.
+ */
+export function useUserDisplayName(params: UserPathParams): string | undefined {
+  const { getToken } = useAuthHooks();
+  const { data } = useQuery({
+    ...userProfileQuery(params, getToken),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
+
+  const fullName = [
+    readAttribute(data?.attributes, 'given_name'),
+    readAttribute(data?.attributes, 'family_name'),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return fullName || readAttribute(data?.attributes, 'username') || undefined;
 }
 
 export function useUpdateUserProfile() {

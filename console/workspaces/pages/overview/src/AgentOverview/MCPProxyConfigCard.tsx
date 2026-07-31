@@ -28,7 +28,8 @@ import type {
 } from "@agent-management-platform/types";
 import { buildMCPProxyViewHref } from "./configureTabLink";
 import { ConfigListCard } from "./ConfigListCard";
-import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
+import { getAvatarInitials } from "@agent-management-platform/views";
+import { getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
 import type { ConfigResolution } from "./useEnvFilteredConfigs";
 
@@ -134,7 +135,7 @@ export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
 
     return (
         <ConfigListCard
-            avatarLabel={getAvatarInitial(config.name)}
+            avatarLabel={getAvatarInitials(config.name, { maxChars: 1, fallback: "?" })}
             avatarColor={getProviderAvatarColor(proxyName ?? config.name)}
             title={config.name}
             providerLabel={proxy?.name}

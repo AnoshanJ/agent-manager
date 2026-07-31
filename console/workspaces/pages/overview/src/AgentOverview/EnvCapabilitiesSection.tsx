@@ -214,7 +214,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                 )}
                 <Grid size={{ xs: 12, md: invokeUrl ? 4 : 12 }}>
                     <OverviewSectionCard
-                        title="Capabilities"
+                        title="Agent Interface"
                         actionHref={tryItHref}
                         actionLabel="Try It"
                         variant="plain"

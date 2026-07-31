@@ -33,7 +33,6 @@ import {
   TablePagination,
   DataGrid,
   SearchBar,
-  Avatar,
 } from "@wso2/oxygen-ui";
 import {
   Plus as Add,
@@ -49,6 +48,7 @@ import {
   displayProvisionTypes,
   DescriptionCard,
   CreatedMetadata,
+  EntityAvatar,
 } from "@agent-management-platform/views";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
 import {
@@ -301,8 +301,9 @@ export const AgentsList: React.FC = () => {
   return (
     <>
       <PageLayout
+        variant="card"
         title={project?.displayName ?? "Agents"}
-        description={project ? <CreatedMetadata createdAt={project.createdAt} /> : undefined}
+        meta={project ? <CreatedMetadata createdAt={project.createdAt} /> : undefined}
         isLoading={isPageLoading}
         actions={
           <Button
@@ -415,9 +416,13 @@ export const AgentsList: React.FC = () => {
                         >
                           <ListingTable.Cell>
                             <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", minWidth: 0 }}>
-                              <Avatar sx={{ bgcolor: "primary.main", fontSize: 16, height: 32, width: 32, color: "primary.contrastText", flexShrink: 0 }}>
-                                {agent.displayName.charAt(0).toUpperCase()}
-                              </Avatar>
+                              <EntityAvatar
+                                name={agent.displayName}
+                                color="primary.main"
+                                shape="circular"
+                                size={32}
+                                sx={{ flexShrink: 0 }}
+                              />
                               <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
                                 <Typography variant="body1" sx={{ flexShrink: 0 }}>
                                   {agent.displayName}

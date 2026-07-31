@@ -79,7 +79,7 @@ export const OverviewSectionCard: React.FC<OverviewSectionCardProps> = ({
   }
 
   return (
-    <Card variant="outlined" sx={{ px: 2, my: 1, pb: 3, ...sx }}>
+    <Card variant="outlined" sx={{ px: 2, my: 0.5, pt: 0.5, pb: 3, ...sx }}>
       {content}
     </Card>
   );

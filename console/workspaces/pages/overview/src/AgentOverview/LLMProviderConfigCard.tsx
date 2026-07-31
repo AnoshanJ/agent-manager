@@ -26,7 +26,8 @@ import {
 import type { AgentModelConfigListItem } from "@agent-management-platform/types";
 import { buildLLMProviderViewHref } from "./configureTabLink";
 import { ConfigListCard } from "./ConfigListCard";
-import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
+import { getAvatarInitials } from "@agent-management-platform/views";
+import { getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
 import type { ConfigResolution } from "./useEnvFilteredConfigs";
 
@@ -117,7 +118,7 @@ export const LLMProviderConfigCard: React.FC<LLMProviderConfigCardProps> = ({
 
     return (
         <ConfigListCard
-            avatarLabel={getAvatarInitial(config.name)}
+            avatarLabel={getAvatarInitials(config.name, { maxChars: 1, fallback: "?" })}
             avatarColor={getProviderAvatarColor(providerName ?? config.name)}
             avatarSrc={template?.metadata?.logoUrl}
             title={config.name}
