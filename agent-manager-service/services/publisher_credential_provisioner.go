@@ -45,9 +45,7 @@ var ErrNotThunderMode = errors.New("not in Thunder mode")
 // Distinct from real DB errors so callers can decide whether to provision-on-demand vs retry.
 var ErrPublisherCredentialNotFound = errors.New("publisher credentials not found")
 
-// ErrSchedulerCredentialNotFound indicates GetOCClientForOrg's on-demand provisioning attempt
-// still didn't find a scheduler credential row immediately after provisioning one. Distinct from
-// ErrPublisherCredentialNotFound: the two credentials are looked up from different tables.
+// ErrSchedulerCredentialNotFound means a scheduler credential still wasn't found right after provisioning it.
 var ErrSchedulerCredentialNotFound = errors.New("scheduler credentials not found")
 
 // PublisherCredentials holds the provisioned OAuth2 credentials for publishing scores.
@@ -234,9 +232,7 @@ func (p *publisherCredentialProvisioner) EnsureCredentials(ctx context.Context, 
 	return result.(*PublisherCredentials), nil
 }
 
-// provisionPublisherCredentials performs the DB lookup and, if needed, the full Thunder
-// provisioning flow for the publisher-only credential. This credential is bound to no
-// OpenChoreo ClusterAuthzRole — it is the only one ever injected into the evaluation-job pod.
+// provisionPublisherCredentials provisions the eval-job pod's credential — bound to no OpenChoreo role.
 func (p *publisherCredentialProvisioner) provisionPublisherCredentials(ctx context.Context, ouID, orgUUID string) (*PublisherCredentials, error) {
 	// Check DB for existing credentials
 	existing, err := p.credRepo.GetByOrgName(ouID)
@@ -333,10 +329,7 @@ func (p *publisherCredentialProvisioner) provisionPublisherCredentials(ctx conte
 	}, nil
 }
 
-// provisionSchedulerCredentials performs the DB lookup and, if needed, the full Thunder
-// provisioning flow for the scheduler-only credential, bound to schedulerRoleName. This
-// credential is never returned from EnsureCredentials and never injected into the
-// evaluation-job pod — only GetOCClientForOrg reads it, for the scheduler's own OpenChoreo calls.
+// provisionSchedulerCredentials provisions the scheduler-only credential, bound to schedulerRoleName; never injected into the eval-job pod.
 func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx context.Context, ouID, orgUUID string) error {
 	existing, err := p.schedulerCredRepo.GetByOrgName(ouID)
 	if err != nil {
@@ -348,8 +341,7 @@ func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx conte
 		p.logger.Debug("Found existing scheduler credentials in DB",
 			"ouID", ouID, "clientID", existing.ClientID)
 
-		// Ensure the binding exists — idempotent, handles orgs provisioned before this was added.
-		// Non-fatal: log and continue if the ClusterAuthzRole isn't installed yet.
+		// Idempotent re-verify; non-fatal if the ClusterAuthzRole isn't installed yet.
 		if bindErr := p.ocClient.EnsureClusterRoleBinding(ctx, existing.ClientID, schedulerRoleName); bindErr != nil {
 			p.logger.Warn("Failed to ensure ClusterAuthzRoleBinding for existing scheduler credentials",
 				"ouID", ouID, "clientID", existing.ClientID, "error", bindErr)
@@ -406,9 +398,7 @@ func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx conte
 		return fmt.Errorf("failed to encrypt scheduler secret for org %s: %w", ouID, err)
 	}
 
-	// Bind the scheduler app to the scheduler role in OpenChoreo so it can create/track WorkflowRuns.
-	// Uses the system OC client (not org-bound) — ClusterAuthzRoleBindings are cluster-scoped resources.
-	// Non-fatal: log and continue if the ClusterAuthzRole isn't installed yet.
+	// ClusterAuthzRoleBindings are cluster-scoped; non-fatal if the role isn't installed yet.
 	if bindErr := p.ocClient.EnsureClusterRoleBinding(ctx, clientID, schedulerRoleName); bindErr != nil {
 		p.logger.Warn("Failed to ensure ClusterAuthzRoleBinding for new scheduler credentials",
 			"ouID", ouID, "clientID", clientID, "role", schedulerRoleName, "error", bindErr)
@@ -466,10 +456,7 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, fmt.Errorf("failed to look up scheduler credentials for org %s: %w", ouID, err)
 			}
-			// No row yet — orgs whose monitors were created before the scheduler/publisher
-			// credential split (or before EnsureCredentials otherwise ran) have no scheduler
-			// credential. Provision on demand rather than failing: the periodic scheduler
-			// calls this directly and never calls EnsureCredentials itself.
+			// Provision on demand: the periodic scheduler calls this directly and never calls EnsureCredentials.
 			p.logger.Info("No scheduler credentials found for org, provisioning on demand", "ouID", ouID)
 			if provErr := p.provisionSchedulerCredentials(ctx, ouID, ""); provErr != nil {
 				return nil, fmt.Errorf("failed to provision scheduler credentials for org %s: %w", ouID, provErr)

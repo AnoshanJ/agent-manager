@@ -20,9 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// org_scheduler_credentials holds the scheduler-only OAuth2 credential per org, split out from
-// org_publisher_credentials so the eval-job pod's publishing credential is never bound to the
-// amp-monitor-scheduler ClusterAuthzRole (see publisher_credential_provisioner.go).
+// org_scheduler_credentials holds the scheduler-only OAuth2 credential, split out from org_publisher_credentials.
 var migration039 = migration{
 	ID: 39,
 	Migrate: func(db *gorm.DB) error {

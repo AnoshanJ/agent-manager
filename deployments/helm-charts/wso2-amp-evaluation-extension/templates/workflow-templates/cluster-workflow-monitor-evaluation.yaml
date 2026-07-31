@@ -9,9 +9,8 @@ metadata:
 {{- include "amp-evaluation-extension.labels" . | nindent 4 }}
 spec:
   entrypoint: run-monitor
-  # Stamped onto the actual pod Argo creates (unlike this Workflow/ClusterWorkflowTemplate's own
-  # metadata.labels above, which only label the CR). This is the stable selector the
-  # evaluation-job-networkpolicy.yaml NetworkPolicy's podSelector targets.
+  # Stamped onto the actual pod (unlike metadata.labels above, which only labels the CR) —
+  # the podSelector evaluation-job-networkpolicy.yaml targets.
   podMetadata:
     labels:
       app.kubernetes.io/name: amp-monitor

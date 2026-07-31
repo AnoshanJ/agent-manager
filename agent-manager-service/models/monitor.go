@@ -246,9 +246,8 @@ type OrgPublisherCredential struct {
 
 func (OrgPublisherCredential) TableName() string { return "org_publisher_credentials" }
 
-// OrgSchedulerCredential stores per-org OAuth2 credentials used only by agent-manager-service's
-// own scheduler for OpenChoreo calls (CreateWorkflowRun, GetWorkflowRun). Bound to the
-// amp-monitor-scheduler ClusterAuthzRole; never injected into the evaluation-job pod.
+// OrgSchedulerCredential stores per-org OAuth2 credentials for the scheduler's own OpenChoreo
+// calls; never injected into the evaluation-job pod.
 type OrgSchedulerCredential struct {
 	ID                    uuid.UUID `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
 	OUID                  string    `gorm:"column:ou_id;not null;uniqueIndex:uq_org_scheduler_creds_ou_id"`

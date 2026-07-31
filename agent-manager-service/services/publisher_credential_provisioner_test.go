@@ -44,9 +44,7 @@ func newTestSecretRef(kvPath, property string) *occlient.SecretReferenceInfo {
 	}
 }
 
-// TestEnsureCredentials_NewOrg_BindsOnlySchedulerCredential is the core regression guard for
-// wso2/agent-manager#1426: the publisher credential (used by the eval-job pod) must never be
-// bound to the amp-monitor-scheduler ClusterAuthzRole — only the scheduler-only credential is.
+// Regression guard: only the scheduler credential is bound to amp-monitor-scheduler, never the publisher one.
 func TestEnsureCredentials_NewOrg_BindsOnlySchedulerCredential(t *testing.T) {
 	var boundClientIDs []string
 	var boundRoles []string
@@ -120,16 +118,12 @@ func TestEnsureCredentials_NewOrg_BindsOnlySchedulerCredential(t *testing.T) {
 	require.Len(t, schedulerUpserts, 1)
 	assert.Equal(t, "amp-scheduler-acme", schedulerUpserts[0].ClientID)
 
-	// The core assertion: EnsureClusterRoleBinding must be called exactly once, and only
-	// for the scheduler credential's clientID — never the publisher's.
 	require.Len(t, boundClientIDs, 1, "EnsureClusterRoleBinding should be called exactly once")
 	assert.Equal(t, "amp-scheduler-acme", boundClientIDs[0])
 	assert.Equal(t, schedulerRoleName, boundRoles[0])
 }
 
-// TestEnsureCredentials_ExistingOrg_ReverifiesOnlySchedulerBinding covers the idempotent
-// "found existing credentials" path: only the scheduler credential's binding is re-verified,
-// the publisher credential's binding call was removed entirely as part of the #1426 fix.
+// Idempotent path: only the scheduler credential's binding is re-verified on repeat calls.
 func TestEnsureCredentials_ExistingOrg_ReverifiesOnlySchedulerBinding(t *testing.T) {
 	var boundClientIDs []string
 
@@ -174,9 +168,7 @@ func TestEnsureCredentials_ExistingOrg_ReverifiesOnlySchedulerBinding(t *testing
 	assert.Equal(t, "amp-scheduler-acme", boundClientIDs[0])
 }
 
-// TestGetOCClientForOrg_ReadsFromSchedulerCredRepo confirms the scheduler's own OpenChoreo
-// client is built from the scheduler-only credential, not the publisher one. credRepo has no
-// GetByOrgNameFunc configured, so the moq mock panics if GetOCClientForOrg ever touches it.
+// credRepo has no GetByOrgNameFunc — the mock panics if GetOCClientForOrg ever touches it.
 func TestGetOCClientForOrg_ReadsFromSchedulerCredRepo(t *testing.T) {
 	encryptedSecret, err := utils.EncryptBytes([]byte("scheduler-secret-value"), testEncryptionKey)
 	require.NoError(t, err)
@@ -207,17 +199,12 @@ func TestGetOCClientForOrg_ReadsFromSchedulerCredRepo(t *testing.T) {
 	assert.NotNil(t, ocClient)
 }
 
-// TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing covers orgs whose monitors
-// were created before the scheduler/publisher credential split (or otherwise never had
-// EnsureCredentials called): the periodic scheduler calls GetOCClientForOrg directly and never
-// calls EnsureCredentials itself, so a missing scheduler credential must be provisioned here
-// rather than left as a permanent failure.
+// Orgs whose monitors predate the credential split have no scheduler credential yet —
+// GetOCClientForOrg must provision one on demand rather than fail permanently.
 func TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing(t *testing.T) {
 	var upserted *models.OrgSchedulerCredential
 
 	schedulerCredRepo := &repomocks.OrgSchedulerCredentialRepositoryMock{
-		// Models "not found until provisioned": both GetOCClientForOrg's own lookup and
-		// provisionSchedulerCredentials' internal existence check must see not-found here.
 		GetByOrgNameFunc: func(ouID string) (*models.OrgSchedulerCredential, error) {
 			if upserted == nil {
 				return nil, gorm.ErrRecordNotFound
@@ -273,10 +260,7 @@ func TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing(t *testin
 	assert.Equal(t, "amp-scheduler-acme", boundClientID)
 }
 
-// TestGetOCClientForOrg_RealDBErrorOnRecheck_NotMisreportedAsNotFound guards against
-// misclassifying a real database failure (timeout, connection drop) on the post-provisioning
-// recheck as ErrSchedulerCredentialNotFound — that sentinel must mean "genuinely absent",
-// not "the DB call happened to fail right after we just provisioned it."
+// A real DB error on the post-provisioning recheck must not be reported as "genuinely absent".
 func TestGetOCClientForOrg_RealDBErrorOnRecheck_NotMisreportedAsNotFound(t *testing.T) {
 	dbTimeout := errors.New("db timeout")
 	calls := 0

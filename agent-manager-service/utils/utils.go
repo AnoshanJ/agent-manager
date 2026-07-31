@@ -1423,10 +1423,8 @@ func SanitizeString(s string) string {
 	}, strings.ToLower(s))
 }
 
-// riskyEvaluatorSourcePatterns are basic, easily-bypassed heuristics for catching unintentional
-// or low-effort misuse of custom evaluator source at request time. This is defense-in-depth/UX
-// only, not a security boundary: evaluator source still runs with full builtins access at
-// execution time (evaluation-job/main.py's _load_custom_code_evaluator / _eval_template).
+// riskyEvaluatorSourcePatterns are heuristics only, not a security boundary — evaluator
+// source still runs unsandboxed regardless.
 var riskyEvaluatorSourcePatterns = []struct {
 	label   string
 	pattern *regexp.Regexp

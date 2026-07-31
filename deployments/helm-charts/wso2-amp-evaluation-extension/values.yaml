@@ -50,30 +50,18 @@ ampEvaluation:
     idpTokenUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token"
     clientId: "amp-publisher-client"
 
-# NetworkPolicy restricting the evaluation-job pod's egress. The pod runs user-submitted
-# custom evaluator code via exec()/eval() with no sandboxing, so its egress is limited to
-# only what it actually needs: DNS, the traces observer, Thunder (token minting), the
-# agent-manager-service publisher endpoint, and the API Platform LLM gateway.
+# Restricts the evaluation-job pod's egress (untrusted, user-submitted code) to just DNS,
+# the traces observer, Thunder, the agent-manager-service publisher endpoint, and the LLM gateway.
 networkPolicy:
   evaluationJob:
-    # -- Enable the egress-restricting NetworkPolicy for the evaluation-job pod.
-    # No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel).
+    # -- No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel).
     enabled: true
 
-    # -- Namespace the NetworkPolicy is created in. Left empty by default so the template
-    # derives it as "workflows-<ampEvaluation.workflowNamespace>" — the K8s namespace
-    # OpenChoreo's control plane actually runs that environment's Argo workflows in, which is
-    # NOT ampEvaluation.workflowNamespace/OPEN_CHOREO_DEFAULT_NAMESPACE itself (that names the
-    # OpenChoreo environment/org, "default" unless overridden — confirmed by this repo's own
-    # CI log-collection steps in .github/workflows/{e2e,nightly,release}.yml, which pull Argo
-    # workflow pod logs from "workflows-default"), and NOT this chart's own release namespace
-    # (openchoreo-workflow-plane). Only set this explicitly to override the derived value.
+    # -- Empty derives "workflows-<ampEvaluation.workflowNamespace>" (where OpenChoreo runs this
+    # environment's Argo workflows), not this chart's own release namespace.
     namespace: ""
 
-    # -- DNS resolver target the pod is allowed to reach on port 53. Defaults to the
-    # standard CoreDNS/kube-dns labeling used by k3s and stock Kubernetes distributions.
-    # Scoped (not left wide open) because this pod runs untrusted, user-submitted code —
-    # an unscoped rule would let it reach any reachable endpoint on TCP/UDP 53, not just DNS.
+    # -- DNS target on port 53, scoped rather than left wide open since this pod runs untrusted code.
     dns:
       namespace: "kube-system"
       podLabel:
@@ -95,12 +83,8 @@ networkPolicy:
     llmGateway:
       port: 22893
 
-    # -- Local-dev only: additional egress target for reaching agent-manager-service when
-    # it runs outside the cluster entirely (e.g. via docker-compose, bridged onto the k3d
-    # node's docker network). That's not a Kubernetes-native destination, so it can't be
-    # expressed with a namespaceSelector rule like publisher.namespace/port above — it needs
-    # an ipBlock instead. Leave cidr empty (the default) for any real deployment where
-    # agent-manager-service runs in-cluster; setup-amp-extensions.sh sets this for local dev.
+    # -- Local-dev only: ipBlock exception for agent-manager-service running outside the
+    # cluster (docker-compose). Empty (no-op) elsewhere; setup-amp-extensions.sh sets it.
     devEgress:
       cidr: ""
       port: 8080

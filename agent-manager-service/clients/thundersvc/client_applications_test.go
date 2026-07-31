@@ -202,9 +202,7 @@ func TestRegenerateClientSecret_AppNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestEnsureApp_CreatesNewApp_WithArbitraryName guards the generalization behind
-// EnsurePublisherApp: EnsureApp must work for any app name, not just "amp-publisher-*"
-// (e.g. the scheduler-only credential's "amp-scheduler-<ouID>").
+// EnsureApp must work for any app name, not just "amp-publisher-*".
 func TestEnsureApp_CreatesNewApp_WithArbitraryName(t *testing.T) {
 	var createdBody map[string]any
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -242,8 +240,7 @@ func TestEnsureApp_CreatesNewApp_WithArbitraryName(t *testing.T) {
 	assert.Equal(t, "amp-scheduler-acme", createdBody["name"])
 }
 
-// TestEnsurePublisherApp_StillUsesAmpPublisherPrefix pins down that the wrapper
-// refactor (EnsurePublisherApp -> EnsureApp) didn't change the app name it constructs.
+// Pins down that the EnsureApp refactor didn't change the app name EnsurePublisherApp constructs.
 func TestEnsurePublisherApp_StillUsesAmpPublisherPrefix(t *testing.T) {
 	var createdBody map[string]any
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {

@@ -55,9 +55,7 @@ type ThunderClient interface {
 	// Use this when the app exists but the secret has been lost (e.g. not in the local DB).
 	RegenerateClientSecret(ctx context.Context, orgName string) (clientSecret string, err error)
 
-	// EnsureApp creates or returns an existing OAuth2 app named appName in Thunder.
-	// Generalizes EnsurePublisherApp for callers that need a differently-named app
-	// (e.g. the scheduler-only credential, amp-scheduler-<ouID>).
+	// EnsureApp generalizes EnsurePublisherApp for a differently-named app (e.g. amp-scheduler-<ouID>).
 	EnsureApp(ctx context.Context, appName, orgUUID string) (clientID, clientSecret string, created bool, err error)
 
 	// DeleteApp deletes the OAuth2 app named appName from Thunder.

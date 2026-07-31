@@ -14,9 +14,7 @@ spec:
       app.kubernetes.io/component: evaluation-job
   policyTypes: [Egress]
   egress:
-    # DNS resolution for the service hostnames below. Scoped to the cluster DNS workload
-    # (not left open to any destination) — this pod runs untrusted evaluator code, so an
-    # unscoped rule would let it reach anything else reachable on TCP/UDP 53 too.
+    # Scoped to the cluster DNS workload, not left open — this pod runs untrusted code.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -39,9 +37,7 @@ spec:
         - port: {{ .Values.networkPolicy.evaluationJob.observer.port }}
           protocol: TCP
 
-    # amp-thunder IDP — mints the OAuth2 token used to call both amp-observer and
-    # amp-api below. Not one of the issue's three named targets, but required: without
-    # it the pod can authenticate to neither of the other two allowed services.
+    # amp-thunder IDP — mints the token used to call amp-observer and amp-api below.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -59,10 +55,7 @@ spec:
         - port: {{ .Values.networkPolicy.evaluationJob.publisher.port }}
           protocol: TCP
 
-    # API Platform gateway runtime — LLM proxy endpoint for llm_judge evaluators. Kept
-    # unconditional (not scoped to llm_judge-only runs): NetworkPolicy can't distinguish
-    # workflow context, and this only reaches the org's own gateway runtime port, matching
-    # the same egress rule already granted to agent-api components.
+    # LLM gateway for llm_judge evaluators — unconditional since NetworkPolicy can't scope by workflow.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -72,11 +65,7 @@ spec:
           protocol: TCP
 
     {{- if .Values.networkPolicy.evaluationJob.devEgress.cidr }}
-    # Local-dev only: agent-manager-service running outside the cluster (e.g. via
-    # docker-compose bridged onto the k3d node's docker network) isn't a Kubernetes-native
-    # destination, so it can't be matched by a namespaceSelector rule like the publisher
-    # rule above. setup-amp-extensions.sh sets devEgress.cidr to that docker network's
-    # subnet for local dev only; this block is a no-op (cidr empty) everywhere else.
+    # Local-dev only: agent-manager-service runs outside the cluster, so namespaceSelector can't match it.
     - to:
         - ipBlock:
             cidr: {{ .Values.networkPolicy.evaluationJob.devEgress.cidr }}
