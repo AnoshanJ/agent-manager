@@ -476,7 +476,10 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 			}
 			cred, err = p.schedulerCredRepo.GetByOrgName(ouID)
 			if err != nil {
-				return nil, fmt.Errorf("%w: org %s — provisioned but still not found: %w", ErrSchedulerCredentialNotFound, ouID, err)
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil, fmt.Errorf("%w: org %s — provisioned but still not found: %w", ErrSchedulerCredentialNotFound, ouID, err)
+				}
+				return nil, fmt.Errorf("failed to look up scheduler credentials for org %s after provisioning: %w", ouID, err)
 			}
 		}
 		if len(cred.ClientSecretEncrypted) == 0 {

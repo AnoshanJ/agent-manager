@@ -18,6 +18,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -270,4 +271,57 @@ func TestGetOCClientForOrg_ProvisionsOnDemand_WhenSchedulerCredMissing(t *testin
 	require.NotNil(t, upserted, "the missing scheduler credential should have been provisioned")
 	assert.Equal(t, "amp-scheduler-acme", upserted.ClientID)
 	assert.Equal(t, "amp-scheduler-acme", boundClientID)
+}
+
+// TestGetOCClientForOrg_RealDBErrorOnRecheck_NotMisreportedAsNotFound guards against
+// misclassifying a real database failure (timeout, connection drop) on the post-provisioning
+// recheck as ErrSchedulerCredentialNotFound — that sentinel must mean "genuinely absent",
+// not "the DB call happened to fail right after we just provisioned it."
+func TestGetOCClientForOrg_RealDBErrorOnRecheck_NotMisreportedAsNotFound(t *testing.T) {
+	dbTimeout := errors.New("db timeout")
+	calls := 0
+	schedulerCredRepo := &repomocks.OrgSchedulerCredentialRepositoryMock{
+		GetByOrgNameFunc: func(_ string) (*models.OrgSchedulerCredential, error) {
+			calls++
+			if calls == 1 {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return nil, dbTimeout
+		},
+		UpsertFunc: func(_ *models.OrgSchedulerCredential) error { return nil },
+	}
+	thunderMock := &clientmocks.ThunderClientMock{
+		EnsureAppFunc: func(_ context.Context, appName, _ string) (string, string, bool, error) {
+			return appName, "scheduler-secret", true, nil
+		},
+	}
+	ocMock := &clientmocks.OpenChoreoClientMock{
+		EnsureClusterRoleBindingFunc: func(_ context.Context, _ string, _ string) error { return nil },
+		GetSecretReferenceFunc: func(_ context.Context, _ string, secretRefName string) (*occlient.SecretReferenceInfo, error) {
+			return newTestSecretRef("kv/"+secretRefName, "client-secret"), nil
+		},
+	}
+	secretClient := &clientmocks.SecretManagementClientMock{
+		CreateSecretFunc: func(_ context.Context, location secretmanagersvc.SecretLocation, _ map[string]string) (string, error) {
+			return "ref-" + location.EntityName, nil
+		},
+	}
+
+	p := &publisherCredentialProvisioner{
+		thunderClient:     thunderMock,
+		secretClient:      secretClient,
+		ocClient:          ocMock,
+		schedulerCredRepo: schedulerCredRepo,
+		logger:            discardLogger(),
+		encryptionKey:     testEncryptionKey,
+		idpTokenURL:       "http://thunder.test/oauth2/token",
+		ocBaseURL:         "http://openchoreo.test",
+		orgOCClients:      make(map[string]occlient.OpenChoreoClient),
+	}
+
+	_, err := p.GetOCClientForOrg(context.Background(), "acme")
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrSchedulerCredentialNotFound),
+		"a real DB error must not be reported as the not-found sentinel")
+	assert.ErrorIs(t, err, dbTimeout)
 }
