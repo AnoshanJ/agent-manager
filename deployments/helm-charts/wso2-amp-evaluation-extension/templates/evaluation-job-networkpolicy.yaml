@@ -80,13 +80,11 @@ spec:
     {{- $apiServerCIDR = printf "%s/32" .spec.clusterIP }}
     {{- end }}
     {{- end }}
-    {{- if $apiServerCIDR }}
     # wait reports WorkflowTaskResults to the API server; no pod backs it, so only ipBlock matches.
     - to:
         - ipBlock:
-            cidr: {{ $apiServerCIDR }}
+            cidr: {{ required "networkPolicy.evaluationJob.apiServer.cidr must be set explicitly when the kubernetes Service lookup is unavailable (helm template, or install RBAC without Service-read access)" $apiServerCIDR }}
       ports:
         - port: 443
           protocol: TCP
-    {{- end }}
 {{- end }}
