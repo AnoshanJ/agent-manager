@@ -190,11 +190,13 @@ agentManagerService:
     # Key Manager configuration
     #
     # Token audiences accepted by this service. Console/CLI logins arrive with
-    # aud=amp; MCP logins arrive with serverPublicURL plus a trailing slash,
-    # which the chart appends automatically — list only client IDs here.
+    # aud=urn:wso2:amp (the amp resource server's identifier — keep in sync with
+    # 60-amp-resource-server.yaml in the Thunder extension chart); MCP logins arrive
+    # with serverPublicURL plus a trailing slash, which the chart appends
+    # automatically — list only client IDs here.
     keyManager:
       issuer: "http://thunder.amp.localhost:8080"
-      audience: "amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
+      audience: "urn:wso2:amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
       jwksUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/jwks"
 
     # Externally reachable base URL of this service.
