@@ -24,6 +24,7 @@ import {
     useListLLMProviderTemplates,
 } from "@agent-management-platform/api-client";
 import type { AgentModelConfigListItem } from "@agent-management-platform/types";
+import { buildLLMProviderViewHref } from "./configureTabLink";
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
@@ -123,6 +124,7 @@ export const LLMProviderConfigCard: React.FC<LLMProviderConfigCardProps> = ({
             providerLabel={template?.name}
             subtitle={subtitle}
             isLoadingSubtitle={isLoading}
+            href={buildLLMProviderViewHref(orgId, projectId, agentId, config.uuid)}
         />
     );
 };

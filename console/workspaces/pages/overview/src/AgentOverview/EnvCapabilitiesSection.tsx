@@ -17,18 +17,21 @@
  */
 
 import { useMemo } from "react";
-import { Box, Chip, Divider, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
+import { Box, Chip, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
 import { generatePath } from "react-router-dom";
 import { useGetAgentEndpoints } from "@agent-management-platform/api-client";
 import {
     CollapsibleSection,
+    DeploymentStatus,
     extractOpenApiResources,
+    getAgentDeploymentPath,
+    IsolationTierChip,
+    OverviewSectionCard,
     parseOpenApiSpecContent,
     type OpenApiResource,
 } from "@agent-management-platform/shared-component";
 import { absoluteRouteMap, type Configurations } from "@agent-management-platform/types";
 import { TextInput } from "@agent-management-platform/views";
-import { SectionHeader, UppercaseCaptionLabel } from "./SectionHeader";
 
 interface EnvCapabilitiesSectionProps {
     orgId: string;
@@ -37,6 +40,8 @@ interface EnvCapabilitiesSectionProps {
     envId: string;
     configurations?: Configurations;
     external?: boolean;
+    isolationTier?: string;
+    deploymentStatus?: DeploymentStatus;
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -79,7 +84,7 @@ const StatusPill: React.FC<StatusPillProps> = ({ label, value, tooltip }) => (
  * that would just be discarded.
  */
 export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
-    orgId, projectId, agentId, envId, configurations, external,
+    orgId, projectId, agentId, envId, configurations, external, isolationTier, deploymentStatus,
 }) => {
     const { data: endpoints, isLoading } = useGetAgentEndpoints(
         { orgName: external ? "" : orgId, projName: projectId, agentName: agentId },
@@ -155,85 +160,109 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
             .children.environment.children.tryOut.path,
         { orgId, projectId, agentId, envId },
     );
+    const deploymentPath = getAgentDeploymentPath(orgId, projectId, agentId);
 
     // Resources need a parsed OpenAPI schema; invokeUrl only needs the
     // endpoint itself to have resolved a URL. A kind-type agent can have one
     // without the other (e.g. schema not registered yet) — show whichever is
     // actually available instead of hiding invokeUrl behind resources.
-    const show = !isLoading && (resources.length > 0 || !!invokeUrl);
+    // Also gated on the environment actually being deployed — an inactive
+    // environment can still have a schema/URL left over from a prior
+    // deployment, and surfacing those as if they were live would be misleading.
+    const show = deploymentStatus === DeploymentStatus.ACTIVE
+        && !isLoading && (resources.length > 0 || !!invokeUrl);
 
     return (
         <CollapsibleSection show={show}>
-            <SectionHeader title="Capabilities" viewAllHref={tryItHref} viewAllLabel="Try It" />
-            {resources.length === 0 ? (
-                <Typography
-                    variant="caption"
-                    color="text.disabled"
-                    sx={{ display: "block", fontStyle: "italic", mb: 1.5 }}
-                >
-                    Unable to find API schema
-                </Typography>
-            ) : (
-                <Box display="flex" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
-                    {resources.map((resource) => (
-                        <Box
-                            key={`${resource.method} ${resource.path}`}
-                            display="flex"
-                            alignItems="center"
-                            gap={0.75}
-                            sx={{
-                                border: "1px solid",
-                                borderColor: "divider",
-                                borderRadius: "999px",
-                                // The Chip already carries its own pill padding on the
-                                // left, so a smaller pl here (vs. pr, which backs onto
-                                // plain unpadded text) keeps the inset even on both ends.
-                                pl: 0.5,
-                                pr: 1.25,
-                                py: 0.5,
-                            }}
-                        >
-                            <Chip
-                                label={METHOD_LABEL[resource.method] ?? resource.method}
-                                size="small"
-                                variant="outlined"
-                                color={METHOD_COLOR[resource.method] ?? "default"}
-                                sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
+            {/*
+             * Two standalone cards side by side on desktop, stacking back to a
+             * column on narrow viewports where a flex row would otherwise
+             * squeeze the TextInput unreadably. Each card carries its own
+             * action link in its top-right corner instead of a shared header.
+             */}
+            <Box display="flex" flexDirection={{ xs: "column", md: "row" }} gap={2} sx={{ mb: 1.5 }}>
+                {invokeUrl && (
+                    <OverviewSectionCard
+                        title="Invoke URL"
+                        actionHref={deploymentPath}
+                        actionLabel="Deployments"
+                        sx={{ flex: 1, minWidth: 0 }}
+                    >
+                        <TextInput
+                            value={invokeUrl}
+                            copyable
+                            copyTooltipText="Copy URL"
+                            slotProps={{ input: { readOnly: true } }}
+                            sx={{ mb: 1 }}
+                        />
+                        <Box display="flex" flexWrap="wrap" gap={1}>
+                            <StatusPill
+                                label="Auth"
+                                value={authLabel}
+                                tooltip={authTooltip}
                             />
-                            <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
-                                {resource.path}
-                            </Typography>
+                            <StatusPill
+                                label="CORS"
+                                value={corsLabel}
+                                tooltip={corsTooltip}
+                            />
+                            <IsolationTierChip tier={isolationTier} />
                         </Box>
-                    ))}
-                </Box>
-            )}
-            {invokeUrl && (
-                <Box sx={{ mb: 1.5 }}>
-                    <Divider sx={{ mb: 1.5 }} />
-                    <UppercaseCaptionLabel sx={{ display: "block", mb: 0.75 }}>
-                        Invoke URL
-                    </UppercaseCaptionLabel>
-                    <TextInput
-                        value={invokeUrl}
-                        copyable
-                        copyTooltipText="Copy URL"
-                        slotProps={{ input: { readOnly: true } }}
-                        sx={{ mb: 1 }}
-                    />
-                    <Box display="flex" flexWrap="wrap" gap={1}>
-                        <StatusPill
-                            label="Auth"
-                            value={authLabel}
-                            tooltip={authTooltip}
-                        />
-                        <StatusPill
-                            label="CORS"
-                            value={corsLabel}
-                            tooltip={corsTooltip}
-                        />
-                    </Box>
-                </Box>
-            )}
+                    </OverviewSectionCard>
+                )}
+                <OverviewSectionCard
+                    title="Capabilities"
+                    actionHref={tryItHref}
+                    actionLabel="Try It"
+                    sx={{ flex: 1, minWidth: 0 }}
+                >
+                    {resources.length === 0 ? (
+                        <Typography
+                            variant="caption"
+                            color="text.disabled"
+                            sx={{ display: "block", fontStyle: "italic" }}
+                        >
+                            Unable to find API schema
+                        </Typography>
+                    ) : (
+                        <Box display="flex" flexWrap="wrap" gap={1}>
+                            {resources.map((resource) => (
+                                <Box
+                                    key={`${resource.method} ${resource.path}`}
+                                    display="flex"
+                                    alignItems="center"
+                                    gap={0.75}
+                                    sx={{
+                                        border: "1px solid",
+                                        borderColor: "divider",
+                                        borderRadius: "999px",
+                                        // The Chip already carries its own pill
+                                        // padding on the left, so a smaller pl here
+                                        // (vs. pr, which backs onto plain unpadded
+                                        // text) keeps the inset even on both ends.
+                                        pl: 0.5,
+                                        pr: 1.25,
+                                        py: 0.5,
+                                    }}
+                                >
+                                    <Chip
+                                        label={
+                                            METHOD_LABEL[resource.method] ?? resource.method
+                                        }
+                                        size="small"
+                                        variant="outlined"
+                                        color={METHOD_COLOR[resource.method] ?? "default"}
+                                        sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
+                                    />
+                                    <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
+                                        {resource.path}
+                                    </Typography>
+                                </Box>
+                            ))}
+                        </Box>
+                    )}
+                </OverviewSectionCard>
+            </Box>
         </CollapsibleSection>
     );
 };

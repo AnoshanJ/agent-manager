@@ -21,7 +21,6 @@ import type { DeploymentStatus } from "@agent-management-platform/shared-compone
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
 import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
 import { EnvConfigsSection } from "./EnvConfigsSection";
-import { EnvDeploymentStatusSection } from "./EnvDeploymentStatusSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
 
@@ -32,23 +31,19 @@ interface EnvironmentSectionsContentProps {
     envId: string;
     configurations?: Configurations;
     external?: boolean;
-    deploymentStatus?: DeploymentStatus;
-    registeredAt?: string;
     isolationTier?: string;
-    deployedVersionLabel?: string | null;
+    deploymentStatus?: DeploymentStatus;
 }
 
 /**
- * Capabilities / Deployment Status / Agent Identity / Agent Performance /
- * Recent Traces sections rendered as an EnvironmentCard's bottomContent,
- * shared by InternalAgentOverview and ExternalAgentOverview. Deployment
- * Status sits right after Capabilities; EnvironmentCard renders
+ * Capabilities / Agent Identity / Agent Performance / Recent Traces sections
+ * rendered as an EnvironmentCard's bottomContent, shared by
+ * InternalAgentOverview and ExternalAgentOverview. EnvironmentCard renders
  * bottomContent unconditionally, and each section here decides for itself
  * whether it has anything to show.
  */
 export function EnvironmentSectionsContent({
-    orgId, projectId, agentId, envId, configurations, external,
-    deploymentStatus, registeredAt, isolationTier, deployedVersionLabel,
+    orgId, projectId, agentId, envId, configurations, external, isolationTier, deploymentStatus,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
@@ -59,16 +54,8 @@ export function EnvironmentSectionsContent({
                 envId={envId}
                 configurations={configurations}
                 external={external}
-            />
-            <EnvDeploymentStatusSection
-                orgId={orgId}
-                projectId={projectId}
-                agentId={agentId}
-                external={external}
-                status={deploymentStatus}
-                registeredAt={registeredAt}
                 isolationTier={isolationTier}
-                deployedVersionLabel={deployedVersionLabel}
+                deploymentStatus={deploymentStatus}
             />
             <EnvConfigsSection
                 orgId={orgId}

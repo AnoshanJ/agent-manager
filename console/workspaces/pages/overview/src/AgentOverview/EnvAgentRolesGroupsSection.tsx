@@ -15,15 +15,21 @@
  * under the License.
  */
 
+import { useMemo } from "react";
 import { Box } from "@wso2/oxygen-ui";
-import { useAgentIdentityBinding } from "@agent-management-platform/api-client";
+import {
+  useAgentIdentityBinding,
+  useListAgentIdentityAgents,
+} from "@agent-management-platform/api-client";
 import {
   CollapsibleSection,
+  monospaceInputSx,
+  OverviewSectionCard,
   RolesGroupsChips,
   useAgentRolesAndGroups,
 } from "@agent-management-platform/shared-component";
+import { TextInput } from "@agent-management-platform/views";
 import { buildAgentIdHref } from "./agentIdLink";
-import { SectionHeader } from "./SectionHeader";
 
 interface EnvAgentRolesGroupsSectionProps {
   orgId: string;
@@ -33,11 +39,12 @@ interface EnvAgentRolesGroupsSectionProps {
 }
 
 /**
- * Per-environment "Agent Identity" roles/groups display, rendered inside an
- * EnvironmentCard for both internal and external agents — the client
- * ID/secret/regenerate flow lives on the agent-level "Agent ID" page
- * instead, linked to via the "View all" button here (styled the same way as
- * the Agent Performance / Recent Traces section headers).
+ * Per-environment "Agent ID" card: the Thunder Agent ID plus the identity's
+ * roles/groups, rendered inside an EnvironmentCard for both internal and
+ * external agents — the client ID/secret/regenerate flow lives on the
+ * agent-level "Agent ID" page instead, linked to via the "View all" button.
+ * The Thunder Agent ID mirrors the one shown on that page, resolved from the
+ * same useListAgentIdentityAgents response.
  */
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
@@ -50,18 +57,42 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
 
+  // Same lookup the agent-id page uses: the Thunder Agent ID is a field on the
+  // per-env identity-agents list, matched by agent + project name.
+  const { data: identityAgentsData } = useListAgentIdentityAgents({
+    orgName: orgId, envName: envId,
+  });
+  const thunderAgentId = useMemo(
+    () => identityAgentsData?.agents.find(
+      (item) => item.agentName === agentId && item.projectName === projectId,
+    )?.thunderAgentId,
+    [identityAgentsData, agentId, projectId],
+  );
+
   const show = !isLoadingIdentity && provisioned;
 
   return (
     <CollapsibleSection show={show}>
-      <SectionHeader
+      <OverviewSectionCard
         title="Agent ID"
-        viewAllHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
-      />
-
-      <Box sx={{ mt: 1 }}>
-        <RolesGroupsChips roles={roles} groups={groups} isLoading={isLoading} />
-      </Box>
+        actionHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
+        sx={{ mb: 1.5 }}
+      >
+        {thunderAgentId && (
+          <TextInput
+            slotProps={{ input: { readOnly: true } }}
+            label="Thunder Agent ID"
+            value={thunderAgentId}
+            copyable
+            fullWidth
+            size="small"
+            sx={{ ...monospaceInputSx, mb: 1.5 }}
+          />
+        )}
+        <Box>
+          <RolesGroupsChips roles={roles} groups={groups} isLoading={isLoading} />
+        </Box>
+      </OverviewSectionCard>
     </CollapsibleSection>
   );
 };

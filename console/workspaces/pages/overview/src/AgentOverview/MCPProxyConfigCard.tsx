@@ -26,6 +26,7 @@ import type {
     AgentModelConfigListItem,
     ProviderConfig,
 } from "@agent-management-platform/types";
+import { buildMCPProxyViewHref } from "./configureTabLink";
 import { ConfigListCard } from "./ConfigListCard";
 import { getAvatarInitial, getProviderAvatarColor } from "./providerAvatar";
 import { useConfigEnvMapping } from "./useConfigEnvMapping";
@@ -139,6 +140,7 @@ export const MCPProxyConfigCard: React.FC<MCPProxyConfigCardProps> = ({
             providerLabel={proxy?.name}
             subtitle={subtitle}
             isLoadingSubtitle={isLoading}
+            href={buildMCPProxyViewHref(orgId, projectId, agentId, config.uuid)}
         />
     );
 };

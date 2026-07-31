@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import { Box, Button, Divider, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
+import { Box, Button, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
 import { ChevronRight } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
 
@@ -37,7 +37,8 @@ export const UppercaseCaptionLabel: React.FC<UppercaseCaptionLabelProps> = ({ ch
 );
 
 interface SectionHeaderProps {
-  title: string;
+  /** Omit to draw just the "View all" link (if given) with no caption. */
+  title?: string;
   /**
    * Omit when a section has nowhere to link out to (e.g. no deployment page
    * for external agents) — the "View all" button is skipped entirely.
@@ -49,35 +50,26 @@ interface SectionHeaderProps {
 }
 
 /**
- * Divider + uppercase caption + "View all" link, marking the boundary before
- * every EnvironmentCard section (Capabilities, Agent Identity, Agent
- * Performance, Recent Traces, System Metrics) that links out to its own full
- * listing page. Whichever section renders first draws this divider right
- * after EnvironmentCard's own header divider — EnvironmentCard.tsx hides that
- * redundant leading divider via a CSS rule keyed off `data-section-leading-divider`
- * (not a plain `hr` selector, so it can't catch an unrelated Divider a section
- * renders further down in its own content); look there if this divider ever
- * seems to double up or vanish unexpectedly.
+ * Uppercase caption + "View all" link, marking the boundary before every
+ * EnvironmentCard section (Capabilities, Agent Identity, Agent Performance,
+ * Recent Traces, System Metrics) that links out to its own full listing page.
  */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
   title, viewAllHref, viewAllLabel = "View all", mb = 0.5, mt = 2,
 }) => (
-  <>
-    <Divider data-section-leading-divider="" sx={{ mt, mb: 1 }} />
-    <Box display="flex" justifyContent="space-between" alignItems="center" mb={mb}>
-      <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
-      {viewAllHref && (
-        <Button
-          size="small"
-          variant="text"
-          endIcon={<ChevronRight size={14} />}
-          component={Link}
-          to={viewAllHref}
-          sx={{ minWidth: 0, fontSize: "0.75rem" }}
-        >
-          {viewAllLabel}
-        </Button>
-      )}
-    </Box>
-  </>
+  <Box display="flex" justifyContent={title ? "space-between" : "flex-end"} alignItems="center" mt={mt} mb={mb}>
+    {title && <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>}
+    {viewAllHref && (
+      <Button
+        size="small"
+        variant="text"
+        endIcon={<ChevronRight size={14} />}
+        component={Link}
+        to={viewAllHref}
+        sx={{ minWidth: 0, fontSize: "0.75rem" }}
+      >
+        {viewAllLabel}
+      </Button>
+    )}
+  </Box>
 );
