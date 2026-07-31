@@ -129,19 +129,19 @@ func (s *AgentAPIKeyService) resolveAgentAPIArtifact(ctx context.Context, ouID, 
 	return artifact, environment.UUID, nil
 }
 
-// resolveEnvGateways returns the gateways associated with the given environment UUID.
+// resolveEnvGateways returns the environment's ingress-capable gateways. This is a
+// fan-out and stays one: every ingress gateway in the environment gets the key.
+//
+// No Status filter. Keys are distributed regardless of is_active today, and is_active
+// tracks WebSocket connectivity, which flaps — filtering on it would intermittently
+// starve a live gateway of keys. The role filter is the only change.
 func (s *AgentAPIKeyService) resolveEnvGateways(envUUID string) ([]*models.Gateway, error) {
-	mappings, err := s.gatewayRepo.GetEnvironmentMappingsByEnvironmentID(envUUID)
+	gateways, err := s.gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
+		EnvironmentID:       &envUUID,
+		FunctionalityTypeIn: models.IngressGatewayRoles,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get gateway mappings: %w", err)
-	}
-	var gateways []*models.Gateway
-	for _, m := range mappings {
-		gw, err := s.gatewayRepo.GetByUUID(m.GatewayUUID.String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to get gateway %s: %w", m.GatewayUUID, err)
-		}
-		gateways = append(gateways, gw)
+		return nil, fmt.Errorf("failed to list ingress gateways for environment %s: %w", envUUID, err)
 	}
 	if len(gateways) == 0 {
 		return nil, utils.ErrGatewayNotFound

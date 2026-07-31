@@ -102,14 +102,9 @@ func newAPIKeyServiceFixture(t *testing.T, existing *models.StoredAPIKey) *apiKe
 			return &models.Artifact{UUID: artifactUUID, Kind: models.KindAgent}, nil
 		},
 	}
-	gatewayRepo := &repomocks.GatewayRepositoryMock{
-		GetEnvironmentMappingsByEnvironmentIDFunc: func(_ string) ([]models.GatewayEnvironmentMapping, error) {
-			return []models.GatewayEnvironmentMapping{{GatewayUUID: gatewayUUID}}, nil
-		},
-		GetByUUIDFunc: func(_ string) (*models.Gateway, error) {
-			return &models.Gateway{UUID: gatewayUUID}, nil
-		},
-	}
+	gateway := newGateway(t, models.GatewayRoleIngress, true)
+	gateway.UUID = gatewayUUID
+	gatewayRepo := gatewayFixtureRepo(t, envUUID, []*models.Gateway{gateway})
 
 	upserted := &[]*models.StoredAPIKey{}
 	lookedUp := new(string)
@@ -222,6 +217,44 @@ func TestAgentAPIKeyService_IssueTestAPIKey_PerUser(t *testing.T) {
 		_, err := fx.svc.IssueTestAPIKey(context.Background(), org, proj, agent, env, "user-a-sub")
 
 		assert.ErrorIs(t, err, utils.ErrBadRequest)
+	})
+}
+
+func TestResolveEnvGateways_IngressOnly(t *testing.T) {
+	env := uuid.New().String()
+	ingress := newGateway(t, models.GatewayRoleIngress, true)
+	both := newGateway(t, models.GatewayRoleBoth, true)
+	egress := newGateway(t, models.GatewayRoleEgress, true)
+	inactiveIngress := newGateway(t, models.GatewayRoleIngress, false)
+
+	t.Run("returns ingress-capable only", func(t *testing.T) {
+		svc := &AgentAPIKeyService{gatewayRepo: gatewayFixtureRepo(t, env, []*models.Gateway{ingress, egress})}
+		got, err := svc.resolveEnvGateways(env)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, ingress.UUID, got[0].UUID)
+	})
+
+	t.Run("both counts as ingress-capable", func(t *testing.T) {
+		svc := &AgentAPIKeyService{gatewayRepo: gatewayFixtureRepo(t, env, []*models.Gateway{both, egress})}
+		got, err := svc.resolveEnvGateways(env)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+	})
+
+	t.Run("inactive ingress gateways still receive keys", func(t *testing.T) {
+		// Keys are distributed regardless of is_active today; filtering on WebSocket
+		// liveness would intermittently starve a live gateway of keys.
+		svc := &AgentAPIKeyService{gatewayRepo: gatewayFixtureRepo(t, env, []*models.Gateway{inactiveIngress})}
+		got, err := svc.resolveEnvGateways(env)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+	})
+
+	t.Run("egress-only environment yields ErrGatewayNotFound", func(t *testing.T) {
+		svc := &AgentAPIKeyService{gatewayRepo: gatewayFixtureRepo(t, env, []*models.Gateway{egress})}
+		_, err := svc.resolveEnvGateways(env)
+		require.ErrorIs(t, err, utils.ErrGatewayNotFound)
 	})
 }
 

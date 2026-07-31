@@ -635,16 +635,46 @@ func (e GatewayTokenInfoStatus) Valid() bool {
 
 // Defines values for GatewayType.
 const (
-	GatewayTypeAI      GatewayType = "AI"
-	GatewayTypeREGULAR GatewayType = "REGULAR"
+	GatewayTypeBOTH    GatewayType = "BOTH"
+	GatewayTypeEGRESS  GatewayType = "EGRESS"
+	GatewayTypeINGRESS GatewayType = "INGRESS"
 )
 
 // Valid indicates whether the value is a known member of the GatewayType enum.
 func (e GatewayType) Valid() bool {
 	switch e {
-	case GatewayTypeAI:
+	case GatewayTypeBOTH:
 		return true
-	case GatewayTypeREGULAR:
+	case GatewayTypeEGRESS:
+		return true
+	case GatewayTypeINGRESS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GatewayTypeInput.
+const (
+	GatewayTypeInputAI      GatewayTypeInput = "AI"
+	GatewayTypeInputBOTH    GatewayTypeInput = "BOTH"
+	GatewayTypeInputEGRESS  GatewayTypeInput = "EGRESS"
+	GatewayTypeInputINGRESS GatewayTypeInput = "INGRESS"
+	GatewayTypeInputREGULAR GatewayTypeInput = "REGULAR"
+)
+
+// Valid indicates whether the value is a known member of the GatewayTypeInput enum.
+func (e GatewayTypeInput) Valid() bool {
+	switch e {
+	case GatewayTypeInputAI:
+		return true
+	case GatewayTypeInputBOTH:
+		return true
+	case GatewayTypeInputEGRESS:
+		return true
+	case GatewayTypeInputINGRESS:
+		return true
+	case GatewayTypeInputREGULAR:
 		return true
 	default:
 		return false
@@ -1035,24 +1065,6 @@ func (e ListCatalogResourcesParamsKind) Valid() bool {
 	case ListCatalogResourcesParamsKindLlmProvider:
 		return true
 	case ListCatalogResourcesParamsKindMcp:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ListGatewaysParamsType.
-const (
-	ListGatewaysParamsTypeAI      ListGatewaysParamsType = "AI"
-	ListGatewaysParamsTypeREGULAR ListGatewaysParamsType = "REGULAR"
-)
-
-// Valid indicates whether the value is a known member of the ListGatewaysParamsType enum.
-func (e ListGatewaysParamsType) Valid() bool {
-	switch e {
-	case ListGatewaysParamsTypeAI:
-		return true
-	case ListGatewaysParamsTypeREGULAR:
 		return true
 	default:
 		return false
@@ -2216,10 +2228,11 @@ type CreateGatewayRequest struct {
 	// EnvironmentIds List of environment UUIDs to assign the gateway to during creation
 	EnvironmentIds *[]string `json:"environmentIds,omitempty"`
 
-	// GatewayType Gateway type:
-	// - REGULAR: Handles incoming API traffic
-	// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
-	GatewayType GatewayType `json:"gatewayType"`
+	// GatewayType Gateway placement role accepted on input. `REGULAR` and `AI` are deprecated
+	// aliases kept for gateway charts pinned to an older version (REGULAR -> BOTH,
+	// AI -> EGRESS); prefer INGRESS/EGRESS/BOTH. Responses and the canonical
+	// `GatewayType` schema never emit REGULAR/AI.
+	GatewayType GatewayTypeInput `json:"gatewayType"`
 
 	// IsCritical Flag indicating if this is a critical production gateway
 	IsCritical *bool `json:"isCritical,omitempty"`
@@ -2232,6 +2245,9 @@ type CreateGatewayRequest struct {
 
 	// Region Deployment region (optional)
 	Region *string `json:"region,omitempty"`
+
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
 
 	// Vhost Virtual host for the gateway (FQDN or IP)
 	Vhost string `json:"vhost"`
@@ -2971,9 +2987,15 @@ type GatewayResponse struct {
 	// Environments List of environments mapped to this gateway
 	Environments *[]GatewayEnvironmentResponse `json:"environments,omitempty"`
 
-	// GatewayType Gateway type:
-	// - REGULAR: Handles incoming API traffic
-	// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
+	// GatewayType Gateway placement role. Naming and placement policy, not capability — every
+	// gateway has identical runtime capabilities regardless of role.
+	// - INGRESS: handles inbound agent traffic. At most one per environment.
+	// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
+	// - BOTH: does both. Counts against the ingress cap.
+	//
+	// Immutable once registered. `REGULAR` and `AI` are accepted on input as
+	// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
+	// an older version keep registering; responses always emit canonical values.
 	GatewayType GatewayType `json:"gatewayType"`
 
 	// IsCritical Flag indicating if this is a critical production gateway
@@ -2984,6 +3006,9 @@ type GatewayResponse struct {
 
 	// Region Deployment region
 	Region *string `json:"region,omitempty"`
+
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
 
 	// Status Gateway operational status:
 	// - ACTIVE: Gateway is operational and ready
@@ -3063,10 +3088,22 @@ type GatewayTokenResponse struct {
 	TokenId string `json:"tokenId"`
 }
 
-// GatewayType Gateway type:
-// - REGULAR: Handles incoming API traffic
-// - AI: Handles outgoing LLM/MCP traffic (used for AI agents)
+// GatewayType Gateway placement role. Naming and placement policy, not capability — every
+// gateway has identical runtime capabilities regardless of role.
+// - INGRESS: handles inbound agent traffic. At most one per environment.
+// - EGRESS: hosts outbound LLM/MCP artifacts. Uncapped per environment.
+// - BOTH: does both. Counts against the ingress cap.
+//
+// Immutable once registered. `REGULAR` and `AI` are accepted on input as
+// deprecated aliases (REGULAR -> BOTH, AI -> EGRESS) so gateway charts pinned to
+// an older version keep registering; responses always emit canonical values.
 type GatewayType string
+
+// GatewayTypeInput Gateway placement role accepted on input. `REGULAR` and `AI` are deprecated
+// aliases kept for gateway charts pinned to an older version (REGULAR -> BOTH,
+// AI -> EGRESS); prefer INGRESS/EGRESS/BOTH. Responses and the canonical
+// `GatewayType` schema never emit REGULAR/AI.
+type GatewayTypeInput string
 
 // GitCredentials Authentication credentials for a git secret.
 type GitCredentials struct {
@@ -3756,6 +3793,13 @@ type MCPEndpointEnvironment struct {
 
 	// EnvironmentUuid Target environment UUID.
 	EnvironmentUuid openapi_types.UUID `json:"environmentUuid"`
+
+	// GatewayId Egress gateway to deploy this endpoint→environment binding to. Optional:
+	// inferred when the environment has exactly one egress gateway, and required
+	// when it has more than one. Placement is fixed once deployed — supplying a
+	// different gateway on update is rejected. Emitted on read as the gateway the
+	// binding is actually deployed to.
+	GatewayId *openapi_types.UUID `json:"gatewayId,omitempty"`
 }
 
 // MCPEndpointEnvironmentDeploymentStatus Per-environment deployment status.
@@ -3871,7 +3915,10 @@ type MCPProxyRequest struct {
 	// Endpoints Deployable endpoint definitions of the MCP proxy. Each endpoint is deployed to one or more environments; within a proxy an environment maps to at most one endpoint. At least one endpoint is required.
 	Endpoints *[]MCPProxyEndpoint `json:"endpoints,omitempty"`
 
-	// Gateways Gateway UUIDs to deploy the MCP proxy to after creation
+	// Gateways Deprecated and never implemented. Deployment is per (endpoint, environment),
+	// so this proxy-wide field is at the wrong granularity — use
+	// MCPEndpointEnvironment.gatewayId. Populated on read only.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Gateways *[]openapi_types.UUID `json:"gateways,omitempty"`
 
 	// Id Unique handle for the MCP proxy
@@ -5057,6 +5104,9 @@ type UpdateGatewayRequest struct {
 	// IsCritical Updated critical flag
 	IsCritical *bool `json:"isCritical,omitempty"`
 
+	// RuntimeUrl In-cluster base URL of the gateway runtime, used by sandboxed platform-hosted agents. Empty means no internal address is registered and the vhost is used instead. Must carry an explicit port other than 80 or 443 and a cluster-local host.
+	RuntimeUrl *string `json:"runtimeUrl,omitempty"`
+
 	// Status Gateway operational status:
 	// - ACTIVE: Gateway is operational and ready
 	// - INACTIVE: Gateway is registered but not active
@@ -5382,8 +5432,9 @@ type ListGatewaysParams struct {
 	// Offset Number of results to skip
 	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// Type Filter by gateway type
-	Type *ListGatewaysParamsType `form:"type,omitempty" json:"type,omitempty"`
+	// Type Filter by gateway type. `REGULAR` and `AI` are deprecated aliases
+	// (REGULAR -> BOTH, AI -> EGRESS) kept for backward compatibility.
+	Type *GatewayTypeInput `form:"type,omitempty" json:"type,omitempty"`
 
 	// Status Filter by gateway status
 	Status *ListGatewaysParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -5391,9 +5442,6 @@ type ListGatewaysParams struct {
 	// Environment Filter by environment name
 	Environment *string `form:"environment,omitempty" json:"environment,omitempty"`
 }
-
-// ListGatewaysParamsType defines parameters for ListGateways.
-type ListGatewaysParamsType string
 
 // ListGatewaysParamsStatus defines parameters for ListGateways.
 type ListGatewaysParamsStatus string
