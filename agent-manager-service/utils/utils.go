@@ -1434,6 +1434,11 @@ var riskyEvaluatorSourcePatterns = []struct {
 	{"import socket", regexp.MustCompile(`(?m)^\s*(?:from\s+socket\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*socket\b)`)},
 	{"import ctypes", regexp.MustCompile(`(?m)^\s*(?:from\s+ctypes\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*ctypes\b)`)},
 	{"import importlib", regexp.MustCompile(`(?m)^\s*(?:from\s+importlib\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*importlib\b)`)},
+	{"import urllib", regexp.MustCompile(`(?m)^\s*(?:from\s+urllib\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*urllib\b)`)},
+	{"import http", regexp.MustCompile(`(?m)^\s*(?:from\s+http\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*http\b)`)},
+	{"import requests", regexp.MustCompile(`(?m)^\s*(?:from\s+requests\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*requests\b)`)},
+	{"import ftplib", regexp.MustCompile(`(?m)^\s*(?:from\s+ftplib\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*ftplib\b)`)},
+	{"import smtplib", regexp.MustCompile(`(?m)^\s*(?:from\s+smtplib\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*smtplib\b)`)},
 	{"__import__() call", regexp.MustCompile(`__import__\s*\(`)},
 }
 
@@ -1442,8 +1447,8 @@ func validateEvaluatorSourceContent(source string) error {
 		if p.pattern.MatchString(source) {
 			return fmt.Errorf(
 				"source contains a disallowed pattern (%s); "+
-					"custom evaluator source may not import or reference os, subprocess, socket, ctypes, or importlib, "+
-					"or use __import__()",
+					"custom evaluator source may not import or reference os, subprocess, socket, ctypes, importlib, "+
+					"urllib, http, requests, ftplib, or smtplib, or use __import__()",
 				p.label,
 			)
 		}
