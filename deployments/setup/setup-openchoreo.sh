@@ -408,23 +408,6 @@ echo "All core OpenChoreo planes are installed and registered!"
 # setup-default-env-thunder target: it needs AMS up (store_via_ams).
 # ============================================================================
 echo ""
-# Step 6: Install Observability Extension (Agent Manager Observer)
-# ============================================================================
-echo "6️⃣  Observability Extension (Agent Manager Observer)"
-if ! helm status wso2-amp-observability-extension -n openchoreo-observability-plane &>/dev/null; then
-    echo "Building and loading Agent Manager Observer Docker image into k3d cluster..."
-    make -C ${PROJECT_ROOT}/agent-manager-observer docker-load-k3d
-    sleep 10
-fi
-echo "   Installing/upgrading Agent Manager Observer (local dev: JWKS disabled, unverified JWT parse)..."
-helm upgrade --install wso2-amp-observability-extension ${PROJECT_ROOT}/deployments/helm-charts/wso2-amp-observability-extension \
-    --create-namespace \
-    --namespace openchoreo-observability-plane \
-    --timeout=10m \
-    --set amObserver.developmentMode=true \
-    --set amObserver.auth.isLocalDevEnv=true \
-    --set-string amObserver.auth.jwksUrl=""
-=======
 echo "5️⃣ +6️⃣  AMP Extensions"
 "${SCRIPT_DIR}/setup-amp-extensions.sh" "${PROJECT_ROOT}" || exit 1
 echo ""
