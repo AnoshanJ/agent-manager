@@ -1780,3 +1780,31 @@ func TestPopulateCreatedBy_UserLookupError_KeepsIDOnly(t *testing.T) {
 	assert.Equal(t, "user-123", agent.CreatedBy.ID)
 	assert.Empty(t, agent.CreatedBy.Display)
 }
+
+// A (nil, nil) return isn't something the real Thunder client does, but this is
+// best-effort decoration on the GetAgent path: it must degrade to id-only
+// rather than panic if any IdentityClient implementation ever behaves that way.
+func TestPopulateCreatedBy_NilUserWithoutError_KeepsIDOnly(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{{RequestedBy: "user-123"}}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, _ string) (*thundersvc.ThunderUser, error) {
+				//nolint:nilnil // deliberately exercising a misbehaving implementation
+				return nil, nil
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	require.NotNil(t, agent.CreatedBy)
+	assert.Equal(t, "user-123", agent.CreatedBy.ID)
+	assert.Empty(t, agent.CreatedBy.Display)
+}

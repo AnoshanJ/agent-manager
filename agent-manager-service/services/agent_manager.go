@@ -1078,8 +1078,10 @@ func (s *agentManagerService) populateCreatedBy(ctx context.Context, ouID, proje
 
 	createdBy := &models.AgentCreatedBy{ID: requestedBy}
 	user, err := s.identityClient.GetUser(ctx, requestedBy)
-	if err != nil {
-		if !thundersvc.IsNotFound(err) {
+	// A nil user with no error shouldn't happen, but this path is best-effort
+	// decoration of a GetAgent response — never let it panic the request.
+	if err != nil || user == nil {
+		if err != nil && !thundersvc.IsNotFound(err) {
 			s.logger.Warn("Failed to resolve agent creator", "agentName", agentName, "requestedBy", requestedBy, "error", err)
 		}
 		agent.CreatedBy = createdBy
