@@ -1272,6 +1272,19 @@ type AgentBuildOptionsResponse struct {
 	Python          AgentBuildOptionsPython          `json:"python"`
 }
 
+// AgentCreatedBy The user who created this agent. Resolved from an audit-only
+// requester id captured at creation time, so it is best-effort and
+// omitted entirely when unknown (e.g. agents created before this was
+// tracked, or where the creating user could not be resolved).
+type AgentCreatedBy struct {
+	// Display Display name/username of the creator, when resolvable. Omitted
+	// if the user has since been deleted.
+	Display *string `json:"display,omitempty"`
+
+	// Id User ID of the creator
+	Id string `json:"id"`
+}
+
 // AgentIdentityActionRequest Request body for regenerating an AgentID secret
 type AgentIdentityActionRequest struct {
 	// Environment Environment name to regenerate the AgentID secret in
@@ -1581,8 +1594,14 @@ type AgentResponse struct {
 	Build          *Build          `json:"build,omitempty"`
 	Configurations *Configurations `json:"configurations,omitempty"`
 	CreatedAt      time.Time       `json:"createdAt"`
-	Description    string          `json:"description"`
-	DisplayName    string          `json:"displayName"`
+
+	// CreatedBy The user who created this agent. Resolved from an audit-only
+	// requester id captured at creation time, so it is best-effort and
+	// omitted entirely when unknown (e.g. agents created before this was
+	// tracked, or where the creating user could not be resolved).
+	CreatedBy   *AgentCreatedBy `json:"createdBy,omitempty"`
+	Description string          `json:"description"`
+	DisplayName string          `json:"displayName"`
 
 	// InputInterface Endpoint configurations
 	InputInterface *InputInterface `json:"inputInterface,omitempty"`
