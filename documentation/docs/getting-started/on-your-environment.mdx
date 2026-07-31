@@ -331,6 +331,25 @@ bao kv put secret/opensearch-password value='${OPENSEARCH_PASSWORD}'
 "
 ```
 
+Finally, mint the token the Agent Manager uses to store agent secrets, and put it in a Secret for [Phase 2](#phase-2-agent-manager-installation):
+
+```bash
+AMP_BAO_TOKEN=$(kubectl exec -n openbao openbao-0 -- sh -c "
+export BAO_ADDR=http://127.0.0.1:8200
+export BAO_TOKEN='<root-token>'
+bao token create -policy=openchoreo-secret-writer-policy -period=768h -format=json" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])")
+
+kubectl create namespace ${AMP_NS} --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic amp-openbao-token -n ${AMP_NS} \
+  --from-literal=openbao-token="${AMP_BAO_TOKEN}" \
+  --from-literal=workflow-plane-openbao-token="${AMP_BAO_TOKEN}"
+```
+
+:::danger The chart defaults to the dev-mode token
+`agentManagerService.config.openbao.token` defaults to **`root`**, which only exists in dev mode. Against a sealed OpenBao that token is rejected, and the platform installs cleanly, passes every health check, and then fails **every agent creation** with a `500` — the underlying error being an OpenBao `permission denied` surfaced as `failed to store secrets in KV`. Phase 2 must reference the Secret created above; the periodic token also needs renewing before its period lapses, or agent creation starts failing again.
+:::
+
 :::tip Tighten the policies
 The writer policy above grants the whole `secret/*` tree to every service account in three namespaces, matching what the platform expects out of the box. If your security posture requires it, split the platform secrets onto dedicated mounts with per-service-account policies — the paths are referenced by the ExternalSecrets in [Step 8](#step-8-setup-observability-plane) and by the evaluation workflows.
 :::
@@ -467,12 +486,26 @@ Thunder provides authentication and user management for the entire platform — 
 Thunder writes its issuer URL, the console client's redirect URIs, and every platform OAuth client into its database on **first boot**, seeded by a `pre-install` hook that `helm upgrade` never re-runs. The database, the secrets, and the hostnames below are all effectively frozen once this command completes — getting any of them wrong means uninstalling, discarding Thunder's data, and reinstalling. Confirm your values against [Plan Your Deployment](#plan-your-deployment) before running it.
 :::
 
-**Database.** Production installations use an external PostgreSQL. Thunder keeps three logical databases — `configdb`, `runtimedb`, and `userdb` — which can live on one server; create them and a role that owns all three before installing.
+**Database.** Production installations use an external PostgreSQL. Thunder keeps three logical databases — `configdb`, `runtimedb`, and `userdb` — which can live on one server; create them and a role that owns all three before installing, then **load Thunder's schema into each one**. Nothing in the chart creates the tables for PostgreSQL: the init container only initialises the bundled SQLite files, so an empty database makes the pre-install hook fail.
 
 <Tabs groupId="deployment-mode">
   <TabItem value="production" label="External PostgreSQL" default>
 
-Store the database password in a Secret and reference it, so it never enters Helm release history:
+Load the schema first. The scripts ship inside the Thunder image, so copy them out of the version the chart pins and apply each to its database as the owning role:
+
+```bash
+THUNDER_IMAGE="ghcr.io/thunder-id/thunderid:0.45.0"
+docker create --name thunder-schema "${THUNDER_IMAGE}"
+for db in configdb runtimedb userdb; do
+  docker cp "thunder-schema:/opt/thunderid/dbscripts/${db}/postgres.sql" "./thunder-${db}.sql"
+  psql "postgresql://thunder@your-db.example.com:5432/${db}" -v ON_ERROR_STOP=1 -f "./thunder-${db}.sql"
+done
+docker rm thunder-schema
+```
+
+Expect 17 tables in `configdb`, 8 in `runtimedb`, and 5 in `userdb`. If the databases are empty when you install, the `amp-thunder-extension-setup` hook fails with `Server failed to start within 60 seconds` and its pod is deleted, so `kubectl logs` shows nothing — the real error, visible only by running the binary by hand, is `relation "INBOUND_CLIENT" does not exist`.
+
+Then store the database password in a Secret and reference it, so it never enters Helm release history:
 
 ```bash
 kubectl create namespace ${THUNDER_NS} --dry-run=client -o yaml | kubectl apply -f -
@@ -608,6 +641,7 @@ spec:
   dnsNames:
     - "*.${BASE_DOMAIN}"
     - "${BASE_DOMAIN}"
+    - "*.thunder.${BASE_DOMAIN}"
   privateKey:
     rotationPolicy: Always
 EOF
@@ -615,6 +649,10 @@ EOF
 kubectl wait --for=condition=Ready certificate/cp-gateway-tls \
   -n openchoreo-control-plane --timeout=300s
 ```
+
+:::note Why the third name
+A DNS wildcard matches exactly one label, so `*.${BASE_DOMAIN}` does **not** cover the per-environment Thunder hostnames that [Phase 2](#provision-thunder-identity-provider-for-the-default-environment) provisions at `<org>-<env>.thunder.${BASE_DOMAIN}`. Without `*.thunder.${BASE_DOMAIN}` the gateway serves a certificate that cannot validate for those names: routing succeeds, but every TLS-verifying client fails.
+:::
 
 Install the Control Plane with hostnames, TLS, and Thunder OIDC. The OpenChoreo API is deliberately **not** published on the gateway (`openchoreoApi.http.enabled=false`): Agent Manager and the observer call it over cluster DNS, so exposing it would only widen the platform's attack surface.
 
@@ -625,12 +663,17 @@ helm upgrade --install openchoreo-control-plane \
   --namespace openchoreo-control-plane \
   --create-namespace \
   --values - <<EOF
+features:
+  secretManagement:
+    enabled: true
 openchoreoApi:
   config:
     server:
       publicUrl: "http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080"
   http:
     enabled: false
+    hostnames:
+      - "api.${BASE_DOMAIN}"
 backstage:
   enabled: false
   baseUrl: ""
@@ -697,7 +740,8 @@ Re-apply this patch after any `helm upgrade` of the Control Plane chart — the 
 - Backstage disabled (AMP provides its own console)
 - OIDC issuer set to `THUNDER_PUBLIC_URL` (matches the `iss` claim in Thunder-issued JWTs)
 - OIDC JWKS URL points to Thunder's in-cluster service (avoids external DNS dependency, and no TLS-verification overrides are needed since the in-cluster call is plain HTTP)
-- OpenChoreo API kept in-cluster only (`openchoreoApi.http.enabled=false`) — its `publicUrl` is set to the cluster-local service address, and no HTTPRoute is created on the gateway
+- OpenChoreo API kept in-cluster only (`openchoreoApi.http.enabled=false`) — its `publicUrl` is set to the cluster-local service address, and no HTTPRoute is created on the gateway. `openchoreoApi.http.hostnames` is still set to a real hostname even though the route is disabled: the chart validates that value for its `.invalid` placeholder regardless of `enabled`, and refuses to render otherwise. No route is created, so the name is never served — confirm with `kubectl get httproute -A | grep openchoreo-api`
+- Secret management enabled (`features.secretManagement.enabled=true`) — off by default, and required by Agent Manager to store an agent's environment variables. Without it every agent creation fails with a `500`, from an OpenChoreo `501 Secret API is disabled on this server`
 - TLS enabled on the gateway with the wildcard certificate — Thunder, the Console, the Agent Manager API, and the gateway control plane all serve HTTPS under it
 
 </details>
@@ -759,11 +803,24 @@ helm install openchoreo-data-plane \
   --set gateway.tls.enabled=true \
   --set "gateway.tls.hostname=*.${AGENTS_DOMAIN}" \
   --set "gateway.tls.certificateRefs[0].name=dp-gateway-tls" \
+  --set gateway.httpPort=80 \
+  --set gateway.httpsPort=443 \
   --values https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-dp.yaml
 
 kubectl wait --for=condition=Available \
   deployment --all -n openchoreo-data-plane --timeout=600s
 ```
+
+:::warning Override the gateway ports
+`values-dp.yaml` and `values-op.yaml` come from the single-cluster **k3d** layout, where every plane shares one host load balancer and therefore cannot all own 443 — they pin the data plane to `19080`/`19443` and the observability plane to `11080`/`11085`. Here each plane has its **own** LoadBalancer address, so the standard ports apply and the `httpPort`/`httpsPort` overrides above are required.
+
+Without them the install still looks completely healthy — pods Running, certificates Ready, gateways `PROGRAMMED=True` — while every URL this guide publishes for those planes points at a port with nothing behind it. Agent invocation, OTLP trace ingest, and `${OBS_API_PUBLIC_URL}` all fail with connection timeouts rather than an error you can read. Verify after each plane install:
+
+```bash
+kubectl get svc gateway-default -n <plane-namespace> -o jsonpath='{.spec.ports[*].port}{"\n"}'
+# Expected: 80 443
+```
+:::
 
 Register the Data Plane:
 
@@ -993,6 +1050,8 @@ helm install openchoreo-observability-plane \
   --set "gateway.tls.hostname=*.${BASE_DOMAIN}" \
   --set "gateway.tls.certificateRefs[0].name=obs-gateway-tls" \
   --set clusterAgent.tls.generateCerts=true \
+  --set gateway.httpPort=80 \
+  --set gateway.httpsPort=443 \
   --set observer.controlPlaneApiUrl="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --set observer.extraEnv.AUTH_SERVER_BASE_URL="${THUNDER_PUBLIC_URL}" \
   --set security.oidc.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
@@ -1034,6 +1093,7 @@ helm upgrade --install observability-logs-opensearch \
   --timeout 10m
 
 # Enable Fluent Bit log collection
+# On GKE, disable the managed logging agent first — see the note below
 helm upgrade observability-logs-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
   --namespace openchoreo-observability-plane \
@@ -1061,6 +1121,18 @@ helm upgrade --install observability-traces-opensearch \
   --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config" \
   --timeout 10m
 ```
+
+:::warning GKE: free port 2020 before enabling Fluent Bit
+Fluent Bit runs with `hostNetwork: true` (its Kubernetes filter reads from the node-local kubelet) and binds its monitoring server to **port 2020** on every node. GKE's built-in `fluentbit-gke` logging agent already occupies that port, so all Fluent Bit pods stay in `CrashLoopBackOff` with `Cannot listen on 0.0.0.0:2020` — and the only visible symptom is that logs never reach OpenSearch.
+
+The platform ships its own log pipeline, so disable GKE's redundant one before the upgrade above:
+
+```bash
+gcloud container clusters update <cluster> --zone <zone> --logging=NONE
+```
+
+Turning off `hostNetwork` instead is not a workaround — the filter then cannot reach the kubelet and logs fail with `kubelet upstream connection error`.
+:::
 
 :::note Sizing and the admin password
 Two values above differ from the chart defaults. `openSearch.persistence.size` raises the volume from its 8Gi default — size it to your retention needs, since this single-node instance holds every trace, log, and metric the platform stores. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` override makes OpenSearch's own admin password match the one seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao); without it OpenSearch keeps the chart's published default while every client authenticates with yours, and all observability queries fail. Note the capital **S** in `openSearch` — it is the subchart alias, and lowercase `opensearch.*` values are silently ignored.
@@ -1134,8 +1206,11 @@ done
 | Record | Type | Points to |
 |---|---|---|
 | `console`, `api-amp`, `thunder`, `cp` `.${BASE_DOMAIN}` (or `*.${BASE_DOMAIN}`) | A / CNAME | control-plane gateway address |
+| `*.thunder.${BASE_DOMAIN}` | A / CNAME | control-plane gateway address |
 | `traces.${BASE_DOMAIN}` | A / CNAME | observability-plane gateway address |
 | `*.agents.${BASE_DOMAIN}` and `agents.${BASE_DOMAIN}` | A / CNAME | data-plane gateway address |
+
+The `*.thunder.${BASE_DOMAIN}` record covers the per-environment Thunder instances provisioned in Phase 2. A bare `*.${BASE_DOMAIN}` wildcard does not reach them — and note that once `*.thunder.${BASE_DOMAIN}` exists, [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592) makes `thunder.${BASE_DOMAIN}` an empty non-terminal that the broader wildcard stops covering, so keep an explicit `thunder` record in that layout.
 
 Use A records for IPs (GKE, AKS) and CNAME records for hostnames (EKS). Verify resolution before continuing:
 
@@ -1193,7 +1268,11 @@ curl -fsSL "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}
   -o add-environment-thunder.sh
 ```
 
-Pick the tab matching your [Step 3](#step-3-setup-tls-issuer) issuer choice — the CA trust setting below only differs by that choice, nothing else changes. (Self-signed evaluation installs: see difference 5 in the [nip.io appendix](#appendix-installing-without-a-domain-nipio).)
+Pick the tab matching your [Step 3](#step-3-setup-tls-issuer) issuer choice — the CA trust setting below only differs by that choice, nothing else changes.
+
+:::note Pass the platform client secret
+`IDP_CLIENT_SECRET` defaults to the **shipped** `amp-api-client-secret`, so the script fails with `Could not obtain an access token to call agent-manager-service` on any install that generated real secrets in [Platform secrets](#4-platform-secrets). Passing `${AMP_API_CLIENT_SECRET}` as below is what makes the two steps consistent. The script stores its own generated system-client secret before that call, so a failure here leaves work half-done — rerun it once the credentials are right.
+::: (Self-signed evaluation installs: see difference 5 in the [nip.io appendix](#appendix-installing-without-a-domain-nipio).)
 
 <Tabs groupId="tls-issuer">
   <TabItem value="letsencrypt" label="Let's Encrypt (DNS-01)" default>
@@ -1207,6 +1286,8 @@ ORG_NAME=default \
 WAIT_TIMEOUT=300s \
 AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
 IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
+IDP_CLIENT_ID=amp-api-client \
+IDP_CLIENT_SECRET="${AMP_API_CLIENT_SECRET}" \
 PLATFORM_THUNDER_ISSUER="${THUNDER_PUBLIC_URL}" \
 PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
 THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
@@ -1252,6 +1333,8 @@ ORG_NAME=default \
 WAIT_TIMEOUT=300s \
 AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
 IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
+IDP_CLIENT_ID=amp-api-client \
+IDP_CLIENT_SECRET="${AMP_API_CLIENT_SECRET}" \
 PLATFORM_THUNDER_ISSUER="${THUNDER_PUBLIC_URL}" \
 PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
 PLATFORM_THUNDER_CA_PEM="${PLATFORM_THUNDER_CA_PEM}" \
@@ -1372,11 +1455,24 @@ Work down this table against an existing install. The **When** column matters: t
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
 | Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
 | JWT signature verification active on the API and the observer | [Identity](#identity-and-access) | Any time |
-| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Any time |
+| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Not yet possible — chart gap |
+| Post-upgrade patches re-applied | [After a chart upgrade](#after-a-chart-upgrade) | After every relevant `helm upgrade` |
 | Build workloads bounded by a node pool or ResourceQuota | [Build workflows](#build-workflows) | Any time |
 | Stateless services running multiple replicas | [High availability](#high-availability-and-scaling) | Any time |
 | NetworkPolicies, RBAC, and Pod Security Standards applied | [Cluster security](#certificates-and-cluster-security) | Any time |
 | Stronger isolation tier chosen where agents run untrusted code | [Agent isolation](#agent-isolation) | Any time, per environment |
+
+### After a chart upgrade
+
+Three settings in this guide are applied with `kubectl` on top of what Helm renders, and **any** `helm upgrade` of the owning chart reverts them — including upgrades that have nothing to do with authentication. The symptoms are quiet: `200` responses with empty lists, or a `403` on build logs, while every pod stays healthy. After upgrading the Control Plane or the Observability Plane, re-apply:
+
+| Patch | Owning chart | Symptom when missing |
+|---|---|---|
+| `openchoreo-api-config` entitlement claim ([Step 5](#patch-the-service-account-entitlement-claim-required-with-thunder--045)) | Control Plane | Service calls return `200` with empty lists; gateway bootstrap cannot find the environment |
+| `ClusterAuthzRoleBinding` entitlement claims ([Step 5](#patch-the-service-account-entitlement-claim-required-with-thunder--045)) | Control Plane | Same as above |
+| `observer-auth-config` entitlement claim ([Step 8](#step-8-setup-observability-plane)) | Observability Plane | Build-log queries return `403` |
+
+Two cautions learned the hard way. Because these use `kubectl patch`/`apply`, the field manager takes ownership of the patched fields, so the *next* `helm upgrade` of that chart can fail outright with a conflict such as `conflict with "kubectl-patch" using openchoreo.dev/v1alpha1: .spec.entitlement.claim`. And the obvious recovery — deleting the objects so Helm recreates them — is unsafe for the ClusterAuthzRoleBindings, because the set spans two charts: `amp-platform-resources` owns `amp-api-client-binding` and `amp-observer-reader-binding`, which the Control Plane chart will not recreate. Losing `amp-api-client-binding` silently empties every organization and agent list in the console. Re-create them from their own chart with `helm get manifest amp-platform-resources -n ${DEFAULT_NS}` rather than deleting blindly.
 
 ### Identity and Access
 
@@ -1430,7 +1526,15 @@ Metrics come from the in-cluster Prometheus deployed by the metrics module; for 
 
 The gateway extension provisions one gateway per environment and ships with `developmentMode: true`, which relaxes security checks such as auto-generating encryption keys. For production set `developmentMode=false`.
 
-With development mode off the gateway requires explicit encryption keys (`gateway.controller.encryptionKeys`, key format per the [high-availability production guide](https://wso2.com/api-platform/docs/api-gateway/1.1.0/deployment/high-availability-production-deployment/)). The extension chart does not yet expose a value for that block, so it has to be added to the values ConfigMap the extension renders — `<release>-config` in the data-plane namespace, under the `gateway.controller` section — and re-applied after every chart upgrade, since the upgrade rewrites the ConfigMap.
+With development mode off the gateway requires explicit encryption keys (`gateway.controller.encryptionKeys`, key format per the [high-availability production guide](https://wso2.com/api-platform/docs/api-gateway/1.1.0/deployment/high-availability-production-deployment/)). The extension chart does not yet expose a value for that block.
+
+:::warning No working procedure today — leave development mode on
+Editing the rendered `<release>-config` ConfigMap looks like an escape hatch, but it does not work with gateway-operator 0.6.0 and makes things worse. Adding `encryptionKeys` under `gateway.controller` there is correctly formed — the gateway chart renders cleanly when given that same file directly — yet the operator does not pass the value through, and the APIGateway stays `Programmed=False` with `gateway.controller.encryptionKeys must be enabled when gateway.developmentMode is false`, through operator restarts and re-reconciles.
+
+Worse, patching that ConfigMap with `kubectl apply` transfers ownership of `.data.values.yaml` to `kubectl`, so the **next** `helm upgrade` of the extension fails with a field-manager conflict; recovery means deleting the ConfigMap so Helm can recreate it. And because the operator's retry budget is exhausted and persisted, reverting the values does not by itself return the CR to `Programmed=True`.
+
+Until the extension exposes the value, keep `developmentMode: true` and treat this checklist row as outstanding. The data path is unaffected either way.
+:::
 
 Rate-limiting policies default to an **in-memory** backend, which does not share counters across gateway replicas. When running more than one replica, switch to Redis through the extension's `apiGateway.config.policyConfigurations.ratelimit_v1` values (`backend: redis` plus the `redis` connection block).
 
