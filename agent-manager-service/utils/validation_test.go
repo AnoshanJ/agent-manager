@@ -188,6 +188,10 @@ func TestValidateCreateCustomEvaluatorPayload_RejectsRiskyImports(t *testing.T) 
 		{"import ctypes", "import ctypes\n", "import ctypes"},
 		{"import importlib", "import importlib\n", "import importlib"},
 		{"dunder import", "x = __import__('os')\n", "__import__"},
+		{"os not first in import list", "import sys, os\n", "import os"},
+		{"subprocess and socket together", "import subprocess, socket\n", "import subprocess"},
+		{"socket last with alias", "import sys, socket as netsock\n", "import socket"},
+		{"no space after comma", "import sys,os\n", "import os"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1431,11 +1431,11 @@ var riskyEvaluatorSourcePatterns = []struct {
 	label   string
 	pattern *regexp.Regexp
 }{
-	{"import os", regexp.MustCompile(`(?m)^\s*(?:import\s+os\b|from\s+os\b)`)},
-	{"import subprocess", regexp.MustCompile(`(?m)^\s*(?:import\s+subprocess\b|from\s+subprocess\b)`)},
-	{"import socket", regexp.MustCompile(`(?m)^\s*(?:import\s+socket\b|from\s+socket\b)`)},
-	{"import ctypes", regexp.MustCompile(`(?m)^\s*(?:import\s+ctypes\b|from\s+ctypes\b)`)},
-	{"import importlib", regexp.MustCompile(`(?m)^\s*(?:import\s+importlib\b|from\s+importlib\b)`)},
+	{"import os", regexp.MustCompile(`(?m)^\s*(?:from\s+os\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*os\b)`)},
+	{"import subprocess", regexp.MustCompile(`(?m)^\s*(?:from\s+subprocess\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*subprocess\b)`)},
+	{"import socket", regexp.MustCompile(`(?m)^\s*(?:from\s+socket\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*socket\b)`)},
+	{"import ctypes", regexp.MustCompile(`(?m)^\s*(?:from\s+ctypes\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*ctypes\b)`)},
+	{"import importlib", regexp.MustCompile(`(?m)^\s*(?:from\s+importlib\b|import\s+(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*importlib\b)`)},
 	{"__import__() call", regexp.MustCompile(`__import__\s*\(`)},
 }
 
