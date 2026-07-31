@@ -104,6 +104,12 @@ export type FeatureFlags = {
    * buttons on the Settings page are disabled.
    */
   enableUserManagement?: boolean;
+  /**
+   * Shows the Agent ID surfaces: the per-agent Agent ID page, the
+   * organization-level identity groups/roles pages, and the roles & groups
+   * section on the agent overview.
+   */
+  enableAgentIdentity?: boolean;
 };
 
 export type GuardrailCapabilities = {
@@ -127,6 +133,15 @@ declare global {
 }
 
 export const globalConfig: AppConfig = window.__RUNTIME_CONFIG__;
+
+/**
+ * Whether the Agent ID surfaces are shown. Read through this rather than the
+ * flag directly — the feature spans the nav, routes and the agent overview, and
+ * every "value missing" path (older hand-written config.js, unsubstituted
+ * template placeholder) has to land on disabled.
+ */
+export const isAgentIdentityEnabled = (): boolean =>
+  globalConfig.featureFlags?.enableAgentIdentity === true;
 
 const buildRange = (duration: Duration) => {
   const endTime = new Date();
