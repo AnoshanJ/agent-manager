@@ -181,6 +181,9 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints, nil); err != nil {
 		return nil, err
 	}
+	if err := s.validateMCPEndpointPlacement(orgUUID, req.Endpoints, nil); err != nil {
+		return nil, err
+	}
 	endpoints, err := s.buildMCPEndpointsForStorage(req.Endpoints, nil)
 	if err != nil {
 		return nil, err
@@ -437,6 +440,9 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 		existingArtifactByEnv = indexExistingMCPEndpoints(existingProxy.Endpoints).artifactByEnv
 	}
 	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints, existingArtifactByEnv); err != nil {
+		return nil, err
+	}
+	if err := s.validateMCPEndpointPlacement(orgUUID, req.Endpoints, existingArtifactByEnv); err != nil {
 		return nil, err
 	}
 
@@ -1270,6 +1276,78 @@ func (s *MCPProxyService) validateMCPEndpointSecurity(
 		}
 	}
 	return nil
+}
+
+// validateMCPEndpointPlacement resolves the egress gateway for every (endpoint, environment)
+// binding before anything is written, so a caller-supplied gatewayId that cannot host the
+// binding fails the request with nothing persisted. Without this the proxy commits first and
+// deployMCPProxyEndpoints raises the same 400 afterward, leaving a row that turns the client's
+// corrected retry into a 409 on create. Mirrors CreateAndDeploy's pre-Create placement check
+// for LLM providers. It performs DB reads, so call it outside a transaction.
+//
+// Only the fatal placement errors are enforced here; every other outcome (no gateway mapped
+// yet, transient lookup failures) is left to the deploy step, which is best-effort by design
+// and retries on the next update. Deliberately conservative: a pre-check that hard-failed on
+// infra blips would turn today's tolerated conditions into rejected requests.
+//
+// existingArtifactByEnv is the proxy's current (environment -> artifact) mapping, nil on
+// create. An environment with a deployed artifact anchors on that artifact's gateway, so
+// errPlacementFixed also surfaces before the write rather than after it.
+func (s *MCPProxyService) validateMCPEndpointPlacement(
+	orgUUID string, endpoints []models.MCPProxyEndpointDTO, existingArtifactByEnv map[string]uuid.UUID,
+) error {
+	for _, endpoint := range endpoints {
+		handle := strings.TrimSpace(endpoint.ID)
+		for _, env := range endpoint.Environments {
+			envIDStr := strings.TrimSpace(env.EnvironmentUUID)
+			envUUID, err := uuid.Parse(envIDStr)
+			if err != nil {
+				continue // already rejected by validateMCPEndpoints
+			}
+
+			deployed, ok := s.anchorGatewaysForEnvironment(orgUUID, existingArtifactByEnv[envIDStr])
+			if !ok {
+				// Anchor unknown: skip rather than resolve without it, since environment-only
+				// selection could reject a binding the anchor would have resolved cleanly.
+				continue
+			}
+
+			_, err = resolveEgressGatewayForArtifact(s.gatewayRepo, orgUUID, envUUID, deployed, requestedGatewayUUID(env))
+			if mcpDeployErrorIsFatal(err) {
+				return fmt.Errorf("%w: endpoint %q environment %q: %w", utils.ErrInvalidInput, handle, envIDStr, err)
+			}
+		}
+	}
+	return nil
+}
+
+// anchorGatewaysForEnvironment returns the gateways artifactUUID is deployed to, and whether
+// that set could be determined at all. A nil artifact is a new binding: no anchor to look up,
+// which is a known-empty set rather than an unknown one.
+func (s *MCPProxyService) anchorGatewaysForEnvironment(orgUUID string, artifactUUID uuid.UUID) ([]string, bool) {
+	if artifactUUID == uuid.Nil || s.deploymentRepo == nil {
+		return nil, true
+	}
+	deployed, err := s.deploymentRepo.GetDeployedGatewaysByProvider(artifactUUID, orgUUID)
+	if err != nil {
+		s.logger.Warn("Skipping MCP placement pre-check; could not list existing deployments",
+			"artifactUUID", artifactUUID, "error", err)
+		return nil, false
+	}
+	return deployed, true
+}
+
+// requestedGatewayUUID extracts the caller's gatewayId for one environment binding, treating
+// blank as unset. Matches applyRequestedGatewayUUIDs, which feeds the deploy step the same value.
+func requestedGatewayUUID(env models.MCPEndpointEnvironmentDTO) *string {
+	if env.GatewayID == nil {
+		return nil
+	}
+	gwID := strings.TrimSpace(*env.GatewayID)
+	if gwID == "" {
+		return nil
+	}
+	return &gwID
 }
 
 // egressCandidatesForEnvironment returns every egress-capable gateway mapped to the
