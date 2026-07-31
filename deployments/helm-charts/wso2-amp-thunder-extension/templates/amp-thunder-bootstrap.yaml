@@ -10,11 +10,29 @@ metadata:
     "helm.sh/hook-weight": "-10"
 data:
   50-amp-api-client.yaml: |
+    # ouId (not ouHandle) on every application document in this file: the declarative
+    # importer resolves ouHandle correctly for roles/groups/users, but not for
+    # applications, so an application bootstrapped with ouHandle: default ends up with
+    # no OU at all, and its client_credentials tokens carry no ouId/ouHandle claim —
+    # agent-manager-service's RequireOrgMatch then rejects them as "missing ou identity
+    # in token". "01900000-0000-7000-8000-000000000001" is ThunderID's own built-in
+    # "default" OU, fixed on every install rather than generated per instance, mirroring
+    # what the pre-declarative bootstrap scripts did: resolve "default" once and send
+    # the real id. This on-prem deployment only ever runs a single org/OU ("default",
+    # mapped to OpenChoreo's own default namespace) — multi-org support is a future
+    # concern, not something to solve here.
+    #
+    # ouId alone is NOT enough: Thunder only embeds ouId/ouHandle as token claims when
+    # a client's own token.accessToken.clientConfig.attributes opts in — true in both
+    # alpha1 and alpha2, not an alpha2 regression. Every client_credentials-only
+    # application in this file needs this attributes list, or its tokens keep getting
+    # rejected as "missing ou identity in token" even though ouId above is set correctly.
     resource_type: application
     id: amp-api-client
+    type: m2m # client_credentials only, no interactive login
     name: {{ .Values.thunder.bootstrap.ampApiClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.ampApiClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     inboundAuthConfig:
       - type: oauth2
         config:
@@ -29,6 +47,7 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.ampApiClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   51-amp-console-theme.yaml: |
     resource_type: theme
@@ -39,32 +58,15 @@ data:
 {{ .Values.thunder.bootstrap.ampConsoleTheme.theme | toYaml | indent 6 }}
 
   52-amp-console-layout.yaml: |
-    # No "id:" field here, unlike every other resource in this file. ThunderID's
-    # declarative importer (importLayout, backend/internal/system/importer/
-    # service_adapters.go) can plain-create a layout with no id, but its upsert
-    # path only tries UpdateLayout(id, ...) and fails "ID-preserving create not
-    # supported" when nothing exists yet with a given id — unlike theme, whose
-    # CreateThemeRequestWithID does accept a caller-chosen one. A fixed id via
-    # ThunderID's other declarative mechanism (declarativeResources +
-    # layoutRequestWithID, which does support one) was tried and reverted: that
-    # file-based store only loads at Thunder's own server startup, but
-    # 53-amp-console-app.yaml's application is created earlier by the setup
-    # Job's in-process importer — referencing a not-yet-existing layout id
-    # there fails with a FOREIGN KEY constraint error. The two mechanisms don't
-    # compose for this ordering.
-    #
-    # Because the id is server-assigned, it can't be hardcoded into
-    # 53-amp-console-app.yaml's layoutId the way themeId is — there's no
-    # handle-based alias resolution for layoutId, unlike authFlowHandle.
-    # deployments/scripts/provision-console-layout.sh does that one remaining
-    # wire-up step (look up this layout by handle, PATCH it onto the app) after
-    # bootstrap completes.
-    #
-    # CreateLayout also enforces handle uniqueness with no "already exists,
-    # reuse it" fallback, so reinstalling against a database that already has
-    # this layout fails this document. Wipe Thunder's PVC before reinstalling
-    # locally.
+    # ThunderID 1.0.0-alpha2 fixed layout import to honour a caller-specified id
+    # (previously it silently discarded one — see git history for the workaround
+    # this replaced). CreateLayout still enforces handle uniqueness with no
+    # "already exists under a different id, reuse it" fallback, so a cluster with
+    # a pre-alpha2 layout row at a different id needs its Thunder PVC wiped
+    # before reinstalling with this fixed id — same requirement as the version
+    # bump itself.
     resource_type: layout
+    id: {{ .Values.thunder.bootstrap.ampConsoleLayout.id | quote }}
     handle: {{ .Values.thunder.bootstrap.ampConsoleLayout.handle | quote }}
     displayName: {{ .Values.thunder.bootstrap.ampConsoleLayout.displayName | quote }}
     layout:
@@ -73,15 +75,14 @@ data:
   53-amp-console-app.yaml: |
     resource_type: application
     id: amp-console-client
+    type: browser # public redirect client (authorization_code + PKCE console login)
     name: {{ .Values.thunder.bootstrap.ampConsoleClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.ampConsoleClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     logoUrl: {{ .Values.thunder.bootstrap.ampConsoleClient.logoUrl | quote }}
     authFlowHandle: default-flow
     themeId: amp-console-theme
-    # layoutId intentionally omitted: the layout is now created by 52-amp-console-layout.yaml
-    # above, but its id is server-assigned (see that document's comment) and so can't be
-    # hardcoded here. provision-console-layout.sh attaches it after bootstrap completes.
+    layoutId: {{ .Values.thunder.bootstrap.ampConsoleLayout.id | quote }}
     allowedUserTypes: {{ .Values.thunder.bootstrap.ampConsoleClient.allowedUserTypes | toJson }}
     inboundAuthConfig:
       - type: oauth2
@@ -107,9 +108,10 @@ data:
   54-workload-publisher-app.yaml: |
     resource_type: application
     id: workload-publisher-client
+    type: m2m # client_credentials only, no interactive login
     name: {{ .Values.thunder.bootstrap.workloadPublisherClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.workloadPublisherClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     inboundAuthConfig:
       - type: oauth2
         config:
@@ -124,13 +126,15 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.workloadPublisherClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   55-observer-resource-reader-app.yaml: |
     resource_type: application
     id: observer-resource-reader-client
+    type: m2m # client_credentials only, no interactive login
     name: {{ .Values.thunder.bootstrap.observerResourceReaderClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.observerResourceReaderClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     inboundAuthConfig:
       - type: oauth2
         config:
@@ -145,13 +149,15 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.observerResourceReaderClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   56-amp-publisher-client.yaml: |
     resource_type: application
     id: amp-publisher-client
+    type: m2m # client_credentials only, no interactive login
     name: {{ .Values.thunder.bootstrap.ampPublisherClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.ampPublisherClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     inboundAuthConfig:
       - type: oauth2
         config:
@@ -166,13 +172,15 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.ampPublisherClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   57-amp-system-client.yaml: |
     resource_type: application
     id: amp-system-client
+    type: m2m # client_credentials only, no interactive login
     name: {{ .Values.thunder.bootstrap.ampSystemClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.ampSystemClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     inboundAuthConfig:
       - type: oauth2
         config:
@@ -191,13 +199,15 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.ampSystemClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   58-amctl-client.yaml: |
     resource_type: application
     id: amctl-client
+    type: browser # public redirect client (authorization_code + PKCE, loopback redirect)
     name: {{ .Values.thunder.bootstrap.amCliClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.amCliClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     authFlowHandle: default-flow
     allowedUserTypes: {{ .Values.thunder.bootstrap.amCliClient.allowedUserTypes | toJson }}
     inboundAuthConfig:
@@ -263,7 +273,29 @@ data:
     id: amp-resource-server
     name: Agent Manager API
     description: Agent Manager platform permissions
-    identifier: amp
+    # MUST be an absolute URI (RFC 8707 §2). This was the bare string "amp" until
+    # ThunderID 1.0.0-alpha2, which broke every interactive login: alpha2's
+    # /oauth2/authorize now binds the request to one resource server up front and
+    # persists the resolved identifier into the authorization code, and the token
+    # endpoint then re-validates that stored value — "amp" has no URI scheme, so every
+    # authorization_code exchange failed with invalid_target "Invalid resource
+    # parameter: must be an absolute URI". alpha1 did not resolve a resource server at
+    # the authorize endpoint at all, so the value was never URI-validated and the bare
+    # string worked by accident. client_credentials never hit this (it skips
+    # /oauth2/authorize entirely).
+    #
+    # A urn: (not http:) URI on purpose: resource-server identifiers must be unique,
+    # and the http origins are already taken by the MCP resource servers below
+    # (mcpResourceServers). A urn is also deployment-independent, so it needs no
+    # per-environment host templating.
+    #
+    # This value IS the token's "aud" claim, so it must stay in sync with every
+    # audience allow-list that accepts platform-Thunder tokens: agent-manager-service's
+    # and agent-manager-observer's KEY_MANAGER_AUDIENCE, and env-Thunder's
+    # trustedIssuer.audience (PLATFORM_THUNDER_TOKEN_AUDIENCE in add-environment-thunder.sh).
+    # It does NOT affect any amp:* scope string — those come from resource handles plus
+    # the delimiter below, never from this identifier.
+    identifier: "urn:wso2:amp"
     ouHandle: default
     delimiter: ":"
     resources:
@@ -461,12 +493,19 @@ data:
       - name: Observability
         handle: observability
         parent: amp
-        description: Observability dashboards and metrics
+        description: Observability data-read scopes, enforced by agent-manager-observer
+        # Renamed from the dashboard/metric-category model (org-dashboard, project-dashboard,
+        # guardrail-metric, infra-metric) to match the data-read model every actual consumer
+        # already expects — agent-manager-observer/rbac/permissions.go, agent-manager-service/
+        # rbac/permissions.go, and values.yaml's ampScopes/observabilityScopes all use these
+        # names; only this resource-server document still had the old ones, so Thunder could
+        # never grant amp:observability:trace-read etc. to anyone, even to a superadmin token
+        # requesting every ampScopes entry.
         actions:
-          - { name: Org Dashboard, handle: org-dashboard, description: "Access the organization-level observability dashboard" }
-          - { name: Project Dashboard, handle: project-dashboard, description: "Access the project-level observability dashboard" }
-          - { name: Guardrail Metric, handle: guardrail-metric, description: "View guardrail metrics" }
-          - { name: Infra Metric, handle: infra-metric, description: "View CPU, memory, and infrastructure metrics" }
+          - { name: Trace Read, handle: trace-read, description: "Read agent execution traces" }
+          - { name: Log Read, handle: log-read, description: "Read agent runtime logs" }
+          - { name: Build Log Read, handle: build-log-read, description: "Read agent build logs" }
+          - { name: Metric Read, handle: metric-read, description: "Read agent and system metrics" }
       - name: Role
         handle: role
         parent: amp
@@ -591,10 +630,10 @@ data:
           - "amp:monitor:execute"
           - "amp:monitor:score-read"
           - "amp:monitor:score-publish"
-          - "amp:observability:org-dashboard"
-          - "amp:observability:project-dashboard"
-          - "amp:observability:guardrail-metric"
-          - "amp:observability:infra-metric"
+          - "amp:observability:trace-read"
+          - "amp:observability:log-read"
+          - "amp:observability:build-log-read"
+          - "amp:observability:metric-read"
           - "amp:role:create"
           - "amp:role:read"
           - "amp:role:update"
@@ -668,8 +707,10 @@ data:
           - "amp:monitor:delete"
           - "amp:monitor:execute"
           - "amp:monitor:score-read"
-          - "amp:observability:project-dashboard"
-          - "amp:observability:infra-metric"
+          - "amp:observability:trace-read"
+          - "amp:observability:log-read"
+          - "amp:observability:build-log-read"
+          - "amp:observability:metric-read"
           - "amp:catalog:read"
           - "amp:repository:read"
           - "amp:profile:read"
@@ -723,9 +764,8 @@ data:
           - "amp:agent:api-key-manage"
           - "amp:monitor:read"
           - "amp:monitor:score-read"
-          - "amp:observability:org-dashboard"
-          - "amp:observability:project-dashboard"
-          - "amp:observability:guardrail-metric"
+          - "amp:observability:trace-read"
+          - "amp:observability:metric-read"
           - "amp:catalog:read"
           - "amp:profile:read"
           - "amp:profile:update-attributes"
@@ -771,9 +811,9 @@ data:
           - "amp:agent:suspend"
           - "amp:monitor:read"
           - "amp:monitor:score-read"
-          - "amp:observability:org-dashboard"
-          - "amp:observability:project-dashboard"
-          - "amp:observability:infra-metric"
+          - "amp:observability:log-read"
+          - "amp:observability:build-log-read"
+          - "amp:observability:metric-read"
           - "amp:catalog:read"
           - "amp:profile:read"
           - "amp:profile:update-attributes"
@@ -816,12 +856,13 @@ data:
     # No credentials block here, deliberately: Thunder's own "01-" bootstrap document
     # (which runs first in the same import batch, since it sorts before "67-") already
     # creates this exact user and sets its credential from thunder.setup.admin.password
-    # (default "admin", matching defaultUsers[0].password below). Setting credentials
-    # again here, on the very same id in the very same batch, fails with
-    # USR-1028 "Credential update not allowed" — Thunder refuses a second credential
-    # write against a user that already has one, even within a single bootstrap run.
-    # If you change defaultUsers[0].password, also update thunder.setup.admin.password
-    # to match, since that is what actually sets this account's real password.
+    # (explicitly set, matching defaultUsers[0].password below — the subchart no longer
+    # defaults this itself as of ThunderID 1.0.0-alpha2). Setting credentials again here,
+    # on the very same id in the very same batch, fails with USR-1028 "Credential update
+    # not allowed" — Thunder refuses a second credential write against a user that
+    # already has one, even within a single bootstrap run. If you change
+    # defaultUsers[0].password, also update thunder.setup.admin.password to match, since
+    # that is what actually sets this account's real password.
     id: "01900000-0000-7000-8000-000000000030"
     type: Person
     ouHandle: default
@@ -1031,6 +1072,7 @@ data:
             accessToken:
               clientConfig:
                 validityPeriod: {{ .Values.thunder.bootstrap.amObserverClient.accessTokenValidityPeriod }}
+                attributes: ["ouId", "ouHandle"]
 
   {{- /* am-obs-mcp gets its OIDC scopes (amObsMcpClient.scopes) plus the four
        observability data-read scopes, single-sourced from
