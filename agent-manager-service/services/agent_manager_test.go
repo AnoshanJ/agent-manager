@@ -47,11 +47,12 @@ import (
 // this stub never call them.
 type stubAgentThunderProvisioning struct {
 	AgentThunderProvisioningService
-	RegenerateFunc      func(ctx context.Context, orgName, projectName, agentName, envName string) (models.AgentProvisioningType, string, string, error)
-	RevokeFunc          func(ctx context.Context, orgName, projectName, agentName, envName string) (string, error)
-	GetBindingStateFunc func(ctx context.Context, orgName, projectName, agentName, envName string) (*AgentThunderBindingState, error)
-	GetAgentRolesFunc   func(ctx context.Context, orgName, projectName, agentName, envName string) ([]thundersvc.ThunderRole, error)
-	GetAgentGroupsFunc  func(ctx context.Context, orgName, projectName, agentName, envName string) ([]thundersvc.ThunderGroup, error)
+	RegenerateFunc       func(ctx context.Context, orgName, projectName, agentName, envName string) (models.AgentProvisioningType, string, string, error)
+	RevokeFunc           func(ctx context.Context, orgName, projectName, agentName, envName string) (string, error)
+	GetBindingStateFunc  func(ctx context.Context, orgName, projectName, agentName, envName string) (*AgentThunderBindingState, error)
+	GetAgentRolesFunc    func(ctx context.Context, orgName, projectName, agentName, envName string) ([]thundersvc.ThunderRole, error)
+	GetAgentGroupsFunc   func(ctx context.Context, orgName, projectName, agentName, envName string) ([]thundersvc.ThunderGroup, error)
+	GetIdentityViewsFunc func(ctx context.Context, ouID, projectName, agentName string) ([]models.AgentIdentityEnvironmentView, error)
 }
 
 func (s *stubAgentThunderProvisioning) GetBindingState(ctx context.Context, orgName, projectName, agentName, envName string) (*AgentThunderBindingState, error) {
@@ -72,6 +73,10 @@ func (s *stubAgentThunderProvisioning) GetAgentRoles(ctx context.Context, orgNam
 
 func (s *stubAgentThunderProvisioning) GetAgentGroups(ctx context.Context, orgName, projectName, agentName, envName string) ([]thundersvc.ThunderGroup, error) {
 	return s.GetAgentGroupsFunc(ctx, orgName, projectName, agentName, envName)
+}
+
+func (s *stubAgentThunderProvisioning) GetIdentityViews(ctx context.Context, ouID, projectName, agentName string) ([]models.AgentIdentityEnvironmentView, error) {
+	return s.GetIdentityViewsFunc(ctx, ouID, projectName, agentName)
 }
 
 func TestValidateInstrumentationVersion_UsesCatalog(t *testing.T) {
@@ -1606,4 +1611,172 @@ func TestUpdateAgentDeploySettings_ResilienceTimeout_OutOfBoundsRejected(t *test
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrInvalidInput)
+}
+
+func TestPopulateCreatedBy_NoProvisioning_LeavesUnset(t *testing.T) {
+	s := &agentManagerService{logger: discardLogger()}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	assert.Nil(t, agent.CreatedBy)
+}
+
+func TestPopulateCreatedBy_NoIdentityClient_LeavesUnset(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			t.Fatal("must not fetch identity views when there is no identity client to resolve a username with")
+			return nil, nil
+		},
+	}
+	s := &agentManagerService{agentThunderProvisioning: stub, logger: discardLogger()}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	assert.Nil(t, agent.CreatedBy)
+}
+
+func TestPopulateCreatedBy_IdentityViewsError_LeavesUnset(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return nil, errors.New("db unavailable")
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient:           &clientmocks.IdentityClientMock{},
+		logger:                   discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	assert.Nil(t, agent.CreatedBy)
+}
+
+func TestPopulateCreatedBy_NoRequestedBy_LeavesUnset(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{{EnvironmentName: "dev"}}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, _ string) (*thundersvc.ThunderUser, error) {
+				t.Fatal("must not resolve a user when no binding recorded a requester")
+				return &thundersvc.ThunderUser{}, nil
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	assert.Nil(t, agent.CreatedBy)
+}
+
+func TestPopulateCreatedBy_ResolvesUsernameFromAttributes(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{
+				{EnvironmentName: "dev", RequestedBy: ""},
+				{EnvironmentName: "staging", RequestedBy: "user-123"},
+			}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
+				assert.Equal(t, "user-123", userID)
+				return &thundersvc.ThunderUser{
+					ID:         userID,
+					Display:    "John Doe",
+					Attributes: map[string]any{"username": "john.doe"},
+				}, nil
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	require.NotNil(t, agent.CreatedBy)
+	assert.Equal(t, "user-123", agent.CreatedBy.ID)
+	assert.Equal(t, "john.doe", agent.CreatedBy.Display)
+}
+
+func TestPopulateCreatedBy_FallsBackToDisplayWhenNoUsernameAttribute(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{{RequestedBy: "user-123"}}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
+				return &thundersvc.ThunderUser{ID: userID, Display: "John Doe"}, nil
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	require.NotNil(t, agent.CreatedBy)
+	assert.Equal(t, "John Doe", agent.CreatedBy.Display)
+}
+
+func TestPopulateCreatedBy_UserDeleted_KeepsIDOnly(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{{RequestedBy: "user-123"}}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, _ string) (*thundersvc.ThunderUser, error) {
+				return nil, &thundersvc.NotFoundError{Message: "user not found"}
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	require.NotNil(t, agent.CreatedBy)
+	assert.Equal(t, "user-123", agent.CreatedBy.ID)
+	assert.Empty(t, agent.CreatedBy.Display)
+}
+
+func TestPopulateCreatedBy_UserLookupError_KeepsIDOnly(t *testing.T) {
+	stub := &stubAgentThunderProvisioning{
+		GetIdentityViewsFunc: func(_ context.Context, _, _, _ string) ([]models.AgentIdentityEnvironmentView, error) {
+			return []models.AgentIdentityEnvironmentView{{RequestedBy: "user-123"}}, nil
+		},
+	}
+	s := &agentManagerService{
+		agentThunderProvisioning: stub,
+		identityClient: &clientmocks.IdentityClientMock{
+			GetUserFunc: func(_ context.Context, _ string) (*thundersvc.ThunderUser, error) {
+				return nil, errors.New("thunder unreachable")
+			},
+		},
+		logger: discardLogger(),
+	}
+	agent := &models.AgentResponse{}
+
+	s.populateCreatedBy(context.Background(), "acme", "proj1", "my-agent", agent)
+
+	require.NotNil(t, agent.CreatedBy)
+	assert.Equal(t, "user-123", agent.CreatedBy.ID)
+	assert.Empty(t, agent.CreatedBy.Display)
 }

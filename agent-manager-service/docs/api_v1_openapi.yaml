@@ -11446,6 +11446,8 @@ components:
           description: Name of the Agent Kind this agent was instantiated from (absent for source-built agents)
         labels:
           $ref: "#/components/schemas/Labels"
+        createdBy:
+          $ref: "#/components/schemas/AgentCreatedBy"
       required:
         - uuid
         - name
@@ -11455,6 +11457,26 @@ components:
         - description
         - provisioning
         - agentType
+    AgentCreatedBy:
+      type: object
+      description: |
+        The user who created this agent. Resolved from an audit-only
+        requester id captured at creation time, so it is best-effort and
+        omitted entirely when unknown (e.g. agents created before this was
+        tracked, or where the creating user could not be resolved).
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: User ID of the creator
+          example: "user-123"
+        display:
+          type: string
+          description: |
+            Display name/username of the creator, when resolvable. Omitted
+            if the user has since been deleted.
+          example: "john.doe"
     ResourceNameRequest:
       type: object
       properties:

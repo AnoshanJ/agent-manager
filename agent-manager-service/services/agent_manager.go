@@ -86,6 +86,7 @@ type agentManagerService struct {
 	agentThunderProvisioning  AgentThunderProvisioningService
 	monitorManagerService     MonitorManagerService
 	agentIdentityInjection    AgentIdentityInjectionService
+	identityClient            thundersvc.IdentityClient
 	logger                    *slog.Logger
 }
 
@@ -104,6 +105,7 @@ func NewAgentManagerService(
 	agentThunderProvisioning AgentThunderProvisioningService,
 	monitorManagerService MonitorManagerService,
 	agentIdentityInjection AgentIdentityInjectionService,
+	identityClient thundersvc.IdentityClient,
 	logger *slog.Logger,
 ) AgentManagerService {
 	return &agentManagerService{
@@ -118,6 +120,7 @@ func NewAgentManagerService(
 		agentThunderProvisioning:  agentThunderProvisioning,
 		monitorManagerService:     monitorManagerService,
 		agentIdentityInjection:    agentIdentityInjection,
+		identityClient:            identityClient,
 		artifactRepo:              artifactRepo,
 		aiApplicationService:      aiApplicationService,
 		gatewayRepo:               gatewayRepo,
@@ -1037,8 +1040,57 @@ func (s *agentManagerService) GetAgent(ctx context.Context, ouID string, project
 		}
 	}
 
+	s.populateCreatedBy(ctx, ouID, projectName, agentName, agent)
+
 	s.logger.Info("Fetched agent successfully from oc", "agentName", agent.Name, "ouID", ouID, "projectName", projectName, "provisioningType", agent.Provisioning.Type)
 	return agent, nil
+}
+
+// populateCreatedBy best-effort resolves and attaches who created this agent.
+// The only signal available is the audit-only requester id captured once at
+// agent-creation time on every environment's AgentID binding (see
+// models.AgentThunderClient.RequestedBy) — not a purpose-built "creator"
+// column, since the agent record itself lives in OpenChoreo, not AMS's DB.
+// Never fails GetAgent: a missing provisioning implementation, a lookup
+// error, an empty requestedBy (pre-dates this being tracked), or a
+// since-deleted user all just leave CreatedBy unset (or id-only).
+func (s *agentManagerService) populateCreatedBy(ctx context.Context, ouID, projectName, agentName string, agent *models.AgentResponse) {
+	if s.agentThunderProvisioning == nil || s.identityClient == nil {
+		return
+	}
+	views, err := s.agentThunderProvisioning.GetIdentityViews(ctx, ouID, projectName, agentName)
+	if err != nil {
+		s.logger.Warn("Failed to fetch agent identity views for createdBy", "agentName", agentName, "ouID", ouID, "error", err)
+		return
+	}
+	// requestedBy is captured once at creation time and copied to every
+	// environment's binding, so any non-empty value is equivalent.
+	var requestedBy string
+	for _, v := range views {
+		if v.RequestedBy != "" {
+			requestedBy = v.RequestedBy
+			break
+		}
+	}
+	if requestedBy == "" {
+		return
+	}
+
+	createdBy := &models.AgentCreatedBy{ID: requestedBy}
+	user, err := s.identityClient.GetUser(ctx, requestedBy)
+	if err != nil {
+		if !thundersvc.IsNotFound(err) {
+			s.logger.Warn("Failed to resolve agent creator", "agentName", agentName, "requestedBy", requestedBy, "error", err)
+		}
+		agent.CreatedBy = createdBy
+		return
+	}
+	if username, ok := user.Attributes["username"].(string); ok && username != "" {
+		createdBy.Display = username
+	} else {
+		createdBy.Display = user.Display
+	}
+	agent.CreatedBy = createdBy
 }
 
 func (s *agentManagerService) ListAgents(ctx context.Context, ouID string, projName string, labelFilter map[string]string, limit int32, offset int32) ([]*models.AgentResponse, int32, error) {
