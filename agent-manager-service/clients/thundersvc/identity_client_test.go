@@ -548,7 +548,7 @@ func TestListAMPPermissions_DescendsIntoAnchorResourceChildren(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}},
+				"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "urn:wso2:amp"}},
 				"totalResults":    1,
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "":
@@ -594,7 +594,7 @@ func TestListAMPPermissions_PaginatesMoreThan20ChildrenUnderAnchor(t *testing.T)
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
-			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}}, "totalResults": 1})
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "urn:wso2:amp"}}, "totalResults": 1})
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "":
 			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{map[string]string{"id": "anchor-1", "handle": "amp"}}, "totalResults": 1})
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources" && r.URL.Query().Get("parentId") == "anchor-1":
@@ -634,7 +634,7 @@ func TestListAMPPermissions_ReturnsEmptySliceNotNilWhenAnchorHasNoChildren(t *te
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
-			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "amp"}}, "totalResults": 1})
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "amp-rs", "identifier": "urn:wso2:amp"}}, "totalResults": 1})
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/amp-rs/resources":
 			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
 		default:
@@ -676,7 +676,7 @@ func TestListAMPPermissions_ResourceServerNotFound(t *testing.T) {
 // after the first page and any resource server sitting on page 2+ was
 // silently never found. This puts the target on page 2 of 2.
 func TestFindResourceServerID_PaginatesBeyondFirstPage(t *testing.T) {
-	const totalCount = 25 // > one page (20); "amp" is at index 22, on page 2
+	const totalCount = 25 // > one page (20); "urn:wso2:amp" is at index 22, on page 2
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
@@ -686,7 +686,7 @@ func TestFindResourceServerID_PaginatesBeyondFirstPage(t *testing.T) {
 			for i := offset; i < offset+limit && i < totalCount; i++ {
 				identifier := fmt.Sprintf("proxy-%d", i)
 				if i == totalCount-3 {
-					identifier = "amp"
+					identifier = "urn:wso2:amp"
 				}
 				page = append(page, map[string]string{"id": fmt.Sprintf("rs-%d", i), "identifier": identifier})
 			}
@@ -701,7 +701,7 @@ func TestFindResourceServerID_PaginatesBeyondFirstPage(t *testing.T) {
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
 	perms, rsID, err := client.ListAMPPermissions(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "rs-22", rsID, "amp sits on page 2 of the resource-server listing and must still be found")
+	assert.Equal(t, "rs-22", rsID, "urn:wso2:amp sits on page 2 of the resource-server listing and must still be found")
 	assert.Empty(t, perms)
 }
 

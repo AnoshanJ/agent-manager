@@ -984,8 +984,9 @@ func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermis
 		return nil, "", err
 	}
 
-	// Find the "amp" resource server.
-	ampRSID, err := c.findResourceServerID(ctx, token, rbac.ResourceServer)
+	// Find the "amp" resource server by its Thunder IDENTIFIER (a different field/value
+	// than rbac.ResourceServer, the scope-string prefix — see ResourceServerIdentifier's doc comment).
+	ampRSID, err := c.findResourceServerID(ctx, token, rbac.ResourceServerIdentifier)
 	if err != nil {
 		return nil, "", err
 	}
