@@ -15,20 +15,18 @@
  * under the License.
  */
 
-import { useMemo } from "react";
-import { Box } from "@wso2/oxygen-ui";
+import { useMemo, useState } from "react";
+import { Avatar, Box, IconButton, Skeleton, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Copy, Fingerprint } from "@wso2/oxygen-ui-icons-react";
 import {
   useAgentIdentityBinding,
   useListAgentIdentityAgents,
 } from "@agent-management-platform/api-client";
 import {
   CollapsibleSection,
-  monospaceInputSx,
   OverviewSectionCard,
-  RolesGroupsChips,
   useAgentRolesAndGroups,
 } from "@agent-management-platform/shared-component";
-import { TextInput } from "@agent-management-platform/views";
 import { buildAgentIdHref } from "./agentIdLink";
 
 interface EnvAgentRolesGroupsSectionProps {
@@ -39,12 +37,14 @@ interface EnvAgentRolesGroupsSectionProps {
 }
 
 /**
- * Per-environment "Agent ID" card: the Thunder Agent ID plus the identity's
- * roles/groups, rendered inside an EnvironmentCard for both internal and
- * external agents — the client ID/secret/regenerate flow lives on the
- * agent-level "Agent ID" page instead, linked to via the "View all" button.
- * The Thunder Agent ID mirrors the one shown on that page, resolved from the
- * same useListAgentIdentityAgents response.
+ * Per-environment "Agent ID" card, laid out like an identity badge: an
+ * identity avatar, the Thunder Agent ID as an inline copyable value, and the
+ * identity's roles/groups as `Role:`/`Group:` tags on one line. Rendered
+ * inside an EnvironmentCard for both internal and external agents — the client
+ * ID/secret/regenerate flow lives on the agent-level "Agent ID" page instead,
+ * linked to via the "View all" button. The Thunder Agent ID mirrors the one
+ * shown on that page, resolved from the same useListAgentIdentityAgents
+ * response.
  */
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
@@ -69,6 +69,16 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     [identityAgentsData, agentId, projectId],
   );
 
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    if (!thunderAgentId) return;
+    void navigator.clipboard.writeText(thunderAgentId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const hasTags = roles.length > 0 || groups.length > 0;
+
   const show = !isLoadingIdentity && provisioned;
 
   return (
@@ -76,21 +86,64 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
       <OverviewSectionCard
         title="Agent ID"
         actionHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
-        sx={{ mb: 1.5 }}
+        sx={{ mb: 1.5, maxWidth: { md: 460 } }}
       >
-        {thunderAgentId && (
-          <TextInput
-            slotProps={{ input: { readOnly: true } }}
-            label="Thunder Agent ID"
-            value={thunderAgentId}
-            copyable
-            fullWidth
-            size="small"
-            sx={{ ...monospaceInputSx, mb: 1.5 }}
-          />
-        )}
-        <Box>
-          <RolesGroupsChips roles={roles} groups={groups} isLoading={isLoading} />
+        <Box display="flex" gap={2} alignItems="center">
+          <Avatar
+            variant="rounded"
+            sx={{
+              width: 48,
+              height: 48,
+              flexShrink: 0,
+              bgcolor: "primary.main",
+              color: "primary.contrastText",
+            }}
+          >
+            <Fingerprint size={24} />
+          </Avatar>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {thunderAgentId ? (
+              <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
+                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+                  Agent ID:
+                </Typography>
+                <Typography variant="body2" fontWeight={600} noWrap sx={{ fontFamily: "monospace" }}>
+                  {thunderAgentId}
+                </Typography>
+                <Tooltip title={copied ? "Copied" : "Copy Agent ID"}>
+                  <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25, flexShrink: 0 }}>
+                    <Copy size={14} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.disabled">
+                Provisioning identity…
+              </Typography>
+            )}
+            <Box mt={0.5}>
+              {isLoading ? (
+                <Skeleton variant="text" width={180} height={16} />
+              ) : hasTags ? (
+                <>
+                  {roles.length > 0 && (
+                    <Typography variant="caption" color="text.disabled" display="block">
+                      Roles: {roles.map((role) => role.name).join(", ")}
+                    </Typography>
+                  )}
+                  {groups.length > 0 && (
+                    <Typography variant="caption" color="text.disabled" display="block">
+                      Groups: {groups.map((group) => group.name).join(", ")}
+                    </Typography>
+                  )}
+                </>
+              ) : (
+                <Typography variant="caption" color="text.disabled">
+                  No roles or groups assigned
+                </Typography>
+              )}
+            </Box>
+          </Box>
         </Box>
       </OverviewSectionCard>
     </CollapsibleSection>

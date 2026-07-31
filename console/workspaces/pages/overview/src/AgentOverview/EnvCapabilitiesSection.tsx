@@ -17,7 +17,7 @@
  */
 
 import { useMemo } from "react";
-import { Box, Chip, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
+import { Box, Chip, Grid, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
 import { generatePath } from "react-router-dom";
 import { useGetAgentEndpoints } from "@agent-management-platform/api-client";
 import {
@@ -175,94 +175,97 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
     return (
         <CollapsibleSection show={show}>
             {/*
-             * Two standalone cards side by side on desktop, stacking back to a
-             * column on narrow viewports where a flex row would otherwise
-             * squeeze the TextInput unreadably. Each card carries its own
-             * action link in its top-right corner instead of a shared header.
+             * 12-column grid: Invoke URL (8) beside Capabilities (4) on md+,
+             * each wrapping to a full-width row on small screens where a
+             * side-by-side split would squeeze the TextInput unreadably.
              */}
-            <Box display="flex" flexDirection={{ xs: "column", md: "row" }} gap={2} sx={{ mb: 1.5 }}>
+            <Grid container spacing={2} sx={{ mb: 1.5 }}>
                 {invokeUrl && (
-                    <OverviewSectionCard
-                        title="Invoke URL"
-                        actionHref={deploymentPath}
-                        actionLabel="Deployments"
-                        sx={{ flex: 1, minWidth: 0 }}
-                    >
-                        <TextInput
-                            value={invokeUrl}
-                            copyable
-                            copyTooltipText="Copy URL"
-                            slotProps={{ input: { readOnly: true } }}
-                            sx={{ mb: 1 }}
-                        />
-                        <Box display="flex" flexWrap="wrap" gap={1}>
-                            <StatusPill
-                                label="Auth"
-                                value={authLabel}
-                                tooltip={authTooltip}
-                            />
-                            <StatusPill
-                                label="CORS"
-                                value={corsLabel}
-                                tooltip={corsTooltip}
-                            />
-                            <IsolationTierChip tier={isolationTier} />
-                        </Box>
-                    </OverviewSectionCard>
-                )}
-                <OverviewSectionCard
-                    title="Capabilities"
-                    actionHref={tryItHref}
-                    actionLabel="Try It"
-                    sx={{ flex: 1, minWidth: 0 }}
-                >
-                    {resources.length === 0 ? (
-                        <Typography
-                            variant="caption"
-                            color="text.disabled"
-                            sx={{ display: "block", fontStyle: "italic" }}
+                    <Grid size={{ xs: 12, md: 8 }}>
+                        <OverviewSectionCard
+                            title="Invoke URL"
+                            actionHref={deploymentPath}
+                            actionLabel="Deployments"
+                            sx={{ height: "100%" }}
                         >
-                            Unable to find API schema
-                        </Typography>
-                    ) : (
-                        <Box display="flex" flexWrap="wrap" gap={1}>
-                            {resources.map((resource) => (
-                                <Box
-                                    key={`${resource.method} ${resource.path}`}
-                                    display="flex"
-                                    alignItems="center"
-                                    gap={0.75}
-                                    sx={{
-                                        border: "1px solid",
-                                        borderColor: "divider",
-                                        borderRadius: "999px",
-                                        // The Chip already carries its own pill
-                                        // padding on the left, so a smaller pl here
-                                        // (vs. pr, which backs onto plain unpadded
-                                        // text) keeps the inset even on both ends.
-                                        pl: 0.5,
-                                        pr: 1.25,
-                                        py: 0.5,
-                                    }}
-                                >
-                                    <Chip
-                                        label={
-                                            METHOD_LABEL[resource.method] ?? resource.method
-                                        }
-                                        size="small"
-                                        variant="outlined"
-                                        color={METHOD_COLOR[resource.method] ?? "default"}
-                                        sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
-                                    />
-                                    <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
-                                        {resource.path}
-                                    </Typography>
-                                </Box>
-                            ))}
-                        </Box>
-                    )}
-                </OverviewSectionCard>
-            </Box>
+                            <TextInput
+                                value={invokeUrl}
+                                copyable
+                                copyTooltipText="Copy URL"
+                                slotProps={{ input: { readOnly: true } }}
+                                sx={{ mb: 1 }}
+                            />
+                            <Box display="flex" flexWrap="wrap" gap={1}>
+                                <StatusPill
+                                    label="Auth"
+                                    value={authLabel}
+                                    tooltip={authTooltip}
+                                />
+                                <StatusPill
+                                    label="CORS"
+                                    value={corsLabel}
+                                    tooltip={corsTooltip}
+                                />
+                                <IsolationTierChip tier={isolationTier} />
+                            </Box>
+                        </OverviewSectionCard>
+                    </Grid>
+                )}
+                <Grid size={{ xs: 12, md: invokeUrl ? 4 : 12 }}>
+                    <OverviewSectionCard
+                        title="Capabilities"
+                        actionHref={tryItHref}
+                        actionLabel="Try It"
+                        sx={{ height: "100%" }}
+                    >
+                        {resources.length === 0 ? (
+                            <Typography
+                                variant="caption"
+                                color="text.disabled"
+                                sx={{ display: "block", fontStyle: "italic" }}
+                            >
+                                Unable to find API schema
+                            </Typography>
+                        ) : (
+                            <Box display="flex" flexWrap="wrap" gap={1}>
+                                {resources.map((resource) => (
+                                    <Box
+                                        key={`${resource.method} ${resource.path}`}
+                                        display="flex"
+                                        alignItems="center"
+                                        gap={0.75}
+                                        sx={{
+                                            border: "1px solid",
+                                            borderColor: "divider",
+                                            borderRadius: "999px",
+                                            // The Chip already carries its own pill
+                                            // padding on the left, so a smaller pl here
+                                            // (vs. pr, which backs onto plain unpadded
+                                            // text) keeps the inset even on both ends.
+                                            pl: 0.5,
+                                            pr: 1.25,
+                                            py: 0.5,
+                                        }}
+                                    >
+                                        <Chip
+                                            label={
+                                                METHOD_LABEL[resource.method] ?? resource.method
+                                            }
+                                            size="small"
+                                            variant="outlined"
+                                            color={METHOD_COLOR[resource.method] ?? "default"}
+                                            sx={{ fontSize: "0.6875rem", fontWeight: 600 }}
+                                        />
+                                        <Typography variant="body2" sx={{ fontFamily: "monospace" }} noWrap>
+                                            {resource.path}
+                                        </Typography>
+                                    </Box>
+                                ))}
+                            </Box>
+                        )}
+                    </OverviewSectionCard>
+                </Grid>
+            </Grid>
         </CollapsibleSection>
     );
 };
