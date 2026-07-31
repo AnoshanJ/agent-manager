@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { generatePath, useParams } from "react-router-dom";
+import { generatePath, useParams, useSearchParams } from "react-router-dom";
 import { Box, Card, Divider, Tab, Tabs } from "@wso2/oxygen-ui";
 import { PageLayout } from "@agent-management-platform/views";
 import {
@@ -31,6 +31,7 @@ import {
   type AgentConfigTableLabels,
 } from "./Configure/subComponents/AgentConfigTableSection";
 import { AddMCPToolConfigPanel } from "./Configure/subComponents/AddMCPToolConfigPanel";
+import { CONFIGURE_TAB_KEYS, CONFIGURE_TAB_PARAM } from "./configureTabs";
 
 const configureRoutes =
   absoluteRouteMap.children.org.children.projects.children.agents.children
@@ -86,7 +87,24 @@ function TabPanel({ value, index, children }: TabPanelProps) {
 }
 
 export const ConfigureComponent: React.FC = () => {
-  const [tabIndex, setTabIndex] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTabIndex = CONFIGURE_TAB_KEYS.indexOf(
+    searchParams.get(CONFIGURE_TAB_PARAM) as (typeof CONFIGURE_TAB_KEYS)[number],
+  );
+  const tabIndex = requestedTabIndex === -1 ? 0 : requestedTabIndex;
+  const handleTabChange = (_: React.SyntheticEvent, index: number) => {
+    // Preserve any other query params already on the URL instead of
+    // replacing the whole search string with just this one.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(CONFIGURE_TAB_PARAM, CONFIGURE_TAB_KEYS[index]);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const { orgId, projectId, agentId } = useParams<{
     orgId: string;
@@ -156,7 +174,7 @@ export const ConfigureComponent: React.FC = () => {
       <Card variant="outlined">
         <Tabs
           value={tabIndex}
-          onChange={(_, v: number) => setTabIndex(v)}
+          onChange={handleTabChange}
           variant="scrollable"
           allowScrollButtonsMobile
         >

@@ -315,6 +315,17 @@ func (c *openChoreoClient) findReleaseBindingForEnv(ctx context.Context, namespa
 	return nil, nil //nolint:nilnil // documented sentinel: callers distinguish "no binding" from "list failed"
 }
 
+// bumpRestartedAt stamps a fresh restartedAt on the binding's ComponentTypeEnvironmentConfigs,
+// which OpenChoreo watches to trigger a pod rollout. Shared by every mutation that needs pods to
+// pick up changed secrets/config, so the mechanism lives in exactly one place.
+func bumpRestartedAt(rb *gen.ReleaseBinding) {
+	if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
+		overrides := make(map[string]interface{})
+		rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
+	}
+	(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339Nano)
+}
+
 // setRestartedAt updates restartedAt on the ReleaseBinding for the given environment to trigger a pod rollout.
 // It uses a List/Get/Update cycle: List finds the binding name, then retryReleaseBindingUpdate handles
 // the Get/Update with retry on resource-version conflicts.
@@ -330,11 +341,7 @@ func (c *openChoreoClient) setRestartedAt(ctx context.Context, namespaceName, co
 	}
 
 	return c.retryReleaseBindingUpdate(ctx, namespaceName, binding.Metadata.Name, func(rb *gen.ReleaseBinding) {
-		if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
-			overrides := make(map[string]interface{})
-			rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
-		}
-		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+		bumpRestartedAt(rb)
 	})
 }
 
@@ -356,11 +363,7 @@ func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context,
 
 	return c.retryReleaseBindingUpdate(ctx, namespaceName, binding.Metadata.Name, func(rb *gen.ReleaseBinding) {
 		rb.Spec.TraitEnvironmentConfigs = &traitConfigs
-		if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
-			overrides := make(map[string]interface{})
-			rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
-		}
-		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+		bumpRestartedAt(rb)
 		// Merge component-type configs (e.g. runtimeClassName from the env's isolation tier).
 		for k, v := range componentTypeConfigs {
 			(*rb.Spec.ComponentTypeEnvironmentConfigs)[k] = v
@@ -426,7 +429,7 @@ func (c *openChoreoClient) EnsureReleaseBindingRuntimeClass(ctx context.Context,
 		}
 		// Bump restartedAt so the SandboxTemplate re-renders and the warm pods roll onto the
 		// isolation node. Only runs on correction (current != desired), so there is no restart loop.
-		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339Nano)
 	})
 }
 
@@ -461,11 +464,7 @@ func (c *openChoreoClient) ReplaceReleaseBindingWorkloadOverrides(ctx context.Co
 		}
 		rb.Spec.WorkloadOverrides = &gen.WorkloadOverrides{Container: container}
 
-		if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
-			overrides := make(map[string]interface{})
-			rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
-		}
-		(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339)
+		bumpRestartedAt(rb)
 	})
 }
 

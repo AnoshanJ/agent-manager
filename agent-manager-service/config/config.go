@@ -52,6 +52,7 @@ type Config struct {
 	// Default Chat API configuration
 	DefaultChatAPI     DefaultChatAPIConfig
 	DefaultGatewayPort int
+	GatewayRuntime     GatewayRuntimeConfig
 
 	// JWT Signing configuration for agent API tokens
 	JWTSigning JWTSigningConfig
@@ -136,14 +137,16 @@ type TLSConfig struct {
 
 // SecretManagerConfig holds secret manager client configuration
 type SecretManagerConfig struct {
-	// Provider is the secret store provider name (e.g., "openbao", "vault", "secret-manager-api")
+	// Provider is the secret store provider name (e.g., "openchoreo")
 	Provider string
-	// RefreshInterval is how often SecretReference CRs should refresh from KV (default: "1h")
+	// TargetPlaneKind is the kind of the plane hosting secret data
+	// (e.g. "ClusterDataPlane")
+	TargetPlaneKind string
+	// TargetPlaneName is the name of the plane hosting secret data
+	TargetPlaneName string
+	// RefreshInterval is how often SecretReference CRs should refresh from the
+	// secret store (default: "1h")
 	RefreshInterval string
-	// BaseURL is the Secret Manager API base URL (only used when Provider is "secret-manager-api")
-	BaseURL string
-	// Timeout is the HTTP client timeout in seconds for Secret Manager API (default: 30)
-	Timeout int
 }
 
 // OpenBaoConfig holds OpenBao KV store configuration.
@@ -164,6 +167,10 @@ type OpenChoreoConfig struct {
 	// DefaultNamespace is the OpenChoreo namespace (organization) all API
 	// calls are scoped to. The deployment runs single-namespace.
 	DefaultNamespace string
+	// SystemLabelKeyPrefixes lists component label-key prefixes that are
+	// reserved for internal use and never surfaced as user labels in agent
+	// API responses.
+	SystemLabelKeyPrefixes []string
 }
 
 // GitHubConfig holds GitHub API configuration
@@ -293,6 +300,14 @@ type PublicKeysConfig struct {
 type APIPlatformConfig struct {
 	BaseURL string // Base URL for API Platform
 	Enable  bool
+}
+
+// GatewayRuntimeConfig defines how Agent Manager derives the Kubernetes Service URL
+// used by platform-hosted agents to reach an API Platform gateway runtime.
+type GatewayRuntimeConfig struct {
+	NamePrefix    string
+	ServiceSuffix string
+	Port          int
 }
 
 // InternalServerConfig holds configuration for the internal server

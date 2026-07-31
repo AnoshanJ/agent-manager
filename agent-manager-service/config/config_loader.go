@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -144,6 +145,11 @@ func loadEnvs() {
 
 	config.InstrumentationURL = r.readOptionalString("INSTRUMENTATION_URL", "http://default-default.gateway.localhost:19080/otel")
 	config.DefaultGatewayPort = int(r.readOptionalInt64("DEFAULT_GATEWAY_PORT", 19080))
+	config.GatewayRuntime = GatewayRuntimeConfig{
+		NamePrefix:    r.readOptionalString("GATEWAY_RUNTIME_NAME_PREFIX", "api-platform-"),
+		ServiceSuffix: r.readOptionalString("GATEWAY_RUNTIME_SERVICE_SUFFIX", "-gw-gateway-gateway-runtime"),
+		Port:          int(r.readOptionalInt64("GATEWAY_RUNTIME_PORT", 22893)),
+	}
 	config.KeyManagerConfigurations = KeyManagerConfigurations{
 		// Comma-separated list of allowed issuers and audiences
 		Issuer:   r.readOptionalStringList("KEY_MANAGER_ISSUER", "Agent Management Platform Local"),
@@ -168,7 +174,7 @@ func loadEnvs() {
 		PrivateKeyPath:        r.readOptionalString("JWT_SIGNING_PRIVATE_KEY_PATH", "keys/private.pem"),
 		PublicKeysConfigPath:  r.readOptionalString("JWT_SIGNING_PUBLIC_KEYS_CONFIG", "keys/public-keys-config.json"),
 		ActiveKeyID:           r.readOptionalString("JWT_SIGNING_ACTIVE_KEY_ID", "key-1"),
-		DefaultExpiryDuration: r.readOptionalString("JWT_SIGNING_DEFAULT_EXPIRY", "8760h"), // 1 year default
+		DefaultExpiryDuration: r.readOptionalString("JWT_SIGNING_DEFAULT_EXPIRY", "2160h"), // 90 days default
 		Issuer:                r.readOptionalString("JWT_SIGNING_ISSUER", "agent-manager-service"),
 		DefaultEnvironment:    r.readOptionalString("JWT_SIGNING_DEFAULT_ENVIRONMENT", "default"),
 	}
@@ -180,6 +186,9 @@ func loadEnvs() {
 	config.OpenChoreo = OpenChoreoConfig{
 		BaseURL:          r.readRequiredString("OPEN_CHOREO_BASE_URL"),
 		DefaultNamespace: r.readOptionalString("OPEN_CHOREO_DEFAULT_NAMESPACE", "default"),
+		SystemLabelKeyPrefixes: r.readOptionalStringList(
+			"OPEN_CHOREO_SYSTEM_LABEL_KEY_PREFIXES", "openchoreo.dev/",
+		),
 	}
 
 	// Internal Server configuration (for WebSocket and gateway internal APIs)
@@ -202,10 +211,10 @@ func loadEnvs() {
 	}
 
 	config.SecretManager = SecretManagerConfig{
-		Provider:        r.readOptionalString("SECRET_MANAGER_PROVIDER", "openbao"),
-		RefreshInterval: r.readOptionalString("OPENBAO_REFRESH_INTERVAL", "1h"),
-		BaseURL:         r.readOptionalString("SECRET_MANAGER_API_URL", ""),
-		Timeout:         int(r.readOptionalInt64("SECRET_MANAGER_API_TIMEOUT", 30)),
+		Provider:        r.readOptionalString("SECRET_MANAGER_PROVIDER", "openchoreo"),
+		TargetPlaneKind: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_KIND", "ClusterDataPlane"),
+		TargetPlaneName: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_NAME", "default"),
+		RefreshInterval: r.readOptionalString("SECRET_MANAGER_REFRESH_INTERVAL", "1h"),
 	}
 
 	// OpenBao KV store configuration (data plane - for deployment secrets)
@@ -261,12 +270,25 @@ func loadEnvs() {
 	validateServerPublicURL(config, r)
 	validateInstrumentationURL(config, r)
 	validateObserverURLs(config, r)
+	validateGatewayRuntimeConfig(config, r)
 	validateResourceLimitsConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
 
 	r.logAndExitIfErrorsFound()
 
 	slog.Info("configReader: configs loaded")
+}
+
+func validateGatewayRuntimeConfig(cfg *Config, r *configReader) {
+	if strings.TrimSpace(cfg.GatewayRuntime.NamePrefix) == "" {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_NAME_PREFIX must be non-empty"))
+	}
+	if strings.TrimSpace(cfg.GatewayRuntime.ServiceSuffix) == "" {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_SERVICE_SUFFIX must be non-empty"))
+	}
+	if cfg.GatewayRuntime.Port < 1 || cfg.GatewayRuntime.Port > 65535 {
+		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_PORT must be between 1 and 65535, got %d", cfg.GatewayRuntime.Port))
+	}
 }
 
 func validateHTTPServerConfigs(cfg *Config, r *configReader) {

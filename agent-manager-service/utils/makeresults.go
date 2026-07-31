@@ -159,6 +159,34 @@ func convertToConfigurations(configs *models.Configurations) *spec.Configuration
 	return result
 }
 
+// PopulateConfigurationResponseFromAgentConfig fills the per-environment tracing, CORS, and
+// endpoint-authentication fields on a ConfigurationResponse from the agent_configs row. Unlike
+// GetAgent (lowest-environment only), this lets the console seed the drawer per environment. No-op
+// when cfg is nil ("no config persisted yet").
+func PopulateConfigurationResponseFromAgentConfig(resp *spec.ConfigurationResponse, cfg *models.AgentConfig) {
+	if resp == nil || cfg == nil {
+		return
+	}
+	resp.EnableAutoInstrumentation = spec.PtrBool(cfg.EnableAutoInstrumentation)
+	resp.InstrumentationVersion = cfg.InstrumentationVersion
+	resp.EnableApiKeySecurity = spec.PtrBool(cfg.EnableApiKeySecurity)
+	resp.EnableOAuthSecurity = spec.PtrBool(cfg.EnableOAuthSecurity)
+	resp.CorsConfig = &spec.CORSConfig{
+		Enabled:          spec.PtrBool(cfg.CORSEnabled),
+		AllowOrigin:      cfg.CORSAllowOrigins,
+		AllowMethods:     cfg.CORSAllowMethods,
+		AllowHeaders:     cfg.CORSAllowHeaders,
+		AllowCredentials: spec.PtrBool(cfg.CORSAllowCredentials),
+	}
+	resp.OauthConfig = &spec.OAuthConfig{
+		Issuers:          cfg.OAuthIssuers,
+		Audiences:        cfg.OAuthAudiences,
+		HeaderName:       &cfg.OAuthHeaderName,
+		AuthHeaderPrefix: &cfg.OAuthAuthHeaderPrefix,
+		ForwardToken:     &cfg.OAuthForwardToken,
+	}
+}
+
 func convertToExternalAgentResponse(component *models.AgentResponse) spec.AgentResponse {
 	response := spec.AgentResponse{
 		Uuid:        component.UUID,

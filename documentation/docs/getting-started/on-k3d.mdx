@@ -275,6 +275,17 @@ kubectl wait --for=condition=Available \
   -n ${THUNDER_NS} --timeout=300s
 ```
 
+:::info
+No MCP overrides are needed here: `thunder.bootstrap.agentManagerMcpBaseUrl` and
+`observerMcpBaseUrl` become the OAuth resource-server identifiers Thunder
+registers for the `/mcp` endpoints, and their chart defaults are already the k3d
+gateway URLs used throughout this guide. If you deviate from those hostnames,
+override both to match `agentManagerService.config.serverPublicURL` and
+`amObserver.publicUrl` — Thunder answers `invalid_target` unless an MCP client's
+requested `resource` matches a registered identifier exactly. Both are seeded by
+the pre-install bootstrap job only, so a `helm upgrade` will not re-seed them.
+:::
+
 :::warning
 Thunder persists its configuration (including the issuer URL) in a database on first boot. If you need to change `THUNDER_PUBLIC_URL` after installation, you must **uninstall the chart, delete its PVC, and reinstall** — a `helm upgrade` alone will not change the issuer in issued tokens.
 :::
@@ -700,12 +711,13 @@ k3d cluster delete amp-local
 This installation is designed for development and exploration. For production:
 
 1. **Identity provider** — Replace Thunder dev mode with a proper IdP (Asgardeo, Auth0, Okta)
-2. **TLS** — Replace self-signed certificates with CA-signed certificates
-3. **Secrets backend** — Disable OpenBao dev mode; configure persistent storage and proper auth
-4. **Observability storage** — Configure persistent volumes for OpenSearch
-5. **Resource sizing** — Adjust requests/limits based on workload
-6. **High availability** — Deploy multiple replicas of critical components
-7. **Security hardening** — Apply network policies, RBAC, pod security standards
+2. **JWT authentication** — Set `IS_LOCAL_DEV_ENV=false` and configure `KEY_MANAGER_JWKS_URL` for `agent-manager-service` and `agent-manager-observer` before exposing either service; when unset, JWT signature verification is skipped and only the token payload is decoded
+3. **TLS** — Replace self-signed certificates with CA-signed certificates
+4. **Secrets backend** — Disable OpenBao dev mode; configure persistent storage and proper auth
+5. **Observability storage** — Configure persistent volumes for OpenSearch
+6. **Resource sizing** — Adjust requests/limits based on workload
+7. **High availability** — Deploy multiple replicas of critical components
+8. **Security hardening** — Apply network policies, RBAC, pod security standards
 
 ---
 

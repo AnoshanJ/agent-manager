@@ -47,6 +47,8 @@ import {
   PageLayout,
   FadeIn,
   displayProvisionTypes,
+  DescriptionCard,
+  CreatedMetadata,
 } from "@agent-management-platform/views";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
 import {
@@ -300,10 +302,7 @@ export const AgentsList: React.FC = () => {
     <>
       <PageLayout
         title={project?.displayName ?? "Agents"}
-        description={
-          project?.description ??
-          "Manage and monitor all your AI agents across environments"
-        }
+        description={project ? <CreatedMetadata createdAt={project.createdAt} /> : undefined}
         isLoading={isPageLoading}
         actions={
           <Button
@@ -318,6 +317,9 @@ export const AgentsList: React.FC = () => {
           </Button>
         }
       >
+        {project?.description && (
+          <DescriptionCard content={project.description} sx={{ mb: 4 }} />
+        )}
         {isLoading ? (
           <ListPageSkeleton />
         ) : (
@@ -384,7 +386,6 @@ export const AgentsList: React.FC = () => {
                   rows={[]}
                   columns={[
                     { field: 'name', headerName: 'Agent Name', flex: 1 },
-                    { field: 'description', headerName: 'Description', flex: 2 },
                     { field: 'lastUpdated', headerName: 'Last Updated', flex: 1 },
                   ]}
                   loading
@@ -396,7 +397,6 @@ export const AgentsList: React.FC = () => {
                     <ListingTable.Head>
                       <ListingTable.Row>
                         <ListingTable.Cell>Agent Name</ListingTable.Cell>
-                        <ListingTable.Cell>Description</ListingTable.Cell>
                         <ListingTable.Cell align="right">Last Updated</ListingTable.Cell>
                       </ListingTable.Row>
                     </ListingTable.Head>
@@ -444,17 +444,6 @@ export const AgentsList: React.FC = () => {
                                 <LabelChips labels={agent.labels} />
                               </Stack>
                             </Stack>
-                          </ListingTable.Cell>
-                          <ListingTable.Cell>
-                            <Typography
-                              variant="body2"
-                              noWrap
-                              textOverflow="ellipsis"
-                              overflow="hidden"
-                            >
-                              {agent.description.substring(0, 40) +
-                                (agent.description.length > 40 ? "..." : "")}
-                            </Typography>
                           </ListingTable.Cell>
                           <ListingTable.Cell align="right">
                             <Stack

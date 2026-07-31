@@ -47,6 +47,14 @@ import (
 // must fit Thunder's 100-char handle cap; kebab is a strict subset of both.
 var mcpProxyHandleRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// maxMCPProxyDeploymentHandleLength bounds the per-(endpoint,environment) gateway artifact
+// name/displayName that deployment builds via mcpProxyEnvArtifactHandle. The gateway rejects a
+// displayName outside 1-100 chars, and that rejection happens asynchronously after Create/Update
+// has already returned 201/200, so a too-long handle deploys nothing while the caller sees
+// success — surfacing later only as 404s on the MCP route. Validate it up front instead and fail
+// with a clear, actionable error.
+const maxMCPProxyDeploymentHandleLength = 100
+
 const (
 	mcpJSONRPCVersion      = "2.0"
 	mcpProtocolVersion     = "2025-06-18"
@@ -149,6 +157,9 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 	}
 
 	if err := validateMCPEndpoints(ctx, req.Endpoints); err != nil {
+		return nil, err
+	}
+	if err := validateMCPProxyDeploymentHandleLengths(handle, req.Endpoints); err != nil {
 		return nil, err
 	}
 	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints); err != nil {
@@ -387,6 +398,9 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 	// don't hold the row lock. Auth is encrypted inside the transaction because it may need
 	// to preserve the previously stored secret when the client omits it.
 	if err := validateMCPEndpoints(ctx, req.Endpoints); err != nil {
+		return nil, err
+	}
+	if err := validateMCPProxyDeploymentHandleLengths(handle, req.Endpoints); err != nil {
 		return nil, err
 	}
 	if err := s.validateMCPEndpointSecurity(ctx, orgUUID, req.Endpoints); err != nil {
@@ -1061,6 +1075,29 @@ func convertModelMCPProxyToListItem(proxy *models.MCPProxy) models.MCPProxyListI
 // and at least one valid target environment UUID. It also enforces the hard rule that an
 // environment maps to at most one endpoint within the proxy. It performs the network
 // checks, so call it outside a DB transaction.
+// validateMCPProxyDeploymentHandleLengths rejects a proxy whose deployed gateway artifact
+// name/displayName would exceed the gateway's length limit. The console derives short endpoint
+// handles, but a blank-name endpoint whose handle falls back to a long upstream hostname, or a
+// direct API caller supplying its own long id, can push the composite past the limit. Catching
+// it here turns a silent async deploy failure into an immediate, explicit 400.
+func validateMCPProxyDeploymentHandleLengths(proxyHandle string, endpoints []models.MCPProxyEndpointDTO) error {
+	for _, endpoint := range endpoints {
+		endpointHandle := strings.TrimSpace(endpoint.ID)
+		for _, env := range endpoint.Environments {
+			// Build the exact string deployment will emit, so this check stays in lockstep with
+			// the derivation instead of re-deriving its length by hand.
+			artifactHandle := mcpProxyEnvArtifactHandle(proxyHandle, endpointHandle, env.EnvironmentUUID)
+			if len(artifactHandle) > maxMCPProxyDeploymentHandleLength {
+				return fmt.Errorf(
+					"%w: endpoint %q would produce a %d-character gateway deployment name, exceeding the limit of %d; shorten the endpoint name/id or the proxy id",
+					utils.ErrInvalidInput, endpointHandle, len(artifactHandle), maxMCPProxyDeploymentHandleLength,
+				)
+			}
+		}
+	}
+	return nil
+}
+
 func validateMCPEndpoints(ctx context.Context, endpoints []models.MCPProxyEndpointDTO) error {
 	if len(endpoints) == 0 {
 		return fmt.Errorf("%w: at least one endpoint is required", utils.ErrInvalidInput)

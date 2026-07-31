@@ -43,6 +43,12 @@ export function getAvatarInitials(
     .toUpperCase();
 }
 
+/** Capitalizes the first letter of a status/label string, e.g. "active" -> "Active". */
+export function capitalize(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 export function formatRelativeTime(
   value: string | number | Date | undefined,
   options: { fallback?: string } = {},

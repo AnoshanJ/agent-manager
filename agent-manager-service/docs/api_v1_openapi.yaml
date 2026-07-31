@@ -2582,6 +2582,12 @@ paths:
         - Token compromise recovery
         - Periodic security maintenance
       operationId: rotateGatewayToken
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateGatewayTokenRequest"
       responses:
         "200":
           description: Token rotated successfully
@@ -3226,6 +3232,68 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orgs/{orgName}/projects/{projName}/agents/{agentName}/tracing-token/regenerate:
+    post:
+      summary: Regenerate the tracing API key for a deployed agent
+      description: |
+        Rotates the tracing (OTel exporter) API key for an internal agent in a specific environment.
+        A new signed JWT is minted and upserted into the agent's secret store using a stable secret
+        reference. The running workload is NOT restarted here — the new key takes effect on the next
+        rollout, which the caller triggers via the standard configuration Apply. The raw key is
+        never returned in the response — it is only delivered to the agent via the secret store.
+        Previously issued keys remain valid until their own expiry.
+      operationId: regenerateAgentTracingToken
+      parameters:
+        - name: orgName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Organization name
+        - name: projName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Project name
+        - name: agentName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TracingTokenRegenerateRequest"
+      responses:
+        "200":
+          description: API key regenerated and stored; apply configuration to roll it out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TracingTokenRegenerateResponse"
+        "400":
+          description: Invalid request (e.g., missing environment or invalid expiry duration)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent, project, organization, or environment not found
           content:
             application/json:
               schema:
@@ -5113,6 +5181,41 @@ paths:
   # ============================================
   # LLM PROVIDER ENDPOINTS
   # ============================================
+
+  /orgs/{orgName}/llm-providers/policies:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+
+    get:
+      tags:
+        - LLM Providers
+      summary: List available LLM guardrail policies
+      description: Returns full guardrail policy definitions (including parameter schemas) reported by active gateways in the organization.
+      operationId: listAvailableLLMPolicies
+      responses:
+        "200":
+          description: Available LLM guardrail policies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMPolicyAvailabilityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /orgs/{orgName}/llm-providers:
     parameters:
@@ -9306,25 +9409,25 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: User profile retrieved successfully
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserResponse"
-        '403':
+        "403":
           description: Forbidden - missing authentication context or user does not belong to organization
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        '404':
+        "404":
           description: User not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        '500':
+        "500":
           description: Internal server error
           content:
             application/json:
@@ -12119,6 +12222,26 @@ components:
         environment:
           type: string
           description: Environment name
+        enableAutoInstrumentation:
+          type: boolean
+          description: Whether auto-instrumentation (tracing) is enabled for this environment
+        instrumentationVersion:
+          type: string
+          description: AMP instrumentation version pinned for this environment, if any
+        enableApiKeySecurity:
+          type: boolean
+          description: Whether API key security is enabled for this environment's agent endpoint
+        enableOAuthSecurity:
+          type: boolean
+          description: Whether OAuth security is enabled for this environment's agent endpoint
+        corsConfig:
+          $ref: "#/components/schemas/CORSConfig"
+          nullable: true
+          description: CORS configuration for this environment's agent endpoint
+        oauthConfig:
+          $ref: "#/components/schemas/OAuthConfig"
+          nullable: true
+          description: OAuth configuration for this environment's agent endpoint
         configurations:
           type: object
           description: Configuration data containing env vars and file mounts
@@ -13414,6 +13537,44 @@ components:
           description: Type of token (always "Bearer")
           example: "Bearer"
 
+    TracingTokenRegenerateRequest:
+      type: object
+      required:
+        - environmentName
+      properties:
+        environmentName:
+          type: string
+          description: Environment in which to rotate the agent's tracing token
+          example: "development"
+        expiresIn:
+          type: string
+          description: |
+            Optional token expiry duration in Go duration format (e.g., "2160h" for 90 days).
+            If not provided, the default expiry from configuration is used.
+          example: "2160h"
+
+    TracingTokenRegenerateResponse:
+      type: object
+      required:
+        - environmentName
+        - expiresAt
+        - rotatedAt
+      properties:
+        environmentName:
+          type: string
+          description: Environment in which the tracing API key was rotated
+          example: "development"
+        expiresAt:
+          type: integer
+          format: int64
+          description: Unix timestamp when the new API key expires
+          example: 1743465600
+        rotatedAt:
+          type: integer
+          format: int64
+          description: Unix timestamp when the API key was rotated
+          example: 1735689600
+
     JWKS:
       type: object
       required:
@@ -14310,6 +14471,15 @@ components:
             OU ID of the organization the gateway belongs to.
           example: 550e8400-e29b-41d4-a716-446655440000
 
+    RotateGatewayTokenRequest:
+      type: object
+      properties:
+        orgId:
+          type: string
+          description: >-
+            OU ID of the organization the gateway belongs to.
+          example: 550e8400-e29b-41d4-a716-446655440000
+
     UpdateGatewayRequest:
       type: object
       minProperties: 1
@@ -14961,7 +15131,7 @@ components:
         id:
           type: string
           description: Unique handle for the MCP proxy
-          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
           maxLength: 100
           example: github-mcp
         name:
@@ -15502,6 +15672,50 @@ components:
           type: object
           additionalProperties: true
           description: Policy parameters
+
+    LLMPolicyAvailabilityResponse:
+      type: object
+      required:
+        - count
+        - list
+      properties:
+        count:
+          type: integer
+          format: int32
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/LLMPolicyDefinition"
+
+    LLMPolicyDefinition:
+      type: object
+      required:
+        - name
+        - version
+      properties:
+        name:
+          type: string
+          description: Policy name
+          example: word-count-guardrail
+        version:
+          type: string
+          description: Policy version
+          example: v1
+        displayName:
+          type: string
+          description: Human-readable policy name
+          example: Word Count Guardrail
+        description:
+          type: string
+          description: Policy description
+        parameters:
+          type: object
+          additionalProperties: true
+          description: JSON-Schema describing the user-configurable parameters
+        systemParameters:
+          type: object
+          additionalProperties: true
+          description: JSON-Schema describing operator-level (gateway config) parameters
 
     LLMRateLimitingConfig:
       type: object

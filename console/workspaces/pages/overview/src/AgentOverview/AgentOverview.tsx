@@ -21,16 +21,16 @@ import { InternalAgentOverview } from "./InternalAgentOverview";
 import { useParams } from "react-router-dom";
 import { ExternalAgentOverview } from "./ExternalAgentOverview";
 import { useState } from "react";
-import { Box, Button, Chip, Skeleton, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
-import { Clock, Edit } from "@wso2/oxygen-ui-icons-react";
+import { Box, Button, Chip, Skeleton, Stack } from "@wso2/oxygen-ui";
+import { Edit } from "@wso2/oxygen-ui-icons-react";
 import { EditAgentDrawer } from "./EditAgentDrawer";
 import {
     PageLayout,
     displayProvisionTypes,
+    DescriptionCard,
+    CreatedMetadata,
 } from "@agent-management-platform/views";
 import { LabelChips } from "@agent-management-platform/shared-component";
-import { formatDistanceToNow } from "date-fns";
-import type { AgentResponse } from "@agent-management-platform/types";
 
 function AgentOverviewSkeleton() {
     return (
@@ -39,48 +39,6 @@ function AgentOverviewSkeleton() {
         </Box>
     );
 }
-
-interface MetadataItemProps {
-    icon?: React.ReactNode;
-    label: string;
-    value: string;
-}
-
-const MetadataItem: React.FC<MetadataItemProps> = ({ icon, label, value }) => (
-    <Box display="flex" alignItems="center" gap={0.5}>
-        {icon}
-        <Typography variant="caption" color="text.secondary">{label}:</Typography>
-        <Typography variant="caption" fontWeight={500}>{value}</Typography>
-    </Box>
-);
-
-const AgentDescription: React.FC<{ agent: AgentResponse }> = ({ agent }) => {
-    const createdAtText = agent.createdAt
-        ? formatDistanceToNow(new Date(agent.createdAt), { addSuffix: true })
-        : null;
-
-    return (
-        <Stack spacing={0.75}>
-            {agent.description && (
-                <Tooltip title={agent.description} placement="bottom-start">
-                    <Typography variant="body2" color="text.secondary"
-                        sx={{
-                            overflow: "hidden",
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            maxWidth: "50%",
-                        }}>
-                        {agent.description}
-                    </Typography>
-                </Tooltip>
-            )}
-            {createdAtText && (
-                <MetadataItem icon={<Clock size={12} />} label="Created" value={createdAtText} />
-            )}
-        </Stack>
-    );
-};
 
 export function AgentOverview() {
     const { orgId, agentId, projectId } = useParams();
@@ -95,7 +53,7 @@ export function AgentOverview() {
         <>
             <PageLayout
                 title={agent?.displayName ?? "Agent"}
-                description={agent ? <AgentDescription agent={agent} /> : undefined}
+                description={agent ? <CreatedMetadata createdAt={agent.createdAt} /> : undefined}
                 isLoading={isAgentLoading}
                 titleTail={
                     <Stack direction="row" spacing={0.5} alignItems="center" sx={{ width: "100%", minWidth: 0 }}>
@@ -124,7 +82,10 @@ export function AgentOverview() {
                 {isAgentLoading ? (
                     <AgentOverviewSkeleton />
                 ) : (
-                    <Box display="flex" flexDirection="column" gap={4}>
+                    <Box display="flex" flexDirection="column" gap={2}>
+                        {agent?.description && (
+                            <DescriptionCard content={agent.description} />
+                        )}
                         {agent?.provisioning?.type === "internal" && <InternalAgentOverview />}
                         {agent?.provisioning?.type === "external" && <ExternalAgentOverview />}
                     </Box>

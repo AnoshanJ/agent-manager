@@ -20,13 +20,16 @@ export * from "./BuildLogs";
 export * from "./BuildPanel";
 export * from "./BuildSteps";
 export * from "./CodeBlock";
+export * from "./CollapsibleSection";
 export * from "./DeploymentConfig";
 export * from "./EnvironmentVariable";
 export * from "./LabelsEditor";
+export * from "./MarkdownEditor";
 export * from "./LabelChips";
 export * from "./FileMountSection";
 export * from "./ResourceMetricChip";
 export * from "./GatewayTypeChip";
+export * from "./InfoCard";
 export * from "./EnvironmentCard";
 export * from "./IsolationTierIndicator";
 export * from "./InvokeEndpoints";
@@ -57,6 +60,18 @@ export {
   type AccessControlStatus,
 } from "./AccessControlPanel/AccessControlPanel";
 export {
+  RolesGroupsChips,
+  useAgentRolesAndGroups,
+} from "./AgentRolesGroups/AgentRolesGroups";
+export {
+  useAgentIdentityCredentials,
+  monospaceInputSx,
+  type RevealedAgentIdentitySecret,
+} from "./AgentIdentityCredentials/AgentIdentityCredentials";
+export {
+  useThunderInstanceForEnv,
+} from "./ThunderInstanceForEnv/ThunderInstanceForEnv";
+export {
   ResourceListShell,
   type ResourceListShellProps,
   type ResourceListEmptyState,
@@ -71,3 +86,8 @@ export {
   SingleAPIKeyManager,
   type SingleAPIKeyManagerProps,
 } from "./APIKeysManager/SingleAPIKeyManager";
+export {
+  PermissionTree,
+  type PermissionTreeItem,
+  type PermissionTreeProps,
+} from "./PermissionTree/PermissionTree";

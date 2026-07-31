@@ -297,11 +297,32 @@ install_observability_plane() {
     # The observer resolves service accounts from its own config (observer-auth-config),
     # still keyed on 'claim: sub'. Patch it to 'client_id' (like openchoreo-api-config),
     # else agent build-log queries get 403.
+    #
+    # observer-auth-config is populated asynchronously: the configmap can exist
+    # before its service-account 'claim: sub' is written. Patching too early sees
+    # no 'sub' and would fail below; wait for the claim to surface (either 'sub'
+    # to patch, or 'client_id' if a prior run already did).
     echo "🔧 Patching observer-auth-config: service_account entitlement claim → client_id..."
-    if kubectl get configmap observer-auth-config -n openchoreo-observability-plane &>/dev/null; then
+    obs_auth_claim=""
+    for _ in $(seq 1 30); do
+        obs_auth_claim=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml 2>/dev/null \
+            | grep -oE "claim:[[:space:]]*['\"]?(sub|client_id)['\"]?" | head -1)
+        [ -n "$obs_auth_claim" ] && break
+        sleep 4
+    done
+    if [ -z "$obs_auth_claim" ]; then
+        # Distinguish a genuinely-absent configmap (skip) from one that is present
+        # but whose service-account claim never surfaced (fail) so the outcome is
+        # not misleading.
+        if kubectl get configmap observer-auth-config -n openchoreo-observability-plane &>/dev/null; then
+            echo "❌ observer-auth-config present but its service-account claim never surfaced after waiting"
+            return 1
+        fi
+        echo "⚠️  observer-auth-config not found — skipping observer claim patch"
+    else
         patched_obs_yaml=$(kubectl get configmap observer-auth-config -n openchoreo-observability-plane -o yaml \
             | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
-        if ! echo "$patched_obs_yaml" | grep -q "claim: client_id"; then
+        if ! echo "$patched_obs_yaml" | grep -qE "claim:[[:space:]]*['\"]?client_id['\"]?"; then
             echo "❌ Failed to patch observer-auth-config entitlement claim to client_id"
             return 1
         fi
@@ -309,8 +330,6 @@ install_observability_plane() {
         kubectl rollout restart deployment/observer -n openchoreo-observability-plane
         kubectl rollout status deployment/observer -n openchoreo-observability-plane --timeout=120s
         echo "✅ observer-auth-config patched (client_id claim)"
-    else
-        echo "⚠️  observer-auth-config not found — skipping observer claim patch"
     fi
 
     # Registering the Observability Plane with the control plane
@@ -383,9 +402,11 @@ echo "All core OpenChoreo planes are installed and registered!"
 
 
 # ============================================================================
-# Step 5: Install AMP Extensions IN PARALLEL
+# Step 5+6: Install AMP Extensions (extracted to setup-amp-extensions.sh so
+# `make setup-amp` can reinstall them without redoing the OpenChoreo base).
+# Default-env Thunder provisioning stays in the Makefile's
+# setup-default-env-thunder target: it needs AMS up (store_via_ams).
 # ============================================================================
-# Pre-update helm dependencies (must run before parallel installs)
 echo ""
 echo "5️⃣  AMP Extensions (parallel)"
 echo "   Updating Helm dependencies..."
@@ -505,18 +526,7 @@ echo ""
 # Step 7: Install Gateway Operator
 # ============================================================================
 echo "7️⃣  Gateway Operator"
-if helm status gateway-operator -n openchoreo-data-plane &>/dev/null; then
-    echo "⏭️  Gateway Operator already installed, skipping..."
-else
-    helm install gateway-operator oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
-        --version "${GATEWAY_OPERATOR_VERSION}" \
-        --namespace openchoreo-data-plane \
-        --create-namespace \
-        --set logging.level=debug \
-        --set gatewayApi.installStandardCRDs=false \
-        --set "gateway.helm.chartVersion=${GATEWAY_CHART_VERSION}"
-    echo "✅ Gateway Operator installed successfully"
-fi
+"${SCRIPT_DIR}/ensure-gateway-operator.sh" || exit 1
 echo ""
 
 # ============================================================================

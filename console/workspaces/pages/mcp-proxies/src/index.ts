@@ -10,11 +10,16 @@ import { AddMCPProxyOrganization } from "./AddMCPProxy.Organization";
 import { MCPLogo } from "./components/MCPLogo";
 import { MCPProxiesOrganization } from "./MCPProxies.Organization";
 import { ViewMCPProxy } from "./subComponents/ViewMCPProxy";
+import {
+  getCapabilityId,
+  isToolBlockedByAcl,
+  type CapabilityKind,
+} from "./subComponents/mcpEndpoints";
 import type { PageMetadata } from "@agent-management-platform/types";
 
 export const metaData: PageMetadata = {
-  title: "MCP Proxies",
-  description: "A page component for MCP Proxy management",
+  title: "MCP Servers",
+  description: "A page component for MCP Server management",
   icon: MCPLogo,
   path: "/mcp-proxies",
   component: MCPProxiesOrganization,
@@ -30,6 +35,9 @@ export {
   MCPLogo,
   MCPProxiesOrganization,
   ViewMCPProxy,
+  getCapabilityId,
+  isToolBlockedByAcl,
+  type CapabilityKind,
 };
 
 export default MCPProxiesOrganization;

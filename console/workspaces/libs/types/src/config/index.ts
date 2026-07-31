@@ -17,11 +17,16 @@
  */
 
 import type { AsgardeoProviderProps } from "@asgardeo/react";
-import { TraceListTimeRange } from '../api/traces';
-import  { type Duration, sub } from 'date-fns';
+import { TraceListTimeRange } from "../api/traces";
+import { type Duration, sub } from "date-fns";
 export interface AppConfig {
   authConfig: AsgardeoProviderProps;
   apiBaseUrl: string;
+  /**
+   * Base URL for the unauthenticated GET /api/v1/config discovery request that
+   * runs at app bootstrap (before the user has a token)
+   */
+  configDiscoveryBaseUrl?: string;
   /** Gateway control plane URL (default: http://localhost:9243). Used for gateway setup commands. */
   gatewayControlPlaneUrl?: string;
   /** Gateway version used in setup commands (default: v0.9.0). */
@@ -106,7 +111,6 @@ export type GuardrailCapabilities = {
   semanticGuardrails?: boolean;
 };
 
-
 // Extend the Window interface to include our config
 declare global {
   interface Window {
@@ -148,4 +152,4 @@ export const getTimeRange = (timeRange: TraceListTimeRange) => {
     case TraceListTimeRange.THIRTY_DAYS:
       return buildRange({ days: 30 });
   }
-}
+};

@@ -81,6 +81,7 @@ type AppParams struct {
 	AgentManagerService           services.AgentManagerService
 	AgentTokenManagerService      services.AgentTokenManagerService
 	AgentIdentityInjectionService services.AgentIdentityInjectionService
+	EnvironmentService            services.EnvironmentService
 
 	// Clients
 	OpenChoreoClient  occlient.OpenChoreoClient
@@ -105,6 +106,10 @@ type TestClients struct {
 
 func ProvideConfigFromPtr(config *config.Config) config.Config {
 	return *config
+}
+
+func ProvideGatewayRuntimeConfig(cfg config.Config) config.GatewayRuntimeConfig {
+	return cfg.GatewayRuntime
 }
 
 func ProvideAuthMiddleware(config config.Config) jwtassertion.Middleware {

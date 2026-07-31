@@ -25,19 +25,25 @@ import {
 } from "@agent-management-platform/views";
 import {
   CodeBlock,
+  copyToClipboard,
+  getErrorMessage,
+  monospaceInputSx,
+  useAgentIdentityCredentials,
   usePipelineEnvironmentsState,
+  useThunderInstanceForEnv,
 } from "@agent-management-platform/shared-component";
 import {
   Alert,
-  Box,
   Button,
   Card,
   CardContent,
+  Chip,
+  CircularProgress,
   Divider,
   Form,
   FormControl,
-  FormLabel,
   IconButton,
+  ListingTable,
   MenuItem,
   Select,
   Skeleton,
@@ -48,7 +54,10 @@ import {
 import {
   AlertTriangle,
   BookOpen,
+  Copy,
   ExternalLink,
+  RotateCcwKey,
+  Wrench,
 } from "@wso2/oxygen-ui-icons-react";
 import {
   useGetAgent,
@@ -56,13 +65,19 @@ import {
   useGetMCPProxy,
   useListEnvironments,
   useListMCPProxies,
+  useListMCPProxyScopes,
   useUpdateAgentMCPConfig,
 } from "@agent-management-platform/api-client";
 import {
   absoluteRouteMap,
   type EnvironmentVariableConfig,
   type EnvProviderConfigMappings,
+  type MCPProxyEndpoint,
 } from "@agent-management-platform/types";
+import {
+  getCapabilityId,
+  isToolBlockedByAcl,
+} from "@agent-management-platform/mcp-proxies";
 import {
   generatePath,
   useLocation,
@@ -76,6 +91,7 @@ import {
 } from "./Configure/subComponents/EnvironmentVariablesReference";
 import { MCPServerDisplay } from "./Configure/subComponents/MCPServerDisplay";
 import { MCPProxyAPIKeysSection } from "./Configure/subComponents/MCPProxyAPIKeysSection";
+import { CONFIGURE_TAB_PARAM } from "./configureTabs";
 
 type AuthInfoEntry = {
   type: string;
@@ -151,6 +167,180 @@ function buildAgentIDPythonSnippet(urlEnvVar: string): string {
   ].join("\n");
 }
 
+type ToolRow = { id: string; blocked: boolean; scopes: string[] };
+
+// The endpoint bound to a given environment (matched by UUID; at most one per
+// environment) — shared by the security/API-key lookup and the tools lookup
+// below, which otherwise would each re-derive this same lookup.
+function findEndpointForEnvUuid(
+  endpoints: MCPProxyEndpoint[] | undefined,
+  envUuid: string | undefined,
+): MCPProxyEndpoint | undefined {
+  if (!envUuid) return undefined;
+  return endpoints?.find((endpoint) =>
+    endpoint.environments?.some((binding) => binding.environmentUuid === envUuid),
+  );
+}
+
+/**
+ * Compact loading/error fallback shared by ConnectIdentityCredentials and
+ * ConnectIdentityEndpoints below — lighter-weight than the Agent ID page's
+ * (@agent-management-platform/env-thunders) ListingTable.EmptyState-based
+ * QueryStateFallback, since these render as stacked sections inside an
+ * already content-dense drawer rather than each owning their own dedicated
+ * panel.
+ */
+const ConnectQueryFallback: React.FC<{
+  isLoading: boolean;
+  error: unknown;
+}> = ({ isLoading, error }) => {
+  if (isLoading) {
+    return <Skeleton variant="rounded" height={96} />;
+  }
+  return (
+    <Alert severity="error" icon={<AlertTriangle size={18} />}>
+      {getErrorMessage(error)}
+    </Alert>
+  );
+};
+
+/**
+ * Client ID (always visible once provisioned) + one-time secret reveal, for
+ * the "Connect to MCP Server" drawer's OAuth (AgentID) branch — an external
+ * agent needs the actual credential values here, not an env-var name/
+ * description pair, since nothing is injected into its runtime for it.
+ */
+const ConnectIdentityCredentials: React.FC<{
+  orgId: string;
+  projectId: string;
+  agentId: string;
+  envId: string;
+}> = ({ orgId, projectId, agentId, envId }) => {
+  const {
+    binding, provisioned, isLoading, isError, error, revealed, isRegenerating, regenerate,
+  } = useAgentIdentityCredentials({ orgId, projectId, agentId, envId });
+
+  if (isLoading || isError) {
+    return <ConnectQueryFallback isLoading={isLoading} error={error} />;
+  }
+
+  if (binding?.status === "failed") {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        Provisioning failed — check the identity settings for details.
+      </Typography>
+    );
+  }
+
+  if (!binding?.clientId && !revealed) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        Provisioning in progress…
+      </Typography>
+    );
+  }
+
+  return (
+    <Stack spacing={1.5}>
+      <TextInput
+        label="Client ID"
+        value={revealed?.clientId ?? binding?.clientId ?? ""}
+        copyable
+        fullWidth
+        size="small"
+        slotProps={{ input: { readOnly: true } }}
+        sx={monospaceInputSx}
+      />
+      <TextInput
+        label="Client Secret"
+        value={revealed?.clientSecret ?? "••••••••"}
+        type={revealed ? "password" : "text"}
+        showPasswordToggle={Boolean(revealed)}
+        copyable={Boolean(revealed)}
+        fullWidth
+        size="small"
+        slotProps={{ input: { readOnly: true } }}
+        sx={monospaceInputSx}
+      />
+      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+        <Typography variant="body2" color="text.secondary">
+          {revealed
+            ? "This secret will not be shown again — copy it now."
+            : "The client secret is only shown once, right after regenerating."}
+        </Typography>
+        {provisioned && (
+          <Button
+            variant="text"
+            size="small"
+            onClick={() => void regenerate()}
+            disabled={isRegenerating}
+            startIcon={
+              isRegenerating ? <CircularProgress size={16} /> : <RotateCcwKey size={16} />
+            }
+            sx={{ flexShrink: 0 }}
+          >
+            {isRegenerating ? "Regenerating..." : "Regenerate Secret"}
+          </Button>
+        )}
+      </Stack>
+    </Stack>
+  );
+};
+
+/**
+ * Issuer/token/JWKS endpoints for the environment's identity provider —
+ * alongside ConnectIdentityCredentials, this is everything an external agent
+ * needs to request and use a token, without visiting a separate page.
+ */
+const ConnectIdentityEndpoints: React.FC<{ orgId: string; envId: string }> = ({
+  orgId, envId,
+}) => {
+  const { thunderInstance, isLoading, isError, error } = useThunderInstanceForEnv({
+    orgId, envId,
+  });
+
+  if (isLoading || isError) {
+    return <ConnectQueryFallback isLoading={isLoading} error={error} />;
+  }
+
+  if (!thunderInstance) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        No identity provider found for this environment.
+      </Typography>
+    );
+  }
+
+  return (
+    <Stack spacing={1.5}>
+      <TextInput
+        label="Issuer URL"
+        value={thunderInstance.issuerUrl}
+        copyable
+        fullWidth
+        size="small"
+        slotProps={{ input: { readOnly: true } }}
+      />
+      <TextInput
+        label="Token Endpoint"
+        value={thunderInstance.tokenUrl}
+        copyable
+        fullWidth
+        size="small"
+        slotProps={{ input: { readOnly: true } }}
+      />
+      <TextInput
+        label="JWKS Endpoint"
+        value={thunderInstance.jwksUrl}
+        copyable
+        fullWidth
+        size="small"
+        slotProps={{ input: { readOnly: true } }}
+      />
+    </Stack>
+  );
+};
+
 export const ViewMCPServerComponent = () => {
   const { orgId, projectId, agentId, proxyId } = useParams<{
     orgId: string;
@@ -181,6 +371,7 @@ export const ViewMCPServerComponent = () => {
   // deployment-status list itself is not a per-env editor.
   const [selectedEnvName, setSelectedEnvName] = useState("");
   const [envVarNames, setEnvVarNames] = useState<Record<string, string>>({});
+  const [scopesCopied, setScopesCopied] = useState(false);
 
   const {
     data: config,
@@ -201,7 +392,11 @@ export const ViewMCPServerComponent = () => {
   });
   const isExternal = agent?.provisioning?.type === "external";
 
-  const { data: environments = [] } = useListEnvironments({ orgName: orgId });
+  const { data: environments = [], isError: isEnvironmentsError } = useListEnvironments({
+    orgName: orgId,
+  });
+  const getEnvDisplayName = (name: string) =>
+    environments.find((env) => env.name === name)?.displayName ?? name;
   const { environments: pipelineEnvs } = usePipelineEnvironmentsState(
     orgId,
     projectId,
@@ -215,11 +410,11 @@ export const ViewMCPServerComponent = () => {
 
   const backHref =
     orgId && projectId && agentId
-      ? generatePath(
+      ? `${generatePath(
           absoluteRouteMap.children.org.children.projects.children.agents
             .children.configure.path,
           { orgId, projectId, agentId },
-        )
+        )}?${CONFIGURE_TAB_PARAM}=tools`
       : "#";
 
   // Show every environment the agent deploys to (pipeline order), plus any mapped
@@ -264,25 +459,71 @@ export const ViewMCPServerComponent = () => {
 
   const providerConfig = config?.envMappings?.[selectedEnvName]?.configuration;
 
-  const { data: sourceProxyDetails } = useGetMCPProxy({
+  const {
+    data: sourceProxyDetails,
+    isLoading: isLoadingProxyDetails,
+    isError: isProxyDetailsError,
+  } = useGetMCPProxy({
     orgName: orgId,
     proxyId: configProxyName ?? "",
   });
-  // Security lives on the source proxy's endpoint. Resolve the endpoint bound to the
-  // selected environment (matched by UUID; at most one per environment) to derive the
-  // header name.
   const selectedEnvUuid = environments.find(
     (env) => env.name === selectedEnvName,
   )?.id;
-  const sourceProxySecurity = selectedEnvUuid
-    ? sourceProxyDetails?.endpoints?.find((endpoint) =>
-        endpoint.environments?.some(
-          (binding) => binding.environmentUuid === selectedEnvUuid,
-        ),
-      )?.security
-    : undefined;
-  const apiKeyHeaderName = getMCPAPIKeyHeaderName(sourceProxySecurity);
-  const usesIdentitySecurity = sourceProxySecurity?.identity?.enabled === true;
+  const sourceProxyEndpoint = findEndpointForEnvUuid(
+    sourceProxyDetails?.endpoints,
+    selectedEnvUuid,
+  );
+  const apiKeyHeaderName = getMCPAPIKeyHeaderName(sourceProxyEndpoint?.security);
+  const usesIdentitySecurity = sourceProxyEndpoint?.security?.identity?.enabled === true;
+
+  // Scopes are a proxy-level catalog (action -> tools it authorizes), not
+  // per-endpoint, so this fetch doesn't depend on the selected environment.
+  const {
+    data: scopesData,
+    isLoading: isLoadingScopes,
+    isError: isScopesError,
+  } = useListMCPProxyScopes(
+    { orgName: orgId ?? "", proxyId: configProxyName ?? "" },
+    { enabled: !!orgId && !!configProxyName },
+  );
+  // Both feed toolRows below — while either is still in flight, it would
+  // compute against stale/empty data and the Tools section would flash "No
+  // tools available" before the real list shows up.
+  const isLoadingTools = isLoadingProxyDetails || isLoadingScopes;
+  // A failure here would otherwise look identical to "this environment
+  // genuinely has no tools" — surfaced separately in the Tools section below.
+  const isToolsError = isEnvironmentsError || isProxyDetailsError || isScopesError;
+
+  // Tools belong to the endpoint bound to the selected environment.
+  const toolRows = useMemo<ToolRow[]>(() => {
+    const scopesByTool: Record<string, string[]> = {};
+    for (const scope of scopesData?.scopes ?? []) {
+      for (const toolId of scope.tools) {
+        (scopesByTool[toolId] ??= []).push(scope.scope);
+      }
+    }
+
+    return (sourceProxyEndpoint?.capabilities?.tools ?? [])
+      .map((raw) => {
+        const id = getCapabilityId("tool", raw);
+        if (!id) return null;
+        return {
+          id,
+          blocked: isToolBlockedByAcl(sourceProxyEndpoint, id),
+          scopes: scopesByTool[id] ?? [],
+        };
+      })
+      .filter((row): row is ToolRow => row !== null);
+  }, [sourceProxyEndpoint, scopesData]);
+
+  // The proxy's full scope catalog, deduped — shown in the "Connect to MCP
+  // Server" drawer's OAuth branch so an external agent knows what to
+  // request, independent of which tool(s) it plans to call.
+  const uniqueScopes = useMemo(
+    () => [...new Set(scopesData?.scopes.map((scope) => scope.scope) ?? [])],
+    [scopesData],
+  );
 
   const envVarRows = useMemo<EnvironmentVariableConfig[]>(
     () => config?.environmentVariables ?? [],
@@ -422,10 +663,7 @@ export const ViewMCPServerComponent = () => {
     (isExternal && providerConfig ? (
       <DrawerWrapper
         open={panelOpen}
-        onClose={(_, reason) => {
-          if (reason === "backdropClick") return;
-          setPanelOpen(false);
-        }}
+        onClose={() => setPanelOpen(false)}
         minWidth={640}
         maxWidth={640}
       >
@@ -436,24 +674,76 @@ export const ViewMCPServerComponent = () => {
         />
         <DrawerContent>
           {usesIdentitySecurity ? (
-            <Stack spacing={2}>
+            <Stack spacing={3}>
               <Alert severity="info">
                 <Typography variant="body2">
-                  This tool uses OAuth (AgentID) security. Generate a client
-                  ID and secret from Identity, then request a token with this
-                  tool&apos;s scopes, configured on this MCP proxy&apos;s own
-                  security settings.
+                  This tool uses OAuth (AgentID) security. Use the client
+                  credentials and identity provider endpoints below to
+                  request a token, then call the MCP URL with it as a Bearer
+                  token.
                 </Typography>
               </Alert>
+
               {Boolean(providerConfig.url) && (
-                <TextInput
-                  label="Endpoint URL"
-                  value={providerConfig.url ?? ""}
-                  copyable
-                  copyTooltipText="Copy Endpoint URL"
-                  slotProps={{ input: { readOnly: true } }}
-                  size="small"
+                <Form.Section>
+                  <Form.Subheader>Connection</Form.Subheader>
+                  <TextInput
+                    label="MCP URL"
+                    value={providerConfig.url ?? ""}
+                    copyable
+                    copyTooltipText="Copy MCP URL"
+                    slotProps={{ input: { readOnly: true } }}
+                    size="small"
+                  />
+                </Form.Section>
+              )}
+
+              <Form.Section>
+                <Form.Subheader>Client Credentials</Form.Subheader>
+                <ConnectIdentityCredentials
+                  key={selectedEnvName}
+                  orgId={orgId ?? ""}
+                  projectId={projectId ?? ""}
+                  agentId={agentId ?? ""}
+                  envId={selectedEnvName}
                 />
+              </Form.Section>
+
+              <Form.Section>
+                <Form.Subheader>Identity Provider Endpoints</Form.Subheader>
+                <ConnectIdentityEndpoints orgId={orgId ?? ""} envId={selectedEnvName} />
+              </Form.Section>
+
+              {uniqueScopes.length > 0 && (
+                <Form.Section>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Form.Subheader>Available Scopes</Form.Subheader>
+                    <Tooltip title={scopesCopied ? "Copied!" : "Copy scopes"}>
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          void copyToClipboard(uniqueScopes.join(" ")).then((succeeded) => {
+                            if (!succeeded) return;
+                            setScopesCopied(true);
+                            setTimeout(() => setScopesCopied(false), 2000);
+                          })
+                        }
+                        aria-label="Copy scopes"
+                      >
+                        <Copy size={14} />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    Request a token that includes the scopes required by the
+                    tools you plan to call.
+                  </Typography>
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                    {uniqueScopes.map((scope) => (
+                      <Chip key={scope} size="small" variant="outlined" label={scope} />
+                    ))}
+                  </Stack>
+                </Form.Section>
               )}
             </Stack>
           ) : (() => {
@@ -466,7 +756,7 @@ export const ViewMCPServerComponent = () => {
               `  --header "${headerName}: ${headerValue}"`,
             ].join(" \\\n");
             return (
-              <Stack spacing={2}>
+              <Stack spacing={3}>
                 {authEntry?.value ? (
                   <>
                     <Alert severity="info">
@@ -491,45 +781,46 @@ export const ViewMCPServerComponent = () => {
                     </Typography>
                   </Alert>
                 )}
-                {Boolean(providerConfig.url) && (
+                <Form.Section>
+                  <Form.Subheader>Connection</Form.Subheader>
+                  {Boolean(providerConfig.url) && (
+                    <TextInput
+                      label="Endpoint URL"
+                      value={providerConfig.url ?? ""}
+                      copyable
+                      copyTooltipText="Copy Endpoint URL"
+                      slotProps={{ input: { readOnly: true } }}
+                      size="small"
+                    />
+                  )}
                   <TextInput
-                    label="Endpoint URL"
-                    value={providerConfig.url ?? ""}
+                    label="Header Name"
+                    value={headerName}
                     copyable
-                    copyTooltipText="Copy Endpoint URL"
+                    copyTooltipText="Copy Header Name"
                     slotProps={{ input: { readOnly: true } }}
                     size="small"
                   />
-                )}
-                <TextInput
-                  label="Header Name"
-                  value={headerName}
-                  copyable
-                  copyTooltipText="Copy Header Name"
-                  slotProps={{ input: { readOnly: true } }}
-                  size="small"
-                />
-                {authEntry?.value && (
-                  <TextInput
-                    label="API Key"
-                    type="password"
-                    value={authEntry.value}
-                    copyable
-                    copyTooltipText="Copy API Key"
-                    slotProps={{ input: { readOnly: true } }}
-                    size="small"
-                  />
-                )}
-                <Box>
-                  <FormLabel sx={{ display: "block", mb: 0.5 }}>
-                    Example cURL
-                  </FormLabel>
+                  {authEntry?.value && (
+                    <TextInput
+                      label="API Key"
+                      type="password"
+                      value={authEntry.value}
+                      copyable
+                      copyTooltipText="Copy API Key"
+                      slotProps={{ input: { readOnly: true } }}
+                      size="small"
+                    />
+                  )}
+                </Form.Section>
+                <Form.Section>
+                  <Form.Subheader>Example cURL</Form.Subheader>
                   <CodeBlock
                     code={curlCode}
                     language="bash"
                     fieldId="mcp-curl"
                   />
-                </Box>
+                </Form.Section>
               </Stack>
             );
           })()}
@@ -561,55 +852,49 @@ export const ViewMCPServerComponent = () => {
       >
         <Divider sx={{ my: 2 }} />
         {usesIdentitySecurity ? (
-          <Stack spacing={2}>
+          <Stack spacing={3}>
             <Alert severity="info">
               <Typography variant="body2">
                 This tool uses OAuth (AgentID) security. These values are
                 injected into your agent&apos;s pod at runtime, use them in
                 your code to request a token. Scopes are configured on this
-                MCP proxy&apos;s own security settings.
+                MCP Server&apos;s own security settings.
               </Typography>
             </Alert>
-            <EnvironmentVariablesReference
-              variant="plain"
-              title="AgentID Variables"
-              description="These names are fixed, only their values change per environment, and they're injected automatically at runtime alongside the URL above."
-              rows={AGENTID_ENV_VAR_ROWS}
-            />
-            <Stack spacing={1.5}>
-              <Stack spacing={0.5}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  Integration Guide
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Copy this pattern into your agent code to request a token
-                  and call the tool with it.
-                </Typography>
-              </Stack>
+            <Form.Section>
+              <EnvironmentVariablesReference
+                variant="plain"
+                title="AgentID Variables"
+                description="These names are fixed, only their values change per environment, and they're injected automatically at runtime alongside the URL above."
+                rows={AGENTID_ENV_VAR_ROWS}
+              />
+            </Form.Section>
+            <Form.Section>
+              <Form.Subheader>Integration Guide</Form.Subheader>
+              <Typography variant="body2" color="text.secondary">
+                Copy this pattern into your agent code to request a token
+                and call the tool with it.
+              </Typography>
               <CodeBlock
                 language="python"
                 fieldId="mcp-identity-python-snippet"
                 code={agentIDPythonSnippet}
               />
-            </Stack>
+            </Form.Section>
           </Stack>
         ) : (
-          <Stack spacing={1.5}>
-            <Stack spacing={0.5}>
-              <Typography variant="subtitle1" fontWeight={600}>
-                Integration Guide
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Copy this pattern into your agent code to load MCP tools
-                through the injected proxy URL and API key.
-              </Typography>
-            </Stack>
+          <Form.Section>
+            <Form.Subheader>Integration Guide</Form.Subheader>
+            <Typography variant="body2" color="text.secondary">
+              Copy this pattern into your agent code to load MCP tools
+              through the injected proxy URL and API key.
+            </Typography>
             <CodeBlock
               language="python"
               fieldId="mcp-python-snippet"
               code={pythonSnippet}
             />
-          </Stack>
+          </Form.Section>
         )}
       </EnvironmentVariablesGuideDrawer>
     ));
@@ -642,12 +927,12 @@ export const ViewMCPServerComponent = () => {
             <Card variant="outlined">
               <CardContent sx={{ position: "relative" }}>
                 {configProxyHref && (
-                  <Tooltip title="View MCP proxy" placement="top" arrow>
+                  <Tooltip title="View MCP Server" placement="top" arrow>
                     <IconButton
                       size="small"
                       color="primary"
                       onClick={() => navigate(configProxyHref)}
-                      aria-label={`View MCP proxy ${configProxy.name ?? configProxyName} in the organization`}
+                      aria-label={`View MCP Server ${configProxy.name ?? configProxyName} in the organization`}
                       sx={{ position: "absolute", top: 8, right: 8 }}
                     >
                       <ExternalLink size={16} />
@@ -668,42 +953,111 @@ export const ViewMCPServerComponent = () => {
           )}
         </Form.Section>
 
-        {isExternal && providerConfig && (
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Typography
-                id={environmentSelectLabelId}
-                variant="body2"
-                color="text.secondary"
+        {envNames.length > 1 && (
+          <Stack direction="row" spacing={2} alignItems="center" justifyContent="flex-end">
+            <Typography
+              id={environmentSelectLabelId}
+              variant="body2"
+              color="text.secondary"
+            >
+              Environment
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 260 }}>
+              <Select
+                id={environmentSelectId}
+                labelId={environmentSelectLabelId}
+                value={selectedEnvName}
+                onChange={(event) =>
+                  setSelectedEnvName(event.target.value as string)
+                }
               >
-                Environment
-              </Typography>
-              <FormControl size="small" sx={{ minWidth: 260 }}>
-                <Select
-                  id={environmentSelectId}
-                  labelId={environmentSelectLabelId}
-                  value={selectedEnvName}
-                  onChange={(event) =>
-                    setSelectedEnvName(event.target.value as string)
-                  }
-                >
-                  {envNames.map((name) => (
-                    <MenuItem key={name} value={name}>
-                      {environments.find((e) => e.name === name)?.displayName ??
-                        name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Stack>
-            <MCPProxyAPIKeysSection
-              orgName={orgId}
-              projName={projectId}
-              agentName={agentId}
-              configId={decodedConfigId}
-              envName={selectedEnvName}
-            />
+                {envNames.map((name) => (
+                  <MenuItem key={name} value={name}>
+                    {getEnvDisplayName(name)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Stack>
+        )}
+
+        <Form.Section>
+          <Form.Subheader>Tools</Form.Subheader>
+          {isLoadingTools ? (
+            <Skeleton variant="rounded" height={160} />
+          ) : isToolsError ? (
+            <ListingTable.Container>
+              <ListingTable.EmptyState
+                illustration={<AlertTriangle size={56} />}
+                title="Failed to load tools"
+                description="Something went wrong while loading this environment's tools. Please try again."
+              />
+            </ListingTable.Container>
+          ) : toolRows.length === 0 ? (
+            <ListingTable.Container>
+              <ListingTable.EmptyState
+                illustration={<Wrench size={56} />}
+                title="No tools available"
+                description="This environment's endpoint hasn't reported any tools yet."
+              />
+            </ListingTable.Container>
+          ) : (
+            <ListingTable.Container>
+              <ListingTable variant="table">
+                <ListingTable.Head>
+                  <ListingTable.Row>
+                    <ListingTable.Cell>Tool</ListingTable.Cell>
+                    <ListingTable.Cell width="140px">Status</ListingTable.Cell>
+                    {usesIdentitySecurity && <ListingTable.Cell>Scopes</ListingTable.Cell>}
+                  </ListingTable.Row>
+                </ListingTable.Head>
+                <ListingTable.Body>
+                  {toolRows.map((tool) => (
+                    <ListingTable.Row key={tool.id} variant="table">
+                      <ListingTable.Cell>
+                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                          {tool.id}
+                        </Typography>
+                      </ListingTable.Cell>
+                      <ListingTable.Cell>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={tool.blocked ? "Blocked" : "Allowed"}
+                          color={tool.blocked ? "error" : "success"}
+                        />
+                      </ListingTable.Cell>
+                      {usesIdentitySecurity && (
+                        <ListingTable.Cell>
+                          {tool.scopes.length > 0 ? (
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                              {tool.scopes.map((scope) => (
+                                <Chip key={scope} size="small" variant="outlined" label={scope} />
+                              ))}
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              —
+                            </Typography>
+                          )}
+                        </ListingTable.Cell>
+                      )}
+                    </ListingTable.Row>
+                  ))}
+                </ListingTable.Body>
+              </ListingTable>
+            </ListingTable.Container>
+          )}
+        </Form.Section>
+
+        {isExternal && providerConfig && !usesIdentitySecurity && (
+          <MCPProxyAPIKeysSection
+            orgName={orgId}
+            projName={projectId}
+            agentName={agentId}
+            configId={decodedConfigId}
+            envName={selectedEnvName}
+          />
         )}
       </Stack>
 

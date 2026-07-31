@@ -56,6 +56,20 @@ export interface UpdateAgentConfigurationsRequest {
 
 export type UpdateAgentConfigurationsPathParams = AgentPathParams;
 
+export interface RegenerateTracingTokenRequest {
+  environmentName: string;
+  /** Go duration string (e.g. "2160h"). Omit to use the server-configured default. */
+  expiresIn?: string;
+}
+
+export type RegenerateTracingTokenPathParams = AgentPathParams;
+
+export interface RegenerateTracingTokenResponse {
+  environmentName: string;
+  expiresAt: number;
+  rotatedAt: number;
+}
+
 // Responses
 export interface DeploymentResponse {
   agentName: string;
@@ -119,6 +133,12 @@ export interface ConfigurationResponse {
   projectName: string;
   agentName: string;
   environment: string;
+  enableAutoInstrumentation?: boolean;
+  instrumentationVersion?: string;
+  enableApiKeySecurity?: boolean;
+  enableOAuthSecurity?: boolean;
+  corsConfig?: CorsConfig;
+  oauthConfig?: OAuthConfig;
   configurations: ConfigurationData;
 }
 

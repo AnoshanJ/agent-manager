@@ -145,17 +145,29 @@ export function useDeleteAgent() {
 }
 
 
+// Lazy, cache-backed token generation. It mints only when `enabled` is set true (explicit intent)
+// and every automatic refetch trigger is disabled, so it never silently re-mints on
+// mount/refocus/remount (#1140). Caching (staleTime/gcTime Infinity) keeps the minted token visible
+// across the drawer's remounts within a session; callers force a new token with refetch().
 export function useGenerateAgentToken(
   params: GenerateAgentTokenPathParams,
   body?: TokenRequest,
   query?: GenerateAgentTokenQuery,
-  enabled: boolean = true
+  enabled: boolean = false,
 ) {
   const { getToken } = useAuthHooks();
   return useApiQuery<TokenResponse>({
-    queryKey: ['agent-token', params.agentName, params.projName, params.orgName, body?.expires_in, query?.environment],
+    // Duration is intentionally NOT in the key: changing it must not auto-mint. refetch() re-runs
+    // queryFn with the latest duration on explicit (re)generate.
+    queryKey: ["agent-token", params.agentName, params.projName, params.orgName, query?.environment],
     queryFn: () => generateAgentToken(params, body, query, getToken),
-    enabled: enabled
+    enabled,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -211,6 +223,39 @@ export function useGetAgentIdentity(
       return stillProvisioning ? SLOW_POLL_INTERVAL : false;
     },
   });
+}
+
+interface AgentIdentityBindingParams {
+  orgId: string;
+  projectId: string;
+  agentId: string;
+  envId: string;
+}
+
+/**
+ * Shared "is this environment's AgentID binding usable" read. Several
+ * consumers across pages (the overview's roles/groups list, the identity
+ * regenerate button, the identity claim/reveal UI) each need to know whether
+ * provisioning has completed — this centralizes that definition instead of
+ * every consumer re-deriving `status === "completed"` from its own copy of
+ * the binding.
+ */
+export function useAgentIdentityBinding({
+  orgId, projectId, agentId, envId,
+}: AgentIdentityBindingParams) {
+  const { data: identityViews, isLoading, isError, error } = useGetAgentIdentity(
+    { orgName: orgId, projName: projectId, agentName: agentId },
+    { environment: envId },
+  );
+  const binding = identityViews?.[0];
+
+  return {
+    binding,
+    provisioned: binding?.status === "completed",
+    isLoading,
+    isError,
+    error,
+  };
 }
 
 export function useProvisionAgentIdentity() {

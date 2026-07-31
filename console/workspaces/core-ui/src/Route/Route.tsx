@@ -35,6 +35,7 @@ import {
   LazyOverviewProject,
   LazyOverviewComponent,
   LazyConfigureComponent,
+  LazyAgentIdComponent,
   LazyLLMProvidersOrg,
   LazyMCPProxiesOrg,
   LazyAddLLMProvidersComponent,
@@ -408,6 +409,17 @@ export function RootRouter() {
                   element={
                     <Suspense fallback={<LoadingFallback />}>
                       <LazyConfigureComponent />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path={
+                    relativeRouteMap.children.org.children.projects.children
+                      .agents.children.agentId.path
+                  }
+                  element={
+                    <Suspense fallback={<LoadingFallback />}>
+                      <LazyAgentIdComponent />
                     </Suspense>
                   }
                 />

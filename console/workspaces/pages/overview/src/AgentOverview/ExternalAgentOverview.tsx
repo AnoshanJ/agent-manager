@@ -16,31 +16,28 @@
  * under the License.
  */
 
-import { globalConfig, type Environment } from '@agent-management-platform/types';
-import { Box, Button, Divider, Skeleton, Stack } from "@wso2/oxygen-ui";
+import { globalConfig } from '@agent-management-platform/types';
+import { Box, Button, Skeleton } from "@wso2/oxygen-ui";
 import { Settings } from "@wso2/oxygen-ui-icons-react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useState } from "react";
 import {
   useGetAgent,
   useListGateways,
 } from "@agent-management-platform/api-client";
-import { EnvironmentCard, usePipelineEnvironmentsState } from "@agent-management-platform/shared-component";
+import {
+  EnvironmentCard,
+  usePipelineEnvironmentsState,
+} from "@agent-management-platform/shared-component";
 import { InstrumentationDrawer } from "./InstrumentationDrawer";
 import { NoDataFound } from "@agent-management-platform/views";
-import { EnvMonitorsSection } from "./EnvMonitorsSection";
-import { EnvObservabilitySection } from "./EnvObservabilitySection";
-import {
-  EnvAgentIdentitySection,
-  RegenerateAgentIdentityButton,
-  SecretRevealAlert,
-  useRegenerateAgentIdentity,
-} from "./EnvAgentIdentitySection";
+import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
+import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
+import { UppercaseCaptionLabel } from "./SectionHeader";
+import { ENV_SEARCH_PARAM, useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
 
 export const ExternalAgentOverview = () => {
   const { agentId, orgId, projectId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>("");
 
   const { data: agent } = useGetAgent({
     orgName: orgId,
@@ -52,13 +49,18 @@ export const ExternalAgentOverview = () => {
   // ordered by the promotion chain. isLoading covers environments + project + pipelines.
   const { environments: sortedEnvironmentList, isLoading: isEnvironmentsLoading } =
     usePipelineEnvironmentsState(orgId, projectId);
+  const { selectedEnvironment, selectEnvironment } =
+    useSelectedEnvironmentParam(sortedEnvironmentList);
+  const selectedEnvironmentId = selectedEnvironment?.id ?? "";
 
   // Per-env OTEL endpoint. The gateway mapped to the selected environment carries
   // the externally-reachable vhost; the OTEL RestApi is published at `<vhost>/otel`.
   // Falls back to globalConfig only when the gateway lookup hasn't resolved yet
-  // (e.g. before an env is selected).
+  // (e.g. before an env is selected). useListGateways has no `enabled` option, so
+  // orgName is withheld until an environment is selected to avoid firing a
+  // throwaway `environment: ""` request that'd otherwise be discarded moments later.
   const { data: envGatewayList } = useListGateways(
-    { orgName: orgId ?? "" },
+    { orgName: selectedEnvironmentId ? (orgId ?? "") : "" },
     { environment: selectedEnvironmentId },
   );
   const envGatewayVhost = envGatewayList?.gateways?.[0]?.vhost;
@@ -66,33 +68,43 @@ export const ExternalAgentOverview = () => {
     ? `${envGatewayVhost.replace(/\/$/, "")}/otel`
     : (globalConfig.instrumentationUrl || "http://default-default.gateway.localhost:19080/otel");
 
-  const handleSetupAgent = (environmentId: string) => {
-    setSelectedEnvironmentId(environmentId);
-    setSearchParams({ setup: "true" });
+  // Sets both the selected environment and setup=true in one functional
+  // update — two separate setSearchParams calls in the same handler would
+  // each independently compute `next` from `prev`, so the second call risks
+  // clobbering the first's change instead of building on it.
+  const handleSetupAgent = (environmentName: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(ENV_SEARCH_PARAM, environmentName);
+        next.set("setup", "true");
+        return next;
+      },
+      { replace: true },
+    );
   };
 
-  // Keyed by environment name — regenerate rotates one environment's AgentID
-  // secret at a time. Unlike internal agents (already injected into the
-  // running workload), external agents have no other way to get the new
-  // secret, so it's captured here and shown right after the call succeeds.
-  const [regeneratedSecrets, setRegeneratedSecrets] = useState<
-    Record<string, { clientId: string; clientSecret: string }>
-  >({});
-  const { regeneratingEnv, regenerate } = useRegenerateAgentIdentity(orgId, projectId, agentId);
-  const handleRegenerate = (envName: string) =>
-    regenerate(envName, (secret) =>
-      setRegeneratedSecrets((prev) => ({ ...prev, [envName]: secret })),
+  const closeSetupDrawer = () => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("setup");
+        return next;
+      },
+      { replace: true },
     );
+  };
 
-  useEffect(() => {
-    if (!isEnvironmentsLoading && !selectedEnvironmentId) {
-      setSelectedEnvironmentId(sortedEnvironmentList.length > 0 ? (sortedEnvironmentList[0].id ?? "") : "");
-    }
-  }, [sortedEnvironmentList, isEnvironmentsLoading, selectedEnvironmentId]);
+  // Once loaded, a single environment doesn't need a "which environment" tab
+  // strip or section label — only shown when there's more than one, or while
+  // still loading (before we know how many there are).
+  const showEnvironmentsHeader = isEnvironmentsLoading || sortedEnvironmentList.length !== 1;
+  const hasMultipleEnvironments = sortedEnvironmentList.length > 1;
 
   return (
     <>
       <Box display="flex" flexDirection="column" gap={2}>
+        {showEnvironmentsHeader && <UppercaseCaptionLabel>Environments</UppercaseCaptionLabel>}
         {isEnvironmentsLoading ? (
           <Box display="flex" flexDirection="column" gap={2}>
             <Skeleton variant="rounded" height={100} />
@@ -104,96 +116,65 @@ export const ExternalAgentOverview = () => {
             subtitle="Environments will appear here once they are created"
           />
         ) : (
-          <Stack spacing={2}>
-            {sortedEnvironmentList.map(
-              (environment: Environment) =>
-                environment && orgId && projectId && agentId && (
-                  <EnvironmentCard
-                    key={environment.name}
-                    orgId={orgId}
-                    projectId={projectId}
-                    agentId={agentId}
-                    environment={environment}
-                    actions={
-                      <>
-                        <RegenerateAgentIdentityButton
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                          isRegenerating={regeneratingEnv === environment.name}
-                          onRegenerate={() => void handleRegenerate(environment.name)}
-                          label="Generate Secret"
-                        />
-                        <Button
-                          variant="text"
-                          size="small"
-                          startIcon={<Settings size={16} />}
-                          onClick={() => handleSetupAgent(environment.id ?? "")}
-                        >
-                          Setup Agent
-                        </Button>
-                      </>
-                    }
-                    bottomContent={
-                      <>
-                        {regeneratedSecrets[environment.name] ? (
-                          // Just regenerated this session: keep the divider
-                          // (separates this from the card header above), but
-                          // skip EnvAgentIdentitySection's own "AGENT
-                          // IDENTITY" caption + "already claimed" client ID
-                          // display, which would just duplicate this alert.
-                          <>
-                            <Divider sx={{ mb: 1 }} />
-                            <SecretRevealAlert
-                              clientId={regeneratedSecrets[environment.name].clientId}
-                              clientSecret={regeneratedSecrets[environment.name].clientSecret}
-                              message="This secret is never stored — save it securely now, it won't be shown again."
-                            />
-                          </>
-                        ) : (
-                          <EnvAgentIdentitySection
-                            orgId={orgId}
-                            projectId={projectId}
-                            agentId={agentId}
-                            envId={environment.name}
-                          />
-                        )}
-                        <EnvObservabilitySection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                          hideMetrics
-                          external
-                        />
-                        <EnvMonitorsSection
-                          orgId={orgId}
-                          projectId={projectId}
-                          agentId={agentId}
-                          envId={environment.name}
-                        />
-                      </>
-                    }
+          selectedEnvironment &&
+          orgId &&
+          projectId &&
+          agentId && (
+            <EnvironmentCard
+              key={selectedEnvironment.name}
+              orgId={orgId}
+              projectId={projectId}
+              agentId={agentId}
+              environment={selectedEnvironment}
+              hideEnvTitle={!hasMultipleEnvironments}
+              tabsHeader={
+                hasMultipleEnvironments && (
+                  <EnvironmentTabsBar
+                    environments={sortedEnvironmentList}
+                    selectedName={selectedEnvironment.name}
+                    onSelect={selectEnvironment}
+                    dotColor={() => "success.main"}
                   />
                 )
-            )}
-          </Stack>
+              }
+              actions={
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<Settings size={16} />}
+                  onClick={() => handleSetupAgent(selectedEnvironment.name)}
+                >
+                  Setup Agent
+                </Button>
+              }
+              bottomContent={
+                <EnvironmentSectionsContent
+                  orgId={orgId}
+                  projectId={projectId}
+                  agentId={agentId}
+                  envId={selectedEnvironment.name}
+                  configurations={agent?.configurations}
+                  external
+                  registeredAt={agent?.createdAt}
+                  isolationTier={selectedEnvironment.isolationTier}
+                />
+              }
+            />
+          )
         )}
       </Box>
       <InstrumentationDrawer
         open={searchParams.get("setup") === "true" && selectedEnvironmentId !== ""}
-        onClose={() => setSearchParams({})}
+        onClose={closeSetupDrawer}
         agentId={agentId ?? ""}
         orgName={orgId ?? "default"}
         projName={projectId ?? "default"}
         agentName={agentId ?? ""}
-        environment={
-          sortedEnvironmentList?.find((env: Environment) => env.id === selectedEnvironmentId)?.name
-        }
+        environment={selectedEnvironment?.name}
         instrumentationUrl={agentInstrumentationUrl}
         componentUid={agent?.uuid}
         environmentUid={selectedEnvironmentId}
+        autoGenerate
       />
     </>
   );

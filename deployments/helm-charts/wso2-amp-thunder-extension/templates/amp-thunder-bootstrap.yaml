@@ -220,12 +220,22 @@ data:
               validityPeriod: {{ .Values.thunder.bootstrap.amCliClient.idTokenValidityPeriod }}
               userAttributes: {{ .Values.thunder.bootstrap.amCliClient.userAttributes | toJson }}
 
+  {{- /* am-mcp may request every amp scope EXCEPT the observability data-read
+       scopes (thunder.bootstrap.observabilityScopes) — those belong exclusively
+       to the observer MCP client (73-am-obs-mcp-client.yaml below). */}}
+  {{- $amMcpScopes := list }}
+  {{- range .Values.thunder.bootstrap.ampScopes }}
+  {{- if not (has . $.Values.thunder.bootstrap.observabilityScopes) }}
+  {{- $amMcpScopes = append $amMcpScopes . }}
+  {{- end }}
+  {{- end }}
   59-am-mcp-client.yaml: |
     resource_type: application
     id: am-mcp-client
+    type: browser # public redirect client (authorization_code + PKCE, loopback redirect)
     name: {{ .Values.thunder.bootstrap.amMcpClient.name | quote }}
     description: {{ .Values.thunder.bootstrap.amMcpClient.description | quote }}
-    ouHandle: default
+    ouId: "01900000-0000-7000-8000-000000000001"
     authFlowHandle: default-flow
     allowedUserTypes: {{ .Values.thunder.bootstrap.amMcpClient.allowedUserTypes | toJson }}
     inboundAuthConfig:
@@ -238,7 +248,7 @@ data:
           tokenEndpointAuthMethod: {{ .Values.thunder.bootstrap.amMcpClient.tokenEndpointAuthMethod | quote }}
           pkceRequired: {{ .Values.thunder.bootstrap.amMcpClient.pkceRequired }}
           publicClient: {{ .Values.thunder.bootstrap.amMcpClient.publicClient }}
-          scopes: {{ .Values.thunder.bootstrap.ampScopes | toJson }}
+          scopes: {{ $amMcpScopes | toJson }}
           token:
             accessToken:
               userConfig:
@@ -997,3 +1007,59 @@ data:
     name: cors
     value:
       allowedOrigins: {{ .Values.thunder.configuration.cors.allowedOrigins | toJson }}
+
+  72-am-observer-client.yaml: |
+    # No "scopes" key on purpose: this client's authority comes from its OpenChoreo
+    # ClusterAuthzRoleBinding (amp-observer-reader-binding), not from AMP scopes.
+    # Scope-less client_credentials tokens fall back to the client ID as audience.
+    resource_type: application
+    id: am-observer-client
+    type: m2m # client_credentials only, no interactive login
+    name: {{ .Values.thunder.bootstrap.amObserverClient.name | quote }}
+    description: {{ .Values.thunder.bootstrap.amObserverClient.description | quote }}
+    ouId: "01900000-0000-7000-8000-000000000001"
+    inboundAuthConfig:
+      - type: oauth2
+        config:
+          clientId: {{ .Values.thunder.bootstrap.amObserverClient.clientId | quote }}
+          clientSecret: {{ .Values.thunder.bootstrap.amObserverClient.clientSecret | quote }}
+          grantTypes: {{ .Values.thunder.bootstrap.amObserverClient.grantTypes | toJson }}
+          tokenEndpointAuthMethod: {{ .Values.thunder.bootstrap.amObserverClient.tokenEndpointAuthMethod | quote }}
+          pkceRequired: {{ .Values.thunder.bootstrap.amObserverClient.pkceRequired }}
+          publicClient: {{ .Values.thunder.bootstrap.amObserverClient.publicClient }}
+          token:
+            accessToken:
+              clientConfig:
+                validityPeriod: {{ .Values.thunder.bootstrap.amObserverClient.accessTokenValidityPeriod }}
+
+  {{- /* am-obs-mcp gets its OIDC scopes (amObsMcpClient.scopes) plus the four
+       observability data-read scopes, single-sourced from
+       thunder.bootstrap.observabilityScopes. */}}
+  73-am-obs-mcp-client.yaml: |
+    resource_type: application
+    id: am-obs-mcp-client
+    type: browser # public redirect client (authorization_code + PKCE, loopback redirect)
+    name: {{ .Values.thunder.bootstrap.amObsMcpClient.name | quote }}
+    description: {{ .Values.thunder.bootstrap.amObsMcpClient.description | quote }}
+    ouId: "01900000-0000-7000-8000-000000000001"
+    authFlowHandle: default-flow
+    allowedUserTypes: {{ .Values.thunder.bootstrap.amObsMcpClient.allowedUserTypes | toJson }}
+    inboundAuthConfig:
+      - type: oauth2
+        config:
+          clientId: {{ .Values.thunder.bootstrap.amObsMcpClient.clientId | quote }}
+          redirectUris: {{ .Values.thunder.bootstrap.amObsMcpClient.redirectUris | toJson }}
+          grantTypes: {{ .Values.thunder.bootstrap.amObsMcpClient.grantTypes | toJson }}
+          responseTypes: {{ .Values.thunder.bootstrap.amObsMcpClient.responseTypes | toJson }}
+          tokenEndpointAuthMethod: {{ .Values.thunder.bootstrap.amObsMcpClient.tokenEndpointAuthMethod | quote }}
+          pkceRequired: {{ .Values.thunder.bootstrap.amObsMcpClient.pkceRequired }}
+          publicClient: {{ .Values.thunder.bootstrap.amObsMcpClient.publicClient }}
+          scopes: {{ concat .Values.thunder.bootstrap.amObsMcpClient.scopes .Values.thunder.bootstrap.observabilityScopes | toJson }}
+          token:
+            accessToken:
+              userConfig:
+                validityPeriod: {{ .Values.thunder.bootstrap.amObsMcpClient.accessTokenValidityPeriod }}
+                attributes: {{ .Values.thunder.bootstrap.amObsMcpClient.userAttributes | toJson }}
+            idToken:
+              validityPeriod: {{ .Values.thunder.bootstrap.amObsMcpClient.idTokenValidityPeriod }}
+              userAttributes: {{ .Values.thunder.bootstrap.amObsMcpClient.userAttributes | toJson }}

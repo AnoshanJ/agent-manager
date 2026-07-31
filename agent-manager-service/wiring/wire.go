@@ -46,6 +46,7 @@ import (
 // Provider sets
 var configProviderSet = wire.NewSet(
 	ProvideConfigFromPtr,
+	ProvideGatewayRuntimeConfig,
 	ProvideEncryptionKey,
 )
 
@@ -194,7 +195,6 @@ func ProvideInstrumentationCatalog(cfg config.Config) (*instrumentation.Catalog,
 func validateDefaultCoversBuildpackPython(cat *instrumentation.Catalog) error {
 	entry, ok := cat.Get(cat.Default())
 	if !ok {
-		// Already validated by Load, but be defensive.
 		return fmt.Errorf("default instrumentation version %q not in effective set", cat.Default())
 	}
 	bpPython := utils.SupportedPythonVersions()
@@ -282,24 +282,16 @@ func ProvideObserverClient(cfg config.Config, authProvider occlient.AuthProvider
 // not forwarded — preventing the high-level client from making redundant
 // SecretReference CRUD calls.
 func ProvideSecretManagementClient(cfg config.Config, secretProvider secretmanagersvc.Provider, ocClient occlient.OpenChoreoClient) (secretmanagersvc.SecretManagementClient, error) {
-	ocClientForSecretMgmt := ocClient
-	if mgr, ok := secretProvider.(secretmanagersvc.SecretReferenceManager); ok && mgr.ManagesSecretReferences() {
-		ocClientForSecretMgmt = nil
-	}
 	return secretmanagersvc.NewSecretManagementClientWithConfig(secretmanagersvc.SecretManagementClientConfig{
 		StoreConfig: &secretmanagersvc.StoreConfig{
 			Provider: cfg.SecretManager.Provider,
-			OpenBao: &secretmanagersvc.OpenBaoConfig{
-				Server: cfg.OpenBao.URL,
-				Path:   cfg.OpenBao.Path,
-				Auth: &secretmanagersvc.OpenBaoAuth{
-					Token: cfg.OpenBao.Token,
-				},
+			OpenChoreo: &secretmanagersvc.OpenChoreoConfig{
+				Client:          ocClient,
+				TargetPlaneKind: cfg.SecretManager.TargetPlaneKind,
+				TargetPlaneName: cfg.SecretManager.TargetPlaneName,
 			},
 		},
-		Provider:        secretProvider,
-		OCClient:        ocClientForSecretMgmt,
-		RefreshInterval: cfg.SecretManager.RefreshInterval,
+		Provider: secretProvider,
 	})
 }
 
