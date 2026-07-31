@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import { Box, Button, Tooltip, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
+import { Box, Button, IconButton, Tooltip, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
 import { ChevronRight, Info } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
 
@@ -65,7 +65,14 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
         <UppercaseCaptionLabel>{title}</UppercaseCaptionLabel>
         {titleInfo && (
           <Tooltip title={titleInfo}>
-            <Info size={13} style={{ cursor: "default", opacity: 0.7 }} />
+            {/* A button, not a bare icon, so the tooltip is reachable by keyboard. */}
+            <IconButton
+              aria-label={`More information about ${title}`}
+              size="small"
+              sx={{ p: 0.25, opacity: 0.7 }}
+            >
+              <Info size={13} />
+            </IconButton>
           </Tooltip>
         )}
       </Box>

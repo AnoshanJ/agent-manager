@@ -152,14 +152,30 @@ function handleAuthAndExpectedErrors(
   return status === 401;
 }
 
+export type ApiQueryOptions<
+  TQueryFnData,
+  TError = unknown,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+> = UseQueryOptions<TQueryFnData, TError, TData, TQueryKey> & {
+  /**
+   * Suppress the error snackbar for every failure of this query. Auth handling
+   * (session-expiry logout, 401) still runs. Use for best-effort lookups that
+   * only decorate a page — a caller lacking permission for the decoration
+   * shouldn't get an error toast on a page whose own content loaded fine.
+   */
+  silent?: boolean;
+};
+
 export function useApiQuery<
   TQueryFnData,
   TError = unknown,
   TData = TQueryFnData,
   TQueryKey extends QueryKey = QueryKey,
->(
-  options: UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
-): UseQueryResult<TData, TError> {
+>({
+  silent = false,
+  ...options
+}: ApiQueryOptions<TQueryFnData, TError, TData, TQueryKey>): UseQueryResult<TData, TError> {
   const { pushSnackBar } = useSnackBar();
   const { isAuthenticated, logout } = useAuthHooks();
   const query = useQuery(options);
@@ -171,12 +187,13 @@ export function useApiQuery<
       return;
     }
 
+    // Auth failures are handled (and can log the user out) even when silent.
     if (handleAuthAndExpectedErrors(query.error, logout)) {
       lastErrorMessageRef.current = null;
       return;
     }
 
-    if (!isAuthenticated) {
+    if (silent || !isAuthenticated) {
       lastErrorMessageRef.current = null;
       return;
     }
@@ -236,6 +253,7 @@ export function useApiQuery<
     query.error,
     query.isError,
     logout,
+    silent,
   ]);
 
   return query;

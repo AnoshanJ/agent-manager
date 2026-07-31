@@ -64,9 +64,13 @@ import {
 } from "@agent-management-platform/api-client";
 import { AgentTypeSummery } from "./subComponents/AgentTypeSummery";
 import { DeploymentPipelineCard } from "./subComponents/DeploymentPipelineCard";
-import { getErrorMessage, LabelChips, useConfirmationDialog } from "@agent-management-platform/shared-component";
+import {
+  formatRelativeTime,
+  getErrorMessage,
+  LabelChips,
+  useConfirmationDialog,
+} from "@agent-management-platform/shared-component";
 import { EditProjectDrawer } from "../ProjectList/EditProjectDrawer";
-import { formatDistanceToNow } from "date-fns";
 
 export function ListPageSkeleton() {
   return (
@@ -213,12 +217,10 @@ export const AgentsList: React.FC = () => {
     );
   }, [handleCloseAddAgentMenu, navigate, orgId, projectId]);
 
-  const getRelativeTime = useCallback((date?: string) => {
-    if (!date) {
-      return "—";
-    }
-    return formatDistanceToNow(new Date(date), { addSuffix: true });
-  }, []);
+  const getRelativeTime = useCallback(
+    (date?: string) => formatRelativeTime(date, { fallback: "—" }),
+    [],
+  );
 
   const getAgentPath = (isInternal: boolean) => {
     let path =

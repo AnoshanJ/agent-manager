@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   listUsers,
   getUser,
@@ -182,17 +182,17 @@ function readAttribute(attributes: ThunderUser['attributes'], key: string): stri
  * username. Returns undefined until (or unless) the profile resolves, so the
  * caller decides what to show in the meantime.
  *
- * Uses a plain `useQuery` rather than `useApiQuery` on purpose: this only
- * decorates someone else's record, so a caller without permission to read user
- * profiles should silently fall back instead of getting an error snackbar on a
- * page whose own content loaded fine.
+ * Queried with `silent` so a caller without permission to read user profiles
+ * just keeps the fallback, rather than getting an error snackbar on a page whose
+ * own content loaded fine — auth handling still applies.
  */
 export function useUserDisplayName(params: UserPathParams): string | undefined {
   const { getToken } = useAuthHooks();
-  const { data } = useQuery({
+  const { data } = useApiQuery<ThunderUser>({
     ...userProfileQuery(params, getToken),
     retry: false,
     staleTime: 5 * 60 * 1000,
+    silent: true,
   });
 
   const fullName = [
