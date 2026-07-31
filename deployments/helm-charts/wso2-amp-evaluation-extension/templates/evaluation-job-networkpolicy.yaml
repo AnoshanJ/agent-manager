@@ -73,4 +73,15 @@ spec:
         - port: {{ .Values.networkPolicy.evaluationJob.devEgress.port }}
           protocol: TCP
     {{- end }}
+
+    {{- $kubeSvc := lookup "v1" "Service" "default" "kubernetes" }}
+    {{- if $kubeSvc }}
+    # wait reports WorkflowTaskResults to the API server; no pod backs it, so only ipBlock matches.
+    - to:
+        - ipBlock:
+            cidr: {{ $kubeSvc.spec.clusterIP }}/32
+      ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}
 {{- end }}
