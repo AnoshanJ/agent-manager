@@ -125,7 +125,7 @@ export function EnvVariableEditor({
   // Lets users paste a full "KEY=VALUE" line into the Key field and have it
   // split automatically, instead of forcing a manual copy into each field.
   const handleKeyPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    if (keyDisabled) return;
+    if (keyDisabled || isSecretLocked) return;
     const pasted = e.clipboardData.getData('text');
     const equalsIdx = pasted.indexOf('=');
     if (equalsIdx === -1) return;
@@ -134,8 +134,9 @@ export function EnvVariableEditor({
     const pastedKey = pasted.slice(0, equalsIdx).trim();
     let pastedValue = pasted.slice(equalsIdx + 1).trim();
     if (
-      (pastedValue.startsWith('"') && pastedValue.endsWith('"')) ||
-      (pastedValue.startsWith("'") && pastedValue.endsWith("'"))
+      pastedValue.length >= 2 &&
+      ((pastedValue.startsWith('"') && pastedValue.endsWith('"')) ||
+        (pastedValue.startsWith("'") && pastedValue.endsWith("'")))
     ) {
       pastedValue = pastedValue.slice(1, -1);
     }

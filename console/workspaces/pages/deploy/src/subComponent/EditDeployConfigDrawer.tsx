@@ -434,13 +434,16 @@ export function EditDeployConfigDrawer({
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Form.Header>Environment Variables</Form.Header>
               <Stack direction="row" gap={1}>
-                <EnvFileUploadButton onParsed={handleEnvFileParsed} disabled={isPending} />
+                <EnvFileUploadButton
+                  onParsed={handleEnvFileParsed}
+                  disabled={isPending || !seededRef.current}
+                />
                 <Button
                   size="small"
                   variant="outlined"
                   startIcon={<Plus size={14} />}
                   onClick={handleAddEnv}
-                  disabled={isPending}
+                  disabled={isPending || !seededRef.current}
                 >
                   Add
                 </Button>

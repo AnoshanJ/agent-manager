@@ -179,6 +179,13 @@ export function PromoteAgentDrawer({
   // once per target rather than on every background refetch.
   const [filledForTarget, setFilledForTarget] = useState<string | null>(null);
 
+  // True once the target's config has loaded AND been seeded into formState.
+  // Gates Add/Upload so a user can't add/merge entries into the editor while
+  // it's still holding the previous target's (or blank) state, which the
+  // seed effect below would otherwise clobber once it fires.
+  const targetConfigReady =
+    targetConfigLoaded && filledForTarget === formState.targetEnvironment;
+
   // Pick a default target environment when the drawer opens, and clear state on close.
   useEffect(() => {
     if (!open) {
@@ -291,10 +298,23 @@ export function PromoteAgentDrawer({
     }));
   }, []);
 
+  // Same system-key exclusion as the prefill effect above: uploaded entries
+  // must not shadow platform-injected keys, which are never part of formState.env.
+  const targetSystemKeys = useMemo(
+    () =>
+      new Set(
+        (targetConfigs?.configurations?.env ?? [])
+          .filter((e) => e.isSystem)
+          .map((e) => e.key),
+      ),
+    [targetConfigs],
+  );
+
   const handleEnvFileParsed = useCallback((entries: { key: string; value: string }[]) => {
     setFormState((prev) => {
       const nextEnv = [...prev.env];
       for (const { key, value } of entries) {
+        if (targetSystemKeys.has(key)) continue;
         const existingIndex = nextEnv.findIndex((e) => e.key === key);
         if (existingIndex !== -1) {
           nextEnv[existingIndex] = { ...nextEnv[existingIndex], key, value, secretRef: undefined };
@@ -304,7 +324,7 @@ export function PromoteAgentDrawer({
       }
       return { ...prev, env: nextEnv };
     });
-  }, []);
+  }, [targetSystemKeys]);
 
   const handleAddFile = useCallback(() => {
     setFormState((prev) => ({
@@ -509,14 +529,14 @@ export function PromoteAgentDrawer({
                             <Stack direction="row" gap={1}>
                               <EnvFileUploadButton
                                 onParsed={handleEnvFileParsed}
-                                disabled={isPending}
+                                disabled={isPending || !targetConfigReady}
                               />
                               <Button
                                 size="small"
                                 variant="outlined"
                                 startIcon={<Plus size={14} />}
                                 onClick={handleAddEnv}
-                                disabled={isPending}
+                                disabled={isPending || !targetConfigReady}
                               >
                                 Add
                               </Button>
