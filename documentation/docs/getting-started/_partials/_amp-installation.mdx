@@ -304,6 +304,8 @@ With this module, agents run sandboxed under the standard **runc** runtime. Opti
 
 Creates the default Organization, Project, Environment, DeploymentPipeline, and workflow template resources that the console needs on first login. This chart also configures the **container registry endpoint** used by build workflows to push agent images.
 
+<Dev production={props.production}>
+
 ```bash
 helm install amp-platform-resources \
   oci://${HELM_CHART_REGISTRY}/wso2-amp-platform-resources-extension \
@@ -311,6 +313,30 @@ helm install amp-platform-resources \
   --namespace ${DEFAULT_NS} \
   --timeout 1800s
 ```
+
+</Dev>
+
+<Prod production={props.production}>
+
+```bash
+helm install amp-platform-resources \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-platform-resources-extension \
+  --version ${VERSION} \
+  --namespace ${DEFAULT_NS} \
+  --set global.oauth.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
+  --set global.oauth.hostHeader="amp-thunder-extension-service.${THUNDER_NS}.svc.cluster.local" \
+  --set global.apiServer.url="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
+  --set global.apiServer.hostHeader="openchoreo-api.openchoreo-control-plane.svc.cluster.local" \
+  --timeout 1800s
+```
+
+:::warning These four values default to k3d addresses
+`global.oauth.tokenUrl` and `global.apiServer.url` default to `http://host.k3d.internal:8080`, which the single-cluster k3d layout reaches through the Docker host and routes by `Host` header. On any other cluster that name does not resolve, and the failure surfaces only when an agent is built: the workflow's `generate-workload` step prints `Failed to get access token:` with an empty body — a connection failure, not an authentication one — and the build ends with `cannot save parameter /mnt/vol/workload-cr.yaml`.
+
+Nothing earlier in the install touches these values, so a platform that installs and verifies cleanly still cannot complete a single build until they are set. Point them at the in-cluster services as above.
+:::
+
+</Prod>
 
 export const RegistryConfig = ({expanded}) => {
   const content = (

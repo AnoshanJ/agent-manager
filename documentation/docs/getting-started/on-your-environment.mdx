@@ -174,7 +174,7 @@ export OPENSEARCH_PASSWORD="$(openssl rand -base64 24)"
 | `AMP_SYSTEM_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager (Phase 2), OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) |
 | `AMP_PUBLISHER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | OpenBao seed — read by evaluation workflows at runtime |
 | `AM_OBSERVER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Observability extension (Phase 2) |
-| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | OpenChoreo workflow plane and observer |
+| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) **and** OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | OpenChoreo workflow plane and observer |
 | `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD` | OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | Observability Plane and logs module ([Step 8](#step-8-setup-observability-plane)) |
 
 Keep this shell session for the whole install, and store the values in your secret manager — Thunder's are frozen after [Step 4](#step-4-install-thunder-extension-identity-provider).
@@ -591,6 +591,8 @@ helm install amp-thunder-extension \
   --set thunder.bootstrap.ampSystemClient.clientSecret="${AMP_SYSTEM_CLIENT_SECRET}" \
   --set thunder.bootstrap.ampPublisherClient.clientSecret="${AMP_PUBLISHER_CLIENT_SECRET}" \
   --set thunder.bootstrap.amObserverClient.clientSecret="${AM_OBSERVER_CLIENT_SECRET}" \
+  --set thunder.bootstrap.workloadPublisherClient.clientSecret="${WORKFLOW_PUBLISHER_SECRET}" \
+  --set thunder.bootstrap.observerResourceReaderClient.clientSecret="${OBSERVER_READER_SECRET}" \
   --values thunder-db-values.yaml \
   --timeout 1800s
 
@@ -598,6 +600,14 @@ kubectl wait --for=condition=Available \
   deployment -l app.kubernetes.io/instance=amp-thunder-extension \
   -n ${THUNDER_NS} --timeout=300s
 ```
+
+:::danger Override all six client secrets
+The chart bootstraps **six** OAuth clients, and every one it is not given keeps its shipped default. `workloadPublisherClient` and `observerResourceReaderClient` are easy to miss because their secrets are also seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao) — but seeding OpenBao only tells the *consumer*; Thunder still registers the default unless the two `--set` lines above are present.
+
+Leaving them out breaks the platform in two ways at once. The defaults stay valid, so an install that looks hardened still accepts `openchoreo-workload-publisher-secret` and `openchoreo-observer-resource-reader-client-secret`. And because the consumers read the *generated* values from OpenBao, they present a secret Thunder does not have: every agent build fails at the workload-publish step with `Failed to get access token`, from a `401 invalid_client` that never reaches the build log.
+
+When verifying, note the two client families use different token-endpoint auth methods — the four `amp*` clients use HTTP Basic, these two use POST-body credentials. Testing with the wrong method returns `400`, not `401`, which is easy to misread as a rejected credential.
+:::
 
 :::info MCP resource identifiers
 `agentManagerMcpBaseUrl` and `observerMcpBaseUrl` become the OAuth resource-server identifiers Thunder registers for the `/mcp` endpoints. Point them at the externally reachable origins of the API and observer — the same values as `agentManagerService.config.serverPublicURL` and `amObserver.publicUrl` in Phase 2 — because Thunder rejects an authorize request with `invalid_target` unless the `resource` an MCP client asks for matches a registered identifier exactly. See the [MCP server reference](../reference/mcp-server.mdx) for the full set of settings that must move together.
@@ -609,6 +619,10 @@ kubectl wait --for=condition=Available \
 
 :::warning Changing these values later
 A `helm upgrade` will not change the issuer in issued tokens, the registered redirect URIs, the MCP resource identifiers, or any client secret — those live in Thunder's database, seeded by the pre-install bootstrap job. To change them you must uninstall the chart and discard its data: **delete the PVC** if you used SQLite, or **drop and recreate the three databases** if you used PostgreSQL, then reinstall. Anything already issued against the old issuer stops validating.
+
+Discarding Thunder's data also **re-creates the organization**, and Agent Manager keys its own tenant data on that organization's identifier. Every organization-scoped row it holds — agents, deployments, API keys, gateways, monitors, the per-environment Thunder registration — is left pointing at the previous identifier and becomes invisible. The platform stays up and gives no error: the console reports deployment failures, agent identity resolution fails with `env-thunder not provisioned for this environment`, and the gateway cannot re-register because the environment still holds its ingress slot while the organization's gateway list reads empty.
+
+Treat a Thunder reinstall as a platform-data reset, not a component restart. On anything but a fresh install, discard Agent Manager's database in the same operation and re-run [env-Thunder provisioning](#provision-thunder-identity-provider-for-the-default-environment) and the gateway extension afterwards.
 :::
 
 :::tip Verify
@@ -1148,10 +1162,9 @@ OP_CA_CERT=$(kubectl get secret cluster-agent-tls \
 
 kubectl apply -f - <<EOF
 apiVersion: openchoreo.dev/v1alpha1
-kind: ObservabilityPlane
+kind: ClusterObservabilityPlane
 metadata:
   name: default
-  namespace: default
 spec:
   planeID: default
   clusterAgent:
@@ -1186,7 +1199,7 @@ kubectl get pods -n openchoreo-observability-plane
 echo "--- Thunder ---"
 kubectl get pods -n amp-thunder
 echo "--- Plane Registrations ---"
-kubectl get clusterdataplane,clusterworkflowplane,observabilityplane -n default
+kubectl get clusterdataplane,clusterworkflowplane,clusterobservabilityplane
 ```
 
 All pods should be in `Running` or `Completed` state.
@@ -1740,7 +1753,7 @@ Remove all Agent Manager and OpenChoreo resources:
 # 1. Delete plane registrations
 kubectl delete clusterdataplane default -n default
 kubectl delete clusterworkflowplane default -n default
-kubectl delete observabilityplane default -n default
+kubectl delete clusterobservabilityplane default
 
 # 2. Uninstall all Helm releases
 helm uninstall amp -n wso2-amp
