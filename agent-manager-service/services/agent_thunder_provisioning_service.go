@@ -209,11 +209,30 @@ func agentIdentitySecretLocation(ouID, projectName, agentName, envName string) s
 // SecretManagementClient.CreateSecret's doc comment), not the raw KV path.
 func (s *agentThunderProvisioningService) storeCredential(ctx context.Context, ouID, projectName, agentName, envName, clientID, clientSecret string) (string, error) {
 	location := agentIdentitySecretLocation(ouID, projectName, agentName, envName)
-	if _, err := s.secretMgmtClient.CreateSecret(ctx, location, map[string]string{
+	data := map[string]string{
 		thundersvc.AgentSecretKeyClientID:     clientID,
 		thundersvc.AgentSecretKeyClientSecret: clientSecret,
-	}); err != nil {
-		return "", err
+	}
+	if _, err := s.secretMgmtClient.CreateSecret(ctx, location, data); err != nil {
+		if !errors.Is(err, utils.ErrNotFound) {
+			return "", err
+		}
+		// An already-provisioned internal agent already has a SecretReference
+		// for this name, owned by the identity injection reconciler rather
+		// than by this code, which is why the create above failed here.
+		// Delete it and create again: the retry succeeds because it's now a
+		// plain create with nothing in the way, same as a brand-new agent's
+		// first credential.
+		injector := s.getWorkloadInjector()
+		if injector == nil {
+			return "", err
+		}
+		if cleanupErr := injector.CleanupForEnvironment(ctx, ouID, agentName, envName); cleanupErr != nil {
+			return "", fmt.Errorf("clear existing SecretReference before retry: %w", err)
+		}
+		if _, retryErr := s.secretMgmtClient.CreateSecret(ctx, location, data); retryErr != nil {
+			return "", retryErr
+		}
 	}
 	kvPath, err := location.KVPath()
 	if err != nil {
