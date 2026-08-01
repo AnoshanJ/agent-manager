@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -201,6 +202,18 @@ func agentIdentitySecretLocation(ouID, projectName, agentName, envName string) s
 	}
 }
 
+// createSecretConflictRetryMarker is the exact substring
+// secretmanagersvc's OpenChoreo provider includes only when a create
+// conflict's own fallback update then also fails (PushSecret's "failed to
+// update secret after create conflict" wrap in
+// clients/secretmanagersvc/providers/openchoreo/client.go). The secret
+// manager doesn't expose a distinct sentinel for this exact shape, so this
+// is the only way to tell it apart from other, unrelated not-found errors
+// (e.g. a secret that existed and vanished before an update, or a create
+// that failed for an unrelated reason) without changing the secret manager
+// itself.
+const createSecretConflictRetryMarker = "after create conflict"
+
 // storeCredential writes the client ID/secret pair for one binding via the
 // shared secret management client and returns the KV path to persist in
 // AgentThunderClient.SecretRefPath — computed directly from the location
@@ -214,7 +227,7 @@ func (s *agentThunderProvisioningService) storeCredential(ctx context.Context, o
 		thundersvc.AgentSecretKeyClientSecret: clientSecret,
 	}
 	if _, err := s.secretMgmtClient.CreateSecret(ctx, location, data); err != nil {
-		if !errors.Is(err, utils.ErrNotFound) {
+		if !errors.Is(err, utils.ErrNotFound) || !strings.Contains(err.Error(), createSecretConflictRetryMarker) {
 			return "", err
 		}
 		// An already-provisioned internal agent already has a SecretReference
@@ -228,7 +241,7 @@ func (s *agentThunderProvisioningService) storeCredential(ctx context.Context, o
 			return "", err
 		}
 		if cleanupErr := injector.CleanupForEnvironment(ctx, ouID, agentName, envName); cleanupErr != nil {
-			return "", fmt.Errorf("clear existing SecretReference before retry: %w", err)
+			return "", fmt.Errorf("clear existing SecretReference before retry: %w: %w", cleanupErr, err)
 		}
 		if _, retryErr := s.secretMgmtClient.CreateSecret(ctx, location, data); retryErr != nil {
 			return "", retryErr
