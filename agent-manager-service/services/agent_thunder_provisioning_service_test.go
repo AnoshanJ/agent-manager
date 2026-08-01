@@ -642,7 +642,7 @@ func TestRegenerateSecret_Internal_ExistingSecretReference_CleansUpAndRetries(t 
 		CreateSecretFunc: func(_ context.Context, _ secretmanagersvc.SecretLocation, data map[string]string) (string, error) {
 			createCalls++
 			if createCalls == 1 {
-				return "", fmt.Errorf("failed to upsert secret: %w", utils.ErrNotFound)
+				return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
 			}
 			assert.Equal(t, "new-secret", data[thundersvc.AgentSecretKeyClientSecret],
 				"the retry must persist the same rotated value as the failed first attempt")
@@ -692,7 +692,7 @@ func TestRegenerateSecret_Internal_ExistingSecretReference_NoInjector_ReturnsOri
 	}
 	store := &clientmocks.SecretManagementClientMock{
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
-			return "", fmt.Errorf("failed to upsert secret: %w", utils.ErrNotFound)
+			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
 		},
 	}
 	repo := &repomocks.AgentThunderClientRepositoryMock{
@@ -752,6 +752,50 @@ func TestRegenerateSecret_Internal_UnrelatedCreateSecretError_NotRetried(t *test
 	assert.Equal(t, 1, createCalls, "must not retry a failure that isn't the existing-SecretReference shape")
 }
 
+// TestRegenerateSecret_Internal_UnrelatedNotFoundError_NotRetried guards
+// against the narrower case: an error that does wrap utils.ErrNotFound, but
+// not from the create-conflict-then-fallback-update shape (for example, the
+// create itself failing for a reason unrelated to an existing
+// SecretReference), must not trigger cleanup or a retry either. Only the
+// exact shape carrying "after create conflict" should.
+func TestRegenerateSecret_Internal_UnrelatedNotFoundError_NotRetried(t *testing.T) {
+	tc := fakeThunderClientMock()
+	tc.RegenerateAgentSecretFunc = func(context.Context, string) (string, error) {
+		return "new-secret", nil
+	}
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, _ string) (thundersvc.ThunderClient, error) { return tc, nil },
+	}
+	var createCalls int
+	store := &clientmocks.SecretManagementClientMock{
+		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
+			createCalls++
+			return "", fmt.Errorf("failed to upsert secret: failed to create secret: %w", utils.ErrNotFound)
+		},
+	}
+	injector := &agentIdentityInjectorStub{
+		CleanupForEnvironmentFunc: func(context.Context, string, string, string) error {
+			t.Fatal("must not clean up the SecretReference for a not-found that isn't the create-conflict shape")
+			return nil
+		},
+	}
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentThunderClient, error) {
+			return &models.AgentThunderClient{
+				ID: uuid.New(), ThunderAgentID: "thunder-agent-1", ThunderClientID: "client-abc",
+				ProvisioningType: models.AgentProvisioningTypeInternal,
+			}, nil
+		},
+	}
+
+	svc := newTestProvisioningServiceWithInjector(repo, resolver, store, injector)
+	_, _, _, err := svc.RegenerateSecret(context.Background(), "acme", "proj1", "my-agent", "staging")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrNotFound)
+	assert.Equal(t, 1, createCalls, "a not-found that isn't the create-conflict shape must not be retried")
+}
+
 // TestRegenerateSecret_Internal_CleanupItselfFails_ReturnsWrappedError guards
 // against attempting the retry on an unconfirmed cleanup: if clearing the
 // stray SecretReference itself errors, the original create failure must
@@ -768,7 +812,7 @@ func TestRegenerateSecret_Internal_CleanupItselfFails_ReturnsWrappedError(t *tes
 	store := &clientmocks.SecretManagementClientMock{
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
 			createCalls++
-			return "", fmt.Errorf("failed to upsert secret: %w", utils.ErrNotFound)
+			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
 		},
 	}
 	injector := &agentIdentityInjectorStub{
@@ -790,6 +834,7 @@ func TestRegenerateSecret_Internal_CleanupItselfFails_ReturnsWrappedError(t *tes
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrNotFound, "the original create failure stays visible alongside the cleanup failure")
+	assert.Contains(t, err.Error(), "openchoreo api unavailable", "the cleanup failure's own reason must not be discarded")
 	assert.Equal(t, 1, createCalls, "no retry without a confirmed cleanup")
 }
 
@@ -809,7 +854,7 @@ func TestRegenerateSecret_Internal_RetryAlsoFails_ReturnsRetryErrorWithoutLoopin
 	store := &clientmocks.SecretManagementClientMock{
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
 			createCalls++
-			return "", fmt.Errorf("failed to upsert secret: %w", utils.ErrNotFound)
+			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
 		},
 	}
 	var cleanupCalls int
@@ -860,7 +905,7 @@ func TestRegenerateSecret_Internal_ManyDifferentAgentsHittingRetryConcurrently(t
 		CreateSecretFunc: func(_ context.Context, location secretmanagersvc.SecretLocation, _ map[string]string) (string, error) {
 			counter, _ := createAttempts.LoadOrStore(location.AgentName, new(int32))
 			if atomic.AddInt32(counter.(*int32), 1) == 1 {
-				return "", fmt.Errorf("failed to upsert secret: %w", utils.ErrNotFound)
+				return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
 			}
 			return "ref", nil
 		},
