@@ -38,6 +38,7 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerWrapper,
+  EnvFileUploadButton,
   EnvVariableEditor,
   FileMountEditor,
 } from "@agent-management-platform/views";
@@ -290,6 +291,21 @@ export function PromoteAgentDrawer({
     }));
   }, []);
 
+  const handleEnvFileParsed = useCallback((entries: { key: string; value: string }[]) => {
+    setFormState((prev) => {
+      const nextEnv = [...prev.env];
+      for (const { key, value } of entries) {
+        const existingIndex = nextEnv.findIndex((e) => e.key === key);
+        if (existingIndex !== -1) {
+          nextEnv[existingIndex] = { ...nextEnv[existingIndex], key, value, secretRef: undefined };
+        } else {
+          nextEnv.push({ key, value, isSensitive: false });
+        }
+      }
+      return { ...prev, env: nextEnv };
+    });
+  }, []);
+
   const handleAddFile = useCallback(() => {
     setFormState((prev) => ({
       ...prev,
@@ -490,15 +506,21 @@ export function PromoteAgentDrawer({
                             <Typography variant="h6">
                               Environment Variables
                             </Typography>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<Plus size={14} />}
-                              onClick={handleAddEnv}
-                              disabled={isPending}
-                            >
-                              Add
-                            </Button>
+                            <Stack direction="row" gap={1}>
+                              <EnvFileUploadButton
+                                onParsed={handleEnvFileParsed}
+                                disabled={isPending}
+                              />
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<Plus size={14} />}
+                                onClick={handleAddEnv}
+                                disabled={isPending}
+                              >
+                                Add
+                              </Button>
+                            </Stack>
                           </Stack>
                           {formState.env.length === 0 ? (
                             <Typography variant="body2" color="text.secondary">

@@ -18,7 +18,7 @@
 
 import { Box, Button, Card, CardContent, Typography } from "@wso2/oxygen-ui";
 import { Plus as Add } from "@wso2/oxygen-ui-icons-react";
-import { EnvVariableEditor } from "@agent-management-platform/views";
+import { EnvFileUploadButton, EnvVariableEditor } from "@agent-management-platform/views";
 import { CreateAgentFormValues } from "../form/schema";
 
 interface EnvironmentVariableProps {
@@ -64,6 +64,22 @@ export const EnvironmentVariable = ({
     }));
   };
 
+  const handleEnvFileParsed = (entries: { key: string; value: string }[]) => {
+    setFormData((prev) => {
+      const nextEnv = [...(prev.env || [])].filter((e) => e.key || e.value);
+      for (const { key, value } of entries) {
+        if (lockedKeys.has(key)) continue;
+        const existingIndex = nextEnv.findIndex((e) => e.key === key);
+        if (existingIndex !== -1) {
+          nextEnv[existingIndex] = { ...nextEnv[existingIndex], key, value };
+        } else {
+          nextEnv.push({ key, value, isSensitive: false });
+        }
+      }
+      return { ...prev, env: nextEnv };
+    });
+  };
+
   const handleInitialEdit = (field: 'key' | 'value' | 'isSensitive', value: string | boolean) => {
     setFormData((prev) => {
       const envList = prev.env || [];
@@ -92,10 +108,11 @@ export const EnvironmentVariable = ({
   return (
     <Card variant="outlined">
       <CardContent>
-        <Box display="flex" flexDirection="row" alignItems="center" gap={1}>
+        <Box display="flex" flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
           <Typography variant="h5">
             {hideAdd ? "Environment Variables" : "Environment Variables (Optional)"}
           </Typography>
+          {!hideAdd && <EnvFileUploadButton onParsed={handleEnvFileParsed} />}
         </Box>
         <Box display="flex" flexDirection="column" py={2} gap={2}>
           {envVariables.length ? envVariables.map((item, index) => {

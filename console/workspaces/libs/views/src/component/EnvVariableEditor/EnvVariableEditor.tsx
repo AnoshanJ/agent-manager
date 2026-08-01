@@ -122,6 +122,28 @@ export function EnvVariableEditor({
   const isSecretField = isValueSecret || isSensitive;
   const isSecretLocked = isExistingSecret && isSensitive && !isEditing;
 
+  // Lets users paste a full "KEY=VALUE" line into the Key field and have it
+  // split automatically, instead of forcing a manual copy into each field.
+  const handleKeyPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    if (keyDisabled) return;
+    const pasted = e.clipboardData.getData('text');
+    const equalsIdx = pasted.indexOf('=');
+    if (equalsIdx === -1) return;
+
+    e.preventDefault();
+    const pastedKey = pasted.slice(0, equalsIdx).trim();
+    let pastedValue = pasted.slice(equalsIdx + 1).trim();
+    if (
+      (pastedValue.startsWith('"') && pastedValue.endsWith('"')) ||
+      (pastedValue.startsWith("'") && pastedValue.endsWith("'"))
+    ) {
+      pastedValue = pastedValue.slice(1, -1);
+    }
+
+    onKeyChange(pastedKey.replace(/\s/g, '_'));
+    onValueChange(pastedValue);
+  };
+
   const handleStartEdit = () => {
     setValueBeforeEdit(valueValue);
     setIsEditing(true);
@@ -162,6 +184,7 @@ export function EnvVariableEditor({
             size="small"
             value={keyValue}
             onChange={(e) => onKeyChange(e.target.value.replace(/\s/g, '_'))}
+            onPaste={handleKeyPaste}
             error={!!keyError}
             helperText={keyError}
             disabled={keyDisabled}
