@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Form, MenuItem, Select, SelectChangeEvent, Skeleton } from "@wso2/oxygen-ui";
 import { PageLayout, useFormValidation } from "@agent-management-platform/views";
 import { generatePath, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -104,15 +104,25 @@ export const CatalogAgentFlow: React.FC = () => {
     [selectedVersionData],
   );
 
-  // Reseed env vars every time the effective version changes, replacing whatever was
-  // there before — including resetting to no rows for a version with an empty schema.
-  // A schema-driven row never carries a secret's real default value (the backend only
-  // signals whether one exists), so a secret field starts empty; if it also has a
-  // default, the kind's own value is applied server-side at creation when the field
-  // is left untouched.
+  // Guards the reseed below on effectiveVersion itself, not on catalogEnvSeed's object
+  // identity. selectedVersionData comes from a TanStack Query result that can get a new
+  // reference on a background refetch (refetchOnWindowFocus is on for this query) even
+  // when the same version's data is unchanged, e.g. if another version is published to
+  // the same kind while this form is open. Reseeding on every such reference change
+  // would silently discard whatever the user already typed into these fields.
+  const seededVersionRef = useRef<string | undefined>(undefined);
+
+  // Reseed env vars whenever the effective version actually changes, replacing whatever
+  // was there before — including resetting to no rows for a version with an empty
+  // schema. A schema-driven row never carries a secret's real default value (the
+  // backend only signals whether one exists), so a secret field starts empty; if it
+  // also has a default, the kind's own value is applied server-side at creation when
+  // the field is left untouched.
   useEffect(() => {
+    if (seededVersionRef.current === effectiveVersion) return;
+    seededVersionRef.current = effectiveVersion;
     setFormData((prev) => ({ ...prev, env: catalogEnvSeed.env }));
-  }, [catalogEnvSeed]);
+  }, [catalogEnvSeed.env, effectiveVersion]);
 
   const lockedEnvKeys = catalogEnvSeed.lockedEnvKeys;
   const kindSecretKeys = catalogEnvSeed.kindSecretKeysWithDefault;
