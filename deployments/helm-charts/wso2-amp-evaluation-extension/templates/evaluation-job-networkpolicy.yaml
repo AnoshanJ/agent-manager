@@ -56,10 +56,19 @@ spec:
           protocol: TCP
 
     # LLM gateway for llm_judge evaluators — unconditional since NetworkPolicy can't scope by workflow.
+    # Two selectors, because the gateway's namespace is a deployment choice: the
+    # per-org-env namespaces created by setup-gateway.sh / add-environment.sh carry the
+    # label, while an install using the gateway chart's own apiGateway.namespace default
+    # does not, and would otherwise be denied.
     - to:
         - namespaceSelector:
             matchLabels:
               amp.wso2.com/api-platform-gateway: "true"
+        {{- with .Values.networkPolicy.evaluationJob.llmGateway.namespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
       ports:
         - port: {{ .Values.networkPolicy.evaluationJob.llmGateway.port }}
           protocol: TCP
