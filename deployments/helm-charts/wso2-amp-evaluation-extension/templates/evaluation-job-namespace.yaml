@@ -1,0 +1,23 @@
+{{- if .Values.networkPolicy.evaluationJob.enabled }}
+{{- $evalJobNamespace := .Values.networkPolicy.evaluationJob.namespace | default (printf "workflows-%s" (.Values.ampEvaluation.workflowNamespace | default "default")) }}
+{{- if ne $evalJobNamespace .Release.Namespace }}
+# The evaluation-job NetworkPolicy lives in the namespace where OpenChoreo runs this
+# environment's Argo workflows, which OpenChoreo does not create until a workflow first
+# runs there. On a fresh install that namespace does not exist yet, so rendering only the
+# NetworkPolicy fails the install outright with `namespaces "<name>" not found`.
+#
+# Create it here so the chart is self-sufficient. Helm orders Namespace ahead of
+# NetworkPolicy, so this is always applied first.
+#
+# resource-policy: keep — OpenChoreo owns this namespace's lifecycle and it holds running
+# workflows. Uninstalling this chart must never delete it; only the NetworkPolicy goes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $evalJobNamespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+{{- include "amp-evaluation-extension.labels" . | nindent 4 }}
+{{- end }}
+{{- end }}
