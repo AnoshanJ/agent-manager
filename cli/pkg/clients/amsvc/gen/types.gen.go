@@ -1377,7 +1377,7 @@ type AgentIdentityScopeListResponse struct {
 
 // AgentKindConfigSchemaItem defines model for AgentKindConfigSchemaItem.
 type AgentKindConfigSchemaItem struct {
-	// DefaultValue Default value if not provided by the user
+	// DefaultValue Default value if not provided by the user (plain text for input; omitted in responses when isSecret is true)
 	DefaultValue *string `json:"defaultValue,omitempty"`
 
 	// Description Description of the configuration item
