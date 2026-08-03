@@ -80,6 +80,11 @@ func loadEnvs() {
 		User:     r.readRequiredString("DB_USER"),
 		Password: r.readRequiredString("DB_PASSWORD"),
 		DBName:   r.readRequiredString("DB_NAME"),
+		// Left empty by default so the connection string stays byte-identical to
+		// pre-DB_SSL_MODE builds: pgx applies its libpq-compatible "prefer"
+		// default and still honours PGSSLMODE/PGSSLROOTCERT from the environment.
+		SSLMode:     strings.TrimSpace(r.readOptionalString("DB_SSL_MODE", "")),
+		SSLRootCert: strings.TrimSpace(r.readOptionalString("DB_SSL_ROOT_CERT", "")),
 	}
 	config.POSTGRESQL.DbConfigs = DbConfigs{
 		// gorm configs
@@ -145,11 +150,6 @@ func loadEnvs() {
 
 	config.InstrumentationURL = r.readOptionalString("INSTRUMENTATION_URL", "http://default-default.gateway.localhost:19080/otel")
 	config.DefaultGatewayPort = int(r.readOptionalInt64("DEFAULT_GATEWAY_PORT", 19080))
-	config.GatewayRuntime = GatewayRuntimeConfig{
-		NamePrefix:    r.readOptionalString("GATEWAY_RUNTIME_NAME_PREFIX", "api-platform-"),
-		ServiceSuffix: r.readOptionalString("GATEWAY_RUNTIME_SERVICE_SUFFIX", "-gw-gateway-gateway-runtime"),
-		Port:          int(r.readOptionalInt64("GATEWAY_RUNTIME_PORT", 22893)),
-	}
 	config.KeyManagerConfigurations = KeyManagerConfigurations{
 		// Comma-separated list of allowed issuers and audiences
 		Issuer:   r.readOptionalStringList("KEY_MANAGER_ISSUER", "Agent Management Platform Local"),
@@ -270,8 +270,8 @@ func loadEnvs() {
 	validateServerPublicURL(config, r)
 	validateInstrumentationURL(config, r)
 	validateObserverURLs(config, r)
-	validateGatewayRuntimeConfig(config, r)
 	validateResourceLimitsConfig(config, r)
+	validatePostgresTLSConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
 
 	r.logAndExitIfErrorsFound()
@@ -279,15 +279,30 @@ func loadEnvs() {
 	slog.Info("configReader: configs loaded")
 }
 
-func validateGatewayRuntimeConfig(cfg *Config, r *configReader) {
-	if strings.TrimSpace(cfg.GatewayRuntime.NamePrefix) == "" {
-		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_NAME_PREFIX must be non-empty"))
+// validPostgresSSLModes is the set of libpq sslmode values pgx accepts. Kept as
+// an explicit allowlist so a typo fails config load with a clear message instead
+// of surfacing as an opaque driver parse error at first connect.
+var validPostgresSSLModes = map[string]struct{}{
+	"disable":     {},
+	"allow":       {},
+	"prefer":      {},
+	"require":     {},
+	"verify-ca":   {},
+	"verify-full": {},
+}
+
+func validatePostgresTLSConfig(cfg *Config, r *configReader) {
+	// loadEnvs already trims, so in the real flow this value is exactly what
+	// makeConnString puts in the DSN. Trimmed again here so the check holds for
+	// callers that build a Config directly rather than from the environment.
+	mode := strings.TrimSpace(cfg.POSTGRESQL.SSLMode)
+	if mode == "" {
+		return
 	}
-	if strings.TrimSpace(cfg.GatewayRuntime.ServiceSuffix) == "" {
-		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_SERVICE_SUFFIX must be non-empty"))
-	}
-	if cfg.GatewayRuntime.Port < 1 || cfg.GatewayRuntime.Port > 65535 {
-		r.errors = append(r.errors, fmt.Errorf("GATEWAY_RUNTIME_PORT must be between 1 and 65535, got %d", cfg.GatewayRuntime.Port))
+	if _, ok := validPostgresSSLModes[mode]; !ok {
+		r.errors = append(r.errors, fmt.Errorf(
+			"DB_SSL_MODE %q is not a valid PostgreSQL sslmode (disable, allow, prefer, require, verify-ca, verify-full)", mode,
+		))
 	}
 }
 

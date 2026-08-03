@@ -226,7 +226,7 @@ export const AgentInfoCard: React.FC<AgentInfoCardProps> = ({
                 </Box>
 
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-                    Last Build:
+                    Latest Build:
                 </Typography>
 
                 <Box

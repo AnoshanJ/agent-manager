@@ -894,7 +894,7 @@ export function useNavigationItems(): Array<
       ...(navVisibility.identityGroups || navVisibility.identityRoles
         ? [
             {
-              title: "Identities",
+              title: "Agent Identities",
               type: "section" as const,
               icon: <thunderInstancesMetadata.icon />,
               items: (["groups", "roles"] as const)

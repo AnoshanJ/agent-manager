@@ -53,17 +53,22 @@ export const ExternalAgentOverview = () => {
     useSelectedEnvironmentParam(sortedEnvironmentList);
   const selectedEnvironmentId = selectedEnvironment?.id ?? "";
 
-  // Per-env OTEL endpoint. The gateway mapped to the selected environment carries
-  // the externally-reachable vhost; the OTEL RestApi is published at `<vhost>/otel`.
-  // Falls back to globalConfig only when the gateway lookup hasn't resolved yet
-  // (e.g. before an env is selected). useListGateways has no `enabled` option, so
-  // orgName is withheld until an environment is selected to avoid firing a
-  // throwaway `environment: ""` request that'd otherwise be discarded moments later.
+  // OTEL endpoint for the Setup Agent panel. By default it is derived per
+  // environment: the gateway mapped to the selected environment carries the
+  // externally-reachable vhost, and the OTEL RestApi is published at
+  // `<vhost>/otel`; the configured URL is the fallback until that lookup
+  // resolves. A deployment that sets useConfiguredInstrumentationUrl takes the
+  // configured URL as-is, so the gateway lookup is skipped entirely.
+  // useListGateways has no `enabled` option, so orgName is withheld until the
+  // lookup is actually needed to avoid firing a throwaway request.
+  const derivesUrlFromGateway = !globalConfig.useConfiguredInstrumentationUrl;
   const { data: envGatewayList } = useListGateways(
-    { orgName: selectedEnvironmentId ? (orgId ?? "") : "" },
+    { orgName: derivesUrlFromGateway && selectedEnvironmentId ? (orgId ?? "") : "" },
     { environment: selectedEnvironmentId },
   );
-  const envGatewayVhost = envGatewayList?.gateways?.[0]?.vhost;
+  const envGatewayVhost = derivesUrlFromGateway
+    ? envGatewayList?.gateways?.[0]?.vhost
+    : undefined;
   const agentInstrumentationUrl = envGatewayVhost
     ? `${envGatewayVhost.replace(/\/$/, "")}/otel`
     : (globalConfig.instrumentationUrl || "http://default-default.gateway.localhost:19080/otel");
@@ -155,7 +160,6 @@ export const ExternalAgentOverview = () => {
                   envId={selectedEnvironment.name}
                   configurations={agent?.configurations}
                   external
-                  registeredAt={agent?.createdAt}
                   isolationTier={selectedEnvironment.isolationTier}
                 />
               }

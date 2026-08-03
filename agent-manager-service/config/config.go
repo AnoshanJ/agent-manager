@@ -52,7 +52,6 @@ type Config struct {
 	// Default Chat API configuration
 	DefaultChatAPI     DefaultChatAPIConfig
 	DefaultGatewayPort int
-	GatewayRuntime     GatewayRuntimeConfig
 
 	// JWT Signing configuration for agent API tokens
 	JWTSigning JWTSigningConfig
@@ -246,6 +245,15 @@ type POSTGRESQL struct {
 	User     string
 	DBName   string
 	Password string `json:"-"`
+	// SSLMode is the libpq/pgx "sslmode" connection parameter
+	// (disable|allow|prefer|require|verify-ca|verify-full). Empty means the
+	// parameter is omitted from the connection string, which leaves the driver
+	// default ("prefer") — and any PGSSLMODE in the environment — in effect.
+	SSLMode string
+	// SSLRootCert is the libpq/pgx "sslrootcert" connection parameter: a path to
+	// a PEM CA bundle, or the literal "system" to use the image trust store.
+	// Empty omits the parameter, so verification falls back to the system pool.
+	SSLRootCert string
 	DbConfigs
 }
 
@@ -300,14 +308,6 @@ type PublicKeysConfig struct {
 type APIPlatformConfig struct {
 	BaseURL string // Base URL for API Platform
 	Enable  bool
-}
-
-// GatewayRuntimeConfig defines how Agent Manager derives the Kubernetes Service URL
-// used by platform-hosted agents to reach an API Platform gateway runtime.
-type GatewayRuntimeConfig struct {
-	NamePrefix    string
-	ServiceSuffix string
-	Port          int
 }
 
 // InternalServerConfig holds configuration for the internal server

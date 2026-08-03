@@ -14,6 +14,18 @@ postgresql:
     password: ""
     existingSecret: ""
     existingSecretPasswordKey: "password"
+    # TLS for the client -> database hop (libpq "sslmode"). One of
+    # disable, allow, prefer, require, verify-ca, verify-full.
+    # Empty keeps the driver default ("prefer"), which negotiates TLS when the
+    # server offers it but silently falls back to plaintext when it does not.
+    # Set "require" to refuse an unencrypted connection; use verify-ca or
+    # verify-full to also validate the server certificate.
+    sslMode: ""
+    # Path to a PEM CA bundle inside the container for verify-ca/verify-full,
+    # or the literal "system" to validate against the image trust store
+    # (sufficient when the database certificate chains to a public CA).
+    # Mount a private CA through the top-level `volumes`/`volumeMounts` values.
+    sslRootCert: ""
   # Image configuration - use stable PostgreSQL 16 image
   auth:
     database: agentmanager
@@ -138,14 +150,6 @@ agentManagerService:
     # (e.g. the CLI) via /api/v1/config. No internal fallback: unset means
     # clients surface "observer not configured".
     amObserverPublicURL: ""
-
-    # In-cluster API Platform gateway runtime Service URL convention used for
-    # sandboxed agents' OTEL and managed LLM/MCP traffic.
-    gatewayRuntime:
-      namePrefix: "api-platform-"
-      serviceSuffix: "-gw-gateway-gateway-runtime"
-      port: 22893
-
 
     # TLS Configuration
     tlsEnabled: false
