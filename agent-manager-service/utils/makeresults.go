@@ -129,6 +129,7 @@ func convertToConfigurations(configs *models.Configurations) *spec.Configuration
 		EnableAutoInstrumentation: configs.EnableAutoInstrumentation,
 		EnableApiKeySecurity:      configs.EnableApiKeySecurity,
 		EnableOAuthSecurity:       configs.EnableOAuthSecurity,
+		ResilienceTimeoutSeconds:  configs.ResilienceTimeoutSeconds,
 	}
 	// Surface the pinned AMP instrumentation version on reads so the deploy/promote
 	// UI shows the currently-applied version instead of falling back to the platform
@@ -171,6 +172,7 @@ func PopulateConfigurationResponseFromAgentConfig(resp *spec.ConfigurationRespon
 	resp.InstrumentationVersion = cfg.InstrumentationVersion
 	resp.EnableApiKeySecurity = spec.PtrBool(cfg.EnableApiKeySecurity)
 	resp.EnableOAuthSecurity = spec.PtrBool(cfg.EnableOAuthSecurity)
+	resp.ResilienceTimeoutSeconds = cfg.ResilienceTimeoutSeconds
 	resp.CorsConfig = &spec.CORSConfig{
 		Enabled:          spec.PtrBool(cfg.CORSEnabled),
 		AllowOrigin:      cfg.CORSAllowOrigins,
