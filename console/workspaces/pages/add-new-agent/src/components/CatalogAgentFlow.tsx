@@ -26,6 +26,7 @@ import { createAgentSchema, type CreateAgentFormValues, type LLMProviderFormEntr
 import { CreateButtons } from "./CreateButtons";
 import {
   buildCatalogAgentPayload,
+  deriveCatalogEnvSeed,
   findLowestEnvironmentName,
   hasMultipleEnvironments,
 } from "../utils/buildAgentPayload";
@@ -98,24 +99,23 @@ export const CatalogAgentFlow: React.FC = () => {
   const { errors, validateForm, setFieldError, validateField } =
     useFormValidation<CreateAgentFormValues>(createAgentSchema);
 
-  // Seed env vars from configSchema whenever the effective version changes
-  useEffect(() => {
-    const schema = selectedVersionData?.configSchema ?? [];
-    if (schema.length === 0) return;
-    setFormData((prev) => ({
-      ...prev,
-      env: schema.map((item) => ({
-        key: item.name,
-        value: item.defaultValue ?? "",
-        isSensitive: item.isSecret,
-      })),
-    }));
-  }, [selectedVersionData]);
-
-  const lockedEnvKeys = useMemo<Set<string>>(
-    () => new Set((selectedVersionData?.configSchema ?? []).map((item) => item.name)),
+  const catalogEnvSeed = useMemo(
+    () => deriveCatalogEnvSeed(selectedVersionData?.configSchema ?? []),
     [selectedVersionData],
   );
+
+  // Reseed env vars every time the effective version changes, replacing whatever was
+  // there before — including resetting to no rows for a version with an empty schema.
+  // A schema-driven row never carries a secret's real default value (the backend only
+  // signals whether one exists), so a secret field starts empty; if it also has a
+  // default, the kind's own value is applied server-side at creation when the field
+  // is left untouched.
+  useEffect(() => {
+    setFormData((prev) => ({ ...prev, env: catalogEnvSeed.env }));
+  }, [catalogEnvSeed]);
+
+  const lockedEnvKeys = catalogEnvSeed.lockedEnvKeys;
+  const kindSecretKeys = catalogEnvSeed.kindSecretKeysWithDefault;
 
   const { mutate: createAgent, isPending, error } = useCreateAgent();
 
@@ -333,6 +333,8 @@ export const CatalogAgentFlow: React.FC = () => {
           formData={formData}
           setFormData={setFormData}
           lockedKeys={lockedEnvKeys}
+          kindSecretKeys={kindSecretKeys}
+          resetKey={effectiveVersion}
           hideAdd
           llmReservedNames={llmReservedNames}
         />
