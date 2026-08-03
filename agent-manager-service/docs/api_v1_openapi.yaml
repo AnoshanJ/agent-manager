@@ -17198,7 +17198,7 @@ components:
         defaultValue:
           type: string
           nullable: true
-          description: Default value if not provided by the user
+          description: Default value if not provided by the user (plain text for input; omitted in responses when isSecret is true)
 
     AgentKindVersionResponse:
       type: object
