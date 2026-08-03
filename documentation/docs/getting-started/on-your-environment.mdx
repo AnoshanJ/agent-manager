@@ -1031,6 +1031,8 @@ kubectl apply -f https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VER
   -n openchoreo-observability-plane
 ```
 
+The collector reads its OpenSearch credentials from the `opensearch-admin-credentials` Secret through environment variables the tracing module injects, so the generated password flows through without any substitution here.
+
 Create the gateway certificate, then install the Observability Plane:
 
 ```bash
@@ -1267,10 +1269,16 @@ helm upgrade amp-platform-resources oci://${HELM_CHART_REGISTRY}/wso2-amp-platfo
   --reuse-values \
   --set global.oauth.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set environment.gateway.http.host="${AGENTS_DOMAIN}" \
-  --set environment.gateway.http.port=443 \
+  --set environment.gateway.http.port=80 \
   --set environment.gateway.https.host="${AGENTS_DOMAIN}" \
   --set environment.gateway.https.port=443
 ```
+
+:::warning Both variants, each on its own port
+The Environment's gateway binding **wholly replaces** the data plane's, so a partial override silently discards what [Step 6](#step-6-setup-data-plane) wrote rather than merging with it. Set both variants, and give each the port its listener actually serves — `80` for `http`, `443` for `https`, matching the plane gateway.
+
+Putting `443` on the `http` variant is the trap: the console then publishes `http://<host>:443`, an HTTP scheme on the TLS port, and a browser refuses to call it from the HTTPS console as mixed content. Nothing in the platform reports an error, because the gateway and the agent are both fine.
+:::
 
 ### Provision Thunder Identity Provider for the Default Environment
 
@@ -1376,6 +1384,51 @@ kubectl get secret amp-thunder-default-default-admin-credentials \
 :::
 
 Safe to re-run: the system-client secret and admin password are reused, never rotated.
+
+### Point the Gateway at the Environment's Thunder
+
+The gateway extension was installed before this Environment's Thunder existed, so it has no way to validate the tokens that Thunder issues. Wire it now that the issuer is known — this registers Thunder both as a gateway key manager (JWT validation for deployed agents) and as an identity provider visible in the console:
+
+```bash
+export ENV_THUNDER_RELEASE="amp-thunder-default-default"
+export ENV_THUNDER_ISSUER="https://default-default.thunder.${BASE_DOMAIN}"
+export ENV_THUNDER_JWKS="http://${ENV_THUNDER_RELEASE}-service.${ENV_THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
+
+helm upgrade api-platform-default-default \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-api-platform-gateway-extension \
+  --version ${VERSION} \
+  --namespace ${DATA_PLANE_NS} \
+  --reuse-values \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].name=agent-manager-service" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].issuer=agent-manager-service" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].jwks.remote.uri=http://amp-api.${AMP_NS}.svc.cluster.local:9000/auth/external/jwks.json" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].jwks.remote.skipTlsVerify=true" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${ENV_THUNDER_ISSUER}" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${ENV_THUNDER_JWKS}" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=false" \
+  --set "bootstrap.identityProviders[0].name=ThunderKeyManager" \
+  --set "bootstrap.identityProviders[0].issuer=${ENV_THUNDER_ISSUER}" \
+  --set "bootstrap.identityProviders[0].jwksUri=${ENV_THUNDER_JWKS}" \
+  --set "bootstrap.identityProviders[0].skipTlsVerify=false" \
+  --timeout 900s
+```
+
+Both key managers must be listed. Helm's `--set` on an indexed array replaces the whole list, so re-stating `keymanagers[0]` is what keeps the internal `agent-manager-service` entry that API-key authentication relies on.
+
+:::warning Without this, agents cannot accept OAuth tokens
+Skipping this step leaves the gateway with only its internal key manager. Agents still work with API keys, so the platform looks complete — but no agent endpoint can validate a Thunder-issued OAuth token, and the console's gateway page shows *No identity providers configured* with nothing to explain why.
+:::
+
+:::note The controller restarts, and its volume is single-attach
+This upgrade rolls the gateway controller. Its data volume is `ReadWriteOnce`, so on a multi-node cluster the replacement pod may be scheduled to a different node and block with `Multi-Attach error for volume`, leaving the `APIGateway` at `Programmed=False` indefinitely. Delete the old controller pod to release the volume; the new one then starts and the gateway returns to `Ready`.
+
+```bash
+kubectl get pods -n ${DATA_PLANE_NS} | grep gateway-controller
+# If two are listed and one is stuck ContainerCreating, delete the older Running pod
+kubectl delete pod <old-gateway-controller-pod> -n ${DATA_PLANE_NS}
+```
+:::
 
 ---
 
@@ -1603,16 +1656,44 @@ AI gateways can also run **outside** the cluster (for example, close to a privat
 
 Agent builds run as Argo workflows in the Workflow Plane, and build pods have **no built-in resource ceiling** — a burst of builds can starve the platform and agent workloads on a shared node. Two mitigations, in order of preference:
 
-1. **Dedicated build nodes** — run the workflow plane's build workloads on a separate node pool so build spikes cannot affect serving workloads. Remember the build-node kernel requirement (Linux 6.3+ for user-namespaced builds, see [Prerequisites](#cluster-requirements)).
-2. **Namespace ResourceQuota** — cap total build resource consumption in the workflow-plane namespace:
+1. **Dedicated build nodes** — run the workflow plane's build workloads on a separate node pool so build spikes cannot affect serving workloads. Remember the build-node kernel requirement (Linux 6.3+ for user-namespaced builds, see [Prerequisites](#cluster-requirements)). This is the preferred mitigation: it needs no per-pod resource declarations and cannot reject a build.
+
+2. **Namespace ResourceQuota plus a LimitRange** — cap total build resource consumption. Both objects go in the namespace where builds actually run, which is **`workflows-<environment>`** (`workflows-default` for the default environment), not the workflow-plane namespace — that one holds the Argo controller and cluster agent, not the build pods.
+
+   The `LimitRange` is not optional, and it has to come before the quota. Build pods declare no requests or limits of their own, and a ResourceQuota that tracks `requests.*`/`limits.*` **rejects** every pod that omits them. Applying the quota alone fails each build within seconds at its first step with `must specify limits.cpu for: init,main,wait` — a hard failure, not a queued build. Note all three containers in that message: `main` is the build step, while `init` and `wait` are injected by Argo, so a `LimitRange` is what covers them all from one object you control.
+
+   **Measure before you set these.** The values below are placeholders, not recommendations — the right numbers depend on what your agents build. Run one build with the `LimitRange` absent and watch what a step actually uses:
+
+```bash
+# While a build is running, in another shell:
+kubectl top pod -n workflows-default --containers
+```
+
+   Set `defaultRequest` near the steady-state usage you observe and `default` (the limit) above the peak, with headroom. Then apply both objects:
 
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: v1
+kind: LimitRange
+metadata:
+  name: build-workload-defaults
+  namespace: workflows-default
+spec:
+  limits:
+    - type: Container
+      # Replace with your measured values.
+      defaultRequest:
+        cpu: 500m
+        memory: 1Gi
+      default:
+        cpu: "2"
+        memory: 4Gi
+---
+apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: build-workloads
-  namespace: openchoreo-workflow-plane
+  namespace: workflows-default
 spec:
   hard:
     requests.cpu: "8"
@@ -1622,7 +1703,15 @@ spec:
 EOF
 ```
 
-Size the quota to your expected build concurrency; builds beyond the quota queue rather than fail.
+Size the quota to your expected build concurrency: the quota divided by the per-container defaults is what decides how many build steps run at once. With the defaults in place, builds beyond that cap stay Pending until capacity frees up instead of failing.
+
+:::warning Defaults set too low fail builds in a way that looks unrelated
+A memory limit under what a build needs gets the step OOMKilled, and a low CPU limit throttles it into a timeout. Either reads as a broken build rather than a resource cap, and the build log rarely says which. If builds start failing after you apply these, raise the limits before looking anywhere else — and prefer generous limits with a smaller quota, since the quota is what actually bounds total consumption.
+:::
+
+:::note The namespace appears when the environment first runs a workflow
+`workflows-<environment>` is created by OpenChoreo the first time a workflow runs there, so apply these after the first successful build rather than during the install. Repeat them for each environment you add.
+:::
 
 ### High Availability and Scaling
 
