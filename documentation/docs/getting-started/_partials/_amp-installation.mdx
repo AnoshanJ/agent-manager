@@ -9,9 +9,9 @@
        - props.production         — (boolean, optional) if true, renders the production
          variants of the install commands (external database, generated client secrets,
          multiple replicas, non-debug logging) instead of the development-grade
-         defaults. Note the gateway still installs with developmentMode=true: turning
-         it off needs encryption keys the extension chart does not expose as a value,
-         so Step 7 flags it rather than setting it.
+         defaults. The gateway installs with developmentMode=true either way; the
+         encryption keys it needs are created in Step 1 and passed through the
+         operator, since the gateway requires them regardless of that setting.
 */}
 
 export const Prod = ({production, children}) => (production ? <>{children}</> : null);
@@ -36,16 +36,38 @@ Install these in order — each depends on the one before it.
 
 Manages API Gateway resources and enables secure, authenticated trace ingestion into the Observability Plane.
 
+The gateway controller encrypts stored credentials at rest and will not start without a key, so create one before installing the operator:
+
+```bash
+kubectl create namespace ${DATA_PLANE_NS} --dry-run=client -o yaml | kubectl apply -f -
+
+openssl rand 32 > gateway-aesgcm.key
+kubectl create secret generic gateway-encryption-keys \
+  --namespace ${DATA_PLANE_NS} \
+  --from-file=default-aesgcm256-v1.bin=gateway-aesgcm.key
+rm -f gateway-aesgcm.key
+```
+
+:::warning The key is required, and the file name is fixed
+The controller looks for a specific path, `/app/data/aesgcm-keys/default-aesgcm256-v1.bin`, so the Secret key must be exactly `default-aesgcm256-v1.bin`. Without it the controller crash-loops on `failed to initialize key manager: encryption key file not found for version aesgcm256-v1`, and the gateway never programs — the rest of the platform stays healthy, so the only symptom is that agents cannot be invoked.
+
+This applies whatever `developmentMode` is set to. Earlier gateway releases auto-generated a key in development mode; from `1.2.0-beta` they do not.
+
+Store the key with the rest of your platform secrets. It encrypts credentials the gateway holds, and losing it means those entries cannot be decrypted.
+:::
+
 <Dev production={props.production}>
 
 ```bash
 helm install gateway-operator \
   oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
-  --version 0.6.0 \
+  --version 0.10.1 \
   --namespace ${DATA_PLANE_NS} \
   --set logging.level=debug \
   --set gatewayApi.installStandardCRDs=false \
-  --set gateway.helm.chartVersion=1.1.1 \
+  --set gateway.helm.chartVersion=1.2.0-beta \
+  --set gateway.values.gateway.controller.encryptionKeys.enabled=true \
+  --set gateway.values.gateway.controller.encryptionKeys.secretName=gateway-encryption-keys \
   --timeout 600s
 ```
 
@@ -56,15 +78,23 @@ helm install gateway-operator \
 ```bash
 helm install gateway-operator \
   oci://ghcr.io/wso2/api-platform/helm-charts/gateway-operator \
-  --version 0.6.0 \
+  --version 0.10.1 \
   --namespace ${DATA_PLANE_NS} \
   --set logging.level=info \
   --set gatewayApi.installStandardCRDs=false \
-  --set gateway.helm.chartVersion=1.1.1 \
+  --set gateway.helm.chartVersion=1.2.0-beta \
+  --set gateway.values.gateway.controller.encryptionKeys.enabled=true \
+  --set gateway.values.gateway.controller.encryptionKeys.secretName=gateway-encryption-keys \
   --timeout 600s
 ```
 
 </Prod>
+
+:::note Pin the gateway chart, do not inherit it
+`gateway.helm.chartVersion` decides which gateway chart the operator deploys, and it is the only thing that decides it — the `APIGateway` resource carries no chart version. Operator `0.10.1` defaults to `1.2.0-alpha`, whose templates predate the controller reading its control-plane address from configuration while still shipping `1.2.0-beta` images. The result is a gateway that installs, programs, and serves traffic while never registering with Agent Manager, so it never appears in the gateway list. Pin `1.2.0-beta` as above so the chart and the images match.
+
+`gateway.values` is the operator's passthrough into that chart: anything set under it is merged into the values the gateway is deployed with, which is how the encryption keys above are wired.
+:::
 
 Wait for the operator to be ready:
 
@@ -504,7 +534,7 @@ kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap
 `gateway.type=BOTH` registers this gateway to serve both inbound and outbound traffic, which is what a single-gateway environment needs. It matches the chart default and is set explicitly here because the role is written once at registration and never rewritten — see [Gateway roles and topology](#gateway-roles-and-topology) for the split alternative and its constraints.
 
 :::warning Development mode is still on
-This release defaults to `developmentMode: true`, which relaxes gateway security checks such as auto-generating encryption keys. Turning it off requires supplying encryption keys that the extension chart does not yet expose as a value — see [Gateway hardening](#gateway-hardening) for the procedure and its caveats.
+This release defaults to `developmentMode: true`, which relaxes gateway security checks. It no longer affects encryption keys — those are required either way and were created in [Step 1](#step-1-gateway-operator) — but the other relaxed checks remain. See [Gateway hardening](#gateway-hardening) before treating this gateway as production-ready.
 :::
 
 </Prod>
