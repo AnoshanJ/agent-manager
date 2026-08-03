@@ -1047,13 +1047,6 @@ func (s *agentManagerService) GetAgent(ctx context.Context, ouID string, project
 }
 
 // populateCreatedBy best-effort resolves and attaches who created this agent.
-// The only signal available is the audit-only requester id captured once at
-// agent-creation time on every environment's AgentID binding (see
-// models.AgentThunderClient.RequestedBy) — not a purpose-built "creator"
-// column, since the agent record itself lives in OpenChoreo, not AMS's DB.
-// Never fails GetAgent: a missing provisioning implementation, a lookup
-// error, an empty requestedBy (pre-dates this being tracked), or a
-// since-deleted user all just leave CreatedBy unset (or id-only).
 func (s *agentManagerService) populateCreatedBy(ctx context.Context, ouID, projectName, agentName string, agent *models.AgentResponse) {
 	if s.agentThunderProvisioning == nil || s.identityClient == nil {
 		return
