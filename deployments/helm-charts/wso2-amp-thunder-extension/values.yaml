@@ -186,8 +186,11 @@ thunder:
     # thunder.bootstrap.defaultUsers[0].password below if you change either one.
     # WARNING: admin.password below is a LOCAL-DEVELOPMENT-ONLY placeholder.
     # In production, override thunder.setup.admin.password (and
-    # thunder.bootstrap.defaultUsers[0].password) via a Kubernetes Secret or an
-    # external secret manager. Deploying with this default value is insecure.
+    # thunder.bootstrap.defaultUsers[0].password) via a Kubernetes Secret or
+    # an external secret manager. TODO: this is one instance of a known,
+    # repo-wide gap — every hardcoded password in agent-manager is planned to
+    # be replaced with a generated or operator-supplied value as a separate
+    # effort, not fixed piecemeal per file.
     admin:
       username: "admin"
       password: "admin"
