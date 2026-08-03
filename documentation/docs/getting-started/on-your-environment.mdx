@@ -1468,7 +1468,7 @@ Work down this table against an existing install. The **When** column matters: t
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
 | Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
 | JWT signature verification active on the API and the observer | [Identity](#identity-and-access) | Any time |
-| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Not yet possible — chart gap |
+| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Both are set during installation |
 | Post-upgrade patches re-applied | [After a chart upgrade](#after-a-chart-upgrade) | After every relevant `helm upgrade` |
 | Build workloads bounded by a node pool or ResourceQuota | [Build workflows](#build-workflows) | Any time |
 | Stateless services running multiple replicas | [High availability](#high-availability-and-scaling) | Any time |
@@ -1537,17 +1537,46 @@ Metrics come from the in-cluster Prometheus deployed by the metrics module; for 
 
 ### Gateway Hardening
 
-The gateway extension provisions one gateway per environment and ships with `developmentMode: true`, which relaxes security checks such as auto-generating encryption keys. For production set `developmentMode=false`.
+The gateway extension provisions one gateway per environment and ships with `developmentMode: true`, which relaxes several security checks. The production install in [Phase 2](#phase-2-agent-manager-installation) already sets `developmentMode=false` and provisions the encryption key the gateway needs, so a gateway installed by following this guide starts hardened — there is nothing to turn off afterwards.
 
-With development mode off the gateway requires explicit encryption keys (`gateway.controller.encryptionKeys`, key format per the [high-availability production guide](https://wso2.com/api-platform/docs/api-gateway/1.1.0/deployment/high-availability-production-deployment/)). The extension chart does not yet expose a value for that block.
+If you inherited a gateway that was installed with development mode on, turn it off in place:
 
-:::warning No working procedure today — leave development mode on
-Editing the rendered `<release>-config` ConfigMap looks like an escape hatch, but it does not work with gateway-operator 0.6.0 and makes things worse. Adding `encryptionKeys` under `gateway.controller` there is correctly formed — the gateway chart renders cleanly when given that same file directly — yet the operator does not pass the value through, and the APIGateway stays `Programmed=False` with `gateway.controller.encryptionKeys must be enabled when gateway.developmentMode is false`, through operator restarts and re-reconciles.
+```bash
+helm upgrade api-platform-default-default \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-api-platform-gateway-extension \
+  --version ${VERSION} \
+  --namespace ${DATA_PLANE_NS} \
+  --reuse-values \
+  --set developmentMode=false \
+  --timeout 1800s
+```
 
-Worse, patching that ConfigMap with `kubectl apply` transfers ownership of `.data.values.yaml` to `kubectl`, so the **next** `helm upgrade` of the extension fails with a field-manager conflict; recovery means deleting the ConfigMap so Helm can recreate it. And because the operator's retry budget is exhausted and persisted, reverting the values does not by itself return the CR to `Programmed=True`.
+Encryption keys are **not** part of that decision. The gateway requires them whichever way `developmentMode` is set, which is why the key Secret is created before the operator is installed. If the upgrade above fails with `encryptionKeys must be enabled: at-rest encryption is mandatory`, the key is missing — create it and wire it through the operator as [Step 1](#phase-2-agent-manager-installation) describes, then retry.
 
-Until the extension exposes the value, keep `developmentMode: true` and treat this checklist row as outstanding. The data path is unaffected either way.
+:::note Configure the gateway through the operator, not the rendered ConfigMap
+Any gateway chart value can be set through the operator's `gateway.values` passthrough, which the operator merges into the values it deploys the gateway with:
+
+```bash
+--set gateway.values.gateway.controller.<setting>=<value>
+```
+
+The extension also renders a `<release>-config` ConfigMap holding those values, and editing it directly looks like a shortcut. It is not: `kubectl apply` takes ownership of `.data.values.yaml`, so the next `helm upgrade` of the extension fails with a field-manager conflict, and recovery means deleting the ConfigMap so Helm can recreate it. Set values on the operator instead.
 :::
+
+:::warning A gateway that fails its first install stays failed
+If the gateway stack cannot start on first install — a missing encryption key is the usual cause — the operator exhausts its retry budget and **persists that state**. Correcting the values afterwards changes nothing on its own: the `APIGateway` stays `Programmed=False` with `Max retries (10) exceeded`, through operator restarts and re-reconciles, and its Helm sub-release is left in `pending-install`.
+
+Recovery is to clear both halves: `helm uninstall <release>-gw` to remove the wedged sub-release, then delete the `APIGateway` resource and `helm upgrade` the extension to re-render it. It reconciles to `Ready` within a minute once both are gone.
+:::
+
+Verify the gateway actually registered, rather than only that it is running:
+
+```bash
+kubectl get apigateway -n ${DATA_PLANE_NS}
+# expect PROGRAMMED=True
+```
+
+A gateway can be `Programmed=True` with both pods healthy and still not be registered with Agent Manager — it then never appears in the console's gateway list and cannot serve agent traffic. If that happens, check the controller's startup log for an empty control-plane address, which means the chart and image versions do not match: see the pinning note in [Step 1](#phase-2-agent-manager-installation).
 
 Rate-limiting policies default to an **in-memory** backend, which does not share counters across gateway replicas. When running more than one replica, switch to Redis through the extension's `apiGateway.config.policyConfigurations.ratelimit_v1` values (`backend: redis` plus the `redis` connection block).
 
