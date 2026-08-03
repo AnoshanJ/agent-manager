@@ -1468,7 +1468,7 @@ Work down this table against an existing install. The **When** column matters: t
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
 | Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
 | JWT signature verification active on the API and the observer | [Identity](#identity-and-access) | Any time |
-| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Keys are set up during installation; development mode is turned off here |
+| Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Both are set during installation |
 | Post-upgrade patches re-applied | [After a chart upgrade](#after-a-chart-upgrade) | After every relevant `helm upgrade` |
 | Build workloads bounded by a node pool or ResourceQuota | [Build workflows](#build-workflows) | Any time |
 | Stateless services running multiple replicas | [High availability](#high-availability-and-scaling) | Any time |
@@ -1537,7 +1537,9 @@ Metrics come from the in-cluster Prometheus deployed by the metrics module; for 
 
 ### Gateway Hardening
 
-The gateway extension provisions one gateway per environment and ships with `developmentMode: true`, which relaxes several security checks. For production set `developmentMode=false` on the extension:
+The gateway extension provisions one gateway per environment and ships with `developmentMode: true`, which relaxes several security checks. The production install in [Phase 2](#phase-2-agent-manager-installation) already sets `developmentMode=false` and provisions the encryption key the gateway needs, so a gateway installed by following this guide starts hardened — there is nothing to turn off afterwards.
+
+If you inherited a gateway that was installed with development mode on, turn it off in place:
 
 ```bash
 helm upgrade api-platform-default-default \
@@ -1549,7 +1551,7 @@ helm upgrade api-platform-default-default \
   --timeout 1800s
 ```
 
-Encryption keys are **not** part of that decision. The gateway requires them whichever way `developmentMode` is set, which is why [Step 1](#phase-2-agent-manager-installation) creates the `gateway-encryption-keys` Secret and passes it to the operator before anything is installed. Nothing further is needed here.
+Encryption keys are **not** part of that decision. The gateway requires them whichever way `developmentMode` is set, which is why the key Secret is created before the operator is installed. If the upgrade above fails with `encryptionKeys must be enabled: at-rest encryption is mandatory`, the key is missing — create it and wire it through the operator as [Step 1](#phase-2-agent-manager-installation) describes, then retry.
 
 :::note Configure the gateway through the operator, not the rendered ConfigMap
 Any gateway chart value can be set through the operator's `gateway.values` passthrough, which the operator merges into the values it deploys the gateway with:

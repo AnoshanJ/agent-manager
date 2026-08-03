@@ -524,6 +524,7 @@ helm install api-platform-default-default \
   --set agentManager.orgName=default \
   --set gateway.environment=default \
   --set gateway.type=BOTH \
+  --set developmentMode=false \
   --set agentManager.idp.existingSecret=gateway-idp-credentials \
   --timeout 1800s
 
@@ -533,9 +534,7 @@ kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap
 
 `gateway.type=BOTH` registers this gateway to serve both inbound and outbound traffic, which is what a single-gateway environment needs. It matches the chart default and is set explicitly here because the role is written once at registration and never rewritten — see [Gateway roles and topology](#gateway-roles-and-topology) for the split alternative and its constraints.
 
-:::warning Development mode is still on
-This release defaults to `developmentMode: true`, which relaxes gateway security checks. It no longer affects encryption keys — those are required either way and were created in [Step 1](#step-1-gateway-operator) — but the other relaxed checks remain. See [Gateway hardening](#gateway-hardening) before treating this gateway as production-ready.
-:::
+`developmentMode=false` turns off the relaxed security checks the chart enables by default. It depends on the encryption key from [Step 1](#step-1-gateway-operator): without one the install fails immediately with `encryptionKeys must be enabled: at-rest encryption is mandatory`. Set it here rather than hardening afterwards, so the gateway is never registered in a relaxed state.
 
 </Prod>
 
