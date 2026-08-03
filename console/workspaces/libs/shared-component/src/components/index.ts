@@ -31,6 +31,7 @@ export * from "./ResourceMetricChip";
 export * from "./GatewayTypeChip";
 export * from "./InfoCard";
 export * from "./EnvironmentCard";
+export * from "./OverviewSectionCard";
 export * from "./IsolationTierIndicator";
 export * from "./InvokeEndpoints";
 export * from "./ConfirmationDialog";

@@ -160,7 +160,6 @@ export const ExternalAgentOverview = () => {
                   envId={selectedEnvironment.name}
                   configurations={agent?.configurations}
                   external
-                  registeredAt={agent?.createdAt}
                   isolationTier={selectedEnvironment.isolationTier}
                 />
               }
