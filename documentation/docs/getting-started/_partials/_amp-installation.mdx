@@ -341,6 +341,7 @@ helm install amp-platform-resources \
   oci://${HELM_CHART_REGISTRY}/wso2-amp-platform-resources-extension \
   --version ${VERSION} \
   --namespace ${DEFAULT_NS} \
+  --set apiPlatformGateway.namespace=${DATA_PLANE_NS} \
   --timeout 1800s
 ```
 
@@ -357,6 +358,7 @@ helm install amp-platform-resources \
   --set global.oauth.hostHeader="amp-thunder-extension-service.${THUNDER_NS}.svc.cluster.local" \
   --set global.apiServer.url="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --set global.apiServer.hostHeader="openchoreo-api.openchoreo-control-plane.svc.cluster.local" \
+  --set apiPlatformGateway.namespace=${DATA_PLANE_NS} \
   --timeout 1800s
 ```
 
@@ -367,6 +369,14 @@ Nothing earlier in the install touches these values, so a platform that installs
 :::
 
 </Prod>
+
+:::warning Point the traits at the namespace the gateway is actually in
+Deployed agents reach the gateway runtime by DNS name, and both the trace-export endpoint and the route agent traffic is forwarded through are built from `apiPlatformGateway.namespace`. Leaving it empty derives the per-org-env convention `<org>-<env>`, which is what `add-environment.sh` creates — but [Step 7](#step-7-api-platform-gateway-extension) installs the gateway extension into `${DATA_PLANE_NS}`, matching that chart's own `apiGateway.namespace` default. Set this to the same namespace, as above.
+
+Get it wrong and nothing reports an error. The agent starts and serves requests while every span batch fails inside it with `Failed to resolve '…-gw-gateway-gateway-runtime.default-default' ([Errno -2] Name or service not known)`, so the Traces view stays empty; and the backend agent routes forward to has no reachable host, so invocation never reaches the gateway. The only evidence is a `Transient error` warning in the agent's own log.
+
+If you install the gateway extension into `<org>-<env>` instead, leave this unset.
+:::
 
 export const RegistryConfig = ({expanded}) => {
   const content = (
