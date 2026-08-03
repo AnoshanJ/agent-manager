@@ -307,6 +307,19 @@ func TestAgentKindService_AddVersion_Gates(t *testing.T) {
 		assert.ErrorIs(t, err, utils.ErrKindImageAlreadyPublished)
 	})
 
+	t.Run("rejects a secret default equal to the redaction placeholder", func(t *testing.T) {
+		repo := baseRepo()
+		item := spec.AgentKindConfigSchemaItem{Name: "OPENAI_API_KEY", IsSecret: true, IsMandatory: true}
+		item.SetDefaultValue(models.RedactedSecretDefaultPlaceholder)
+		placeholderReq := &spec.AddAgentKindVersionRequest{ConfigSchema: []spec.AgentKindConfigSchemaItem{item}}
+		svc := newKindService(repo, &clientmocks.OpenChoreoClientMock{})
+
+		_, err := svc.AddVersion(context.Background(), org, kindName, placeholderReq)
+
+		assert.ErrorIs(t, err, utils.ErrInvalidInput)
+		assert.Empty(t, repo.CreateVersionCalls(), "must be rejected before ever reaching persistence")
+	})
+
 	t.Run("persists a new version on the happy path", func(t *testing.T) {
 		var created *models.AgentKindVersion
 		repo := baseRepo()

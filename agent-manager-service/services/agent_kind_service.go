@@ -365,6 +365,10 @@ func (s *agentKindService) publishVersion(
 	configSchema []spec.AgentKindConfigSchemaItem,
 	metadata json.RawMessage,
 ) (*models.AgentKindVersionResponse, error) {
+	if err := RejectPlaceholderSecretDefaults(configSchema); err != nil {
+		return nil, err
+	}
+
 	// Check version doesn't already exist
 	existing, err := s.kindRepo.GetVersion(ctx, kind.ID, versionTag)
 	if existing != nil {
@@ -435,6 +439,24 @@ func marshalMetadata(m map[string]interface{}) (json.RawMessage, error) {
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 	return b, nil
+}
+
+// RejectPlaceholderSecretDefaults errors if a secret item's submitted default value is
+// models.RedactedSecretDefaultPlaceholder. That string is the server's own stand-in for
+// a hidden secret default (see models.RedactSecretDefaults) — a client can only have
+// gotten it by reading a previous response, never by knowing a real secret value.
+// Storing it here would let it later be applied to an agent as its actual secret,
+// which is never a legitimate default.
+func RejectPlaceholderSecretDefaults(items []spec.AgentKindConfigSchemaItem) error {
+	for _, item := range items {
+		if !item.GetIsSecret() {
+			continue
+		}
+		if v, ok := item.GetDefaultValueOk(); ok && v != nil && *v == models.RedactedSecretDefaultPlaceholder {
+			return fmt.Errorf("%w: default value for secret item %q cannot be the reserved placeholder", utils.ErrInvalidInput, item.GetName())
+		}
+	}
+	return nil
 }
 
 func toModelConfigSchema(items []spec.AgentKindConfigSchemaItem) []models.KindConfigSchemaItem {
