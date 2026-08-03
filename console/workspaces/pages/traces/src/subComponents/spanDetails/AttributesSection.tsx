@@ -33,9 +33,7 @@ import {
 import { useState, useRef } from "react";
 
 interface AttributesSectionProps {
-  // A structured object is shown as formatted JSON; a raw string is shown as
-  // plain, searchable text (used for status messages that aren't parseable JSON).
-  attributes?: Record<string, unknown> | string;
+  attributes?: Record<string, unknown>;
 }
 
 const CUSTOM_DARK_THEME = "custom-dark-transparent";
@@ -240,14 +238,7 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
     navigateToMatch(prevIndex);
   };
 
-  const isRawText = typeof attributes === "string";
-
-  if (
-    !attributes ||
-    (isRawText
-      ? attributes.trim().length === 0
-      : Object.keys(attributes).length === 0)
-  ) {
+  if (!attributes || Object.keys(attributes).length === 0) {
     return (
       <NoDataFound
         message="No attributes found"
@@ -257,9 +248,6 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
       />
     );
   }
-
-  const editorValue = isRawText ? attributes : safeStringifyAttributes(attributes);
-  const editorLanguage = isRawText ? "plaintext" : "json";
 
   return (
     <Stack direction="column" spacing={2}>
@@ -324,8 +312,8 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
         theme={
           colorSchemeMode === "dark" ? CUSTOM_DARK_THEME : CUSTOM_LIGHT_THEME
         }
-        value={editorValue}
-        language={editorLanguage}
+        value={safeStringifyAttributes(attributes)}
+        language="json"
         beforeMount={handleEditorWillMount}
         onMount={handleEditorMount}
         options={{

@@ -93,6 +93,110 @@ function formattedMessage(message: string) {
     return message;
   }
 }
+
+function pythonDictToJson(input: string): string {
+  const ESCAPES: Record<string, string> = {
+    n: "\n",
+    t: "\t",
+    r: "\r",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+  };
+  let out = "";
+  let buf = ""; // pending non-string run
+  const flush = () => {
+    out += buf
+      .replace(/\bNone\b/g, "null")
+      .replace(/\bTrue\b/g, "true")
+      .replace(/\bFalse\b/g, "false");
+    buf = "";
+  };
+  let i = 0;
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === "'" || ch === '"') {
+      flush();
+      const quote = ch;
+      i++;
+      let str = "";
+      while (i < input.length) {
+        const c = input[i];
+        if (c === "\\") {
+          const next = input[i + 1] ?? "";
+          str += next in ESCAPES ? ESCAPES[next] : next;
+          i += 2;
+          continue;
+        }
+        if (c === quote) {
+          i++;
+          break;
+        }
+        str += c;
+        i++;
+      }
+      out += JSON.stringify(str); // re-encode with proper JSON escaping
+      continue;
+    }
+    buf += ch;
+    i++;
+  }
+  flush();
+  return out;
+}
+
+// Extracts and parses the object embedded in a status message such as
+// "Error code: 422 - {'message': {...}, 'type': '...'}". Scans for the balanced
+// object (ignoring braces inside strings), then tries plain JSON first and a
+// Python-dict normalization. Returns the parsed object, or undefined when nothing
+// parseable is present.
+function parseEmbeddedObject(message: string): Record<string, unknown> | undefined {
+  const start = message.indexOf("{");
+  if (start === -1) {
+    return undefined;
+  }
+  let depth = 0;
+  let quote: string | null = null;
+  let end = -1;
+  for (let i = start; i < message.length; i++) {
+    const ch = message[i];
+    if (quote) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) {
+    return undefined;
+  }
+  const candidate = message.slice(start, end + 1);
+  for (const text of [candidate, pythonDictToJson(candidate)]) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
+}
+
+// Builds the status-message content shown in the Overview tab. When the message
+// wraps an embedded payload (e.g. "Error code: 422 - {...}"), the prefix is
+// dropped and the payload is pretty-printed as JSON; otherwise the raw message
+// is shown as-is.
+function formatStatusMessage(message: string): string {
+  const parsed = parseEmbeddedObject(message);
+  return parsed ? formattedMessage(JSON.stringify(parsed)) : message;
+}
 const MessageList = memo(function MessageList({
   title,
   messages,
@@ -264,6 +368,13 @@ export function Overview({ ampAttributes }: OverviewProps) {
     return undefined;
   }, [ampAttributes]);
 
+  // Status message (e.g. an error/guardrail response) shown as JSON, like the
+  // input/output message content.
+  const statusMessage = useMemo(() => {
+    const raw = ampAttributes?.status?.message;
+    return raw ? formatStatusMessage(raw) : undefined;
+  }, [ampAttributes?.status?.message]);
+
   const hasContent = inputMessages.length > 0 || outputMessages.length > 0;
 
   const getRoleColor = useCallback((role: string) => {
@@ -281,7 +392,7 @@ export function Overview({ ampAttributes }: OverviewProps) {
     }
   }, []);
 
-  if (!hasContent && !name) {
+  if (!hasContent && !name && !statusMessage) {
     return (
       <NoDataFound
         message="Failed to extract span details"
@@ -357,6 +468,20 @@ export function Overview({ ampAttributes }: OverviewProps) {
         data-testid="output-messages"
         showEmptyMessage={false}
       />
+
+      {statusMessage && (
+        <Stack pt={2} data-testid="status-message">
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Status Message
+          </Typography>
+          <Card variant="outlined">
+            <CardContent>
+              <JSONView json={statusMessage} />
+            </CardContent>
+          </Card>
+        </Stack>
+      )}
     </Stack>
   );
 }
