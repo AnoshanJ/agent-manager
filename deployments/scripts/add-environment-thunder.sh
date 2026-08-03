@@ -305,7 +305,16 @@ store_via_ams() {
 # roles/groups bootstrapped for platform Thunder are human-console concerns that
 # env-Thunder (agent identities only) does not need.
 render_system_client_bootstrap_resource() {
-  local secret="$1" doc
+  local secret="$1" doc squote escaped_secret
+  # clientSecret below is single-quoted YAML, whose only escape rule is a
+  # doubled literal quote — unlike the double-quoted form this replaced, it
+  # has no backslash-escape sequences to misinterpret. Guards a custom
+  # SYSTEM_CLIENT_SECRET (env var, see this script's header) the same way
+  # json_escape guards the store_via_ams JSON path above, so a value
+  # containing a quote can't break the document or silently diverge from
+  # what store_via_ams already sent to agent-manager-service.
+  squote="'"
+  escaped_secret="${secret//$squote/$squote$squote}"
   # ouId (not ouHandle): same declarative-importer gap as platform Thunder's
   # bootstrap (amp-thunder-bootstrap.yaml) — the importer never resolves
   # ouHandle for `application` documents, so this app would otherwise end up
@@ -328,7 +337,7 @@ inboundAuthConfig:
   - type: oauth2
     config:
       clientId: amp-system-client
-      clientSecret: "__SYSTEM_CLIENT_SECRET__"
+      clientSecret: '__SYSTEM_CLIENT_SECRET__'
       grantTypes: [client_credentials]
       tokenEndpointAuthMethod: client_secret_basic
       pkceRequired: false
@@ -341,7 +350,7 @@ inboundAuthConfig:
             attributes: ["ouId", "ouHandle"]
 BOOTSTRAP_RESOURCE
 )"
-  printf '%s' "${doc//__SYSTEM_CLIENT_SECRET__/$secret}"
+  printf '%s' "${doc//__SYSTEM_CLIENT_SECRET__/$escaped_secret}"
 }
 
 # render_default_resource_server_config -> prints a declarative server_config

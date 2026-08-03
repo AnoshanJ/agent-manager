@@ -184,6 +184,10 @@ thunder:
     # per the thunderid chart's own values.yaml comment), so leaving this unset silently
     # breaks the documented admin/admin console login. Keep this in sync with
     # thunder.bootstrap.defaultUsers[0].password below if you change either one.
+    # WARNING: admin.password below is a LOCAL-DEVELOPMENT-ONLY placeholder.
+    # In production, override thunder.setup.admin.password (and
+    # thunder.bootstrap.defaultUsers[0].password) via a Kubernetes Secret or an
+    # external secret manager. Deploying with this default value is insecure.
     admin:
       username: "admin"
       password: "admin"
@@ -196,8 +200,8 @@ thunder:
         memory: 128Mi
   bootstrap:
     enabled: true
-    # The observability data-read scopes, single-sourced: 59-am-mcp-client.sh
-    # subtracts this list from am-mcp's allowance and 64-am-obs-mcp-client.sh
+    # The observability data-read scopes, single-sourced: 59-am-mcp-client.yaml
+    # subtracts this list from am-mcp's allowance and 73-am-obs-mcp-client.yaml
     # appends it to am-obs-mcp's OIDC scopes (both at template render time).
     # The same scopes also appear in ampScopes below as part of the full
     # catalog for the other interactive clients.
@@ -210,7 +214,7 @@ thunder:
     # Thunder only grants scopes that appear in an app's registered scope list, so all
     # permission scopes must be declared here for role-based access to work.
     # Exception: am-mcp's allowance is this catalog MINUS observabilityScopes
-    # (filtered in 59-am-mcp-client.sh) — those scopes are owned exclusively
+    # (filtered in 59-am-mcp-client.yaml) — those scopes are owned exclusively
     # by the observer MCP client (amObsMcpClient below).
     ampScopes:
       - "openid"
@@ -515,7 +519,7 @@ thunder:
       idTokenValidityPeriod: 3600
       # OIDC scopes only — the four observability data-read scopes are
       # appended from observabilityScopes at template render time
-      # (64-am-obs-mcp-client.sh).
+      # (73-am-obs-mcp-client.yaml).
       scopes:
         - "openid"
         - "profile"
