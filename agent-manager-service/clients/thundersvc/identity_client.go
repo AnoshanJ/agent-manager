@@ -1182,13 +1182,27 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 				"type":       proxyResourceServerType,
 			})
 		if err != nil {
-			return "", fmt.Errorf("thunder create proxy resource server: %w", err)
+			// Same cross-replica race as ensureProxyResource below: a 409 means a
+			// concurrent caller (different AMS replica) created the resource
+			// server first, so look the winner up by identifier instead of
+			// failing the whole role write over a benign race.
+			if IsConflict(err) {
+				foundID, findErr := c.findResourceServerID(ctx, token, proxyHandle)
+				if findErr != nil {
+					return "", findErr
+				}
+				rsID = foundID
+			}
+			if rsID == "" {
+				return "", fmt.Errorf("thunder create proxy resource server: %w", err)
+			}
+		} else {
+			var created ThunderResourceServer
+			if err := json.Unmarshal(body, &created); err != nil {
+				return "", fmt.Errorf("thunder create proxy resource server decode: %w", err)
+			}
+			rsID = created.ID
 		}
-		var created ThunderResourceServer
-		if err := json.Unmarshal(body, &created); err != nil {
-			return "", fmt.Errorf("thunder create proxy resource server decode: %w", err)
-		}
-		rsID = created.ID
 	}
 
 	resourceID, err := c.ensureProxyResource(ctx, token, rsID, proxyHandle, displayName)

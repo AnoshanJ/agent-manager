@@ -1402,7 +1402,7 @@ func (c *identityController) UpdateCurrentUserProfile(w http.ResponseWriter, r *
 
 	if newPassword != "" {
 		if err := c.client.UpdateUserCredentials(ctx, userID, newPassword); err != nil {
-			log.Error("UpdateCurrentUserProfile: password update failed", "userID", userID, "error", err)
+			log.Error("UpdateCurrentUserProfile: password update failed", "userID", userID, "ouID", resolvedOrg.OUID, "error", err)
 			utils.WriteErrorResponse(w, http.StatusInternalServerError, "Profile updated, but password change failed")
 			return
 		}

@@ -269,6 +269,47 @@ func TestEnsureProxyResourceServer_SelfHealsWhenRSExistsWithoutAnchorResource(t 
 // ensureResourceServerMu only serializes calls within one process, so
 // Thunder's 409 RES-1014 on the loser must be treated as "already exists,
 // look it up" rather than failing the whole role write.
+// TestEnsureProxyResourceServer_RecoversFromConcurrentResourceServerCreationConflict
+// is the same race one level up: two AMS replicas both find no resource server
+// for a brand-new proxy and race to create it.
+func TestEnsureProxyResourceServer_RecoversFromConcurrentResourceServerCreationConflict(t *testing.T) {
+	rsFindCalls := 0
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			rsFindCalls++
+			if rsFindCalls == 1 {
+				// First lookup: not created yet.
+				_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "totalResults": 0})
+			} else {
+				// Second lookup (after the 409): the concurrent winner's write is now visible.
+				_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{map[string]string{"id": "rs-1", "identifier": "gh-proxy"}}, "totalResults": 1})
+			}
+		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"RES-1014","message":"Handle conflict"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resources": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "res-1", "handle": "gh-proxy"})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/resources/res-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "act-1", "handle": "read"})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", []string{"read"})
+	require.NoError(t, err, "a 409 on the resource server create must be recovered from, not surfaced as a failure")
+	assert.Equal(t, "rs-1", rsID)
+	assert.Equal(t, 2, rsFindCalls, "must re-look-up the resource server after the conflict to get the winner's ID")
+}
+
 func TestEnsureProxyResourceServer_RecoversFromConcurrentAnchorCreationConflict(t *testing.T) {
 	findCalls := 0
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
