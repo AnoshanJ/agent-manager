@@ -1492,29 +1492,32 @@ func validateSystemGroup(w http.ResponseWriter, groupName string) bool {
 	return true
 }
 
-// validateReservedName rejects a request that would claim a name Thunder
-// reserves for one of its seeded principals, which would shadow the hidden
-// system resource and confuse an operator about which one grants admin.
+// validateReservedName rejects a request that would claim a name Thunder or our
+// own bootstrap reserves for one of its seeded principals, which would shadow the
+// hidden system resource and confuse an operator about which one grants admin.
 //
 // Callers pass the *requested* name, never the resource's current one — that is
 // validateSystemGroup/validatePredefinedRole's job. An absent name means the
 // caller is not renaming, and passes.
-func validateReservedName(w http.ResponseWriter, requested, reserved, kind string) bool {
-	if requested == reserved {
-		utils.WriteErrorResponse(w, http.StatusBadRequest,
-			fmt.Sprintf("%q is a reserved %s name", reserved, kind))
-		return false
+func validateReservedName(w http.ResponseWriter, requested string, reserved []string, kind string) bool {
+	for _, r := range reserved {
+		if requested == r {
+			utils.WriteErrorResponse(w, http.StatusBadRequest,
+				fmt.Sprintf("%q is a reserved %s name", r, kind))
+			return false
+		}
 	}
 	return true
 }
 
 func validateReservedGroupName(w http.ResponseWriter, groupName string) bool {
-	return validateReservedName(w, groupName, thundersvc.NativeAdministratorsGroupName, "group")
+	return validateReservedName(w, groupName, []string{thundersvc.NativeAdministratorsGroupName}, "group")
 }
 
 // validateReservedRoleName complements validatePredefinedRole, which only
 // inspects a role's current name — without this an ordinary role could be
-// renamed to Administrator.
+// renamed to Administrator or AMP System Client Thunder Admin.
 func validateReservedRoleName(w http.ResponseWriter, roleName string) bool {
-	return validateReservedName(w, roleName, thundersvc.NativeAdministratorRoleName, "role")
+	return validateReservedName(w, roleName,
+		[]string{thundersvc.NativeAdministratorRoleName, thundersvc.AMPSystemClientRoleName}, "role")
 }

@@ -661,6 +661,116 @@ func TestAgentIdentityRemoveRoleAssignees_NativeAdministratorAllowed(t *testing.
 	assert.True(t, removed, "cleanup removal must pass through to Thunder")
 }
 
+// sysClientRoleEnvClient returns an env client whose GetRole always resolves
+// env-Thunder's own bootstrap-seeded AMP System Client Thunder Admin role.
+// Every mutating func is left nil, so any write reaching Thunder panics the
+// test.
+func sysClientRoleEnvClient() *clientmocks.EnvIdentityClientMock {
+	return &clientmocks.EnvIdentityClientMock{
+		GetRoleFunc: func(_ context.Context, roleID string) (*thundersvc.ThunderRole, error) {
+			return &thundersvc.ThunderRole{ID: roleID, OuID: "ou-env", Name: thundersvc.AMPSystemClientRoleName}, nil
+		},
+	}
+}
+
+// sysClientRoleRequest builds a request with the org/env/role path values
+// shared by every AMP System Client Thunder Admin guard test.
+func sysClientRoleRequest(method, url, body string) *http.Request {
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	req.SetPathValue("orgName", "o1")
+	req.SetPathValue("envName", "dev")
+	req.SetPathValue("roleID", "r-sysclient")
+	return req
+}
+
+// TestAgentIdentityGetRole_AMPSystemClientHidden mirrors
+// TestAgentIdentityGetRole_NativeAdministratorHidden: env-Thunder's own
+// bootstrap-seeded system-client role must be just as invisible through the
+// agent-identity API, since it carries the same "system" scope.
+func TestAgentIdentityGetRole_AMPSystemClientHidden(t *testing.T) {
+	ctrl := adminRoleController(sysClientRoleEnvClient())
+
+	req := sysClientRoleRequest(http.MethodGet, "/orgs/o1/environments/dev/agent-identities/roles/r-sysclient", "")
+	w := httptest.NewRecorder()
+
+	ctrl.GetRole(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestAgentIdentityUpdateRole_AMPSystemClientRejected mirrors
+// TestAgentIdentityUpdateRole_NativeAdministratorRejected: the system-client
+// role must not be editable either. UpdateRoleFunc is nil, so any write
+// reaching Thunder panics.
+func TestAgentIdentityUpdateRole_AMPSystemClientRejected(t *testing.T) {
+	ctrl := adminRoleController(sysClientRoleEnvClient())
+
+	req := sysClientRoleRequest(http.MethodPut, "/orgs/o1/environments/dev/agent-identities/roles/r-sysclient",
+		`{"name":"renamed","scopes":[]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.UpdateRole(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestAgentIdentityDeleteRole_AMPSystemClientRejected mirrors
+// TestAgentIdentityDeleteRole_NativeAdministratorRejected: the system-client
+// role must not be deletable through the agent-identity API. DeleteRoleFunc is
+// nil, so any delete reaching Thunder panics.
+func TestAgentIdentityDeleteRole_AMPSystemClientRejected(t *testing.T) {
+	ctrl := adminRoleController(sysClientRoleEnvClient())
+
+	req := sysClientRoleRequest(http.MethodDelete, "/orgs/o1/environments/dev/agent-identities/roles/r-sysclient", "")
+	w := httptest.NewRecorder()
+
+	ctrl.DeleteRole(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestAgentIdentityAddRoleAssignees_AMPSystemClientRejected mirrors
+// TestAgentIdentityAddRoleAssignees_NativeAdministratorRejected: agents and
+// groups must not be assignable to the system-client role either, since that
+// would grant them Thunder's "system" scope the same way the native
+// Administrator role would. AddRoleAssigneesFunc is nil, so any assignment
+// reaching Thunder panics.
+func TestAgentIdentityAddRoleAssignees_AMPSystemClientRejected(t *testing.T) {
+	ctrl := adminRoleController(sysClientRoleEnvClient())
+
+	req := sysClientRoleRequest(http.MethodPost, "/orgs/o1/environments/dev/agent-identities/roles/r-sysclient/assignments/add",
+		`{"assignments":[{"id":"thunder-1","type":"agent"}]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.AddRoleAssignees(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestAgentIdentityRemoveRoleAssignees_AMPSystemClientAllowed mirrors
+// TestAgentIdentityRemoveRoleAssignees_NativeAdministratorAllowed: the same
+// deliberate asymmetry applies to the system-client role — removal stays open
+// so an existing mis-assignment can still be cleaned up through the same API.
+func TestAgentIdentityRemoveRoleAssignees_AMPSystemClientAllowed(t *testing.T) {
+	removed := false
+	envClient := sysClientRoleEnvClient()
+	envClient.RemoveRoleAssigneesFunc = func(_ context.Context, roleID string, req thundersvc.RoleAssignmentsRequest) error {
+		removed = true
+		assert.Equal(t, "r-sysclient", roleID)
+		return nil
+	}
+	ctrl := adminRoleController(envClient)
+
+	req := sysClientRoleRequest(http.MethodPost, "/orgs/o1/environments/dev/agent-identities/roles/r-sysclient/assignments/remove",
+		`{"assignments":[{"id":"thunder-1","type":"agent"}]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.RemoveRoleAssignees(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, removed, "cleanup removal must pass through to Thunder")
+}
+
 // adminGroupEnvClient returns an env client whose GetGroup always resolves the
 // native Administrators group. Every other func is left nil, so any read or
 // write that slips past the guard and reaches Thunder panics the test.
@@ -796,6 +906,37 @@ func TestAgentIdentityUpdateRole_ReservedRenameRejected(t *testing.T) {
 
 	req := adminRoleRequest(http.MethodPut, "/orgs/o1/environments/dev/agent-identities/roles/r-1",
 		`{"name":"`+thundersvc.NativeAdministratorRoleName+`"}`)
+	w := httptest.NewRecorder()
+
+	ctrl.UpdateRole(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestAgentIdentityCreateRole_AMPSystemClientNameRejected mirrors
+// TestAgentIdentityCreateRole_ReservedNameRejected: a role cannot be created
+// under the system-client's reserved name either. CreateRoleFunc is nil, so
+// any write reaching Thunder panics.
+func TestAgentIdentityCreateRole_AMPSystemClientNameRejected(t *testing.T) {
+	ctrl := adminRoleController(&clientmocks.EnvIdentityClientMock{})
+
+	req := adminRoleRequest(http.MethodPost, "/orgs/o1/environments/dev/agent-identities/roles",
+		`{"name":"`+thundersvc.AMPSystemClientRoleName+`"}`)
+	w := httptest.NewRecorder()
+
+	ctrl.CreateRole(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestAgentIdentityUpdateRole_AMPSystemClientRenameRejected mirrors
+// TestAgentIdentityUpdateRole_ReservedRenameRejected: an ordinary role cannot
+// be renamed into the system-client's reserved name either.
+func TestAgentIdentityUpdateRole_AMPSystemClientRenameRejected(t *testing.T) {
+	ctrl := adminRoleController(&clientmocks.EnvIdentityClientMock{})
+
+	req := adminRoleRequest(http.MethodPut, "/orgs/o1/environments/dev/agent-identities/roles/r-1",
+		`{"name":"`+thundersvc.AMPSystemClientRoleName+`"}`)
 	w := httptest.NewRecorder()
 
 	ctrl.UpdateRole(w, req)

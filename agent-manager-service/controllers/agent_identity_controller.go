@@ -499,15 +499,17 @@ func (c *agentIdentityController) CreateRole(w http.ResponseWriter, r *http.Requ
 	utils.WriteSuccessResponse(w, http.StatusCreated, role)
 }
 
-// managedRole fetches the role and treats Thunder's native Administrator role
-// as nonexistent (404, matching its exclusion from ListRoles): it carries the
-// built-in "system" scope, and exposing it through this API is how agent
+// managedRole fetches the role and treats Thunder's native Administrator role and
+// env-Thunder's own bootstrap-seeded AMP System Client Thunder Admin role as
+// nonexistent (404, matching their exclusion from ListRoles): both carry the
+// built-in "system" scope, and exposing either through this API is how agent
 // identities were acquiring env-Thunder admin — see
-// thundersvc.NativeAdministratorRoleName. Writes the error response itself when
-// ok=false. RemoveRoleAssignees deliberately skips this guard so an existing
-// mis-assignment can still be cleaned up through the same API, and the
-// read-only GetRoleAssignments/GetGroupRoles stay unguarded for the same
-// reason — finding which agents and groups to clean up requires seeing them.
+// thundersvc.NativeAdministratorRoleName and thundersvc.AMPSystemClientRoleName.
+// Writes the error response itself when ok=false. RemoveRoleAssignees deliberately
+// skips this guard so an existing mis-assignment can still be cleaned up through
+// the same API, and the read-only GetRoleAssignments/GetGroupRoles stay unguarded
+// for the same reason — finding which agents and groups to clean up requires
+// seeing them.
 func (c *agentIdentityController) managedRole(w http.ResponseWriter, r *http.Request, client thundersvc.EnvIdentityClient, roleID string) (*thundersvc.ThunderRole, bool) {
 	ctx := r.Context()
 	role, err := client.GetRole(ctx, roleID)
@@ -520,7 +522,7 @@ func (c *agentIdentityController) managedRole(w http.ResponseWriter, r *http.Req
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to get role")
 		return nil, false
 	}
-	if role.Name == thundersvc.NativeAdministratorRoleName {
+	if role.Name == thundersvc.NativeAdministratorRoleName || role.Name == thundersvc.AMPSystemClientRoleName {
 		utils.WriteErrorResponse(w, http.StatusNotFound, "Role not found")
 		return nil, false
 	}

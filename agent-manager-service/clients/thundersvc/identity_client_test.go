@@ -823,6 +823,35 @@ func TestListRoles_Unfiltered_KeepsNativeAdministrator(t *testing.T) {
 	require.Len(t, roles, 2)
 }
 
+// TestListRoles_OUFiltered_ExcludesAMPSystemClient mirrors
+// TestListRoles_OUFiltered_ExcludesNativeAdministrator: env-Thunder's own
+// bootstrap-seeded system-client role must be hidden from agent-identity role
+// listings the same way as the native Administrator role.
+func TestListRoles_OUFiltered_ExcludesAMPSystemClient(t *testing.T) {
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/roles", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"totalResults": 3,
+			"roles": []map[string]any{
+				{"id": "r-sysclient", "ouId": "ou-1", "name": AMPSystemClientRoleName},
+				{"id": "r-readers", "ouId": "ou-1", "name": "readers"},
+				{"id": "r-elsewhere", "ouId": "ou-2", "name": "writers"},
+			},
+		})
+	})
+	defer srv.Close()
+
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	roles, total, err := client.ListRoles(context.Background(), "ou-1", 0, 20)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, total, "AMP System Client Thunder Admin must not count toward the OU total")
+	require.Len(t, roles, 1)
+	assert.Equal(t, "readers", roles[0].Name)
+}
+
 // ouGroupServer serves Thunder's OU-scoped group endpoint from a fixed group
 // list, honouring the offset/limit query so the client's own pagination is
 // exercised against realistic paging. reqs counts the group fetches.
