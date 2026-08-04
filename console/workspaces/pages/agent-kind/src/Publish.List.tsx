@@ -53,28 +53,18 @@ export const PublishedList: React.FC = () => {
     agentId: string;
   }>();
 
-  // isSuccess gates the two queries below: once this page's own unpublish
-  // action has removed the kind, there's no point refetching it here (it can
-  // only 404) — the hook's onSuccess already clears their cache, and disabling
-  // them here stops the active observer from racing that with a fetch of its own.
   const { mutate: unpublishAgentKind, isPending: isUnpublishing, isSuccess: hasUnpublished } =
     useDeleteAgentKind();
 
   const {data: agentKindVersions, isLoading: isAgentKindVersionsLoading} =
-    useListAgentKindVersions(
-      { orgName: orgId, kindName: agentId! },
-      { enabled: !hasUnpublished },
-    );
+    useListAgentKindVersions({ orgName: orgId, kindName: agentId! });
 
   const { data:agent } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
   });
-  const { data: existingKind } = useGetAgentKind(
-    { orgName: orgId!, kindName: agentId! },
-    { enabled: !hasUnpublished },
-  );
+  const { data: existingKind } = useGetAgentKind({ orgName: orgId!, kindName: agentId! });
 
   const listPath = generatePath(
     absoluteRouteMap.children.org.children.projects.children.agents.children.publish.path,
@@ -100,9 +90,9 @@ export const PublishedList: React.FC = () => {
   const { addConfirmation } = useConfirmationDialog();
 
   // Pre-fill display name & description from existing kind when drawer opens.
-  // Skipped once hasUnpublished flips `existingKind` to undefined as a side
-  // effect of disabling its query above — that's not a real data change, and
-  // the drawer is closed at that point anyway.
+  // Skipped once hasUnpublished is true — the drawer is closed at that point
+  // anyway, so there's nothing to pre-fill, only a pointless re-render as
+  // `existingKind` settles to null once the invalidated query refetches.
   useEffect(() => {
     if (hasUnpublished) {
       return;

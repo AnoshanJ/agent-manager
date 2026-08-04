@@ -86,7 +86,7 @@ export function useListAgentKinds(
  */
 export function useGetAgentKind(params: GetAgentKindPathParams, options?: { enabled?: boolean }) {
   const { getToken } = useAuthHooks();
-  return useApiQuery<AgentKindResponse>({
+  return useApiQuery<AgentKindResponse | null>({
     queryKey: agentKindKeys.detail(params),
     queryFn: () => getAgentKind(params, getToken),
     enabled: options?.enabled ?? (!!params.orgName && !!params.kindName),
@@ -123,14 +123,13 @@ export function useDeleteAgentKind() {
     action: { verb: 'unpublish', target: 'agent kind' },
     mutationFn: (params) => deleteAgentKind(params, getToken),
     onSuccess: (_data, params) => {
+      // GetKind/ListVersions now resolve to null/[] (200) rather than 404 for
+      // a kind that doesn't exist, so a plain refetch already lands on the
+      // correct "gone" state — no need to remove the cache entries outright.
       queryClient.invalidateQueries({ queryKey: agentKindKeys.lists() });
-      // The kind is gone, so re-fetching its detail/version/agent queries would
-      // only turn their cached data into a 404 error while leaving the last
-      // successful `data` behind (React Query doesn't clear `data` on a failed
-      // refetch). Remove them outright so consumers see them as absent.
-      queryClient.removeQueries({ queryKey: agentKindKeys.detail(params) });
-      queryClient.removeQueries({ queryKey: agentKindKeys.versionList(params) });
-      queryClient.removeQueries({ queryKey: agentKindKeys.kindAgentList(params) });
+      queryClient.invalidateQueries({ queryKey: agentKindKeys.detail(params) });
+      queryClient.invalidateQueries({ queryKey: agentKindKeys.versionList(params) });
+      queryClient.invalidateQueries({ queryKey: agentKindKeys.kindAgentList(params) });
     },
   });
 }
@@ -250,10 +249,15 @@ export function usePublishAgentKind() {
   >({
     action: { verb: 'publish', target: 'agent kind' },
     mutationFn: ({ params, body }) => publishAgentKind(params, body, getToken),
-    onSuccess: () => {
+    // PublishAgentKindPathParams is agent-shaped (orgName/projName/agentName) —
+    // the kind being published is only identified by body.kindName, so that's
+    // what targets the invalidation at this specific kind rather than every
+    // kind's detail/version-list query in the org.
+    onSuccess: (_data, { params, body }) => {
+      const kindParams = { orgName: params.orgName, kindName: body.kindName };
       queryClient.invalidateQueries({ queryKey: agentKindKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: agentKindKeys.details() });
-      queryClient.invalidateQueries({ queryKey: agentKindKeys.versionLists() });
+      queryClient.invalidateQueries({ queryKey: agentKindKeys.detail(kindParams) });
+      queryClient.invalidateQueries({ queryKey: agentKindKeys.versionList(kindParams) });
     },
   });
 }
