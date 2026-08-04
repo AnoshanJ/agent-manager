@@ -25,6 +25,7 @@ import {
   useListGateways,
 } from "@agent-management-platform/api-client";
 import {
+  DeploymentStatus,
   EnvironmentCard,
   usePipelineEnvironmentsState,
 } from "@agent-management-platform/shared-component";
@@ -143,6 +144,7 @@ export const ExternalAgentOverview = () => {
                 ) : (
                   <EnvironmentSingleHeader
                     environment={selectedEnvironment}
+                    status={DeploymentStatus.ACTIVE}
                     dotColor="success.main"
                   />
                 )

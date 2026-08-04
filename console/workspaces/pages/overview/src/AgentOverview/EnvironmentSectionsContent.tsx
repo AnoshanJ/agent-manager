@@ -59,13 +59,13 @@ export function EnvironmentSectionsContent({
                 isolationTier={isolationTier}
                 deploymentStatus={deploymentStatus}
             />
-            <EnvConfigsSection
+            <EnvAgentRolesGroupsSection
                 orgId={orgId}
                 projectId={projectId}
                 agentId={agentId}
                 envId={envId}
             />
-            <EnvAgentRolesGroupsSection
+            <EnvConfigsSection
                 orgId={orgId}
                 projectId={projectId}
                 agentId={agentId}
