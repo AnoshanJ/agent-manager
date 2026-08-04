@@ -28,6 +28,7 @@ type MutationAction =
   | "start"
   | "stop"
   | "undeploy"
+  | "unpublish"
   | "update";
 
 type MutationActionConfig = {
@@ -66,6 +67,7 @@ const SUCCESS_VERB_MAP: Record<MutationAction, string> = {
   start: "started",
   stop: "stopped",
   undeploy: "undeployed",
+  unpublish: "unpublished",
   update: "updated",
 };
 

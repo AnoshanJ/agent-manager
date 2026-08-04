@@ -120,7 +120,7 @@ export function useDeleteAgentKind() {
   const { getToken } = useAuthHooks();
   const queryClient = useQueryClient();
   return useApiMutation<void, unknown, DeleteAgentKindPathParams>({
-    action: { verb: 'delete', target: 'agent kind' },
+    action: { verb: 'unpublish', target: 'agent kind' },
     mutationFn: (params) => deleteAgentKind(params, getToken),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKindKeys.lists() });
