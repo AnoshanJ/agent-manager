@@ -353,7 +353,9 @@ func (c *openChoreoClient) setRestartedAt(ctx context.Context, namespaceName, co
 // Returns ErrNotFound when no binding exists yet for (component, environment).
 // mergeAgentAPIKeySecretRef carries the env-injection trait's agentApiKeySecretRef/Property
 // forward from existing into incoming when incoming doesn't already set its own value, so a
-// wholesale trait-config replacement can't silently drop it.
+// wholesale trait-config replacement can't silently drop it. Never mutates existing or incoming
+// (or their nested entries): retryReleaseBindingUpdate re-invokes its callback with a freshly
+// refetched existing on conflict, and a prior attempt's merge must not leak into that retry.
 func mergeAgentAPIKeySecretRef(existing *map[string]interface{}, incoming map[string]interface{}, componentName string) map[string]interface{} {
 	if existing == nil {
 		return incoming
@@ -367,24 +369,26 @@ func mergeAgentAPIKeySecretRef(existing *map[string]interface{}, incoming map[st
 	if !ok || existingRef == "" {
 		return incoming
 	}
-	if incoming == nil {
-		incoming = map[string]interface{}{}
-	}
 	incomingCfg, _ := incoming[envInjKey].(map[string]interface{})
-	if incomingCfg == nil {
-		incomingCfg = map[string]interface{}{}
-	}
 	if ref, ok := incomingCfg["agentApiKeySecretRef"].(string); ok && ref != "" {
 		return incoming
 	}
-	incomingCfg["agentApiKeySecretRef"] = existingRef
-	if _, ok := incomingCfg["agentApiKeySecretProperty"]; !ok {
+	merged := make(map[string]interface{}, len(incoming)+1)
+	for k, v := range incoming {
+		merged[k] = v
+	}
+	mergedCfg := make(map[string]interface{}, len(incomingCfg)+2)
+	for k, v := range incomingCfg {
+		mergedCfg[k] = v
+	}
+	mergedCfg["agentApiKeySecretRef"] = existingRef
+	if _, ok := mergedCfg["agentApiKeySecretProperty"]; !ok {
 		if existingProperty, ok := existingCfg["agentApiKeySecretProperty"].(string); ok && existingProperty != "" {
-			incomingCfg["agentApiKeySecretProperty"] = existingProperty
+			mergedCfg["agentApiKeySecretProperty"] = existingProperty
 		}
 	}
-	incoming[envInjKey] = incomingCfg
-	return incoming
+	merged[envInjKey] = mergedCfg
+	return merged
 }
 
 func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context, ouID, componentName, environment string, traitConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error {
@@ -398,8 +402,8 @@ func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context,
 	}
 
 	return c.retryReleaseBindingUpdate(ctx, namespaceName, binding.Metadata.Name, func(rb *gen.ReleaseBinding) {
-		traitConfigs = mergeAgentAPIKeySecretRef(rb.Spec.TraitEnvironmentConfigs, traitConfigs, componentName)
-		rb.Spec.TraitEnvironmentConfigs = &traitConfigs
+		merged := mergeAgentAPIKeySecretRef(rb.Spec.TraitEnvironmentConfigs, traitConfigs, componentName)
+		rb.Spec.TraitEnvironmentConfigs = &merged
 		bumpRestartedAt(rb)
 		// Merge component-type configs (e.g. runtimeClassName from the env's isolation tier).
 		for k, v := range componentTypeConfigs {

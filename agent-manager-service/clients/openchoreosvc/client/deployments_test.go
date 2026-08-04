@@ -87,4 +87,19 @@ func TestMergeAgentAPIKeySecretRef(t *testing.T) {
 		_, present := entry["agentApiKeySecretProperty"]
 		assert.False(t, present, "property must come from whoever set the new ref, never spliced from a different secret")
 	})
+
+	t.Run("a retry with a fresh existing ref is not poisoned by a prior attempt's merge", func(t *testing.T) {
+		// Simulates retryReleaseBindingUpdate re-invoking its callback after a conflict: the
+		// caller's incoming map must stay usable for a second merge against a newly-fetched
+		// existing, not carry forward the first attempt's result.
+		incoming := map[string]interface{}{}
+		firstAttemptExisting := map[string]interface{}{envInjKey: map[string]interface{}{"agentApiKeySecretRef": "stale/ref"}}
+		mergeAgentAPIKeySecretRef(&firstAttemptExisting, incoming, "myagent")
+
+		concurrentlyRotatedExisting := map[string]interface{}{envInjKey: map[string]interface{}{"agentApiKeySecretRef": "fresh/ref"}}
+		got := mergeAgentAPIKeySecretRef(&concurrentlyRotatedExisting, incoming, "myagent")
+
+		entry := got[envInjKey].(map[string]interface{})
+		assert.Equal(t, "fresh/ref", entry["agentApiKeySecretRef"])
+	})
 }
