@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -422,7 +421,7 @@ func (s *MCPProxyService) buildMCPProxyDeploymentYAML(proxy *models.MCPProxy, pr
 	upstream := MCPProxyUpstream{}
 	var upstreamAuth *models.UpstreamAuth
 	if proxy.Configuration.Upstream.Main != nil {
-		upstream.URL = normalizeMCPUpstreamURLForDeployment(proxy.Configuration.Upstream.Main.URL)
+		upstream.URL = strings.TrimSpace(proxy.Configuration.Upstream.Main.URL)
 		upstreamAuth = proxy.Configuration.Upstream.Main.Auth
 	}
 	if strings.TrimSpace(upstream.URL) == "" {
@@ -751,31 +750,6 @@ func cloneStringInterfaceMap(in map[string]interface{}) map[string]interface{} {
 		out[key] = value
 	}
 	return out
-}
-
-func normalizeMCPUpstreamURLForDeployment(rawURL string) string {
-	trimmed := strings.TrimSpace(rawURL)
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return trimmed
-	}
-
-	path := strings.TrimRight(parsed.Path, "/")
-	if path == "" {
-		return trimmed
-	}
-	segments := strings.Split(path, "/")
-	if len(segments) == 0 || segments[len(segments)-1] != "mcp" {
-		return trimmed
-	}
-
-	segments = segments[:len(segments)-1]
-	parsed.Path = strings.Join(segments, "/")
-	if parsed.Path == "" {
-		parsed.Path = "/"
-	}
-	parsed.RawPath = ""
-	return parsed.String()
 }
 
 func deploymentName(proxy *models.MCPProxy) string {
