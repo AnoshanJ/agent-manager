@@ -819,32 +819,22 @@ func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projec
 		return "", "", fmt.Errorf("failed to store agent API key in secret store: %w", err)
 	}
 
-	key, property, err = s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, envName)
-	if err != nil {
-		return "", "", err
-	}
-	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
-		"secretRefName", secretRefName, "remoteKey", key)
-	return key, property, nil
-}
-
-// resolveAgentAPIKeySecretRef returns the remote KV key/property of an environment's agent API key
-// WITHOUT minting or storing anything — it derives the deterministic SecretReference name from the
-// location and reads the existing reference. Used by the deploy-settings rebuild to re-attach the
-// per-env secret ref that would otherwise be dropped when trait configs are replaced.
-func (s *agentManagerService) resolveAgentAPIKeySecretRef(ctx context.Context, ouID, projectName, agentName, envName string) (key string, property string, err error) {
-	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
-	secretRefName := location.SecretRefName()
 	secretRef, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to resolve agent API key secret reference %q: %w", secretRefName, err)
 	}
 	for _, ds := range secretRef.Data {
 		if ds.SecretKey == secretmanagersvc.SecretKeyAPIKey {
-			return ds.RemoteRef.Key, ds.RemoteRef.Property, nil
+			key, property = ds.RemoteRef.Key, ds.RemoteRef.Property
+			break
 		}
 	}
-	return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+	if key == "" {
+		return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+	}
+	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
+		"secretRefName", secretRefName, "remoteKey", key)
+	return key, property, nil
 }
 
 // injectAgentAPIKeySecretRef adds the env-injection trait's per-environment agentApiKeySecretRef
