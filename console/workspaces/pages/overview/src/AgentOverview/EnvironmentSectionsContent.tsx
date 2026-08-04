@@ -48,7 +48,7 @@ export function EnvironmentSectionsContent({
 }: EnvironmentSectionsContentProps) {
     return (
         <>
-        <Divider/>
+            <Divider sx={{ my: 1.5 }} />
             <EnvCapabilitiesSection
                 orgId={orgId}
                 projectId={projectId}
@@ -59,13 +59,13 @@ export function EnvironmentSectionsContent({
                 isolationTier={isolationTier}
                 deploymentStatus={deploymentStatus}
             />
-            <EnvConfigsSection
+            <EnvAgentRolesGroupsSection
                 orgId={orgId}
                 projectId={projectId}
                 agentId={agentId}
                 envId={envId}
             />
-            <EnvAgentRolesGroupsSection
+            <EnvConfigsSection
                 orgId={orgId}
                 projectId={projectId}
                 agentId={agentId}

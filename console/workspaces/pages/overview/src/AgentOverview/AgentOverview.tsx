@@ -21,7 +21,7 @@ import { InternalAgentOverview } from "./InternalAgentOverview";
 import { useParams } from "react-router-dom";
 import { ExternalAgentOverview } from "./ExternalAgentOverview";
 import { useState } from "react";
-import { Box, Button, Chip, Skeleton } from "@wso2/oxygen-ui";
+import { Box, Button, Chip, Divider, Skeleton, Stack } from "@wso2/oxygen-ui";
 import { Edit, Tag } from "@wso2/oxygen-ui-icons-react";
 import { EditAgentDrawer } from "./EditAgentDrawer";
 import {
@@ -80,8 +80,15 @@ export function AgentOverview() {
                                 <LabelChips labels={agent.labels} />
                             </PageMetaItem>
                         )}
-                        <CreatedMetadata createdAt={agent?.createdAt} />
-                        <CreatedByMetadata createdBy={createdByName} />
+                        <Stack
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                            divider={<Divider orientation="vertical" flexItem />}
+                        >
+                            <CreatedMetadata createdAt={agent?.createdAt} />
+                            <CreatedByMetadata createdBy={createdByName} />
+                        </Stack>
                     </>
                 }
                 actions={

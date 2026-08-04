@@ -329,14 +329,14 @@ export const AgentsList: React.FC = () => {
           <Stack
             direction="row"
             justifyContent="space-between"
-            gap={4}
+            gap={2}
           >
             <Stack
               direction="column"
               sx={{
                 flexGrow: 1,
               }}
-              spacing={4}
+              spacing={2}
             >
               <Stack direction="row" spacing={1}>
                 <Box flexGrow={1}>

@@ -8752,17 +8752,15 @@ paths:
             type: string
       responses:
         "200":
-          description: Agent Kind details with all versions
+          description: >-
+            Agent Kind details with all versions, or `null` if no Agent Kind
+            has been published under this name yet.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AgentKindResponse"
-        "404":
-          description: Agent Kind not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                nullable: true
+                allOf:
+                  - $ref: "#/components/schemas/AgentKindResponse"
         "500":
           description: Internal server error
           content:
@@ -8869,19 +8867,15 @@ paths:
             type: string
       responses:
         "200":
-          description: List of Agent Kind versions
+          description: >-
+            List of Agent Kind versions. Empty if there are no versions, or
+            if no Agent Kind has been published under this name yet.
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/AgentKindVersionResponse"
-        "404":
-          description: Agent Kind not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Internal server error
           content:
