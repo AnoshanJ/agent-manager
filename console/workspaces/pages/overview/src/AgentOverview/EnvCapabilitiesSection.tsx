@@ -16,8 +16,9 @@
  * under the License.
  */
 
-import { useMemo } from "react";
-import { Box, Chip, Grid, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
+import { useMemo, useState } from "react";
+import { Box, Button, Chip, Grid, Tooltip, Typography, type ChipProps } from "@wso2/oxygen-ui";
+import { Plug } from "@wso2/oxygen-ui-icons-react";
 import { generatePath } from "react-router-dom";
 import { useGetAgentEndpoints } from "@agent-management-platform/api-client";
 import {
@@ -32,6 +33,7 @@ import {
 } from "@agent-management-platform/shared-component";
 import { absoluteRouteMap, type Configurations } from "@agent-management-platform/types";
 import { TextInput } from "@agent-management-platform/views";
+import { ConsumerConfigDrawer, type AuthMode } from "./ConsumerConfigDrawer";
 
 interface EnvCapabilitiesSectionProps {
     orgId: string;
@@ -55,6 +57,43 @@ const METHOD_COLOR: Record<string, ChipProps["color"]> = {
     PATCH: "info",
     DELETE: "error",
 };
+
+// Stable reference so an absent `oauthConfig.issuers` doesn't defeat
+// ConsumerConfigDrawer's memoization with a new empty array every render.
+const EMPTY_ISSUERS: string[] = [];
+
+/**
+ * Everything derived from `authMode` in one place — the Deploy page
+ * (DeployCard.tsx) mirrors this same oauth/apikey/none branching for its own
+ * security summary, so keeping every consumer of `authMode` here keyed off
+ * one lookup (rather than four separate ternary chains) is what keeps the
+ * wording in sync as it changes.
+ */
+function getAuthPresentation(
+    authMode: AuthMode, authHeaderPrefix: string, oauthHeaderName: string,
+): { label: string; tooltip: string; headerExample: string } {
+    switch (authMode) {
+        case "oauth":
+            return {
+                label: `OAuth2 (${authHeaderPrefix})`,
+                tooltip: `Callers send an Authorization: ${authHeaderPrefix} <token> header validated `
+                    + "by the gateway",
+                headerExample: `${oauthHeaderName}: ${authHeaderPrefix} <token>`,
+            };
+        case "apikey":
+            return {
+                label: "API Key",
+                tooltip: "Requests must include the header: x-api-key: <your-key>",
+                headerExample: "x-api-key: <your-api-key>",
+            };
+        case "none":
+            return {
+                label: "None",
+                tooltip: "Endpoint is publicly accessible without authentication",
+                headerExample: "No authentication header required",
+            };
+    }
+}
 
 interface StatusPillProps {
     label: string;
@@ -86,6 +125,8 @@ const StatusPill: React.FC<StatusPillProps> = ({ label, value, tooltip }) => (
 export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
     orgId, projectId, agentId, envId, configurations, external, isolationTier, deploymentStatus,
 }) => {
+    const [consumerConfigOpen, setConsumerConfigOpen] = useState(false);
+
     const { data: endpoints, isLoading } = useGetAgentEndpoints(
         { orgName: external ? "" : orgId, projName: projectId, agentName: agentId },
         { environment: envId },
@@ -115,22 +156,16 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
 
     // Mirrors DeployCard.tsx's authMode derivation so the wording matches the
     // Deploy page's own security summary.
-    const authMode: "none" | "apikey" | "oauth" = configurations?.enableOAuthSecurity
+    const authMode: AuthMode = configurations?.enableOAuthSecurity
         ? "oauth"
         : configurations?.enableApiKeySecurity
             ? "apikey"
             : "none";
     const authHeaderPrefix = configurations?.oauthConfig?.authHeaderPrefix || "Bearer";
-    const authLabel = authMode === "oauth"
-        ? `OAuth2 (${authHeaderPrefix})`
-        : authMode === "apikey"
-            ? "API Key"
-            : "None";
-    const authTooltip = authMode === "oauth"
-        ? `Callers send an Authorization: ${authHeaderPrefix} <token> header validated by the gateway`
-        : authMode === "apikey"
-            ? "Requests must include the header: x-api-key: <your-key>"
-            : "Endpoint is publicly accessible without authentication";
+    const oauthHeaderName = configurations?.oauthConfig?.headerName || "Authorization";
+    const { label: authLabel, tooltip: authTooltip, headerExample: authHeaderExample } =
+        getAuthPresentation(authMode, authHeaderPrefix, oauthHeaderName);
+    const oauthIssuers = configurations?.oauthConfig?.issuers ?? EMPTY_ISSUERS;
 
     const corsEnabled = configurations?.corsConfig?.enabled ?? false;
     const corsOrigins = configurations?.corsConfig?.allowOrigin ?? [];
@@ -186,6 +221,19 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                             title="Invoke URL"
                             actionHref={deploymentPath}
                             actionLabel="Deployments"
+                            headerAction={(
+                                <Tooltip title="Open the consumer configuration">
+                                    <Button
+                                        size="small"
+                                        variant="text"
+                                        startIcon={<Plug size={14} />}
+                                        onClick={() => setConsumerConfigOpen(true)}
+                                        sx={{ minWidth: 0, fontSize: "0.75rem" }}
+                                    >
+                                        Connect
+                                    </Button>
+                                </Tooltip>
+                            )}
                             variant="plain"
                             sx={{ height: "100%" }}
                         >
@@ -268,6 +316,21 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                     </OverviewSectionCard>
                 </Grid>
             </Grid>
+            {invokeUrl && (
+                <ConsumerConfigDrawer
+                    open={consumerConfigOpen}
+                    onClose={() => setConsumerConfigOpen(false)}
+                    orgId={orgId}
+                    projectId={projectId}
+                    agentId={agentId}
+                    envId={envId}
+                    invokeUrl={invokeUrl}
+                    authMode={authMode}
+                    authLabel={authLabel}
+                    authHeaderExample={authHeaderExample}
+                    oauthIssuers={oauthIssuers}
+                />
+            )}
         </CollapsibleSection>
     );
 };
