@@ -171,11 +171,11 @@ export OPENSEARCH_PASSWORD="$(openssl rand -base64 24)"
 | Variable | Set on | Also consumed by |
 |---|---|---|
 | `AMP_API_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager, API Platform Gateway extension (Phase 2) |
-| `AMP_SYSTEM_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager (Phase 2), OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) |
+| `AMP_SYSTEM_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager (Phase 2), OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) |
 | `AMP_PUBLISHER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | OpenBao seed — read by evaluation workflows at runtime |
 | `AM_OBSERVER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Observability extension (Phase 2) |
-| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) **and** OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | OpenChoreo workflow plane and observer |
-| `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD` | OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | Observability Plane and logs module ([Step 8](#step-8-setup-observability-plane)) |
+| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) **and** OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) | OpenChoreo workflow plane and observer |
+| `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD` | OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) | Observability Plane and logs module ([Step 8](#step-8-setup-observability-plane)) |
 
 Keep this shell session for the whole install, and store the values in your secret manager — Thunder's are frozen after [Step 4](#step-4-install-thunder-extension-identity-provider).
 
@@ -259,9 +259,25 @@ helm upgrade --install kgateway oci://cr.kgateway.dev/kgateway-dev/charts/kgatew
 Evaluating on Rancher Desktop / k3s? See the [Rancher Desktop / k3s appendix](#appendix-rancher-desktop--k3s) — Traefik must be removed before this step.
 :::
 
-### Step 2: Setup Secrets Store (OpenBao)
+### Step 2: Set Up the Secret Stores
 
-OpenBao provides secret management for the Workflow Plane and deployed agents.
+Every secret the platform stores is reached through the External Secrets Operator, so the backend behind it is a deployment choice rather than something the platform hardcodes. Each OpenChoreo plane names its own store in `secretStoreRef`, which is what lets one plane use a different backend from another.
+
+**OpenBao is required, and this guide installs it.** Agent Manager reads Git credentials for private repositories from OpenBao directly over the Vault API, not through External Secrets, so a store that does not speak that API cannot serve them. That read is what backs the repository and branch pickers in the console.
+
+**The data-plane store is yours to choose.** Deployed agents' environment variables are pushed and pulled entirely through External Secrets, so the data plane can name whichever store you prefer. Both of these are supported:
+
+- **One store for everything.** The data plane also uses `default`, so OpenBao holds every secret on the platform. This is what the rest of this guide assumes, and it is a perfectly good production answer — nothing below is required.
+- **A separate store for the data plane.** Point it at any [provider External Secrets supports](https://external-secrets.io/latest/provider/aws-secrets-manager/) — a cloud provider's secret manager, a separate Vault or OpenBao instance, or anything else in that list. See [using a different secret store for deployed agents](#using-a-different-secret-store-for-deployed-agents) below.
+
+Worth being precise about one thing: OpenBao is itself an External Secrets provider, reached through ESO's `vault` provider like any other backend. The Git-credential read described above is the *only* path on the platform that bypasses External Secrets — so "OpenBao" and "an External Secrets provider" are not alternatives, and choosing a different data-plane store changes the backend, not the mechanism.
+
+| Secrets | Stored for | Backend |
+|---|---|---|
+| Platform OAuth client secrets, OpenSearch credentials | Control, workflow and observability planes | OpenBao (seeded below) |
+| Git credentials for private repositories | Workflow plane, and read directly by Agent Manager | **OpenBao — required** |
+| Build-time secrets (registry push, workload publisher) | Workflow plane | OpenBao |
+| Deployed agents' environment variables | Data plane | OpenBao, or any External Secrets provider |
 
 <Tabs groupId="deployment-mode">
   <TabItem value="production" label="Production" default>
@@ -347,7 +363,9 @@ kubectl create secret generic amp-openbao-token -n ${AMP_NS} \
 ```
 
 :::danger The chart defaults to the dev-mode token
-`agentManagerService.config.openbao.token` defaults to **`root`**, which only exists in dev mode. Against a sealed OpenBao that token is rejected, and the platform installs cleanly, passes every health check, and then fails **every agent creation** with a `500` — the underlying error being an OpenBao `permission denied` surfaced as `failed to store secrets in KV`. Phase 2 must reference the Secret created above; the periodic token also needs renewing before its period lapses, or agent creation starts failing again.
+`agentManagerService.config.workflowPlaneOpenbao.token` defaults to **`root`**, which only exists in dev mode. Against a sealed OpenBao that token is rejected, and the platform installs cleanly, passes every health check, and then fails on any operation that reads a Git credential — the repository and branch pickers return an error instead of a list, so an agent cannot be created from a private repository. Phase 2 must reference the Secret created above, and the periodic token needs renewing before its period lapses or those reads start failing again.
+
+The sibling `agentManagerService.config.openbao.*` values are wired into the deployment but read by nothing; deployment secrets travel through the OpenChoreo secret API, which addresses the plane's store rather than OpenBao directly. Set them consistently anyway — they are the obvious lever to reach for, and a future release may put them back to work.
 :::
 
 :::tip Tighten the policies
@@ -375,7 +393,7 @@ Every secret is lost when the pod restarts, including on node drains: already-ru
   </TabItem>
 </Tabs>
 
-Configure the External Secrets ClusterSecretStore (identical either way):
+Configure the External Secrets ClusterSecretStore (identical either way). It must be named `default` — the build workflow templates reference that name directly, so a store under any other name leaves every build unable to read its Git and registry credentials:
 
 ```bash
 kubectl apply -f - <<'EOF'
@@ -404,6 +422,45 @@ spec:
             namespace: "openbao"
 EOF
 ```
+
+#### Using a different secret store for deployed agents
+
+**Optional.** Skip this entire subsection if OpenBao is holding everything — that is the guide's default and needs no extra configuration.
+
+Deployed agents' environment variables are the one class of secret that never passes through the Vault API: Agent Manager hands them to the OpenChoreo secret API, which pushes them into whatever store the **data plane** names and generates the ExternalSecret that reads them back. Both halves go through External Secrets, so this plane can point at [any provider External Secrets supports](https://external-secrets.io/latest/provider/aws-secrets-manager/) — AWS Secrets Manager, GCP Secret Manager and Azure Key Vault are the common choices, but a separate Vault or OpenBao instance works the same way.
+
+The example below uses Google Cloud Secret Manager. Add a second store alongside `default`, using your provider's own authentication:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: dataplane-secrets
+spec:
+  provider:
+    # Replace with your provider's stanza — see the External Secrets provider docs.
+    gcpsm:
+      projectID: "your-project"
+      auth:
+        workloadIdentity:
+          clusterLocation: us-central1
+          clusterName: your-cluster
+          serviceAccountRef:
+            name: external-secrets
+            namespace: external-secrets
+EOF
+```
+
+Then name it on the ClusterDataPlane in [Step 6](#step-6-setup-data-plane) — `secretStoreRef.name: dataplane-secrets` in place of `default`. Leave the ClusterWorkflowPlane in [Step 7](#step-7-setup-workflow-plane) on `default`.
+
+:::warning Leave `default` pointing at OpenBao
+It is tempting to repoint `default` at the cloud provider and be done with one store. Two things break, both quietly.
+
+Agent Manager reads Git credentials over the Vault API, so private-repository builds lose the repository and branch pickers in the console — the platform stays healthy and the agent-creation form simply cannot list anything. There is no override; the read has no External Secrets path to fall back to.
+
+The platform's own seeded secrets are also read with remote keys shaped for a KV v2 store — `opensearch-password` and the OAuth client secrets are fetched with `property: value`, while `registry-push-secret` is fetched whole. Reproducing those shapes in another provider is possible but undocumented, and a mismatch surfaces as an ExternalSecret stuck in `SecretSyncedError` rather than as a clear failure.
+:::
 
 ### Step 3: Setup TLS Issuer
 
@@ -602,7 +659,7 @@ kubectl wait --for=condition=Available \
 ```
 
 :::danger Override all six client secrets
-The chart bootstraps **six** OAuth clients, and every one it is not given keeps its shipped default. `workloadPublisherClient` and `observerResourceReaderClient` are easy to miss because their secrets are also seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao) — but seeding OpenBao only tells the *consumer*; Thunder still registers the default unless the two `--set` lines above are present.
+The chart bootstraps **six** OAuth clients, and every one it is not given keeps its shipped default. `workloadPublisherClient` and `observerResourceReaderClient` are easy to miss because their secrets are also seeded into OpenBao in [Step 2](#step-2-set-up-the-secret-stores) — but seeding OpenBao only tells the *consumer*; Thunder still registers the default unless the two `--set` lines above are present.
 
 Leaving them out breaks the platform in two ways at once. The defaults stay valid, so an install that looks hardened still accepts `openchoreo-workload-publisher-secret` and `openchoreo-observer-resource-reader-client-secret`. And because the consumers read the *generated* values from OpenBao, they present a secret Thunder does not have: every agent build fails at the workload-publish step with `Failed to get access token`, from a `401 invalid_client` that never reaches the build log.
 
@@ -872,6 +929,8 @@ $(echo "$CA_CERT" | sed 's/^/        /')
 EOF
 ```
 
+`secretStoreRef` is where deployed agents' environment variables are stored. Leave it as `default` to keep them in OpenBao, or name the separate store instead if you set one up in [Step 2](#using-a-different-secret-store-for-deployed-agents).
+
 ### Step 7: Setup Workflow Plane
 
 Copy the cluster-gateway CA certificate:
@@ -937,6 +996,8 @@ $(echo "$BP_CA_CERT" | sed 's/^/        /')
     name: default
 EOF
 ```
+
+This plane's `secretStoreRef` holds the Git credentials for private repositories and the build-time secrets, so it stays on `default` — the OpenBao-backed store. Agent Manager reads Git credentials from it over the Vault API rather than through External Secrets, which is why this one is not interchangeable.
 
 ### Step 8: Setup Observability Plane
 
@@ -1151,7 +1212,7 @@ Turning off `hostNetwork` instead is not a workaround — the filter then cannot
 :::
 
 :::note Sizing and the admin password
-Two values above differ from the chart defaults. `openSearch.persistence.size` raises the volume from its 8Gi default — size it to your retention needs, since this single-node instance holds every trace, log, and metric the platform stores. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` override makes OpenSearch's own admin password match the one seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao); without it OpenSearch keeps the chart's published default while every client authenticates with yours, and all observability queries fail. Note the capital **S** in `openSearch` — it is the subchart alias, and lowercase `opensearch.*` values are silently ignored.
+Two values above differ from the chart defaults. `openSearch.persistence.size` raises the volume from its 8Gi default — size it to your retention needs, since this single-node instance holds every trace, log, and metric the platform stores. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` override makes OpenSearch's own admin password match the one seeded into OpenBao in [Step 2](#step-2-set-up-the-secret-stores); without it OpenSearch keeps the chart's published default while every client authenticates with yours, and all observability queries fail. Note the capital **S** in `openSearch` — it is the subchart alias, and lowercase `opensearch.*` values are silently ignored.
 
 Both are storage-layer choices you can revisit later: growing the volume needs a storage class with expansion enabled, and moving to a managed OpenSearch is a reindex. See [Production Reference](#observability-storage) for the external-OpenSearch route.
 :::
@@ -1516,7 +1577,7 @@ Work down this table against an existing install. The **When** column matters: t
 | Thunder platform client secrets are not the shipped defaults | [Step 4](#step-4-install-thunder-extension-identity-provider) | Install only |
 | Thunder issuer and console redirect URIs are the final hostnames | [Step 4](#step-4-install-thunder-extension-identity-provider) | Install only |
 | Agent Manager on external PostgreSQL | [Phase 2](#phase-2-agent-manager-installation) | Install (migration afterwards) |
-| OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-setup-secrets-store-openbao) | Any time — re-seeding required |
+| OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-set-up-the-secret-stores) | Any time — re-seeding required |
 | OpenSearch volume sized to retention, admin password matches OpenBao | [Step 8](#step-8-setup-observability-plane) | Any time |
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
 | Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |

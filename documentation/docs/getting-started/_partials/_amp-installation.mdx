@@ -258,7 +258,11 @@ kubectl wait --for=condition=Available \
 :::warning Two values that look redundant but are not
 `agentManagerService.autoscaling.minReplicas=2` is what actually gives the API two replicas. Autoscaling is **on by default** for this component with `minReplicas: 1`, so the HPA takes ownership of the replica count and scales `replicaCount=2` straight back down to one — silently, within seconds. The console has autoscaling off by default, which is why `replicaCount` alone appears to work there.
 
-The two `openbao.existingSecret` values point at the Secret minted in [Step 2](#step-2-setup-secrets-store-openbao). Without them the chart falls back to the dev-mode token `root`, which a sealed OpenBao rejects, and **every agent creation fails** with a `500` while the platform otherwise looks healthy.
+{/* No step link below on purpose: this partial is shared between installation paths
+whose step numbering differs (secret stores are Step 2 on one page, Step 4 on the
+other), so a step anchor here resolves on one page and dangles on the other. */}
+
+The two `openbao.existingSecret` values point at the Secret minted when you set up the secret stores. Without them the chart falls back to the dev-mode token `root`, which a sealed OpenBao rejects. `workflowPlaneOpenbao` is the one that bites: it is what Agent Manager uses to read Git credentials, so the repository and branch pickers fail and no agent can be created from a private repository, while the platform otherwise looks healthy.
 :::
 
 :::warning Require TLS on the database connection
