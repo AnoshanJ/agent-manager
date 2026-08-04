@@ -351,6 +351,42 @@ func (c *openChoreoClient) setRestartedAt(ctx context.Context, namespaceName, co
 // pod rollout. Splitting them produced races (two separate updates contending on the same
 // resourceVersion) without giving callers any control they'd actually use.
 // Returns ErrNotFound when no binding exists yet for (component, environment).
+// mergeAgentAPIKeySecretRef carries the env-injection trait's agentApiKeySecretRef/Property
+// forward from existing into incoming when incoming doesn't already set its own value, so a
+// wholesale trait-config replacement can't silently drop it.
+func mergeAgentAPIKeySecretRef(existing *map[string]interface{}, incoming map[string]interface{}, componentName string) map[string]interface{} {
+	if existing == nil {
+		return incoming
+	}
+	envInjKey := componentName + "-" + string(TraitEnvInjection)
+	existingCfg, ok := (*existing)[envInjKey].(map[string]interface{})
+	if !ok {
+		return incoming
+	}
+	existingRef, ok := existingCfg["agentApiKeySecretRef"].(string)
+	if !ok || existingRef == "" {
+		return incoming
+	}
+	if incoming == nil {
+		incoming = map[string]interface{}{}
+	}
+	incomingCfg, _ := incoming[envInjKey].(map[string]interface{})
+	if incomingCfg == nil {
+		incomingCfg = map[string]interface{}{}
+	}
+	if ref, ok := incomingCfg["agentApiKeySecretRef"].(string); ok && ref != "" {
+		return incoming
+	}
+	incomingCfg["agentApiKeySecretRef"] = existingRef
+	if _, ok := incomingCfg["agentApiKeySecretProperty"]; !ok {
+		if existingProperty, ok := existingCfg["agentApiKeySecretProperty"].(string); ok && existingProperty != "" {
+			incomingCfg["agentApiKeySecretProperty"] = existingProperty
+		}
+	}
+	incoming[envInjKey] = incomingCfg
+	return incoming
+}
+
 func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context, ouID, componentName, environment string, traitConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error {
 	namespaceName := c.NamespaceFor(ouID)
 	binding, err := c.findReleaseBindingForEnv(ctx, namespaceName, componentName, environment)
@@ -362,6 +398,7 @@ func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context,
 	}
 
 	return c.retryReleaseBindingUpdate(ctx, namespaceName, binding.Metadata.Name, func(rb *gen.ReleaseBinding) {
+		traitConfigs = mergeAgentAPIKeySecretRef(rb.Spec.TraitEnvironmentConfigs, traitConfigs, componentName)
 		rb.Spec.TraitEnvironmentConfigs = &traitConfigs
 		bumpRestartedAt(rb)
 		// Merge component-type configs (e.g. runtimeClassName from the env's isolation tier).
@@ -548,13 +585,22 @@ func (c *openChoreoClient) PromoteComponent(ctx context.Context, ouID, projectNa
 	// Step 4: Create or update the release binding in the target environment
 	if getResp.StatusCode() == http.StatusOK && getResp.JSON200 != nil && getResp.JSON200.Spec != nil {
 		activeState := gen.ReleaseBindingSpecStateActive
+		incomingTraitConfigs := map[string]interface{}{}
+		if traitConfigs != nil {
+			incomingTraitConfigs = *traitConfigs
+		}
 		if err := c.retryReleaseBindingUpdate(ctx, namespaceName, targetBindingName, func(binding *gen.ReleaseBinding) {
 			binding.Spec.ReleaseName = &sourceReleaseName
 			binding.Spec.State = &activeState
 			// Always replace overrides on re-promotion so a clean source environment
 			// clears any stale target-specific env vars, file mounts, or trait configs.
 			binding.Spec.WorkloadOverrides = workloadOverrides
-			binding.Spec.TraitEnvironmentConfigs = traitConfigs
+			merged := mergeAgentAPIKeySecretRef(binding.Spec.TraitEnvironmentConfigs, incomingTraitConfigs, componentName)
+			if len(merged) > 0 {
+				binding.Spec.TraitEnvironmentConfigs = &merged
+			} else {
+				binding.Spec.TraitEnvironmentConfigs = traitConfigs
+			}
 			if ctConfigs != nil {
 				binding.Spec.ComponentTypeEnvironmentConfigs = ctConfigs
 			}
