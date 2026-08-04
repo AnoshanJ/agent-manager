@@ -53,18 +53,28 @@ export const PublishedList: React.FC = () => {
     agentId: string;
   }>();
 
+  // isSuccess gates the two queries below: once this page's own unpublish
+  // action has removed the kind, there's no point refetching it here (it can
+  // only 404) — the hook's onSuccess already clears their cache, and disabling
+  // them here stops the active observer from racing that with a fetch of its own.
+  const { mutate: unpublishAgentKind, isPending: isUnpublishing, isSuccess: hasUnpublished } =
+    useDeleteAgentKind();
+
   const {data: agentKindVersions, isLoading: isAgentKindVersionsLoading} =
-    useListAgentKindVersions({
-    orgName: orgId,
-    kindName: agentId!,
-  });
+    useListAgentKindVersions(
+      { orgName: orgId, kindName: agentId! },
+      { enabled: !hasUnpublished },
+    );
 
   const { data:agent } = useGetAgent({
-    orgName: orgId, 
+    orgName: orgId,
     projName: projectId,
     agentName: agentId,
   });
-  const { data: existingKind } = useGetAgentKind({ orgName: orgId!, kindName: agentId! });
+  const { data: existingKind } = useGetAgentKind(
+    { orgName: orgId!, kindName: agentId! },
+    { enabled: !hasUnpublished },
+  );
 
   const listPath = generatePath(
     absoluteRouteMap.children.org.children.projects.children.agents.children.publish.path,
@@ -89,8 +99,14 @@ export const PublishedList: React.FC = () => {
 
   const { addConfirmation } = useConfirmationDialog();
 
-  // Pre-fill display name & description from existing kind when drawer opens
+  // Pre-fill display name & description from existing kind when drawer opens.
+  // Skipped once hasUnpublished flips `existingKind` to undefined as a side
+  // effect of disabling its query above — that's not a real data change, and
+  // the drawer is closed at that point anyway.
   useEffect(() => {
+    if (hasUnpublished) {
+      return;
+    }
     if (isCreateOpen && existingKind) {
       setKindDisplayName(existingKind.displayName ?? "");
       setKindDescription(existingKind.description ?? "");
@@ -98,10 +114,9 @@ export const PublishedList: React.FC = () => {
       setKindDisplayName(agent.displayName ?? "");
       setKindDescription(agent.description ?? "");
     }
-  }, [isCreateOpen, existingKind, agent]);
+  }, [isCreateOpen, existingKind, agent, hasUnpublished]);
 
   const { mutateAsync: publishAgentKind, isPending: isCreating } = usePublishAgentKind();
-  const { mutate: unpublishAgentKind, isPending: isUnpublishing } = useDeleteAgentKind();
 
   const handleUnpublishKind = useCallback(() => {
     addConfirmation({

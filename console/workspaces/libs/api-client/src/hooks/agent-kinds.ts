@@ -84,12 +84,12 @@ export function useListAgentKinds(
 /**
  * Hook to get details of an Agent Kind
  */
-export function useGetAgentKind(params: GetAgentKindPathParams) {
+export function useGetAgentKind(params: GetAgentKindPathParams, options?: { enabled?: boolean }) {
   const { getToken } = useAuthHooks();
   return useApiQuery<AgentKindResponse>({
     queryKey: agentKindKeys.detail(params),
     queryFn: () => getAgentKind(params, getToken),
-    enabled: !!params.orgName && !!params.kindName,
+    enabled: options?.enabled ?? (!!params.orgName && !!params.kindName),
   });
 }
 
@@ -138,12 +138,15 @@ export function useDeleteAgentKind() {
 /**
  * Hook to list all versions of an Agent Kind
  */
-export function useListAgentKindVersions(params: ListAgentKindVersionsPathParams) {
+export function useListAgentKindVersions(
+  params: ListAgentKindVersionsPathParams,
+  options?: { enabled?: boolean },
+) {
   const { getToken } = useAuthHooks();
   return useApiQuery<AgentKindVersionResponse[]>({
     queryKey: agentKindKeys.versionList(params),
     queryFn: () => listAgentKindVersions(params, getToken),
-    enabled: !!params.orgName && !!params.kindName,
+    enabled: options?.enabled ?? (!!params.orgName && !!params.kindName),
   });
 }
 
