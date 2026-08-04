@@ -3931,17 +3931,6 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	}
 	traitEnvConfigs := buildTraitEnvConfigs(agentName, policies, artifact.UUID.String(), isPythonBuildpack, isBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, instrumentationImage)
 
-	// Re-attach the per-env agent API key secret ref. buildTraitEnvConfigs omits it and the update
-	// below REPLACES the binding's trait configs, so without this a non-lowest env falls back to the
-	// base (lowest env's) ref and never sees its own key — including after a regenerate. Resolving is
-	// read-only (no new key minted); it heals bindings whose ref was previously dropped.
-	if apiKeySecretRef, apiKeySecretProperty, resolveErr := s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, req.EnvironmentName); resolveErr != nil {
-		s.logger.Warn("Failed to resolve agent API key secret ref for deploy settings; env-injection trait will fall back to the base ref",
-			"agentName", agentName, "environment", req.EnvironmentName, "error", resolveErr)
-	} else {
-		injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
-	}
-
 	// Apply to the release binding (atomic: trait configs + component-type configs + restartedAt in a single update).
 	settingsCTConfigs := buildComponentTypeEnvConfigs(targetEnv)
 	if updateErr := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, ouID, agentName, req.EnvironmentName, traitEnvConfigs, settingsCTConfigs); updateErr != nil {
