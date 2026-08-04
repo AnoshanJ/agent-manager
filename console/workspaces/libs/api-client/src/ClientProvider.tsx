@@ -18,12 +18,27 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const STALE_TIME = 8000;    
+const STALE_TIME = 8000;
+const MAX_QUERY_RETRIES = 3;
+
+// 4xx responses (404, 401, 403, 409, ...) mean the request itself won't
+// succeed no matter how many times it's repeated, so retrying just delays
+// the error reaching the UI. Only retry on network failures / 5xx, where a
+// retry can plausibly help.
+function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    if (status !== undefined && status >= 400 && status < 500) {
+        return false;
+    }
+    return failureCount < MAX_QUERY_RETRIES;
+}
+
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             refetchOnWindowFocus: true,
             staleTime: STALE_TIME,
+            retry: shouldRetryQuery,
         },
     },
 });

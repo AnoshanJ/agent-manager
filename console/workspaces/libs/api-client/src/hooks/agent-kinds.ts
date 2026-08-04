@@ -122,8 +122,15 @@ export function useDeleteAgentKind() {
   return useApiMutation<void, unknown, DeleteAgentKindPathParams>({
     action: { verb: 'unpublish', target: 'agent kind' },
     mutationFn: (params) => deleteAgentKind(params, getToken),
-    onSuccess: () => {
+    onSuccess: (_data, params) => {
       queryClient.invalidateQueries({ queryKey: agentKindKeys.lists() });
+      // The kind is gone, so re-fetching its detail/version/agent queries would
+      // only turn their cached data into a 404 error while leaving the last
+      // successful `data` behind (React Query doesn't clear `data` on a failed
+      // refetch). Remove them outright so consumers see them as absent.
+      queryClient.removeQueries({ queryKey: agentKindKeys.detail(params) });
+      queryClient.removeQueries({ queryKey: agentKindKeys.versionList(params) });
+      queryClient.removeQueries({ queryKey: agentKindKeys.kindAgentList(params) });
     },
   });
 }
