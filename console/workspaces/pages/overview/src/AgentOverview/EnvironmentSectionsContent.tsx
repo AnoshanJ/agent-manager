@@ -48,7 +48,7 @@ export function EnvironmentSectionsContent({
 }: EnvironmentSectionsContentProps) {
     return (
         <>
-        <Divider/>
+            <Divider sx={{ my: 1.5 }} />
             <EnvCapabilitiesSection
                 orgId={orgId}
                 projectId={projectId}
