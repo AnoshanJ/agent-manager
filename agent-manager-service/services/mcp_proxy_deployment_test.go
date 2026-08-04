@@ -135,8 +135,9 @@ func TestGenerateMCPProxyDeploymentYAML_WithContextAndVhost(t *testing.T) {
 	}
 }
 
-// TestGenerateMCPProxyDeploymentYAML_StripsMCPSuffix verifies the trailing
-// "/mcp" path segment is stripped from the upstream URL during deployment.
+// TestGenerateMCPProxyDeploymentYAML_PreservesUpstreamPath verifies the
+// trailing "/mcp" path segment survives to the deployed upstream URL
+// unchanged, since the gateway no longer re-appends it itself.
 func TestGenerateMCPProxyDeploymentYAML_PreservesUpstreamPath(t *testing.T) {
 	service := &MCPProxyService{}
 
@@ -658,6 +659,7 @@ func TestGenerateMCPProxyDeploymentYAML_UpstreamURLPassthrough(t *testing.T) {
 		{name: "trailing slash after /mcp is kept as-is", in: "https://host.example.com/api/mcp/", want: "https://host.example.com/api/mcp/"},
 		{name: "non-mcp path untouched", in: "https://host.example.com/api/v1", want: "https://host.example.com/api/v1"},
 		{name: "bare host with /mcp kept as-is", in: "https://host.example.com/mcp", want: "https://host.example.com/mcp"},
+		{name: "non-url passthrough", in: "not a url", want: "not a url"},
 		{name: "trims whitespace", in: "  https://host.example.com/x  ", want: "https://host.example.com/x"},
 	}
 
