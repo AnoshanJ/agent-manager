@@ -372,7 +372,7 @@ export function useNavigationItems(): Array<
             ),
           },
           {
-            label: "TryIt",
+            label: "Try It",
             type: "item",
             icon: <FlaskConical size={20} />,
             isActive: !!matchPath(
@@ -584,7 +584,7 @@ export function useNavigationItems(): Array<
             ),
           },
           {
-            label: "TryIt",
+            label: "Try It",
             type: "item",
             icon: <FlaskConical size={20} />,
             isActive: !!matchPath(
