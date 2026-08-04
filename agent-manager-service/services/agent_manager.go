@@ -1168,9 +1168,21 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 		if req.Configurations != nil {
 			envVars = req.Configurations.Env
 		}
+		if err := RejectDuplicateEnvKeys(envVars); err != nil {
+			return err
+		}
 		if err := ValidateKindConfigValues(kindVersion.ConfigSchema, envVars); err != nil {
 			return err
 		}
+		// The kind's own config schema carries the authoritative default for each
+		// parameter, including secret ones, which a client is never shown once set.
+		// Applying it here — rather than expecting the client to send it back — is
+		// what lets someone accept a kind's defaults without retyping them.
+		envVars = ApplySecretConfigDefaults(kindVersion.ConfigSchema, envVars)
+		if req.Configurations == nil {
+			req.Configurations = &spec.Configurations{}
+		}
+		req.Configurations.Env = envVars
 		if kindVersion.ImageId == "" {
 			return fmt.Errorf("kind version %q has no stored image; re-publish the kind from a successfully built agent", req.Provisioning.AgentKind.Version)
 		}
@@ -1305,6 +1317,14 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				ev.SetValue(f.GetValue())
 				ev.SetIsSensitive(true)
 				allSecretVars = append(allSecretVars, ev)
+			}
+		}
+		// A sensitive var with neither a value nor a secretRef would otherwise be
+		// silently persisted as an empty secret (e.g. if a kind-declared secret's
+		// default backfill above ever has a gap). Fail loudly instead.
+		for _, env := range allSecretVars {
+			if env.GetIsSensitive() && env.GetValue() == "" && !env.HasSecretRef() {
+				return fmt.Errorf("%w: sensitive environment variable %q requires either a value or secretRef", utils.ErrInvalidInput, env.Key)
 			}
 		}
 		secretReference, err = s.saveSecretsAndCreateReference(ctx, secretLocation, allSecretVars)
