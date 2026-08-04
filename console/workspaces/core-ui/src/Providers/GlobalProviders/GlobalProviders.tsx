@@ -18,7 +18,7 @@
 
 import { AuthProvider } from "@agent-management-platform/auth";
 import { ClientProvider } from "@agent-management-platform/api-client";
-import { WSO2Theme, OxygenUIThemeProvider } from "@wso2/oxygen-ui";
+import { AcrylicOrangeTheme as AmTheme, OxygenUIThemeProvider } from "@wso2/oxygen-ui";
 import { ConfirmationDialogProvider } from "@agent-management-platform/shared-component";
 import {
   SnackBarProvider,
@@ -35,7 +35,7 @@ export const GlobalProviders = ({
   externalPageModules?: ExternalModule[];
 }) => {
   return (
-    <OxygenUIThemeProvider theme={WSO2Theme}>
+    <OxygenUIThemeProvider theme={AmTheme}>
       <SnackBarProvider>
         <AuthProvider>
           <ClientProvider>
