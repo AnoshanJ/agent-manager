@@ -166,13 +166,12 @@ type AgentIdentityInjectionService interface {
 	ReconcileForEnvironment(ctx context.Context, ouID, projectName, agentName, envName string) error
 
 	// RefreshAfterRotation re-asserts the data-plane SecretReference with a
-	// fresh rotated-at annotation (forcing OpenChoreo to re-read the rotated
-	// value immediately, rather than waiting for the SecretReference's own
-	// RefreshInterval to elapse) and rolls the pod. Rotation never changes
-	// the SecretReference's remote KV key (storeCredential's resolved
-	// location is stable — a rotation only updates the value in place), so
-	// this never touches binding.SecretRefPath itself. No-op for external
-	// agents and unprovisioned bindings.
+	// fresh rotated-at annotation and rolls the pod once the secret-store sync
+	// has had time to catch up. Rotation never changes the SecretReference's
+	// remote KV key (storeCredential's resolved location is stable — a
+	// rotation only updates the value in place), so this never touches
+	// binding.SecretRefPath itself. No-op for external agents and
+	// unprovisioned bindings.
 	RefreshAfterRotation(ctx context.Context, ouID, projectName, agentName, envName string) error
 
 	// RemoveForEnvironment removes the identity env vars from the agent's
@@ -203,6 +202,9 @@ type agentIdentityInjectionService struct {
 	logger            *slog.Logger
 	// now is injectable for tests; defaults to time.Now.
 	now func() time.Time
+	// sleep is injectable for tests; defaults to time.Sleep. See
+	// RefreshAfterRotation's doc comment for why it waits at all.
+	sleep func(time.Duration)
 }
 
 // NewAgentIdentityInjectionService creates a new AgentIdentityInjectionService.
@@ -224,7 +226,22 @@ func NewAgentIdentityInjectionService(
 		refreshInterval:   refreshInterval,
 		logger:            logger,
 		now:               time.Now,
+		sleep:             time.Sleep,
 	}
+}
+
+// defaultSecretSyncWait is the fallback wait when refreshInterval is unset or
+// invalid — defensive only, should not normally trigger.
+const defaultSecretSyncWait = 30 * time.Second
+
+// secretSyncWaitDuration parses the SecretReference refresh cadence
+// (refreshInterval) into a wait duration for RefreshAfterRotation.
+func secretSyncWaitDuration(refreshInterval string) time.Duration {
+	d, err := time.ParseDuration(refreshInterval)
+	if err != nil || d <= 0 {
+		return defaultSecretSyncWait
+	}
+	return d
 }
 
 // resolveAgentIdentityScopes returns the full set of OAuth2 scopes the agent
@@ -339,10 +356,9 @@ func (s *agentIdentityInjectionService) injectableBinding(ctx context.Context, o
 }
 
 // secretRotatedAtAnnotation/secretRotatedAtFormat stamp a fresh value on the
-// data-plane SecretReference's generated Secret template on every rotation —
-// changing an annotation is a real spec change, so it forces OpenChoreo to
-// re-sync the Secret from the KV store immediately instead of waiting for
-// the next RefreshInterval tick.
+// SecretReference's Secret template on every rotation, marking its spec as
+// changed. This alone does not force the secret-store sync ahead of its own
+// refresh cadence — see RefreshAfterRotation for how the wait is handled.
 const (
 	secretRotatedAtAnnotation = "amp.wso2.com/secret-rotated-at"
 	secretRotatedAtFormat     = time.RFC3339Nano
@@ -522,6 +538,18 @@ func identityEnvVarsInSync(desired []client.EnvVar, current []models.EnvVars) bo
 	return true
 }
 
+// RefreshAfterRotation re-asserts a rotated internal agent's credential and
+// rolls its pod so it picks up the new value.
+//
+// The SecretReference update runs synchronously and its error is returned.
+// The pod roll is deferred: it waits out refreshInterval first, because the
+// secret-store sync only re-fetches a rotated value on its own cadence, not
+// immediately when the SecretReference's spec changes. Rolling immediately
+// used to lose that race — the new pod started before the sync caught up and
+// kept the stale, already-invalidated secret for its whole lifetime
+// (secretKeyRef env vars resolve once at container start, never hot-reload).
+// The roll itself runs detached so a manual regenerate call never blocks on
+// the wait; a roll failure is only logged, not returned.
 func (s *agentIdentityInjectionService) RefreshAfterRotation(ctx context.Context, ouID, projectName, agentName, envName string) error {
 	annotations := map[string]string{
 		secretRotatedAtAnnotation: s.now().UTC().Format(secretRotatedAtFormat),
@@ -533,15 +561,23 @@ func (s *agentIdentityInjectionService) RefreshAfterRotation(ctx context.Context
 	if len(envVars) == 0 {
 		return nil
 	}
-	// Re-merging identical env vars is a no-op content-wise, but the call also
-	// stamps restartedAt on the ReleaseBinding — the pod rollout that makes the
-	// workload actually pick up the refreshed Secret.
-	if err := withReleaseBindingRetry(ctx, func() error {
-		return s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, projectName, agentName, envName, envVars)
-	}); err != nil {
-		return fmt.Errorf("roll out pod after agent identity secret rotation: %w", err)
-	}
-	s.logger.Info("Refreshed agent identity credentials in workload after rotation", "agentName", agentName, "envName", envName)
+
+	wait := secretSyncWaitDuration(s.refreshInterval)
+	go func() {
+		s.sleep(wait)
+		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseBindingUpdateRetries*releaseBindingUpdateRetryDelay+30*time.Second)
+		defer cancel()
+		// Re-merging identical env vars is a no-op content-wise, but the call
+		// also stamps restartedAt on the ReleaseBinding — the pod rollout that
+		// makes the workload actually pick up the refreshed Secret.
+		if err := withReleaseBindingRetry(refreshCtx, func() error {
+			return s.ocClient.UpdateReleaseBindingEnvVars(refreshCtx, ouID, projectName, agentName, envName, envVars)
+		}); err != nil {
+			s.logger.Warn("Failed to roll out pod after agent identity secret rotation", "agentName", agentName, "envName", envName, "error", err)
+			return
+		}
+		s.logger.Info("Refreshed agent identity credentials in workload after rotation", "agentName", agentName, "envName", envName)
+	}()
 	return nil
 }
 

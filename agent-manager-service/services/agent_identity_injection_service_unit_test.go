@@ -596,26 +596,23 @@ func TestAgentIdentityInjection_ReconcileForEnvironment_ConfigReadError_Propagat
 }
 
 // TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod
-// guards rotation's contract: storeCredential's resolved location is
-// unchanged by a rotation (only the value at that location changes), but the
-// data-plane SecretReference must still be re-asserted with a fresh
-// rotated-at annotation so OpenChoreo re-syncs the Secret immediately rather
-// than waiting for its own RefreshInterval — and the pod must roll to pick it
-// up.
+// guards rotation's contract: the SecretReference gets a fresh rotated-at
+// annotation, and the pod rolls only after waiting out the refresh cadence
+// (see RefreshAfterRotation for why the roll is deferred and detached).
 func TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod(t *testing.T) {
 	repo := identityRepoReturning(completedInternalBinding(), nil)
 
 	fixedNow := time.Date(2026, 7, 8, 10, 30, 0, 0, time.UTC)
 	var createdReq client.CreateSecretReferenceRequest
-	rolled := false
+	rolled := make(chan struct{})
 	oc := injectableOCClient()
 	oc.CreateSecretReferenceFunc = func(_ context.Context, _ string, req client.CreateSecretReferenceRequest) (*client.SecretReferenceInfo, error) {
 		createdReq = req
 		return &client.SecretReferenceInfo{Name: req.Name}, nil
 	}
 	oc.UpdateReleaseBindingEnvVarsFunc = func(_ context.Context, _, _, _, _ string, envVars []client.EnvVar) error {
-		rolled = true
 		assert.Len(t, envVars, 4)
+		close(rolled)
 		return nil
 	}
 
@@ -623,13 +620,21 @@ func TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod
 	impl, ok := svc.(*agentIdentityInjectionService)
 	require.True(t, ok)
 	impl.now = func() time.Time { return fixedNow }
+	var slept time.Duration
+	impl.sleep = func(d time.Duration) { slept = d }
 
 	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
 	require.NotNil(t, createdReq.TemplateAnnotations)
 	assert.Equal(t, fixedNow.Format(secretRotatedAtFormat), createdReq.TemplateAnnotations[secretRotatedAtAnnotation],
-		"rotation must stamp a fresh annotation so the controller re-syncs the Secret immediately")
+		"rotation must stamp a fresh annotation marking the SecretReference spec as changed")
 	assert.Equal(t, testIdentityKVPath, createdReq.KVPath, "rotation must not change the resolved KV path")
-	assert.True(t, rolled, "rotation must roll the pod so it starts with the refreshed secret value")
+
+	select {
+	case <-rolled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("rotation must roll the pod (after the wait) so it starts with the refreshed secret value")
+	}
+	assert.Equal(t, secretSyncWaitDuration("1h"), slept, "the roll must wait out the configured refresh cadence before rolling")
 }
 
 func TestAgentIdentityInjection_RefreshAfterRotation_NoBinding_NoOp(t *testing.T) {
