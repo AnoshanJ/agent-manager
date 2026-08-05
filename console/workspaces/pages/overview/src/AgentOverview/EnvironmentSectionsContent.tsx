@@ -18,12 +18,13 @@
 
 import type { Configurations } from "@agent-management-platform/types";
 import type { DeploymentStatus } from "@agent-management-platform/shared-component";
+import { EnvAgentInterfaceCard } from "./EnvAgentInterfaceCard";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
 import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
 import { EnvConfigsSection } from "./EnvConfigsSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
 import { EnvObservabilitySection } from "./EnvObservabilitySection";
-import { Divider } from "@wso2/oxygen-ui";
+import { Divider, Grid } from "@wso2/oxygen-ui";
 
 interface EnvironmentSectionsContentProps {
     orgId: string;
@@ -37,11 +38,12 @@ interface EnvironmentSectionsContentProps {
 }
 
 /**
- * Capabilities / Agent Identity / Agent Performance / Recent Traces sections
- * rendered as an EnvironmentCard's bottomContent, shared by
+ * Capabilities / Agent Identity / Agent Interface / Agent Performance / Recent
+ * Traces sections rendered as an EnvironmentCard's bottomContent, shared by
  * InternalAgentOverview and ExternalAgentOverview. EnvironmentCard renders
  * bottomContent unconditionally, and each section here decides for itself
- * whether it has anything to show.
+ * whether it has anything to show. Agent ID and Agent Interface share one row
+ * since both are compact per-environment identity/interface summaries.
  */
 export function EnvironmentSectionsContent({
     orgId, projectId, agentId, envId, configurations, external, isolationTier, deploymentStatus,
@@ -59,12 +61,29 @@ export function EnvironmentSectionsContent({
                 isolationTier={isolationTier}
                 deploymentStatus={deploymentStatus}
             />
-            <EnvAgentRolesGroupsSection
-                orgId={orgId}
-                projectId={projectId}
-                agentId={agentId}
-                envId={envId}
-            />
+            <Grid container spacing={2} sx={{ mb: 1.5 }}>
+                {/* EnvAgentInterfaceCard renders nothing for external agents
+                    (they aren't deployed through this platform), so Agent ID
+                    takes the full row instead of leaving an empty half. */}
+                <Grid size={{ xs: 12, md: external ? 12 : 6 }}>
+                    <EnvAgentRolesGroupsSection
+                        orgId={orgId}
+                        projectId={projectId}
+                        agentId={agentId}
+                        envId={envId}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <EnvAgentInterfaceCard
+                        orgId={orgId}
+                        projectId={projectId}
+                        agentId={agentId}
+                        envId={envId}
+                        external={external}
+                        deploymentStatus={deploymentStatus}
+                    />
+                </Grid>
+            </Grid>
             <EnvConfigsSection
                 orgId={orgId}
                 projectId={projectId}
