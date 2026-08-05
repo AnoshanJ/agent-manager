@@ -156,8 +156,15 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		setter.SetWorkloadInjector(dependencies.AgentIdentityInjectionService)
 	}
 
+	// Background workers have no request behind them, so nothing installs a
+	// recorder on their contexts the way the HTTP middleware does. Install one
+	// here, or their audit emits would reach the "not installed" fallback and
+	// be lost — silently, which is the failure mode a context-carried recorder
+	// is most prone to.
+	backgroundCtx := audit.WithRecorder(context.Background(), dependencies.AuditRecorder)
+
 	// Start monitor scheduler with background context
-	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
+	schedulerCtx, schedulerCancel := context.WithCancel(backgroundCtx)
 	if err := dependencies.MonitorScheduler.Start(schedulerCtx); err != nil {
 		slog.Error("failed to start monitor scheduler", "error", err)
 		os.Exit(1)
@@ -165,7 +172,7 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 
 	// Start the AgentID provisioning retry reconciler, but only when provisioning
 	// is enabled — otherwise there is nothing to reconcile.
-	agentThunderReconcilerCtx, agentThunderReconcilerCancel := context.WithCancel(context.Background())
+	agentThunderReconcilerCtx, agentThunderReconcilerCancel := context.WithCancel(backgroundCtx)
 	if agentThunderProvisioning != nil {
 		if err := dependencies.AgentThunderReconciler.Start(agentThunderReconcilerCtx); err != nil {
 			slog.Error("failed to start agent thunder provisioning reconciler", "error", err)

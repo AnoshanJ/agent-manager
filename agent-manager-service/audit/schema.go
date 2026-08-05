@@ -51,6 +51,8 @@ var baseFields = map[string]FieldKind{
 	"envelope": KindFlag,
 	// Links a Begin intent record to its Complete outcome record.
 	"attemptEventId": KindIdentifier,
+	// Set on records emitted from the MCP surface, naming the tool invoked.
+	"tool": KindName,
 	// Set when events were coalesced or suppressed.
 	"repeatCount":     KindCount,
 	"suppressedCount": KindCount,
@@ -109,6 +111,9 @@ func DetailSchema(action Action) map[string]FieldKind {
 // Semantic emit sites call this alongside Register so that adding an action
 // forces a decision about what it may record.
 func RegisterDetailSchema(action Action, fields map[string]FieldKind) {
+	if fields == nil {
+		fields = map[string]FieldKind{}
+	}
 	detailSchema[action] = fields
 }
 

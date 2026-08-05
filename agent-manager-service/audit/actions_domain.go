@@ -61,7 +61,16 @@ const (
 	ActionUserUpdate Action = "user:update"
 	ActionUserDelete Action = "user:delete"
 
+	// Read actions. Declared so every MCP tool can name what it does; they are
+	// classified as reads and therefore not recorded, matching the REST policy
+	// of auditing only credential-disclosing GETs.
+	ActionAgentRead       Action = "agent:read"
+	ActionProjectRead     Action = "project:read"
+	ActionEnvironmentRead Action = "environment:read"
+
 	// Agent lifecycle.
+	ActionAgentCreate                Action = "agent:create"
+	ActionProjectCreate              Action = "project:create"
 	ActionAgentBuild                 Action = "agent:build"
 	ActionAgentDeploy                Action = "agent:deploy"
 	ActionAgentPromote               Action = "agent:promote"
@@ -81,6 +90,14 @@ const (
 	ActionGatewayUnassignEnvironment    Action = "gateway:unassign-environment"
 	ActionGatewaySetIdentityProvider    Action = "gateway:set-identity-provider"
 	ActionGatewayRemoveIdentityProvider Action = "gateway:remove-identity-provider"
+	ActionGatewayPushManifest           Action = "gateway:push-manifest"
+
+	// Score publishing by the evaluation job.
+	ActionMonitorScorePublish Action = "monitor-score:publish"
+
+	// System-initiated work. Recorded when it changes state, not on every tick.
+	ActionSystemAgentIdentityProvisioned Action = "system:agent-identity-provisioned"
+	ActionSystemAgentIdentityExhausted   Action = "system:agent-identity-exhausted"
 )
 
 // APIKeyOwner names the kind of resource an API key belongs to. Every API-key
@@ -268,6 +285,25 @@ func init() {
 	// whether it is production, because the permission gating the deploy route
 	// says "non-production" regardless of where the agent actually lands — so
 	// the record, not the permission, is what establishes what happened.
+	Register(ActionAgentRead, ClassRead, SeverityInfo)
+	RegisterDetailSchema(ActionAgentRead, nil)
+	Register(ActionProjectRead, ClassRead, SeverityInfo)
+	RegisterDetailSchema(ActionProjectRead, nil)
+	Register(ActionEnvironmentRead, ClassRead, SeverityInfo)
+	RegisterDetailSchema(ActionEnvironmentRead, nil)
+
+	Register(ActionAgentCreate, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionAgentCreate, map[string]FieldKind{
+		"agentName": KindName,
+		"agentType": KindEnum,
+		"tool":      KindName,
+	})
+	Register(ActionProjectCreate, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionProjectCreate, map[string]FieldKind{
+		"projectName": KindName,
+		"tool":        KindName,
+	})
+
 	Register(ActionAgentBuild, ClassDeployment, SeverityNotice)
 	RegisterDetailSchema(ActionAgentBuild, map[string]FieldKind{
 		"agentName": KindName,
@@ -357,6 +393,42 @@ func init() {
 	RegisterDetailSchema(ActionGatewaySetIdentityProvider, idpFields)
 	Register(ActionGatewayRemoveIdentityProvider, ClassCredential, SeverityCritical)
 	RegisterDetailSchema(ActionGatewayRemoveIdentityProvider, idpFields)
+
+	// A gateway reporting the policy manifest it has installed. Routine, but
+	// recorded because it is the only mutating route on the unauthenticated
+	// internal server.
+	Register(ActionGatewayPushManifest, ClassConfig, SeverityInfo)
+	RegisterDetailSchema(ActionGatewayPushManifest, map[string]FieldKind{
+		"policyCount": KindCount,
+	})
+
+	// The evaluation job publishing monitor scores. This route carries no RBAC
+	// permission at all, so its record is the only account of who wrote scores.
+	Register(ActionMonitorScorePublish, ClassConfig, SeverityInfo)
+	RegisterDetailSchema(ActionMonitorScorePublish, map[string]FieldKind{
+		"monitorId":  KindIdentifier,
+		"runId":      KindIdentifier,
+		"scoreCount": KindCount,
+	})
+
+	// The provisioning reconciler issues real credentials with no request
+	// behind it, so its outcomes are recorded with a system actor. The user who
+	// originally asked for the agent is carried as OnBehalfOf, which is what the
+	// requested_by column on the binding was captured for.
+	Register(ActionSystemAgentIdentityProvisioned, ClassCredential, SeverityNotice)
+	RegisterDetailSchema(ActionSystemAgentIdentityProvisioned, map[string]FieldKind{
+		"agentName":   KindName,
+		"environment": KindName,
+		"clientId":    KindIdentifier,
+	})
+	// Retries exhausted: the agent will not get an identity without operator
+	// action, so this is a warning rather than routine.
+	Register(ActionSystemAgentIdentityExhausted, ClassCredential, SeverityWarning)
+	RegisterDetailSchema(ActionSystemAgentIdentityExhausted, map[string]FieldKind{
+		"agentName":   KindName,
+		"environment": KindName,
+		"reason":      KindName,
+	})
 }
 
 // registerIdentity declares an identity or privilege action. These are always

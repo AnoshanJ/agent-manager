@@ -10,14 +10,25 @@ Coverage comes from two tiers:
 
 | Tier | Where | What it gives |
 |---|---|---|
-| Coverage | A middleware installed once in `middleware.RouteRegistrar` | Every registered route: actor, org, action, outcome, source. Cannot be forgotten for a new endpoint. |
+| Coverage | A middleware installed once in `middleware.RouteRegistrar`, and `addTool` on the MCP surface | Every registered route and tool: actor, org, action, outcome, source. Cannot be forgotten for a new endpoint. |
 | Semantic | Explicit `audit.Record` / `audit.Begin` calls | The domain effect: which entity, which permissions were granted, which environment. |
+
+Four surfaces are covered, and the `surface` field on every record says which one produced it:
+
+| Surface | What it covers | Actor |
+|---|---|---|
+| `api` | The authenticated REST API | The token subject |
+| `mcp` | MCP tool invocations | The token subject; `details.tool` names the tool |
+| `internal` | The gateway-facing internal server (no JWT, `api-key` header) | The gateway |
+| `system` | Reconcilers and schedulers, plus startup posture | `system:<component>`, with `onBehalfOf` when a user requested the work earlier |
+| `publisher` | The evaluation job publishing monitor scores | The `amp-publisher-*` audience |
 
 When a semantic event describes a successful request, the coverage tier stands down so the trail carries one record rather than two. On failure the coverage record is always kept — a request rejected before it reached the service emits nothing semantic, and that rejection is exactly what must not go unrecorded.
 
-### Which routes
+### Which routes and tools
 
 - **Every non-GET route.** A test (`api/audit_coverage_test.go`) fails the build if a mutating route is not audited, so this cannot drift.
+- **Every MCP tool that changes state.** `addTool` requires an `audit.Action` alongside its permissions and panics without one, so a new mutating tool cannot ship unattributed — the same registration-time guarantee the route registrar gives REST. Read-only tools declare a read action and are not recorded.
 - **Reads only when they disclose credentials or security configuration** — API-key listings, git secrets, gateway tokens, role assignments, identity-provider configuration. Auditing every GET would multiply volume several-fold for little forensic gain.
 - One documented exemption: `POST /orgs/{orgName}/utils/generate-name`, which suggests a name and persists nothing.
 
@@ -121,6 +132,15 @@ What this service does record, and which makes the two joinable:
 
 Authentication-failure records are rate-limited to 10 per source IP per minute, with the suppressed count carried on the next emitted record, so a token flood cannot become a storage-volume problem while still leaving the signal visible.
 
+## Denials
+
+Refusals are recorded on every surface, because a denied attempt is often more interesting than a successful one:
+
+- **REST** — all five deny sites in `middleware/authorization.go`, with the specific missing scope and the caller's scope count.
+- **MCP** — insufficient scope, an unknown tool (a probe), and an organization mismatch (a token driving a tool against a different org than its session — the clearest attack signal this surface produces).
+- **Internal** — a missing or invalid gateway `api-key`, and a valid key presented for a *different* gateway, which is recorded separately because a valid credential used out of scope is a stronger signal than an invalid one. These are rate-limited per source, since gateways poll continuously and one with a stale key would otherwise emit forever.
+- **Edge** — rejected tokens, with a classified reason and no token material.
+
 ## Enforcement posture is part of the trail
 
 `RBAC_ENABLED` defaults to `false` in code, and when it is off **every permission check returns early**. The Helm chart sets it to `true`, so a chart-based install enforces authorization — but a bare binary run does not.
@@ -222,8 +242,6 @@ Two of these carry detail worth calling out:
 
 These surfaces install the recorder but do not yet emit semantic events; their absence is a real gap in coverage today:
 
-- **MCP tools** (`mcp/tools/`) — `create_project`, `create_internal_agent_python`, `create_external_agent`, `build_agent`, `deploy_agent`, `update_deployment_state` mutate state without producing a record. `addTool` already requires permissions, so it is the natural place to require an action too. (The recorder *is* installed on the MCP surface, so services that refuse to act unrecorded work correctly there — only the tool-level records are missing.)
-- **The internal gateway server** — `POST /api/internal/v1/gateways/{gatewayId}/manifest` mutates state, and a rejected gateway `api-key` produces no record, which is the only signal of gateway-credential brute force.
-- **The score publisher route** — `POST /publisher/monitors/{monitorId}/runs/{runId}/scores`, which also carries no `rbac.Permission`.
-- **Background workers** — the monitor scheduler and the AgentID reconciler change state with no request behind them.
 - **Model- and MCP-config API keys** — the per-config key routes are covered by the coverage tier but have no semantic emit yet, so the record does not name the owning config.
+- **The monitor scheduler and executor** — the AgentID reconciler records its outcomes, but scheduled monitor runs do not yet emit. Their context carries a recorder, so adding the emits needs no further wiring.
+- **Thunder's own events** — see the authentication gap above. This is the one gap that cannot be closed from this repository.
