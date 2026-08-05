@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
@@ -961,15 +962,25 @@ func (c *agentConfigurationController) CreateMCPConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, audit.APIKeyOwnerMCPConfig,
+		ouID, projName, agentName, envName, configUUID.String(), name)
+	if auditErr != nil {
+		log.Error("CreateMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+		return
+	}
+
 	response, err := c.agentConfigService.CreateMCPConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, &models.CreateAPIKeyRequest{
 		Name:        name,
 		DisplayName: displayName,
 		ExpiresAt:   specReq.ExpiresAt,
 	})
 	if err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "CreateMCPConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusCreated, response)
 }
 
@@ -992,14 +1003,24 @@ func (c *agentConfigurationController) RotateMCPConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, audit.APIKeyOwnerMCPConfig,
+		ouID, projName, agentName, envName, configUUID.String(), keyName)
+	if auditErr != nil {
+		log.Error("RotateMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+		return
+	}
+
 	response, err := c.agentConfigService.RotateMCPConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, keyName, &models.RotateAPIKeyRequest{
 		DisplayName: specReq.DisplayName,
 		ExpiresAt:   specReq.ExpiresAt,
 	})
 	if err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "RotateMCPConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
 }
 
@@ -1014,10 +1035,20 @@ func (c *agentConfigurationController) RevokeMCPConfigAPIKey(w http.ResponseWrit
 	}
 	keyName := r.PathValue("keyName")
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, audit.APIKeyOwnerMCPConfig,
+		ouID, projName, agentName, envName, configUUID.String(), keyName)
+	if auditErr != nil {
+		log.Error("RevokeMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to revoke API key")
+		return
+	}
+
 	if err := c.agentConfigService.RevokeMCPConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, keyName); err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "RevokeMCPConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1064,15 +1095,25 @@ func (c *agentConfigurationController) CreateLLMConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, audit.APIKeyOwnerModelConfig,
+		ouID, projName, agentName, envName, configUUID.String(), name)
+	if auditErr != nil {
+		log.Error("CreateLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+		return
+	}
+
 	response, err := c.agentConfigService.CreateLLMConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, &models.CreateAPIKeyRequest{
 		Name:        name,
 		DisplayName: displayName,
 		ExpiresAt:   specReq.ExpiresAt,
 	})
 	if err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "CreateLLMConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusCreated, response)
 }
 
@@ -1095,14 +1136,24 @@ func (c *agentConfigurationController) RotateLLMConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, audit.APIKeyOwnerModelConfig,
+		ouID, projName, agentName, envName, configUUID.String(), keyName)
+	if auditErr != nil {
+		log.Error("RotateLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+		return
+	}
+
 	response, err := c.agentConfigService.RotateLLMConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, keyName, &models.RotateAPIKeyRequest{
 		DisplayName: specReq.DisplayName,
 		ExpiresAt:   specReq.ExpiresAt,
 	})
 	if err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "RotateLLMConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
 }
 
@@ -1117,10 +1168,20 @@ func (c *agentConfigurationController) RevokeLLMConfigAPIKey(w http.ResponseWrit
 	}
 	keyName := r.PathValue("keyName")
 
+	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, audit.APIKeyOwnerModelConfig,
+		ouID, projName, agentName, envName, configUUID.String(), keyName)
+	if auditErr != nil {
+		log.Error("RevokeLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to revoke API key")
+		return
+	}
+
 	if err := c.agentConfigService.RevokeLLMConfigAPIKey(ctx, ouID, projName, agentName, configUUID, envName, keyName); err != nil {
+		attempt.Complete(ctx, err)
 		c.writeConfigAPIKeyError(w, log, "RevokeLLMConfigAPIKey", err)
 		return
 	}
+	attempt.Complete(ctx, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

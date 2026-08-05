@@ -95,6 +95,16 @@ const (
 	// Score publishing by the evaluation job.
 	ActionMonitorScorePublish Action = "monitor-score:publish"
 
+	// Monitors: scheduled evaluations that read agent traces and call an LLM
+	// judge, so starting or rerunning one spends money and reads data.
+	ActionMonitorCreate  Action = "monitor:create"
+	ActionMonitorUpdate  Action = "monitor:update"
+	ActionMonitorDelete  Action = "monitor:delete"
+	ActionMonitorStart   Action = "monitor:start"
+	ActionMonitorStop    Action = "monitor:stop"
+	ActionMonitorRerun   Action = "monitor:rerun"
+	ActionMonitorRunFail Action = "monitor:run-failed"
+
 	// System-initiated work. Recorded when it changes state, not on every tick.
 	ActionSystemAgentIdentityProvisioned Action = "system:agent-identity-provisioned"
 	ActionSystemAgentIdentityExhausted   Action = "system:agent-identity-exhausted"
@@ -415,6 +425,40 @@ func init() {
 	// behind it, so its outcomes are recorded with a system actor. The user who
 	// originally asked for the agent is carried as OnBehalfOf, which is what the
 	// requested_by column on the binding was captured for.
+	monitorFields := map[string]FieldKind{
+		"monitorName": KindName,
+		"agentName":   KindName,
+		"monitorType": KindEnum,
+		"evaluators":  KindNameList,
+	}
+	Register(ActionMonitorCreate, ClassConfig, SeverityInfo)
+	RegisterDetailSchema(ActionMonitorCreate, monitorFields)
+	Register(ActionMonitorUpdate, ClassConfig, SeverityInfo)
+	RegisterDetailSchema(ActionMonitorUpdate, monitorFields)
+	Register(ActionMonitorDelete, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionMonitorDelete, monitorFields)
+	// Start and stop decide whether an evaluation keeps spending against the
+	// org's LLM provider, so they rank above ordinary configuration edits.
+	Register(ActionMonitorStart, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionMonitorStart, monitorFields)
+	Register(ActionMonitorStop, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionMonitorStop, monitorFields)
+	Register(ActionMonitorRerun, ClassConfig, SeverityNotice)
+	RegisterDetailSchema(ActionMonitorRerun, map[string]FieldKind{
+		"monitorName": KindName,
+		"agentName":   KindName,
+		"runId":       KindIdentifier,
+	})
+	// A scheduled run that failed. Recorded by the executor with a system actor;
+	// successful runs are not, since their scores are the record.
+	Register(ActionMonitorRunFail, ClassSystem, SeverityWarning)
+	RegisterDetailSchema(ActionMonitorRunFail, map[string]FieldKind{
+		"monitorName": KindName,
+		"agentName":   KindName,
+		"runId":       KindIdentifier,
+		"reason":      KindName,
+	})
+
 	Register(ActionSystemAgentIdentityProvisioned, ClassCredential, SeverityNotice)
 	RegisterDetailSchema(ActionSystemAgentIdentityProvisioned, map[string]FieldKind{
 		"agentName":   KindName,
