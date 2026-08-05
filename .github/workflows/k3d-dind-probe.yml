@@ -114,6 +114,48 @@ jobs:
               -w "\nHTTP %{http_code} in %{time_total}s\n"
           ' 2>&1 | tail -20 || echo "TokenReview FAILED/timeout"
 
+      # Reproduce OpenBao's exact auth path: a dev OpenBao that configures
+      # Kubernetes auth (kubernetes_host = API ClusterIP, as values-openbao.yaml
+      # does), then attempt a real `bao login` with a bound ServiceAccount JWT.
+      # This is the operation that fails in the nightly with "context deadline
+      # exceeded". Reproducing (or not) on a bare cluster tells us whether the
+      # cause is OpenBao/k8s-auth itself or something install.sh does to the cluster.
+      - name: Reproduce OpenBao Kubernetes auth
+        run: |
+          set -x
+          kubectl create namespace openbao || true
+          # Dev-mode OpenBao, mirroring values-openbao.yaml (root token "root").
+          kubectl -n openbao run openbao --image=openbao/openbao:2.2.0 --restart=Never \
+            --env="BAO_DEV_ROOT_TOKEN_ID=root" --env="BAO_DEV_LISTEN_ADDRESS=0.0.0.0:8200" \
+            --port=8200 --command -- bao server -dev
+          kubectl -n openbao wait --for=condition=Ready pod/openbao --timeout=120s
+
+          # A service account whose JWT OpenBao will validate via TokenReview.
+          kubectl -n openbao create serviceaccount es-openbao || true
+
+          API_CLUSTERIP=$(kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}')
+          echo "Configuring OpenBao k8s auth with kubernetes_host=https://${API_CLUSTERIP}:443"
+
+          # Configure k8s auth exactly like values-openbao.yaml postStart does,
+          # then create a role bound to the es-openbao SA and attempt a login.
+          kubectl -n openbao exec openbao -- sh -c "
+            export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=root
+            bao auth enable kubernetes 2>/dev/null || true
+            bao write auth/kubernetes/config kubernetes_host=\"https://${API_CLUSTERIP}:443\"
+            bao policy write p - <<POLICY
+            path \"secret/data/*\" { capabilities = [\"read\"] }
+            POLICY
+            bao write auth/kubernetes/role/es-role \
+              bound_service_account_names=es-openbao \
+              bound_service_account_namespaces=openbao \
+              policies=p ttl=20m
+            echo '===== attempting bao login (the operation that times out in nightly) ====='
+            JWT=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+            time bao write auth/kubernetes/login role=es-role jwt=\"\$JWT\" 2>&1 | tail -15
+          " 2>&1 | tail -40 || echo "OpenBao auth reproduction FAILED"
+          echo "===== openbao pod logs ====="
+          kubectl -n openbao logs openbao --tail=40 2>&1 | tail -50 || true
+
       - name: Cluster networking diagnostics
         if: always()
         run: |
