@@ -232,6 +232,9 @@ The operations below emit a record describing what actually changed, not just th
 | Gateways | `gateway:delete`, `gateway:set-identity-provider`, `gateway:remove-identity-provider` | Fail-closed |
 | Gateways | `gateway:create` / `:update` / `:assign-environment` / `:unassign-environment` | Fail-open |
 | Agent config | `agent-config:update` / `:delete` | Fail-open |
+| Per-config API keys | `api-key:create` / `:rotate` / `:revoke` (model-config, mcp-config) | Fail-closed |
+| Monitors | `monitor:create` / `:update` / `:delete` / `:start` / `:stop` / `:rerun` | Fail-open |
+| Monitors | `monitor:run-failed` (scheduler, system actor) | Fail-open |
 
 Two of these carry detail worth calling out:
 
@@ -242,6 +245,4 @@ Two of these carry detail worth calling out:
 
 These surfaces install the recorder but do not yet emit semantic events; their absence is a real gap in coverage today:
 
-- **Model- and MCP-config API keys** — the per-config key routes are covered by the coverage tier but have no semantic emit yet, so the record does not name the owning config.
-- **The monitor scheduler and executor** — the AgentID reconciler records its outcomes, but scheduled monitor runs do not yet emit. Their context carries a recorder, so adding the emits needs no further wiring.
-- **Thunder's own events** — see the authentication gap above. This is the one gap that cannot be closed from this repository.
+- **Thunder's own events** — see the authentication gap above. This is the one gap that cannot be closed from this repository, and it is the only remaining hole in coverage.
