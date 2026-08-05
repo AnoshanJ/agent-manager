@@ -186,16 +186,15 @@ func (s *AgentAPIKeyService) CreateAPIKey(
 	// change cannot commit with its record. Write the intent first and refuse
 	// if it fails: a live credential nobody can attribute is worse than a
 	// failed request. The key value itself is never passed to the recorder.
-	attempt, err := audit.Begin(ctx, audit.ActionAPIKeyCreate,
-		audit.Org(ouID),
-		audit.ResourceNamed(audit.ResourceAPIKey, artifactUUID, keyNameOf(req)),
-		audit.Project(projectName),
-		audit.Environment(envID),
-		audit.Detail("ownerType", audit.APIKeyOwnerAgent),
-		audit.Detail("ownerName", agentName),
-		audit.Detail("keyName", keyNameOf(req)),
-		audit.Detail("gatewayCount", len(gateways)),
-	)
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, apiKeyAuditTarget{
+		OUID:        ouID,
+		OwnerType:   audit.APIKeyOwnerAgent,
+		OwnerID:     artifactUUID,
+		OwnerName:   agentName,
+		KeyName:     keyNameOf(req),
+		Project:     projectName,
+		Environment: envID,
+	}, audit.Detail("gatewayCount", len(gateways)))
 	if err != nil {
 		return nil, err
 	}
@@ -232,16 +231,15 @@ func (s *AgentAPIKeyService) RevokeAPIKey(
 	}
 	artifactUUID := artifact.UUID.String()
 
-	attempt, err := audit.Begin(ctx, audit.ActionAPIKeyRevoke,
-		audit.Org(ouID),
-		audit.ResourceNamed(audit.ResourceAPIKey, artifactUUID, keyName),
-		audit.Project(projectName),
-		audit.Environment(envID),
-		audit.Detail("ownerType", audit.APIKeyOwnerAgent),
-		audit.Detail("ownerName", agentName),
-		audit.Detail("keyName", keyName),
-		audit.Detail("gatewayCount", len(gateways)),
-	)
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, apiKeyAuditTarget{
+		OUID:        ouID,
+		OwnerType:   audit.APIKeyOwnerAgent,
+		OwnerID:     artifactUUID,
+		OwnerName:   agentName,
+		KeyName:     keyName,
+		Project:     projectName,
+		Environment: envID,
+	}, audit.Detail("gatewayCount", len(gateways)))
 	if err != nil {
 		return err
 	}
@@ -268,16 +266,15 @@ func (s *AgentAPIKeyService) RotateAPIKey(
 	}
 	artifactUUID := artifact.UUID.String()
 
-	attempt, err := audit.Begin(ctx, audit.ActionAPIKeyRotate,
-		audit.Org(ouID),
-		audit.ResourceNamed(audit.ResourceAPIKey, artifactUUID, keyName),
-		audit.Project(projectName),
-		audit.Environment(envID),
-		audit.Detail("ownerType", audit.APIKeyOwnerAgent),
-		audit.Detail("ownerName", agentName),
-		audit.Detail("keyName", keyName),
-		audit.Detail("gatewayCount", len(gateways)),
-	)
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, apiKeyAuditTarget{
+		OUID:        ouID,
+		OwnerType:   audit.APIKeyOwnerAgent,
+		OwnerID:     artifactUUID,
+		OwnerName:   agentName,
+		KeyName:     keyName,
+		Project:     projectName,
+		Environment: envID,
+	}, audit.Detail("gatewayCount", len(gateways)))
 	if err != nil {
 		return nil, err
 	}

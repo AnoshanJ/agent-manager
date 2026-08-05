@@ -42,6 +42,9 @@ type RouteRegistrar struct {
 	mux         *http.ServeMux
 	orgResolver OrgResolver
 	auditor     audit.Recorder
+	// surface distinguishes the internal gateway server from the public API so
+	// its records are not mistaken for user-driven traffic.
+	surface audit.Surface
 	// routes is a registration ledger. It exists for the coverage test, which
 	// walks it to assert that no mutating route shipped unaudited; it is never
 	// consulted at request time.
@@ -51,10 +54,29 @@ type RouteRegistrar struct {
 // NewRouteRegistrar creates a RouteRegistrar backed by the given mux and resolver.
 // A nil auditor disables audit recording for routes registered through it.
 func NewRouteRegistrar(mux *http.ServeMux, resolver OrgResolver, auditor audit.Recorder) *RouteRegistrar {
+	return newRouteRegistrar(mux, resolver, auditor, audit.SurfaceAPI)
+}
+
+// NewInternalRouteRegistrar creates a registrar for the gateway-facing internal
+// server.
+//
+// That server has no JWT middleware — gateways authenticate with an api-key
+// header checked inside each handler — so its routes carry no permission and
+// no org placeholder, and the registrar applies neither. What it does apply is
+// the audit wrapper and the route ledger, which is the point: registering here
+// rather than on a bare mux is what puts these routes under the same coverage
+// test as the public API.
+func NewInternalRouteRegistrar(mux *http.ServeMux, auditor audit.Recorder) *RouteRegistrar {
+	return newRouteRegistrar(mux, nil, auditor, audit.SurfaceInternal)
+}
+
+func newRouteRegistrar(
+	mux *http.ServeMux, resolver OrgResolver, auditor audit.Recorder, surface audit.Surface,
+) *RouteRegistrar {
 	if auditor == nil {
 		auditor = audit.NewNoopRecorder()
 	}
-	return &RouteRegistrar{mux: mux, orgResolver: resolver, auditor: auditor}
+	return &RouteRegistrar{mux: mux, orgResolver: resolver, auditor: auditor, surface: surface}
 }
 
 // Routes returns the audit metadata for every registered route. Used by the
@@ -89,7 +111,7 @@ func (rr *RouteRegistrar) register(
 		handler = RequireOrgMatch(rr.orgResolver)(handler)
 	}
 
-	meta := audit.NewRouteMeta(pattern, params, perms)
+	meta := audit.NewRouteMetaForSurface(pattern, params, perms, rr.surface)
 	rr.routes = append(rr.routes, meta)
 	handler = WithAudit(rr.auditor, meta)(handler)
 
@@ -145,7 +167,7 @@ func (rr *RouteRegistrar) registerRootOU(
 		handler = RequireOrgMatchAllowRootOU(rr.orgResolver)(handler)
 	}
 
-	meta := audit.NewRouteMeta(pattern, params, perms)
+	meta := audit.NewRouteMetaForSurface(pattern, params, perms, rr.surface)
 	rr.routes = append(rr.routes, meta)
 	handler = WithAudit(rr.auditor, meta)(handler)
 

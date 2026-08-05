@@ -151,15 +151,13 @@ func (c *gatewayController) UpsertGatewayIdentityProvider(w http.ResponseWriter,
 	// this is recorded as a credential-class change and refused when the trail
 	// is unavailable.
 	ctx := r.Context()
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewaySetIdentityProvider,
+	attempt, ok := beginAuditOrFail(w, r, "UpsertGatewayIdentityProvider", "Failed to upsert identity provider", audit.ActionGatewaySetIdentityProvider,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
 		audit.Detail("identityProviderName", name),
 		audit.Detail("issuer", derefString(req.Issuer)),
 	)
-	if auditErr != nil {
-		log.Error("UpsertGatewayIdentityProvider: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to upsert identity provider")
+	if !ok {
 		return
 	}
 
@@ -189,14 +187,12 @@ func (c *gatewayController) DeleteGatewayIdentityProvider(w http.ResponseWriter,
 	name := strings.TrimSpace(r.PathValue("name"))
 
 	ctx := r.Context()
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewayRemoveIdentityProvider,
+	attempt, ok := beginAuditOrFail(w, r, "DeleteGatewayIdentityProvider", "Failed to delete identity provider", audit.ActionGatewayRemoveIdentityProvider,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
 		audit.Detail("identityProviderName", name),
 	)
-	if auditErr != nil {
-		log.Error("DeleteGatewayIdentityProvider: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete identity provider")
+	if !ok {
 		return
 	}
 

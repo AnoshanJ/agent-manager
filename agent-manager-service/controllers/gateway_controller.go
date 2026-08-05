@@ -377,13 +377,11 @@ func (c *gatewayController) DeleteGateway(w http.ResponseWriter, r *http.Request
 	ouID := middleware.OUIDFromRequest(r)
 	gatewayID := strings.TrimSpace(r.PathValue("gatewayID"))
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewayDelete,
+	attempt, ok := beginAuditOrFail(w, r, "DeleteGateway", "Failed to delete gateway", audit.ActionGatewayDelete,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 	)
-	if auditErr != nil {
-		log.Error("DeleteGateway: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete gateway")
+	if !ok {
 		return
 	}
 
@@ -591,13 +589,11 @@ func (c *gatewayController) RotateGatewayToken(w http.ResponseWriter, r *http.Re
 	// context; the audit trail needs the caller identity that only the request
 	// context carries. A rotated gateway token is live credential material, so
 	// the operation is refused when it cannot be recorded.
-	attempt, err := audit.Begin(ctx, audit.ActionGatewayTokenRotate,
+	attempt, ok := beginAuditOrFail(w, r, "RotateGatewayToken", "Failed to rotate gateway token", audit.ActionGatewayTokenRotate,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 	)
-	if err != nil {
-		log.Error("RotateGatewayToken: refusing, audit record could not be written", "error", err)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to rotate gateway token")
+	if !ok {
 		return
 	}
 
@@ -632,14 +628,12 @@ func (c *gatewayController) RevokeGatewayToken(w http.ResponseWriter, r *http.Re
 
 	log.Info("RevokeGatewayToken: starting", "ouID", ouID, "gatewayID", gatewayID, "tokenID", tokenID)
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewayTokenRevoke,
+	attempt, ok := beginAuditOrFail(w, r, "RevokeGatewayToken", "Failed to revoke token", audit.ActionGatewayTokenRevoke,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.Detail("tokenId", tokenID),
 	)
-	if auditErr != nil {
-		log.Error("RevokeGatewayToken: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to revoke token")
+	if !ok {
 		return
 	}
 

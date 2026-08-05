@@ -198,7 +198,7 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 	// its key names and shape are recorded — never a value. See
 	// audit.AttributeKeySummary.
 	attrKeys, attrCount, hasSensitive := audit.AttributeKeySummary(body.Attributes)
-	attempt, auditErr := audit.Begin(ctx, audit.ActionUserCreate,
+	attempt, ok := beginAuditOrFail(w, r, "CreateUser", "Failed to create user", audit.ActionUserCreate,
 		audit.Org(ouID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, body.Attributes["username"], body.Attributes["username"]),
 		audit.Detail("username", body.Attributes["username"]),
@@ -207,9 +207,7 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 		audit.Detail("attributeCount", attrCount),
 		audit.Detail("containsSensitiveKey", hasSensitive),
 	)
-	if auditErr != nil {
-		log.Error("CreateUser: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to create user")
+	if !ok {
 		return
 	}
 
@@ -303,14 +301,12 @@ func (c *identityController) DeleteUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionUserDelete,
+	attempt, ok := beginAuditOrFail(w, r, "DeleteUser", "Failed to delete user", audit.ActionUserDelete,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, userID, userIdentifier(user)),
 		audit.Detail("username", userIdentifier(user)),
 	)
-	if auditErr != nil {
-		log.Error("DeleteUser: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete user")
+	if !ok {
 		return
 	}
 
@@ -432,14 +428,12 @@ func (c *identityController) InviteUser(w http.ResponseWriter, r *http.Request) 
 	// The invite link grants org access to whoever holds it, so an invite is a
 	// membership change and is refused when it cannot be recorded. The link
 	// itself is never recorded.
-	attempt, auditErr := audit.Begin(ctx, audit.ActionUserInvite,
+	attempt, ok := beginAuditOrFail(w, r, "InviteUser", "Failed to invite user", audit.ActionUserInvite,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, body.Email, body.Email),
 		audit.Detail("email", body.Email),
 	)
-	if auditErr != nil {
-		log.Error("InviteUser: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to invite user")
+	if !ok {
 		return
 	}
 
@@ -716,16 +710,14 @@ func (c *identityController) AddGroupMembers(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGroupAddMember,
+	attempt, ok := beginAuditOrFail(w, r, "AddGroupMembers", "Failed to add group members", audit.ActionGroupAddMember,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
 		audit.Detail("groupName", group.Name),
 		audit.Detail("members", req.UserIDs),
 		audit.Detail("memberCount", len(req.UserIDs)),
 	)
-	if auditErr != nil {
-		log.Error("AddGroupMembers: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to add group members")
+	if !ok {
 		return
 	}
 
@@ -781,16 +773,14 @@ func (c *identityController) RemoveGroupMembers(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionGroupRemoveMember,
+	attempt, ok := beginAuditOrFail(w, r, "RemoveGroupMembers", "Failed to remove group members", audit.ActionGroupRemoveMember,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
 		audit.Detail("groupName", group.Name),
 		audit.Detail("members", req.UserIDs),
 		audit.Detail("memberCount", len(req.UserIDs)),
 	)
-	if auditErr != nil {
-		log.Error("RemoveGroupMembers: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to remove group members")
+	if !ok {
 		return
 	}
 
@@ -1176,7 +1166,7 @@ func (c *identityController) AddRolePermissions(w http.ResponseWriter, r *http.R
 	// The granted scopes are recorded in full. This is the privilege-escalation
 	// path, and a record naming only the role cannot answer "who granted what
 	// to whom" — which is the question this event exists for.
-	attempt, auditErr := audit.Begin(ctx, audit.ActionRoleGrantPermission,
+	attempt, ok := beginAuditOrFail(w, r, "AddRolePermissions", "Failed to add role permissions", audit.ActionRoleGrantPermission,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1184,9 +1174,7 @@ func (c *identityController) AddRolePermissions(w http.ResponseWriter, r *http.R
 		audit.Detail("permissionCount", len(req.Permissions)),
 		audit.Detail("resourceServerId", req.ResourceServerID),
 	)
-	if auditErr != nil {
-		log.Error("AddRolePermissions: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to add role permissions")
+	if !ok {
 		return
 	}
 
@@ -1232,7 +1220,7 @@ func (c *identityController) RemoveRolePermissions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionRoleRevokePermission,
+	attempt, ok := beginAuditOrFail(w, r, "RemoveRolePermissions", "Failed to remove role permissions", audit.ActionRoleRevokePermission,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1240,9 +1228,7 @@ func (c *identityController) RemoveRolePermissions(w http.ResponseWriter, r *htt
 		audit.Detail("permissionCount", len(req.Permissions)),
 		audit.Detail("resourceServerId", req.ResourceServerID),
 	)
-	if auditErr != nil {
-		log.Error("RemoveRolePermissions: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to remove role permissions")
+	if !ok {
 		return
 	}
 
@@ -1289,7 +1275,7 @@ func (c *identityController) AddRoleAssignees(w http.ResponseWriter, r *http.Req
 	}
 
 	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
-	attempt, auditErr := audit.Begin(ctx, audit.ActionRoleAssign,
+	attempt, ok := beginAuditOrFail(w, r, "AddRoleAssignees", "Failed to add role assignees", audit.ActionRoleAssign,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1297,9 +1283,7 @@ func (c *identityController) AddRoleAssignees(w http.ResponseWriter, r *http.Req
 		audit.Detail("assigneeTypes", assigneeTypes),
 		audit.Detail("assigneeCount", len(req.Assignments)),
 	)
-	if auditErr != nil {
-		log.Error("AddRoleAssignees: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to add role assignees")
+	if !ok {
 		return
 	}
 
@@ -1346,7 +1330,7 @@ func (c *identityController) RemoveRoleAssignees(w http.ResponseWriter, r *http.
 	}
 
 	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
-	attempt, auditErr := audit.Begin(ctx, audit.ActionRoleUnassign,
+	attempt, ok := beginAuditOrFail(w, r, "RemoveRoleAssignees", "Failed to remove role assignees", audit.ActionRoleUnassign,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1354,9 +1338,7 @@ func (c *identityController) RemoveRoleAssignees(w http.ResponseWriter, r *http.
 		audit.Detail("assigneeTypes", assigneeTypes),
 		audit.Detail("assigneeCount", len(req.Assignments)),
 	)
-	if auditErr != nil {
-		log.Error("RemoveRoleAssignees: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to remove role assignees")
+	if !ok {
 		return
 	}
 

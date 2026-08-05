@@ -19,6 +19,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
@@ -55,7 +56,7 @@ func WithAudit(recorder audit.Recorder, meta audit.RouteMeta) func(http.HandlerF
 
 			ctx := audit.WithRecorder(r.Context(), recorder)
 			ctx = audit.WithSource(ctx, audit.Source{
-				Surface:      audit.SurfaceAPI,
+				Surface:      meta.Surface,
 				IP:           utils.ClientIP(r),
 				UserAgent:    r.UserAgent(),
 				Method:       meta.Method,
@@ -124,6 +125,12 @@ func emitEnvelope(
 	if scope.Suppressed() {
 		return
 	}
+	// Routes a machine polls on a timer record once per caller per window.
+	// Without this the gateway bulk-sync endpoints alone would produce millions
+	// of near-identical records and bury everything else.
+	if meta.Coalesce > 0 && !routeCoalescer.allow(meta.Pattern+"|"+sourceKeyOf(ctx), meta.Coalesce) {
+		return
+	}
 	// A semantic emit already recorded what happened. Keep the envelope for
 	// failures: a request rejected before it reached the service emits nothing
 	// semantic, and that rejection is exactly what must not go unrecorded.
@@ -139,4 +146,53 @@ func emitEnvelope(
 	)
 	e.DurationMs = time.Since(start).Milliseconds()
 	recorder.Record(ctx, e)
+}
+
+// routeCoalescer bounds how often a polled route is recorded per caller.
+var routeCoalescer = newCoalescer()
+
+// sourceKeyOf identifies the caller for coalescing. The actor is preferred; the
+// source IP stands in on surfaces with no token, which is exactly where the
+// polling happens.
+func sourceKeyOf(ctx context.Context) string {
+	src, _ := audit.SourceFromContext(ctx)
+	if src.ActorID != "" {
+		return src.ActorID
+	}
+	return src.IP
+}
+
+// coalescer suppresses repeats of the same key within a window.
+type coalescer struct {
+	mu        sync.Mutex
+	seen      map[string]time.Time
+	lastSweep time.Time
+}
+
+func newCoalescer() *coalescer {
+	return &coalescer{seen: map[string]time.Time{}, lastSweep: time.Now()}
+}
+
+// allow reports whether this key should be recorded now, and starts a new
+// window when it is.
+func (c *coalescer) allow(key string, window time.Duration) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	// Bound map growth: sweep expired entries at most once per window.
+	if now.Sub(c.lastSweep) >= window {
+		c.lastSweep = now
+		for k, at := range c.seen {
+			if now.Sub(at) >= window {
+				delete(c.seen, k)
+			}
+		}
+	}
+
+	if at, ok := c.seen[key]; ok && now.Sub(at) < window {
+		return false
+	}
+	c.seen[key] = now
+	return true
 }

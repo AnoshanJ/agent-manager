@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 )
@@ -44,6 +45,14 @@ type RouteMeta struct {
 	Action Action
 	// Audited reports whether this route emits audit events.
 	Audited bool
+	// Surface is the entry point this route belongs to. The internal
+	// gateway-facing server registers through the same registrar but must not
+	// be recorded as ordinary API traffic.
+	Surface Surface
+	// Coalesce suppresses repeats of this route within the window, per caller.
+	// Zero means record every call. Non-zero only for routes a machine polls on
+	// a timer, where one record per request would bury everything else.
+	Coalesce time.Duration
 }
 
 var pathParamPattern = regexp.MustCompile(`\{([^}]+)\}`)
@@ -56,14 +65,23 @@ var pathParamPattern = regexp.MustCompile(`\{([^}]+)\}`)
 // labelled must fail at startup, in CI, rather than ship as an unattributable
 // gap in the trail.
 func NewRouteMeta(pattern string, params []string, perms []rbac.Permission) RouteMeta {
+	return NewRouteMetaForSurface(pattern, params, perms, SurfaceAPI)
+}
+
+// NewRouteMetaForSurface resolves the audit policy for a route on a named
+// surface. The internal gateway server uses this so its records are not
+// mistaken for user-driven API traffic.
+func NewRouteMetaForSurface(pattern string, params []string, perms []rbac.Permission, surface Surface) RouteMeta {
 	method, path := splitPattern(pattern)
 	meta := RouteMeta{
-		Pattern: pattern,
-		Method:  method,
-		Path:    path,
-		Params:  params,
-		Perms:   perms,
-		Audited: shouldAudit(method, path),
+		Pattern:  pattern,
+		Method:   method,
+		Path:     path,
+		Params:   params,
+		Perms:    perms,
+		Audited:  shouldAudit(method, path),
+		Surface:  surface,
+		Coalesce: coalesceWindows[path],
 	}
 	if !meta.Audited {
 		return meta
@@ -129,6 +147,18 @@ var nonMutatingWritePaths = map[string]bool{
 //
 // The audit trail is stored outside this service, so there is no read route for
 // it here to add to this list.
+// coalesceWindows bound how often a route is recorded per caller.
+//
+// Gateways poll the bulk-sync endpoints on a timer, so recording every call
+// would produce millions of near-identical records and bury everything else.
+// One record per gateway per window still answers the question that matters —
+// which gateway pulled key material, and when it started.
+var coalesceWindows = map[string]time.Duration{
+	"/llm-providers/api-keys": 5 * time.Minute,
+	"/llm-proxies/api-keys":   5 * time.Minute,
+	"/apis/api-keys":          5 * time.Minute,
+}
+
 var sensitiveReadPaths = map[string]bool{
 	// Credential material.
 	"/orgs/{orgName}/git-secrets":                                                                                     true,
@@ -139,6 +169,14 @@ var sensitiveReadPaths = map[string]bool{
 	"/orgs/{orgName}/projects/{projName}/agents/{agentName}/model-configs/{configId}/environments/{envName}/api-keys": true,
 	"/orgs/{orgName}/gateways/{gatewayID}/tokens":                                                                     true,
 	"/orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":                                               true,
+
+	// Internal surface: the gateway bulk-sync endpoints hand real key material
+	// to a data-plane gateway. The public equivalents above are audited, and a
+	// compromised gateway credential harvesting keys is exactly what these
+	// records would show. Coalesced — see coalesceWindows.
+	"/llm-providers/api-keys": true,
+	"/llm-proxies/api-keys":   true,
+	"/apis/api-keys":          true,
 
 	// Security configuration — who holds which privilege.
 	"/orgs/{orgName}/identities/permissions":                          true,
@@ -256,6 +294,14 @@ var actionOverrides = map[string]Action{
 
 	// Catalog is a distinct sub-resource of an LLM provider.
 	"PUT /orgs/{orgName}/llm-providers/{providerId}/catalog": "llm-provider:update-catalog",
+
+	// Internal gateway server. These carry no rbac.Permission — the gateway
+	// authenticates with an api-key header checked inside each handler — so
+	// each needs an explicit action.
+	"POST /gateways/{gatewayId}/manifest": "gateway:push-manifest",
+	"GET /llm-providers/api-keys":         "api-key:sync",
+	"GET /llm-proxies/api-keys":           "api-key:sync",
+	"GET /apis/api-keys":                  "api-key:sync",
 
 	// Reads expressed as POST because they carry a request body.
 	// The score-publish route carries no rbac.Permission at all — it is gated

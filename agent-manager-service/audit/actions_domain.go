@@ -29,6 +29,11 @@ const (
 	ActionAPIKeyRotate    Action = "api-key:rotate"
 	ActionAPIKeyRevoke    Action = "api-key:revoke"
 	ActionAPIKeyIssueTest Action = "api-key:issue-test"
+	// ActionAPIKeySync is a data-plane gateway pulling the key material it is
+	// entitled to. Recorded because a compromised gateway credential harvesting
+	// keys looks exactly like a legitimate sync until you can see who pulled
+	// what and when it started.
+	ActionAPIKeySync Action = "api-key:sync"
 
 	ActionGitSecretCreate Action = "git-secret:create"
 	ActionGitSecretDelete Action = "git-secret:delete"
@@ -174,6 +179,12 @@ func init() {
 		"keyName":   KindName,
 		"expiresAt": KindName,
 		"rotated":   KindFlag,
+	})
+
+	// A read, not a change, so it is a notice rather than critical.
+	Register(ActionAPIKeySync, ClassRead, SeverityNotice)
+	RegisterDetailSchema(ActionAPIKeySync, map[string]FieldKind{
+		"keyCount": KindCount,
 	})
 
 	registerCredential(ActionGitSecretCreate, map[string]FieldKind{

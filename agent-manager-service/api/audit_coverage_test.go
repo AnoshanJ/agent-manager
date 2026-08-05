@@ -63,6 +63,9 @@ var controllerConstructors = []any{
 	controllers.NewIdentityController,
 	controllers.NewMCPProxyScopeController,
 	controllers.NewAgentIdentityController,
+	// Registered on the internal server rather than by registerAPIRoutes, but
+	// still needed here: its routes go through a registrar too.
+	controllers.NewGatewayInternalController,
 }
 
 // stubAppParams builds an AppParams whose controller fields are non-nil.
@@ -112,6 +115,77 @@ func registerAllRoutesForAudit(t *testing.T) *middleware.RouteRegistrar {
 	rr := middleware.NewRouteRegistrar(http.NewServeMux(), nil, audit.NewNoopRecorder())
 	registerAPIRoutes(rr, stubAppParams(t))
 	return rr
+}
+
+// registerInternalRoutesForAudit drives the gateway-facing internal server's
+// registration.
+//
+// That surface has no JWT and was previously registered on a bare mux, which
+// put it outside the ledger every assertion below reads — so its one mutating
+// route was audited only by hand, and nothing would have caught the next one.
+func registerInternalRoutesForAudit(t *testing.T) *middleware.RouteRegistrar {
+	t.Helper()
+
+	rr := middleware.NewInternalRouteRegistrar(http.NewServeMux(), audit.NewNoopRecorder())
+	RegisterGatewayInternalRoutes(rr, stubAppParams(t).GatewayInternalController)
+	return rr
+}
+
+// TestInternalMutatingRoutesAreAudited extends the coverage guarantee to the
+// internal server. Its routes carry no permission, so each audited one needs an
+// explicit actionOverrides entry; without one, registration panics.
+func TestInternalMutatingRoutesAreAudited(t *testing.T) {
+	routes := registerInternalRoutesForAudit(t)
+	if len(routes.Routes()) == 0 {
+		t.Fatal("no internal routes registered; the coverage check would be vacuous")
+	}
+
+	for _, meta := range routes.Routes() {
+		if meta.Surface != audit.SurfaceInternal {
+			t.Errorf("route %q records surface %q, want internal", meta.Pattern, meta.Surface)
+		}
+		if meta.Method == http.MethodGet {
+			continue
+		}
+		if !meta.Audited {
+			t.Errorf("mutating internal route %q is not audited", meta.Pattern)
+		}
+		if meta.Action == "" {
+			t.Errorf("audited internal route %q has no action label", meta.Pattern)
+		}
+	}
+}
+
+// TestInternalKeySyncReadsAreAuditedAndCoalesced covers the bulk-sync
+// endpoints, which hand real key material to a gateway. They are polled on a
+// timer, so they must be recorded but must not be recorded per request.
+func TestInternalKeySyncReadsAreAuditedAndCoalesced(t *testing.T) {
+	want := map[string]bool{
+		"/llm-providers/api-keys": false,
+		"/llm-proxies/api-keys":   false,
+		"/apis/api-keys":          false,
+	}
+
+	for _, meta := range registerInternalRoutesForAudit(t).Routes() {
+		if _, ok := want[meta.Path]; !ok {
+			continue
+		}
+		want[meta.Path] = true
+
+		if !meta.Audited {
+			t.Errorf("%q discloses key material but is not audited", meta.Pattern)
+		}
+		if meta.Coalesce == 0 {
+			t.Errorf("%q is polled continuously but is not coalesced; "+
+				"one record per request would bury the trail", meta.Pattern)
+		}
+	}
+
+	for path, seen := range want {
+		if !seen {
+			t.Errorf("bulk-sync route %q was never registered", path)
+		}
+	}
 }
 
 // TestEveryMutatingRouteIsAudited is the anti-drift guard for the audit trail.
@@ -184,7 +258,11 @@ func TestAuditedRoutesHaveWellFormedActions(t *testing.T) {
 // deliberately labelled while the route it named has been renamed or removed,
 // so the real route silently falls back to a derived label nobody reviewed.
 func TestNoStaleAuditPolicyEntries(t *testing.T) {
-	routes := registerAllRoutesForAudit(t).Routes()
+	// Both surfaces contribute policy entries, so staleness has to be judged
+	// against both ledgers — otherwise adding an internal override would look
+	// like a stale public one.
+	routes := append(registerAllRoutesForAudit(t).Routes(),
+		registerInternalRoutesForAudit(t).Routes()...)
 
 	patterns := make(map[string]bool, len(routes))
 	paths := make(map[string]bool, len(routes))
@@ -215,7 +293,9 @@ func TestSensitiveReadsAreAudited(t *testing.T) {
 	}
 
 	seen := make(map[string]bool)
-	for _, meta := range registerAllRoutesForAudit(t).Routes() {
+	allRoutes := append(registerAllRoutesForAudit(t).Routes(),
+		registerInternalRoutesForAudit(t).Routes()...)
+	for _, meta := range allRoutes {
 		if meta.Method != http.MethodGet || !sensitive[meta.Path] {
 			continue
 		}

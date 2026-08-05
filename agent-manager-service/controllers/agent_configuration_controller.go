@@ -962,11 +962,9 @@ func (c *agentConfigurationController) CreateMCPConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, audit.APIKeyOwnerMCPConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "CreateMCPConfigAPIKey", "Failed to issue API key", audit.ActionAPIKeyCreate, audit.APIKeyOwnerMCPConfig,
 		ouID, projName, agentName, envName, configUUID.String(), name)
-	if auditErr != nil {
-		log.Error("CreateMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+	if !ok {
 		return
 	}
 
@@ -1003,11 +1001,9 @@ func (c *agentConfigurationController) RotateMCPConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, audit.APIKeyOwnerMCPConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "RotateMCPConfigAPIKey", "Failed to issue API key", audit.ActionAPIKeyRotate, audit.APIKeyOwnerMCPConfig,
 		ouID, projName, agentName, envName, configUUID.String(), keyName)
-	if auditErr != nil {
-		log.Error("RotateMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+	if !ok {
 		return
 	}
 
@@ -1035,11 +1031,9 @@ func (c *agentConfigurationController) RevokeMCPConfigAPIKey(w http.ResponseWrit
 	}
 	keyName := r.PathValue("keyName")
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, audit.APIKeyOwnerMCPConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "RevokeMCPConfigAPIKey", "Failed to revoke API key", audit.ActionAPIKeyRevoke, audit.APIKeyOwnerMCPConfig,
 		ouID, projName, agentName, envName, configUUID.String(), keyName)
-	if auditErr != nil {
-		log.Error("RevokeMCPConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to revoke API key")
+	if !ok {
 		return
 	}
 
@@ -1095,11 +1089,9 @@ func (c *agentConfigurationController) CreateLLMConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, audit.APIKeyOwnerModelConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "CreateLLMConfigAPIKey", "Failed to issue API key", audit.ActionAPIKeyCreate, audit.APIKeyOwnerModelConfig,
 		ouID, projName, agentName, envName, configUUID.String(), name)
-	if auditErr != nil {
-		log.Error("CreateLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+	if !ok {
 		return
 	}
 
@@ -1136,11 +1128,9 @@ func (c *agentConfigurationController) RotateLLMConfigAPIKey(w http.ResponseWrit
 		return
 	}
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, audit.APIKeyOwnerModelConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "RotateLLMConfigAPIKey", "Failed to issue API key", audit.ActionAPIKeyRotate, audit.APIKeyOwnerModelConfig,
 		ouID, projName, agentName, envName, configUUID.String(), keyName)
-	if auditErr != nil {
-		log.Error("RotateLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to issue API key")
+	if !ok {
 		return
 	}
 
@@ -1168,11 +1158,9 @@ func (c *agentConfigurationController) RevokeLLMConfigAPIKey(w http.ResponseWrit
 	}
 	keyName := r.PathValue("keyName")
 
-	attempt, auditErr := beginConfigAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, audit.APIKeyOwnerModelConfig,
+	attempt, ok := beginConfigAPIKeyAudit(w, r, "RevokeLLMConfigAPIKey", "Failed to revoke API key", audit.ActionAPIKeyRevoke, audit.APIKeyOwnerModelConfig,
 		ouID, projName, agentName, envName, configUUID.String(), keyName)
-	if auditErr != nil {
-		log.Error("RevokeLLMConfigAPIKey: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to revoke API key")
+	if !ok {
 		return
 	}
 

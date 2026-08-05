@@ -418,16 +418,14 @@ func (c *environmentController) SetThunderSystemClient(w http.ResponseWriter, r 
 	// The clientId identifies the credential; clientSecret is never passed to
 	// the recorder. Refused when unrecordable — this credential is what AMS uses
 	// to reach the environment's identity provider.
-	attempt, auditErr := audit.Begin(ctx, audit.ActionServiceAccountConfigure,
+	attempt, ok := beginAuditOrFail(w, r, "SetThunderSystemClient", "Failed to store system-client credential", audit.ActionServiceAccountConfigure,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceServiceAccount, envName, envName),
 		audit.Environment(envName),
 		audit.Detail("environment", envName),
 		audit.Detail("clientId", req.ClientId),
 	)
-	if auditErr != nil {
-		log.Error("SetThunderSystemClient: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to store system-client credential")
+	if !ok {
 		return
 	}
 
@@ -455,15 +453,13 @@ func (c *environmentController) DeleteThunderSystemClient(w http.ResponseWriter,
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
-	attempt, auditErr := audit.Begin(ctx, audit.ActionServiceAccountRemove,
+	attempt, ok := beginAuditOrFail(w, r, "DeleteThunderSystemClient", "Failed to delete system-client credential", audit.ActionServiceAccountRemove,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceServiceAccount, envName, envName),
 		audit.Environment(envName),
 		audit.Detail("environment", envName),
 	)
-	if auditErr != nil {
-		log.Error("DeleteThunderSystemClient: refusing, audit record could not be written", "error", auditErr)
-		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete system-client credential")
+	if !ok {
 		return
 	}
 

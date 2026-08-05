@@ -231,6 +231,7 @@ The operations below emit a record describing what actually changed, not just th
 | Agent lifecycle | `agent:build` | Fail-open |
 | Gateways | `gateway:delete`, `gateway:set-identity-provider`, `gateway:remove-identity-provider` | Fail-closed |
 | Gateways | `gateway:create` / `:update` / `:assign-environment` / `:unassign-environment` | Fail-open |
+| Internal | `gateway:push-manifest`, `api-key:sync` (bulk sync, coalesced per gateway) | Fail-open |
 | Agent config | `agent-config:update` / `:delete` | Fail-open |
 | Per-config API keys | `api-key:create` / `:rotate` / `:revoke` (model-config, mcp-config) | Fail-closed |
 | Monitors | `monitor:create` / `:update` / `:delete` / `:start` / `:stop` / `:rerun` | Fail-open |

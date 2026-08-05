@@ -142,15 +142,16 @@ func MakeInternalHTTPHandler(params *wiring.AppParams) http.Handler {
 	// Create internal mux for gateway internal and WebSocket routes (NO JWT middleware)
 	// These routes use api-key header authentication instead
 	internalMux := http.NewServeMux()
-	RegisterGatewayInternalRoutes(internalMux, params.GatewayInternalController)
+	internalRR := middleware.NewInternalRouteRegistrar(internalMux, params.AuditRecorder)
+	RegisterGatewayInternalRoutes(internalRR, params.GatewayInternalController)
 	RegisterWebSocketRoutes(internalMux, params.WebSocketController)
 
 	// Apply basic middleware (no JWT auth)
 	internalHandler := http.Handler(internalMux)
-	// These routes bypass the route registrar, so they get the recorder from
-	// the chain instead. Semantic events for the gateway surface land in a
-	// later phase; installing the recorder now means those emits work without
-	// further wiring.
+	// The registrar above audits the routes it owns. This installs the recorder
+	// for everything else on the internal chain — the WebSocket upgrade, and the
+	// handler-level emits for api-key rejections, which happen before any route
+	// wrapper could see them.
 	internalHandler = middleware.WithAuditRecorder(params.AuditRecorder, audit.SurfaceInternal)(internalHandler)
 	internalHandler = logger.RequestLogger()(internalHandler)
 	internalHandler = middleware.AddCorrelationID()(internalHandler)
