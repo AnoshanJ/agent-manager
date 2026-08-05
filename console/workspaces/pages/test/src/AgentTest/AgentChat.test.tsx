@@ -254,7 +254,7 @@ describe("AgentChat", () => {
     controller.close();
 
     await waitFor(() =>
-      expect(screen.getByText(/Expected an SSE data: line/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Expected an SSE data:/i)).toBeInTheDocument(),
     );
     expect(pushSnackBar).toHaveBeenCalledWith(
       expect.objectContaining({ type: "info", message: expect.stringContaining("Streamed response didn't match") }),

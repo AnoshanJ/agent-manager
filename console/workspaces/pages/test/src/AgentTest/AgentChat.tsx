@@ -329,7 +329,7 @@ export function AgentChat() {
         const hasExpectedShape = typeof responseData?.response === "string";
         const responseText = hasExpectedShape
           ? (responseData.response as string)
-          : `${JSON.stringify(responseData?.result, null, 4)}\n\n${FORMAT_HINT_DETAIL.http}`;
+          : `${JSON.stringify(responseData, null, 4)}\n\n${FORMAT_HINT_DETAIL.http}`;
 
         const assistantMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
