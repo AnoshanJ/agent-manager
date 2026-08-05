@@ -1,0 +1,119 @@
+name: k3d DinD Probe (CodeBuild)
+
+# Throwaway diagnostic workflow. Dispatch manually to determine how the k3d API
+# server (kubeAPI.hostPort 6550) is reachable from inside the CodeBuild
+# Docker-in-Docker runner. Its output tells us which address to rewrite the
+# kubeconfig `server:` to so the nightly E2E job can move off ubuntu-latest onto
+# the higher-vCPU CodeBuild runner. See PR #1233 for the underlying break.
+#
+# Delete this workflow once the reachable address is known and the rewrite is
+# wired into deployments/quick-start/install.sh + deployments/setup/utils.sh.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    name: Probe k3d API reachability
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install k3d
+        env:
+          K3D_VERSION: v5.8.3
+          K3D_SHA256: dbaa79a76ace7f4ca230a1ff41dc7d8a5036a8ad0309e9c54f9bf3836dbe853e
+        run: |
+          curl -fsSL -o /tmp/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_SHA256}  /tmp/k3d" | sha256sum -c -
+          sudo install /tmp/k3d /usr/local/bin/k3d
+          k3d version
+
+      - name: Dump Docker / network topology (before cluster)
+        run: |
+          echo "===== whoami / container id ====="
+          id || true
+          cat /proc/self/cgroup 2>/dev/null | head || true
+          echo "===== docker context ====="
+          docker context ls || true
+          echo "DOCKER_HOST=${DOCKER_HOST:-<unset>}"
+          echo "===== docker info (Name/Server) ====="
+          docker info 2>/dev/null | grep -iE "name|server version|root dir|operating system" || true
+          echo "===== ip addr ====="
+          ip -brief addr 2>/dev/null || ip addr || true
+          echo "===== ip route ====="
+          ip route 2>/dev/null || true
+          echo "===== default gateway (docker-host candidate) ====="
+          ip route 2>/dev/null | awk '/default/ {print "default-gw:", $3}' || true
+          echo "===== /etc/hosts ====="
+          cat /etc/hosts || true
+          echo "===== resolve host.docker.internal / host.k3d.internal ====="
+          getent hosts host.docker.internal || echo "host.docker.internal: not resolvable"
+          getent hosts host.k3d.internal || echo "host.k3d.internal: not resolvable"
+
+      - name: Create k3d cluster (nightly config)
+        run: |
+          set -x
+          k3d cluster create --config deployments/quick-start/k3d-config.yaml
+          k3d kubeconfig merge amp-local --kubeconfig-merge-default
+          echo "===== merged kubeconfig server ====="
+          kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'; echo
+
+      - name: Inspect where 6550 is actually published
+        run: |
+          echo "===== k3d node list ====="
+          k3d node list || true
+          echo "===== docker ps (port bindings) ====="
+          docker ps --format '{{.Names}}\t{{.Ports}}' || true
+          echo "===== serverlb / server container inspect (host port bindings) ====="
+          for c in $(docker ps --format '{{.Names}}' | grep -E 'k3d-amp-local' || true); do
+            echo "--- $c ---"
+            docker inspect "$c" --format '{{json .NetworkSettings.Ports}}' 2>/dev/null || true
+            docker inspect "$c" --format 'IP={{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' 2>/dev/null || true
+          done
+
+      - name: Probe each candidate API address
+        run: |
+          # Collect candidate hosts the runner might reach the published 6550 on.
+          CANDIDATES=()
+          CANDIDATES+=("127.0.0.1")
+          CANDIDATES+=("0.0.0.0")
+          CANDIDATES+=("host.docker.internal")
+          CANDIDATES+=("host.k3d.internal")
+          # default gateway = the docker-host address in sibling-container setups
+          GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
+          [ -n "$GW" ] && CANDIDATES+=("$GW")
+          # the k3d serverlb container IP (works if runner shares the k3d docker network)
+          LB_IP=$(docker inspect k3d-amp-local-serverlb --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' 2>/dev/null | awk '{print $1}')
+          [ -n "$LB_IP" ] && CANDIDATES+=("$LB_IP")
+
+          echo "Candidates: ${CANDIDATES[*]}"
+          echo
+          REACHABLE=()
+          for host in "${CANDIDATES[@]}"; do
+            url="https://${host}:6550"
+            # -k: the cert only has SANs for host.k3d.internal etc; we only care about TCP+TLS reachability here.
+            if curl -sk --max-time 8 "${url}/version" >/dev/null 2>&1; then
+              echo "✅ REACHABLE: ${url}"
+              REACHABLE+=("${host}")
+            else
+              echo "❌ refused/timeout: ${url}"
+            fi
+          done
+          echo
+          echo "===== kubectl against each reachable host (TLS SAN check) ====="
+          for host in "${REACHABLE[@]}"; do
+            echo "--- server=https://${host}:6550 ---"
+            kubectl --server="https://${host}:6550" \
+              --certificate-authority=<(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d) \
+              --client-certificate=<(kubectl config view --raw --minify -o jsonpath='{.users[0].user.client-certificate-data}' | base64 -d) \
+              --client-key=<(kubectl config view --raw --minify -o jsonpath='{.users[0].user.client-key-data}' | base64 -d) \
+              get nodes 2>&1 | head -5 || true
+          done
+          echo
+          echo "SUMMARY: reachable API hosts = ${REACHABLE[*]:-<none>}"
+
+      - name: Cleanup
+        if: always()
+        run: k3d cluster delete amp-local || true
