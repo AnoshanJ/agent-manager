@@ -379,6 +379,15 @@ jobs:
           echo "mem total: $(awk '/MemTotal/ {printf "%.1f GiB\n", $2/1024/1024}' /proc/meminfo)"
           echo "default-route gateway (DinD API host): $(ip route | awk '/default/ {print $3; exit}')"
 
+      # The CodeBuild self-hosted runner is NOT ephemeral — Docker state (k3d
+      # clusters, networks, iptables) can survive from a prior job whose cleanup
+      # did not run (cancelled/failed). A leftover "amp-local" cluster would make
+      # install.sh reuse a stale cluster (risking corrupted in-cluster routing) or
+      # k3d create fail outright. Delete any pre-existing cluster so every run
+      # starts from a clean slate. Paired with the always() teardown at job end.
+      - name: Delete any leftover k3d cluster (pre-run)
+        run: k3d cluster delete amp-local || true
+
       - name: Install platform
         env:
           VERSION: ${{ needs.compute-version.outputs.dev-version }}
@@ -516,6 +525,13 @@ jobs:
           SUMMARY="${PASSED} passed, ${FAILURES} failed, ${ERRORS} errored, ${SKIPPED} skipped (of ${TESTS})"
           echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
           echo "Test summary: $SUMMARY"
+
+      # Tear the cluster down on the non-ephemeral CodeBuild runner so it does not
+      # leak into the next job. Runs last and unconditionally, after the pod-logs
+      # dump above has already captured cluster state on failure.
+      - name: Delete k3d cluster (post-run cleanup)
+        if: always()
+        run: k3d cluster delete amp-local || true
 
   notify-google-chat:
     name: Notify Google Chat
