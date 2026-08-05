@@ -19,6 +19,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -101,6 +102,14 @@ func (s *stdoutSink) Write(ctx context.Context, events []Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range events {
+		// Checked per record rather than per batch. A write to os.Stdout is
+		// synchronous and cannot itself be cancelled, so the deadline bounds how
+		// many more records this call will attempt — not the one already in
+		// flight. That still matters: a blocked log pipe would otherwise hold a
+		// request goroutine through a whole batch on the fail-closed path.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("audit stdout sink: %d of %d records written: %w", i, len(events), err)
+		}
 		s.logger.LogAttrs(
 			ctx, slog.LevelInfo, "audit",
 			// A single fixed key lets the log pipeline select audit records
@@ -112,6 +121,7 @@ func (s *stdoutSink) Write(ctx context.Context, events []Event) error {
 	return nil
 }
 
-// writeTimeout bounds a synchronous sink write so a wedged sink cannot pin a
-// request goroutine indefinitely.
+// writeTimeout bounds a sink write. Sinks are expected to honour the deadline;
+// stdoutSink checks it between records, which is the finest granularity a
+// synchronous write to a file descriptor allows.
 const writeTimeout = 5 * time.Second

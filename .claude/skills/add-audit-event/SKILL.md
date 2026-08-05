@@ -98,7 +98,9 @@ audit.Record(ctx, audit.ActionThingUpdate,
 
 **`audit.RecordAncillary`** — for a fact *about* how a request was handled (an authorization bypass, a rate-limited rejection) rather than what it did. Unlike `Record`, it does not suppress the coverage-tier record, so you keep both.
 
-If a controller has no service layer (`controllers/identity_controller.go`), emit from the controller. `audit.Begin` failing there means writing a 503 and returning.
+**Emit from the service, not the controller.** Controllers handle HTTP; a fail-closed emit is domain behaviour. The one exception is the identity surface, which has no service layer at all (see the documented exception in `agent-manager-service/AGENTS.md` → Layering) — do not treat it as precedent for new code.
+
+In a controller, use `beginAuditOrFail(w, r, operation, failureMessage, action, opts...)`: it writes the 503 and logs for you, so the refusal cannot be forgotten or answered with the wrong status.
 
 ## Step 4 — what may go in the record
 

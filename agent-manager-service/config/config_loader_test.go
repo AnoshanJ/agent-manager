@@ -376,3 +376,60 @@ func TestLoadEnvs_ObserverConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateAuditConfig(t *testing.T) {
+	valid := AuditConfig{Enabled: true, BufferSize: 4096, BatchSize: 200, FlushIntervalMs: 1000}
+
+	tests := []struct {
+		name        string
+		mutate      func(*AuditConfig)
+		wantErrors  int
+		errContains string
+	}{
+		{
+			name:       "defaults are valid",
+			mutate:     func(*AuditConfig) {},
+			wantErrors: 0,
+		},
+		{
+			name:        "zero buffer size is rejected rather than defaulted",
+			mutate:      func(c *AuditConfig) { c.BufferSize = 0 },
+			wantErrors:  1,
+			errContains: "AUDIT_BUFFER_SIZE",
+		},
+		{
+			name:        "negative flush interval is rejected",
+			mutate:      func(c *AuditConfig) { c.FlushIntervalMs = -1 },
+			wantErrors:  1,
+			errContains: "AUDIT_FLUSH_INTERVAL_MS",
+		},
+		{
+			// A batch that cannot fill would make every flush wait for the
+			// timer, silently disabling the batching the values describe.
+			name:        "batch larger than the buffer is rejected",
+			mutate:      func(c *AuditConfig) { c.BatchSize = 8192 },
+			wantErrors:  1,
+			errContains: "must not exceed",
+		},
+		{
+			name:       "each malformed value is reported separately",
+			mutate:     func(c *AuditConfig) { c.BufferSize = 0; c.BatchSize = 0; c.FlushIntervalMs = 0 },
+			wantErrors: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			tt.mutate(&cfg)
+
+			errs := validateAuditConfig(cfg)
+			if len(errs) != tt.wantErrors {
+				t.Fatalf("got %d errors %v, want %d", len(errs), errs, tt.wantErrors)
+			}
+			if tt.errContains != "" && !strings.Contains(errs[0].Error(), tt.errContains) {
+				t.Errorf("error %q does not mention %q", errs[0], tt.errContains)
+			}
+		})
+	}
+}

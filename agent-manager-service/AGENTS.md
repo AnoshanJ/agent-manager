@@ -42,6 +42,8 @@ Each layer depends on the **interface** of the layer below, injected via constru
 - **Service** (`services/`) — business logic: validation gates, orchestration, error mapping. Depends on repo/client **interfaces**, never concrete types.
 - **Repository** (`repositories/`) — persistence only. Interface + concrete impl.
 
+**Documented exception — the identity surface.** `controllers/identity_controller.go` is constructed as `NewIdentityController(client thundersvc.IdentityClient)` and calls the Thunder client directly; there is no identity service. Its business logic, including fail-closed audit emits, therefore lives in the controller. This predates the audit trail and is not a pattern to copy: a new resource gets a service. Introducing an identity service is worthwhile but is its own change.
+
 When you change an interface, update **all** implementations: concrete impl, generated mocks (`make codegen`), and any noop/static impls. Don't re-fetch a resource already loaded earlier in the request path — pass it down.
 
 ## Permissions (RBAC)
