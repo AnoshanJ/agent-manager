@@ -324,6 +324,7 @@ func (c *identityController) DeleteUser(w http.ResponseWriter, r *http.Request) 
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete user")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
