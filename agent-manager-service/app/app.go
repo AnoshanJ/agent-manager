@@ -155,6 +155,14 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		setter.SetWorkloadInjector(dependencies.AgentIdentityInjectionService)
 	}
 
+	// So a rotated agent's deferred pod rollout (see RefreshAfterRotation)
+	// stops waiting, or aborts an in-flight roll, once shutdown starts below
+	// instead of firing an outbound update afterward.
+	agentIdentityRolloutCtx, agentIdentityRolloutCancel := context.WithCancel(context.Background())
+	if setter, ok := dependencies.AgentIdentityInjectionService.(services.AgentIdentityShutdownContextSetter); ok {
+		setter.SetShutdownContext(agentIdentityRolloutCtx)
+	}
+
 	// Start monitor scheduler with background context
 	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
 	if err := dependencies.MonitorScheduler.Start(schedulerCtx); err != nil {
@@ -211,6 +219,10 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		if err := dependencies.MonitorScheduler.Stop(); err != nil {
 			slog.Error("error stopping monitor scheduler", "error", err)
 		}
+
+		// Abort any AgentID pod rollout still waiting or in flight rather
+		// than letting it fire after this point.
+		agentIdentityRolloutCancel()
 
 		agentThunderReconcilerCancel()
 		if agentThunderProvisioning != nil {

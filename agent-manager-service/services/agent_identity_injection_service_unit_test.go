@@ -19,6 +19,8 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -621,7 +623,12 @@ func TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod
 	require.True(t, ok)
 	impl.now = func() time.Time { return fixedNow }
 	var slept time.Duration
-	impl.sleep = func(d time.Duration) { slept = d }
+	impl.after = func(d time.Duration) <-chan time.Time {
+		slept = d
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
 
 	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
 	require.NotNil(t, createdReq.TemplateAnnotations)
@@ -635,6 +642,156 @@ func TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod
 		t.Fatal("rotation must roll the pod (after the wait) so it starts with the refreshed secret value")
 	}
 	assert.Equal(t, secretSyncWaitDuration("1h"), slept, "the roll must wait out the configured refresh cadence before rolling")
+}
+
+// TestAgentIdentityInjection_RefreshAfterRotation_CoalescesRapidRotations
+// guards against a second regenerate for the same binding, fired before the
+// first one's deferred roll runs, causing two pod rollouts instead of one:
+// only the latest rotation's roll must actually call UpdateReleaseBindingEnvVars.
+func TestAgentIdentityInjection_RefreshAfterRotation_CoalescesRapidRotations(t *testing.T) {
+	repo := identityRepoReturning(completedInternalBinding(), nil)
+	oc := injectableOCClient()
+
+	var rollCount int32
+	rolled := make(chan struct{}, 2)
+	oc.UpdateReleaseBindingEnvVarsFunc = func(_ context.Context, _, _, _, _ string, _ []client.EnvVar) error {
+		atomic.AddInt32(&rollCount, 1)
+		rolled <- struct{}{}
+		return nil
+	}
+
+	svc := newTestIdentityInjectionService(repo, oc)
+	impl, ok := svc.(*agentIdentityInjectionService)
+	require.True(t, ok)
+
+	firstSleepStarted := make(chan struct{})
+	secondRotationDone := make(chan struct{})
+	var sleepMu sync.Mutex
+	sleepCalls := 0
+	impl.after = func(time.Duration) <-chan time.Time {
+		sleepMu.Lock()
+		sleepCalls++
+		isFirstCall := sleepCalls == 1
+		sleepMu.Unlock()
+		ch := make(chan time.Time, 1)
+		if isFirstCall {
+			close(firstSleepStarted)
+			go func() {
+				<-secondRotationDone // hold until the second rotation has superseded this one
+				ch <- time.Now()
+			}()
+		} else {
+			ch <- time.Now()
+		}
+		return ch
+	}
+
+	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
+	<-firstSleepStarted
+
+	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
+	close(secondRotationDone)
+
+	select {
+	case <-rolled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the latest rotation must still roll the pod")
+	}
+
+	// The superseded first rotation's goroutine has by now also run past its
+	// (already unblocked) sleep and taken its token check — give it a moment
+	// rather than asserting immediately after the one roll we expect.
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&rollCount),
+		"a rotation superseded by a later one for the same binding must not also roll the pod")
+}
+
+// TestAgentIdentityInjection_RefreshAfterRotation_AbortsOnShutdown guards the
+// wait itself: once the app's shutdown context is done, a deferred rollout
+// must not roll the pod, even though its own wait timer never separately fires.
+func TestAgentIdentityInjection_RefreshAfterRotation_AbortsOnShutdown(t *testing.T) {
+	repo := identityRepoReturning(completedInternalBinding(), nil)
+	oc := injectableOCClient()
+
+	rolled := make(chan struct{})
+	oc.UpdateReleaseBindingEnvVarsFunc = func(_ context.Context, _, _, _, _ string, _ []client.EnvVar) error {
+		close(rolled)
+		return nil
+	}
+
+	svc := newTestIdentityInjectionService(repo, oc)
+	impl, ok := svc.(*agentIdentityInjectionService)
+	require.True(t, ok)
+
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	impl.SetShutdownContext(shutdownCtx)
+	shutdownCancel() // app is already shutting down before the rotation starts
+
+	afterCalled := make(chan struct{})
+	impl.after = func(time.Duration) <-chan time.Time {
+		close(afterCalled)
+		return make(chan time.Time) // never fires; only shutdownCtx.Done() can win the select
+	}
+
+	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
+
+	select {
+	case <-afterCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the deferred goroutine must still start its wait")
+	}
+
+	select {
+	case <-rolled:
+		t.Fatal("a rotation must not roll out the pod once the app has started shutting down")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestAgentIdentityInjection_RefreshAfterRotation_CancelsInFlightRollOnShutdown
+// guards the roll itself, not just the wait before it: shutdown must cancel
+// an already-in-flight UpdateReleaseBindingEnvVars call rather than letting
+// it run to completion.
+func TestAgentIdentityInjection_RefreshAfterRotation_CancelsInFlightRollOnShutdown(t *testing.T) {
+	repo := identityRepoReturning(completedInternalBinding(), nil)
+	oc := injectableOCClient()
+
+	callStarted := make(chan struct{})
+	cancelled := make(chan struct{})
+	oc.UpdateReleaseBindingEnvVarsFunc = func(ctx context.Context, _, _, _, _ string, _ []client.EnvVar) error {
+		close(callStarted)
+		<-ctx.Done() // blocks until the shutdown bridge cancels this call's context
+		close(cancelled)
+		return ctx.Err()
+	}
+
+	svc := newTestIdentityInjectionService(repo, oc)
+	impl, ok := svc.(*agentIdentityInjectionService)
+	require.True(t, ok)
+
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	impl.SetShutdownContext(shutdownCtx)
+	impl.after = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now() // wait completes immediately, moving straight into the roll
+		return ch
+	}
+
+	require.NoError(t, svc.RefreshAfterRotation(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv))
+
+	select {
+	case <-callStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the roll must start calling UpdateReleaseBindingEnvVars")
+	}
+
+	shutdownCancel() // app starts shutting down while the roll call is in flight
+
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown must cancel an in-flight roll's context, not let it run to completion")
+	}
 }
 
 func TestAgentIdentityInjection_RefreshAfterRotation_NoBinding_NoOp(t *testing.T) {

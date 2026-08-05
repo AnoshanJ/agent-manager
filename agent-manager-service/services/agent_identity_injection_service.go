@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -193,6 +194,19 @@ type AgentIdentityInjectionService interface {
 	CleanupForEnvironment(ctx context.Context, ouID, agentName, envName string) error
 }
 
+// AgentIdentityShutdownContextSetter is an optional capability an
+// AgentIdentityInjectionService implementation MAY expose — deliberately not
+// part of the interface above, mirroring WorkloadInjectorSetter's pattern
+// (see its doc comment) for the same reason: an alternative implementation
+// with no deferred background work simply doesn't implement this. app.Run
+// type-asserts for it once at startup and provides the app's shutdown
+// context, so a RefreshAfterRotation rollout still waiting or in flight when
+// the app starts shutting down stops rather than firing an outbound update
+// afterward.
+type AgentIdentityShutdownContextSetter interface {
+	SetShutdownContext(ctx context.Context)
+}
+
 type agentIdentityInjectionService struct {
 	repo              repositories.AgentThunderClientRepository
 	agentConfigRepo   repositories.AgentConfigurationRepository
@@ -202,9 +216,19 @@ type agentIdentityInjectionService struct {
 	logger            *slog.Logger
 	// now is injectable for tests; defaults to time.Now.
 	now func() time.Time
-	// sleep is injectable for tests; defaults to time.Sleep. See
+	// after is injectable for tests; defaults to time.After. See
 	// RefreshAfterRotation's doc comment for why it waits at all.
-	sleep func(time.Duration)
+	after func(time.Duration) <-chan time.Time
+	// rolloutTokens/rolloutTokensMu let RefreshAfterRotation tell a stale
+	// deferred roll apart from the latest one, per binding — see
+	// RefreshAfterRotation's doc comment.
+	rolloutTokensMu sync.Mutex
+	rolloutTokens   map[string]uint64
+	// shutdownCtx/shutdownCtxMu are set via SetShutdownContext; default to
+	// context.Background() (never cancelled) so behavior is unchanged
+	// wherever that setter is never called, e.g. every existing test.
+	shutdownCtxMu sync.Mutex
+	shutdownCtx   context.Context
 }
 
 // NewAgentIdentityInjectionService creates a new AgentIdentityInjectionService.
@@ -226,8 +250,23 @@ func NewAgentIdentityInjectionService(
 		refreshInterval:   refreshInterval,
 		logger:            logger,
 		now:               time.Now,
-		sleep:             time.Sleep,
+		after:             time.After,
+		rolloutTokens:     make(map[string]uint64),
+		shutdownCtx:       context.Background(),
 	}
+}
+
+// SetShutdownContext implements AgentIdentityShutdownContextSetter.
+func (s *agentIdentityInjectionService) SetShutdownContext(ctx context.Context) {
+	s.shutdownCtxMu.Lock()
+	s.shutdownCtx = ctx
+	s.shutdownCtxMu.Unlock()
+}
+
+func (s *agentIdentityInjectionService) currentShutdownContext() context.Context {
+	s.shutdownCtxMu.Lock()
+	defer s.shutdownCtxMu.Unlock()
+	return s.shutdownCtx
 }
 
 // defaultSecretSyncWait is the fallback wait when refreshInterval is unset or
@@ -549,7 +588,15 @@ func identityEnvVarsInSync(desired []client.EnvVar, current []models.EnvVars) bo
 // kept the stale, already-invalidated secret for its whole lifetime
 // (secretKeyRef env vars resolve once at container start, never hot-reload).
 // The roll itself runs detached so a manual regenerate call never blocks on
-// the wait; a roll failure is only logged, not returned.
+// the wait; a roll failure is only logged, not returned. The wait, and the
+// roll itself once started, both stop early if the app starts shutting down
+// (see AgentIdentityShutdownContextSetter) instead of firing an outbound
+// update after the app has begun tearing down.
+//
+// Rotations for the same binding in quick succession each get their own
+// deferred roll, but only the latest one is allowed to actually run —
+// otherwise every rotation restarts the pod, even ones already superseded by
+// a later rotation before their own wait finished.
 func (s *agentIdentityInjectionService) RefreshAfterRotation(ctx context.Context, ouID, projectName, agentName, envName string) error {
 	annotations := map[string]string{
 		secretRotatedAtAnnotation: s.now().UTC().Format(secretRotatedAtFormat),
@@ -562,11 +609,46 @@ func (s *agentIdentityInjectionService) RefreshAfterRotation(ctx context.Context
 		return nil
 	}
 
+	key := bindingLockKey(ouID, projectName, agentName, envName)
+	s.rolloutTokensMu.Lock()
+	s.rolloutTokens[key]++
+	myToken := s.rolloutTokens[key]
+	s.rolloutTokensMu.Unlock()
+
 	wait := secretSyncWaitDuration(s.refreshInterval)
+	shutdownCtx := s.currentShutdownContext()
 	go func() {
-		s.sleep(wait)
+		select {
+		case <-s.after(wait):
+		case <-shutdownCtx.Done():
+			return // app is shutting down; abandon this deferred rollout
+		}
+
+		s.rolloutTokensMu.Lock()
+		isLatest := s.rolloutTokens[key] == myToken
+		s.rolloutTokensMu.Unlock()
+		if !isLatest {
+			return // a later rotation for this binding superseded this roll
+		}
+
+		// context.WithoutCancel keeps ctx's values (e.g. the request's
+		// correlation ID, for this call's own logging) without inheriting
+		// its cancellation — the roll must outlive the request that
+		// triggered it. shutdownCtx below is the only thing allowed to cut
+		// it short: a small bridge goroutine cancels refreshCtx if shutdown
+		// fires before the roll (including its retries) finishes.
 		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseBindingUpdateRetries*releaseBindingUpdateRetryDelay+30*time.Second)
 		defer cancel()
+		bridgeDone := make(chan struct{})
+		defer close(bridgeDone)
+		go func() {
+			select {
+			case <-shutdownCtx.Done():
+				cancel()
+			case <-bridgeDone:
+			}
+		}()
+
 		// Re-merging identical env vars is a no-op content-wise, but the call
 		// also stamps restartedAt on the ReleaseBinding — the pod rollout that
 		// makes the workload actually pick up the refreshed Secret.
