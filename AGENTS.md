@@ -29,6 +29,7 @@ Repeatable, error-prone procedures are captured as Claude Code skills in `.claud
 |---|---|
 | `add-api-resource` | Adding/changing a REST endpoint in `agent-manager-service` (spec-first → codegen → RBAC → layers) |
 | `add-service-unit-test` | Writing a Go service unit test (mocks, CI lint traps) |
+| `add-audit-event` | Recording a security-critical operation in the audit trail, or fixing a route the audit policy cannot label |
 | `add-console-api-feature` | Wiring a new backend call into the console (two-file `apis/`+`hooks/` pattern) |
 | `add-evaluator` | Adding an evaluator to `amp-evaluation` (type-hint-driven level/mode) |
 
@@ -73,6 +74,7 @@ These apply everywhere; each aspect guide restates the specifics for its stack.
 - **Concurrency** — never hold a lock across I/O; use atomic upserts, not read-then-write; serialize expensive per-key side effects, not globally.
 - **Config** — validate at startup, not first use; check co-dependent values together.
 - **Observability** — log with correlation context (org, resource ID, request ID); hot paths at Debug, rare events at Info, destructive ops at Error.
+- **Audit trail** — in `agent-manager-service`, every mutating route and MCP tool is audited automatically and a test fails the build if one is not. Operations touching credentials, privileges, membership, deployment or deletion additionally record *what changed* — see the `add-audit-event` skill. Never put a request or response body, or any secret value, into a record. Design and open questions: [discussion #1500](https://github.com/wso2/agent-manager/discussions/1500).
 - **Generated code is never hand-edited** — regenerate and commit (OpenAPI types + wire + mocks in the Go service; `dist/` in the console). See the aspect guides for the exact commands.
 
 ## Contributing
