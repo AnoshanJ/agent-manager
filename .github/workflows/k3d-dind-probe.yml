@@ -1,0 +1,126 @@
+name: k3d DinD Probe (CodeBuild)
+
+# Throwaway diagnostic. Dispatch manually. Two purposes now:
+#  1. (proven) confirm the k3d API server is reachable from the sibling-container
+#     CodeBuild DinD runner once the docker-host gateway is added as a TLS SAN and
+#     the kubeconfig server is rewritten to it. See PR #1233.
+#  2. (open) isolate why OpenBao's Kubernetes auth — which validates the
+#     external-secrets ServiceAccount JWT by calling the in-cluster K8s API
+#     TokenReview endpoint at the kubernetes ClusterIP (10.43.0.1:443) — times out
+#     with "context deadline exceeded" on this runner. This section deploys a test
+#     pod and exercises pod -> API ClusterIP / DNS / TokenReview directly.
+#
+# Delete this workflow once both are resolved.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    name: Probe k3d networking
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install k3d
+        env:
+          K3D_VERSION: v5.8.3
+          K3D_SHA256: dbaa79a76ace7f4ca230a1ff41dc7d8a5036a8ad0309e9c54f9bf3836dbe853e
+        run: |
+          curl -fsSL -o /tmp/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_SHA256}  /tmp/k3d" | sha256sum -c -
+          sudo install /tmp/k3d /usr/local/bin/k3d
+
+      - name: Install kubectl
+        env:
+          KUBECTL_VERSION: v1.32.9
+          KUBECTL_SHA256: 509ae171bac7ad3b98cc49f5594d6bc84900cf6860f155968d1059fde3be5286
+        run: |
+          curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  /tmp/kubectl" | sha256sum -c -
+          sudo install /tmp/kubectl /usr/local/bin/kubectl
+
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.45.4
+          YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
+        run: |
+          curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install /tmp/yq /usr/local/bin/yq
+
+      # Stand up the cluster with the proven DinD fix (gateway SAN + kubeconfig
+      # rewrite), matching what install.sh does under AMP_K3D_DIND=1.
+      - name: Create cluster with DinD fix
+        run: |
+          set -x
+          DOCKER_GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
+          echo "DOCKER_GW=${DOCKER_GW}"
+          yq eval \
+            ".options.k3s.extraArgs += [{\"arg\": \"--tls-san=${DOCKER_GW}\", \"nodeFilters\": [\"server:*\"]}]" \
+            deployments/quick-start/k3d-config.yaml > /tmp/k3d-config-dind.yaml
+          k3d cluster create --config /tmp/k3d-config-dind.yaml
+          k3d kubeconfig merge amp-local --kubeconfig-merge-default
+          kubectl config set-cluster k3d-amp-local --server="https://${DOCKER_GW}:6550"
+          kubectl get nodes -o wide
+          echo "KUBERNETES_CLUSTERIP=$(kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}')"
+
+      # ---- In-cluster networking probe (the OpenBao-auth failure path) ----
+      # OpenBao (pod) validates JWTs by POSTing TokenReview to the K8s API at the
+      # `kubernetes` ClusterIP (10.43.0.1:443). Reproduce that path from a pod.
+      - name: Probe pod -> API ClusterIP / DNS / TokenReview
+        run: |
+          set -x
+          CLUSTERIP=$(kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}')
+          echo "kubernetes ClusterIP = ${CLUSTERIP}"
+
+          # A long-lived probe pod with curl. Its default SA can self-review.
+          kubectl run netprobe --image=curlimages/curl:8.10.1 --restart=Never \
+            --command -- sleep 600
+          kubectl wait --for=condition=Ready pod/netprobe --timeout=120s
+          echo "===== pod ready; running in-cluster checks ====="
+
+          echo "--- 1) DNS: resolve kubernetes.default.svc ---"
+          kubectl exec netprobe -- nslookup kubernetes.default.svc.cluster.local 2>&1 | head -20 || \
+            kubectl exec netprobe -- getent hosts kubernetes.default.svc.cluster.local 2>&1 || \
+            echo "DNS resolution FAILED"
+
+          echo "--- 2) TCP+TLS to API via ClusterIP (what OpenBao dials) ---"
+          kubectl exec netprobe -- sh -c \
+            "curl -sk --max-time 10 -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' https://${CLUSTERIP}:443/livez" 2>&1 || \
+            echo "ClusterIP API reach FAILED/timeout"
+
+          echo "--- 3) TCP+TLS to API via DNS name ---"
+          kubectl exec netprobe -- sh -c \
+            "curl -sk --max-time 10 -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' https://kubernetes.default.svc:443/livez" 2>&1 || \
+            echo "DNS-name API reach FAILED/timeout"
+
+          echo "--- 4) Actual TokenReview (the exact OpenBao operation) ---"
+          # Use the pod's own SA token to POST a SelfSubjectReview-style call.
+          kubectl exec netprobe -- sh -c '
+            TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+            CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            curl -s --max-time 15 --cacert "$CA" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -X POST https://kubernetes.default.svc/apis/authentication.k8s.io/v1/tokenreviews \
+              -d "{\"apiVersion\":\"authentication.k8s.io/v1\",\"kind\":\"TokenReview\",\"spec\":{\"token\":\"$TOKEN\"}}" \
+              -w "\nHTTP %{http_code} in %{time_total}s\n"
+          ' 2>&1 | tail -20 || echo "TokenReview FAILED/timeout"
+
+      - name: Cluster networking diagnostics
+        if: always()
+        run: |
+          echo "===== kube-proxy / flannel / coredns pods ====="
+          kubectl get pods -n kube-system -o wide || true
+          echo "===== kube-proxy logs (routing to ClusterIP) ====="
+          kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=50 2>&1 | head -60 || true
+          echo "===== coredns logs ====="
+          kubectl logs -n kube-system -l k8s-app=kube-dns --tail=30 2>&1 | head -40 || true
+          echo "===== netprobe describe (if failed) ====="
+          kubectl describe pod netprobe 2>&1 | tail -30 || true
+
+      - name: Cleanup
+        if: always()
+        run: k3d cluster delete amp-local || true
