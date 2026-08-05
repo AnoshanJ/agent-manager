@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
@@ -234,7 +235,20 @@ func (s *infraResourceManager) DeleteProject(ctx context.Context, ouID string, p
 	s.logger.Debug("No associated agents found, proceeding with deletion", "projectName", projectName)
 
 	// Delete project from OpenChoreo
+	deleteAttempt, auditErr := audit.Begin(ctx, audit.ActionProjectDelete,
+		audit.Org(ouID),
+		audit.ResourceNamed("project", projectName, projectName),
+		audit.Project(projectName),
+		audit.Detail("projectName", projectName),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to delete project: audit record could not be written",
+			"projectName", projectName, "error", auditErr)
+		return auditErr
+	}
+
 	err = s.ocClient.DeleteProject(ctx, ouID, projectName)
+	deleteAttempt.Complete(ctx, err)
 	if err != nil {
 		if errors.Is(err, utils.ErrProjectNotFound) {
 			s.logger.Warn("Project not found during deletion, delete is idempotent", "ouID", ouID, "projectName", projectName)

@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -3328,24 +3329,32 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 		)
 	}
 
-	// Audit log for configuration update
+	// A real audit record. This previously wrote only an slog line labelled as
+	// an audit log: it carried no actor, no outcome and no durability, so it
+	// could not answer who changed the configuration.
+	updatedFields := []string{}
+	if req.Name != "" {
+		updatedFields = append(updatedFields, "name")
+	}
+	if req.Description != "" {
+		updatedFields = append(updatedFields, "description")
+	}
+	if req.EnvMappings != nil {
+		updatedFields = append(updatedFields, "envMappings")
+	}
+	audit.Record(ctx, audit.ActionAgentConfigUpdate,
+		audit.Org(ouID),
+		audit.ResourceNamed("agent-config", configUUID.String(), req.Name),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("configName", req.Name),
+		audit.Detail("updatedFields", updatedFields),
+	)
 	s.logger.Info(
 		"Agent configuration updated successfully",
 		"configUUID", configUUID,
 		"ouID", ouID,
-		"updatedFields", func() []string {
-			fields := []string{}
-			if req.Name != "" {
-				fields = append(fields, "name")
-			}
-			if req.Description != "" {
-				fields = append(fields, "description")
-			}
-			if req.EnvMappings != nil {
-				fields = append(fields, "envMappings")
-			}
-			return fields
-		}(),
+		"updatedFields", updatedFields,
 	)
 
 	// Return updated configuration
@@ -3621,7 +3630,14 @@ func (s *agentConfigurationService) deleteLLMConfig(ctx context.Context, existin
 		return err
 	}
 
-	// Audit log for configuration deletion
+	audit.Record(ctx, audit.ActionAgentConfigDelete,
+		audit.Org(ouID),
+		audit.ResourceNamed("agent-config", configUUID.String(), existingConfig.Name),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("configName", existingConfig.Name),
+		audit.Detail("environmentCount", len(mappings)),
+	)
 	s.logger.Info(
 		"Agent configuration deleted successfully",
 		"configUUID", configUUID,

@@ -304,7 +304,7 @@ func TestInfraResourceManager_DeleteProject(t *testing.T) {
 			},
 			// DeleteProjectFunc nil => must not be reached.
 		}
-		err := newInfraManager(oc).DeleteProject(context.Background(), org, proj)
+		err := newInfraManager(oc).DeleteProject(auditableCtx(t), org, proj)
 		require.NoError(t, err)
 	})
 
@@ -315,7 +315,7 @@ func TestInfraResourceManager_DeleteProject(t *testing.T) {
 				return []*models.AgentResponse{{Name: "agent-1"}}, nil
 			},
 		}
-		err := newInfraManager(oc).DeleteProject(context.Background(), org, proj)
+		err := newInfraManager(oc).DeleteProject(auditableCtx(t), org, proj)
 		assert.ErrorIs(t, err, utils.ErrProjectHasAssociatedAgents)
 	})
 
@@ -331,7 +331,7 @@ func TestInfraResourceManager_DeleteProject(t *testing.T) {
 				return nil
 			},
 		}
-		err := newInfraManager(oc).DeleteProject(context.Background(), org, proj)
+		err := newInfraManager(oc).DeleteProject(auditableCtx(t), org, proj)
 		require.NoError(t, err)
 		assert.True(t, deleted, "expected DeleteProject to be invoked")
 	})
@@ -346,7 +346,7 @@ func TestInfraResourceManager_DeleteProject(t *testing.T) {
 				return utils.ErrProjectNotFound
 			},
 		}
-		err := newInfraManager(oc).DeleteProject(context.Background(), org, proj)
+		err := newInfraManager(oc).DeleteProject(auditableCtx(t), org, proj)
 		require.NoError(t, err)
 	})
 
@@ -358,7 +358,7 @@ func TestInfraResourceManager_DeleteProject(t *testing.T) {
 				return nil, boom
 			},
 		}
-		err := newInfraManager(oc).DeleteProject(context.Background(), org, proj)
+		err := newInfraManager(oc).DeleteProject(auditableCtx(t), org, proj)
 		assert.ErrorIs(t, err, boom)
 		assert.NotErrorIs(t, err, utils.ErrProjectHasAssociatedAgents)
 	})

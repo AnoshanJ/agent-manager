@@ -181,16 +181,49 @@ result, err := s.client.CreateGitSecret(ctx, ouID, ocReq)
 attempt.Complete(ctx, err)
 ```
 
-A new action needs an entry in `registry` (class and severity) and in `detailSchema` (which detail keys it may carry) — both in `audit/actions.go` and `audit/schema.go`. A test fails if a registered action has no schema, so the decision cannot be skipped.
+Domain actions are declared in `audit/actions_domain.go`, which registers each one's class, severity and permitted detail keys together so the three cannot drift apart. A test fails if a registered action has no detail schema, so the decision cannot be skipped.
+
+**Use the same action constant the coverage tier derives for the route.** `TestDomainActionsMatchRouteDerivedActions` fails the build if a semantic emit and its route disagree — otherwise "who deployed agent X" returns half the answer depending on which tier recorded it.
 
 `audit.Detail` accepts only scalars and string slices. Refusing structs and maps is what keeps request payloads structurally unable to reach a record.
 
+### Testing a service that emits
+
+Operations that must not happen unrecorded refuse to proceed when no recorder is installed, so a bare `context.Background()` makes them fail by design. Tests exercising those paths use `auditableCtx(t)` (`services/audit_testing_test.go`), which installs a discarding recorder. To assert the refusal itself, pass a bare context and expect `audit.ErrRecorderUnavailable`.
+
+## Semantic events
+
+The operations below emit a record describing what actually changed, not just that the route was called. Everything else is covered by the coverage tier alone.
+
+| Area | Actions | Mode |
+|---|---|---|
+| API keys | `api-key:create` / `:rotate` / `:revoke` (agent, LLM provider, LLM proxy) | Fail-closed |
+| API keys | `api-key:issue-test` (console Try-It) | Fail-open |
+| Git secrets | `git-secret:create` / `:delete` | Fail-closed |
+| Gateway tokens | `gateway-token:rotate` / `:revoke` | Fail-closed |
+| Agent tokens | `agent-token:mint`, `agent-token:regenerate-tracing` | Fail-closed |
+| Agent OAuth identity | `agent-identity:provision` / `:regenerate-secret` / `:revoke-secret` | Fail-closed |
+| Env identity credential | `service-account:configure` / `:remove` | Fail-closed |
+| Privilege | `role:grant-permission` / `:revoke-permission` / `role:assign` / `:unassign` | Fail-closed |
+| Membership | `group:add-member` / `:remove-member` | Fail-closed |
+| Users | `user:invite` / `:create` / `:delete` | Fail-closed |
+| Agent lifecycle | `agent:deploy`, `agent:promote`, `agent:change-deployment-state`, `agent:delete`, `project:delete` | Fail-closed |
+| Agent lifecycle | `agent:build` | Fail-open |
+| Gateways | `gateway:delete`, `gateway:set-identity-provider`, `gateway:remove-identity-provider` | Fail-closed |
+| Gateways | `gateway:create` / `:update` / `:assign-environment` / `:unassign-environment` | Fail-open |
+| Agent config | `agent-config:update` / `:delete` | Fail-open |
+
+Two of these carry detail worth calling out:
+
+- **`agent:deploy` records the target environment and `isProduction`.** The route is gated by `agent:deploy-non-production` wherever the agent actually lands, so the permission cannot tell a sandbox push from a production one — only the record can. `agent:promote` records both ends of the move but not `isProduction`, because deriving it there would add an OpenChoreo round-trip to the promotion path; the environment name plus the org's environment list answers the same question.
+- **`role:grant-permission` records the granted scopes in full.** Scope strings are identifiers, not secrets, and "alice granted SRE deploy-production" is the question the event exists to answer.
+
 ## Not yet covered
 
-These surfaces install the recorder but do not yet emit semantic events; they are follow-up work, and their absence is a real gap in coverage today:
+These surfaces install the recorder but do not yet emit semantic events; their absence is a real gap in coverage today:
 
-- **MCP tools** (`mcp/tools/`) — `create_project`, `create_internal_agent_python`, `create_external_agent`, `build_agent`, `deploy_agent`, `update_deployment_state` mutate state without producing a record. `addTool` already requires permissions, so it is the natural place to require an action too.
+- **MCP tools** (`mcp/tools/`) — `create_project`, `create_internal_agent_python`, `create_external_agent`, `build_agent`, `deploy_agent`, `update_deployment_state` mutate state without producing a record. `addTool` already requires permissions, so it is the natural place to require an action too. (The recorder *is* installed on the MCP surface, so services that refuse to act unrecorded work correctly there — only the tool-level records are missing.)
 - **The internal gateway server** — `POST /api/internal/v1/gateways/{gatewayId}/manifest` mutates state, and a rejected gateway `api-key` produces no record, which is the only signal of gateway-credential brute force.
 - **The score publisher route** — `POST /publisher/monitors/{monitorId}/runs/{runId}/scores`, which also carries no `rbac.Permission`.
 - **Background workers** — the monitor scheduler and the AgentID reconciler change state with no request behind them.
-- **Semantic events for the Tier-1 operations** listed under severity 4 above. They are currently covered by the envelope tier, which records that the operation happened and by whom, but not what changed — for a role grant, the coverage record does not say *which permission* was granted.
+- **Model- and MCP-config API keys** — the per-config key routes are covered by the coverage tier but have no semantic emit yet, so the record does not name the owning config.

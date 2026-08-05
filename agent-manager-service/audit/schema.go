@@ -26,6 +26,9 @@ const (
 	KindIdentifier FieldKind = "identifier"
 	// KindName is a human-readable name.
 	KindName FieldKind = "name"
+	// KindEmail is an email address. Recorded because it identifies the subject
+	// of a membership change, which is what an investigation needs.
+	KindEmail FieldKind = "email"
 	// KindNameList is a list of names or scope strings.
 	KindNameList FieldKind = "name-list"
 	// KindCount is a numeric count.

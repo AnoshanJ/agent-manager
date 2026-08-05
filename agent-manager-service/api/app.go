@@ -81,13 +81,24 @@ func MakeHTTPHandler(params *wiring.AppParams, extraAPIRoutes func(*http.ServeMu
 	// Register service-configuration discovery endpoint at root level (no authentication required)
 	registerConfigRoutes(mux)
 
-	// Register MCP at root level
+	// Register MCP at root level.
+	//
+	// MCP does not go through the route registrar, so the recorder is installed
+	// by composing it into the middleware MCP is given. Without it, services
+	// that refuse to act when they cannot be audited would fail every MCP call
+	// that reaches them. Auth stays outermost so claims are present by the time
+	// a handler emits.
+	mcpMiddleware := func(next http.Handler) http.Handler {
+		return params.AuthMiddleware(
+			middleware.WithAuditRecorder(params.AuditRecorder, audit.SurfaceMCP)(next),
+		)
+	}
 	mcp.RegisterRoute(mux, mcp.Dependencies{
 		InfraResourceManager:     params.InfraResourceManager,
 		AgentManagerService:      params.AgentManagerService,
 		AgentTokenManagerService: params.AgentTokenManagerService,
 		EnvironmentService:       params.EnvironmentService,
-	}, params.AuthMiddleware)
+	}, mcpMiddleware)
 
 	// Authentication is rejected before route matching, so the audit middleware
 	// installed per route never sees it. This hook is how a failed token

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
@@ -2406,7 +2407,23 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	// LLM config cleanup happens after a confirmed DeleteComponent so a transient OC
 	// failure leaves the system fully intact and the delete can be retried cleanly.
 	s.logger.Debug("Deleting oc agent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+
+	// Deletion is irreversible and cascades into configs, identities and
+	// monitors, so it is refused when it cannot be recorded.
+	deleteAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentDelete,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to delete agent: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return auditErr
+	}
+
 	err = s.ocClient.DeleteComponent(ctx, ouID, projectName, agentName)
+	deleteAttempt.Complete(ctx, err)
 	if err != nil {
 		translatedErr := translateAgentError(err)
 		if errors.Is(translatedErr, utils.ErrAgentNotFound) {
@@ -2568,7 +2585,18 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, proje
 	}
 	// Trigger build in OpenChoreo
 	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
+	// Builds are frequent and produce no credential, so this is recorded after
+	// the fact rather than refusing the build when the trail is unavailable.
 	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId)
+	audit.Record(ctx, audit.ActionAgentBuild,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("commitId", commitId),
+		audit.Detail("buildName", buildNameOf(build)),
+		audit.Result(err),
+	)
 	if err != nil {
 		s.logger.Error("Failed to trigger build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateBuildError(err)
@@ -2888,10 +2916,32 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
+	// The permission gating this route is agent:deploy-non-production whatever
+	// the pipeline's lowest environment actually is, so the record has to carry
+	// the real target and whether it is production. Without that the trail
+	// cannot distinguish a sandbox push from a production one.
+	deployAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentDeploy,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Environment(lowestEnv),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", lowestEnv),
+		audit.Detail("isProduction", targetEnv != nil && targetEnv.IsProduction),
+		audit.Detail("imageId", req.ImageId),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to deploy: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return "", auditErr
+	}
+
 	if err := s.ocClient.Deploy(ctx, ouID, projectName, agentName, deployReq); err != nil {
+		deployAttempt.Complete(ctx, err)
 		s.logger.Error("Failed to deploy agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return "", err
 	}
+	deployAttempt.Complete(ctx, nil)
 
 	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
 	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
@@ -3868,10 +3918,36 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// guaranteed to exist and be COMPLETED at this point — the pre-promote
 	// hard block above returns before reaching here otherwise — so there is
 	// nothing left to provision for it after a successful promote.
+	// A promotion is how an agent reaches production, so the record names both
+	// ends of the move rather than just the resource.
+	//
+	// isProduction is deliberately not recorded here: the target environment is
+	// only fetched inside a conditional branch above, and adding a round-trip
+	// to OpenChoreo just to enrich a record would put a network call on the
+	// promotion path. The environment name identifies the target, and the org's
+	// environment list resolves whether it is production.
+	promoteAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentPromote,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Environment(req.TargetEnvironment),
+		audit.Detail("agentName", agentName),
+		audit.Detail("sourceEnv", req.SourceEnvironment),
+		audit.Detail("targetEnv", req.TargetEnvironment),
+		audit.Detail("environment", req.TargetEnvironment),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to promote: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return auditErr
+	}
+
 	if err := s.ocClient.PromoteComponent(ctx, ouID, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides, traitEnvConfigs, promoteCTConfigs); err != nil {
+		promoteAttempt.Complete(ctx, err)
 		s.logger.Error("Failed to promote agent", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment, "error", err)
 		return fmt.Errorf("failed to promote agent: %w", err)
 	}
+	promoteAttempt.Complete(ctx, nil)
 
 	s.logger.Info("Agent promoted successfully", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment)
 	return nil
@@ -5014,4 +5090,13 @@ func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName s
 		Visibility: []string{"external"},
 	}
 	return []client.InputInterfaceEndpoint{ep}
+}
+
+// buildNameOf returns a triggered build's name for an audit record, tolerating
+// a nil response so the audit path cannot panic on a failed build.
+func buildNameOf(build *models.BuildResponse) string {
+	if build == nil {
+		return ""
+	}
+	return build.Name
 }

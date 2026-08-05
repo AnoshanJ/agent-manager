@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -414,7 +415,24 @@ func (c *environmentController) SetThunderSystemClient(w http.ResponseWriter, r 
 		return
 	}
 
+	// The clientId identifies the credential; clientSecret is never passed to
+	// the recorder. Refused when unrecordable — this credential is what AMS uses
+	// to reach the environment's identity provider.
+	attempt, auditErr := audit.Begin(ctx, audit.ActionServiceAccountConfigure,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceServiceAccount, envName, envName),
+		audit.Environment(envName),
+		audit.Detail("environment", envName),
+		audit.Detail("clientId", req.ClientId),
+	)
+	if auditErr != nil {
+		log.Error("SetThunderSystemClient: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to store system-client credential")
+		return
+	}
+
 	if err := c.environmentService.SetThunderSystemClientSecret(ctx, ouID, envName, req.ClientId, req.ClientSecret); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("SetThunderSystemClient: failed to store credential", "ouID", ouID, "envName", envName, "error", err)
 		if errors.Is(err, utils.ErrInvalidInput) {
 			utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid input")
@@ -423,6 +441,7 @@ func (c *environmentController) SetThunderSystemClient(w http.ResponseWriter, r 
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to store system-client credential")
 		return
 	}
+	attempt.Complete(ctx, nil)
 
 	utils.WriteSuccessResponse(w, http.StatusNoContent, "")
 }
@@ -436,7 +455,20 @@ func (c *environmentController) DeleteThunderSystemClient(w http.ResponseWriter,
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
+	attempt, auditErr := audit.Begin(ctx, audit.ActionServiceAccountRemove,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceServiceAccount, envName, envName),
+		audit.Environment(envName),
+		audit.Detail("environment", envName),
+	)
+	if auditErr != nil {
+		log.Error("DeleteThunderSystemClient: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete system-client credential")
+		return
+	}
+
 	if err := c.environmentService.DeleteThunderSystemClientSecret(ctx, ouID, envName); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("DeleteThunderSystemClient: failed to delete credential", "ouID", ouID, "envName", envName, "error", err)
 		if errors.Is(err, utils.ErrInvalidInput) {
 			utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid input")
@@ -445,6 +477,7 @@ func (c *environmentController) DeleteThunderSystemClient(w http.ResponseWriter,
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete system-client credential")
 		return
 	}
+	attempt.Complete(ctx, nil)
 
 	utils.WriteSuccessResponse(w, http.StatusNoContent, "")
 }

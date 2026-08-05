@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -146,15 +147,33 @@ func (c *gatewayController) UpsertGatewayIdentityProvider(w http.ResponseWriter,
 		return
 	}
 
+	// Which issuers a gateway trusts decides whose tokens it will accept, so
+	// this is recorded as a credential-class change and refused when the trail
+	// is unavailable.
+	ctx := r.Context()
+	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewaySetIdentityProvider,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
+		audit.Detail("identityProviderName", name),
+		audit.Detail("issuer", derefString(req.Issuer)),
+	)
+	if auditErr != nil {
+		log.Error("UpsertGatewayIdentityProvider: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to upsert identity provider")
+		return
+	}
+
 	provider, err := c.gatewayService.UpsertIdentityProvider(
-		r.Context(), gatewayID, ouID, name,
+		ctx, gatewayID, ouID, name,
 		derefString(req.Issuer), derefString(req.JwksUri), derefString(req.Description), derefBool(req.SkipTlsVerify),
 	)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("UpsertGatewayIdentityProvider: failed to upsert", "error", err)
 		handleGatewayErrors(w, err, "Failed to upsert identity provider")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, toSpecIdentityProvider(*provider))
 }
 
@@ -169,11 +188,25 @@ func (c *gatewayController) DeleteGatewayIdentityProvider(w http.ResponseWriter,
 	gatewayID := strings.TrimSpace(r.PathValue("gatewayID"))
 	name := strings.TrimSpace(r.PathValue("name"))
 
-	if err := c.gatewayService.DeleteIdentityProvider(r.Context(), gatewayID, ouID, name); err != nil {
+	ctx := r.Context()
+	attempt, auditErr := audit.Begin(ctx, audit.ActionGatewayRemoveIdentityProvider,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
+		audit.Detail("identityProviderName", name),
+	)
+	if auditErr != nil {
+		log.Error("DeleteGatewayIdentityProvider: refusing, audit record could not be written", "error", auditErr)
+		utils.WriteErrorResponse(w, http.StatusServiceUnavailable, "Failed to delete identity provider")
+		return
+	}
+
+	if err := c.gatewayService.DeleteIdentityProvider(ctx, gatewayID, ouID, name); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("DeleteGatewayIdentityProvider: failed to delete", "error", err)
 		handleGatewayErrors(w, err, "Failed to delete identity provider")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusNoContent, struct{}{})
 }
 
