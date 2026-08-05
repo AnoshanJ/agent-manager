@@ -145,16 +145,6 @@ export INSTRUMENTATION_URL="http://default-default.gateway.localhost:19080/otel"
 The certificates below are single-level wildcards (`*.<base>`), so every management hostname must sit directly under the base domain — no second-level names like `api.amp.<base>`.
 :::
 
-:::caution Reading the unreleased (next) version of this guide?
-`0.0.0-dev` is a placeholder that is swapped for the real tag at release — it is **not itself a published tag**, so every `helm pull` and values-file download below will fail with it. Point `VERSION` at the latest nightly instead, tagged `0.0.0-dev-<YYYYMMDD>` (run this **after** the export block above, so it overrides the placeholder):
-
-```bash
-export VERSION="$(git ls-remote --refs --tags https://github.com/wso2/agent-manager 'refs/tags/amp/v0.0.0-dev-*' \
-  | awk -F/ '{print $NF}' | sed 's/^v//' | sort | tail -n 1)"
-echo "VERSION=${VERSION:?no nightly tag found}"
-```
-:::
-
 ### 2. TLS certificates
 
 The main flow uses **cert-manager with Let's Encrypt (DNS-01)**: publicly trusted certificates, automatic renewal, and wildcard support — you only need API credentials for the DNS provider hosting your zone. Step 3 also shows a corporate-CA alternative. Certificate issuance needs only the DNS zone, so it works before the DNS records for the gateways exist.
