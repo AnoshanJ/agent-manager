@@ -114,6 +114,50 @@ jobs:
           echo
           echo "SUMMARY: reachable API hosts = ${REACHABLE[*]:-<none>}"
 
+      # Prove the intended fix end-to-end before touching the production scripts:
+      # recreate the cluster WITH 172.17.0.1 added as an API-server IP SAN, rewrite
+      # the kubeconfig server to the docker-host bridge address, and confirm kubectl
+      # validates TLS and reaches the API. DOCKER_GW is derived from the default
+      # route so this is not hardcoded to 172.17.0.1 if the bridge ever differs.
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.45.4
+          YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
+        run: |
+          command -v yq >/dev/null 2>&1 && exit 0
+          curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install /tmp/yq /usr/local/bin/yq
+
+      - name: Verify fix (SAN + kubeconfig rewrite)
+        run: |
+          set -x
+          k3d cluster delete amp-local || true
+          DOCKER_GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
+          echo "docker-host bridge address: ${DOCKER_GW}"
+
+          # Append the docker-host address as an API-server TLS SAN. IP SANs via
+          # --tls-san are honored by k3s deterministically.
+          yq eval \
+            ".options.k3s.extraArgs += [{\"arg\": \"--tls-san=${DOCKER_GW}\", \"nodeFilters\": [\"server:*\"]}]" \
+            deployments/quick-start/k3d-config.yaml > /tmp/k3d-config-dind.yaml
+          echo "===== extraArgs after SAN injection ====="
+          yq eval '.options.k3s.extraArgs' /tmp/k3d-config-dind.yaml
+
+          k3d cluster create --config /tmp/k3d-config-dind.yaml
+          k3d kubeconfig merge amp-local --kubeconfig-merge-default
+
+          # Rewrite the kubeconfig server to the reachable docker-host address.
+          kubectl config set-cluster k3d-amp-local --server="https://${DOCKER_GW}:6550"
+          echo "===== rewritten kubeconfig server ====="
+          kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'; echo
+
+          echo "===== kubectl get nodes (must succeed with TLS verify) ====="
+          kubectl get nodes -o wide
+          echo "===== kubectl cluster-info ====="
+          kubectl cluster-info
+          echo "✅ FIX VERIFIED: kubectl reaches the API via ${DOCKER_GW}:6550 with TLS verification"
+
       - name: Cleanup
         if: always()
         run: k3d cluster delete amp-local || true
