@@ -113,6 +113,7 @@ func checkFile(t *testing.T, path string) {
 func countAttemptCalls(body *ast.BlockStmt) (begins, completes int, guardedOnly bool) {
 	guardedOnly = true
 
+	//nolint:staticcheck // S1021: a recursive closure cannot be declared and assigned in one statement.
 	var walk func(n ast.Node, depth int)
 	walk = func(n ast.Node, depth int) {
 		ast.Inspect(n, func(node ast.Node) bool {

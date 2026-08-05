@@ -114,7 +114,12 @@ func redact(e *Event) {
 	e.ProjectName = clean(e.ProjectName, maxStringLen)
 	e.Environment = clean(e.Environment, maxStringLen)
 	e.ErrorCode = clean(e.ErrorCode, maxStringLen)
-	e.ErrorMessage = clean(e.ErrorMessage, maxErrorLen)
+	// The one field carrying unbounded third-party text. Errors from upstream
+	// systems routinely interpolate a whole HTTP response body — Thunder's
+	// client does exactly that — so a failed user creation or secret write can
+	// carry the echoed payload, credentials included. It needs the same
+	// secret-shaped masking the caller-supplied details get, and needs it more.
+	e.ErrorMessage = maskSecretShaped(clean(e.ErrorMessage, maxErrorLen))
 
 	e.Details = redactDetails(e.Action, e.Details)
 }

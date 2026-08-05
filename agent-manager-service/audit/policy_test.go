@@ -88,18 +88,14 @@ func TestDeriveAction(t *testing.T) {
 			want:   "environment:update",
 		},
 		{
-			name:   "no permission falls back to the trailing static path segment",
+			// A route with no permission has nothing to derive from. Returning
+			// empty makes NewRouteMeta panic, which is what forces an explicit
+			// actionOverrides entry rather than an invented, unregistered label.
+			name:   "no permission yields no action",
 			method: http.MethodPost,
 			path:   "/orgs/{orgName}/widgets",
 			perms:  nil,
-			want:   "widgets:create",
-		},
-		{
-			name:   "parameter-only tail skips back to a static segment",
-			method: http.MethodDelete,
-			path:   "/orgs/{orgName}/widgets/{widgetId}",
-			perms:  nil,
-			want:   "widgets:delete",
+			want:   "",
 		},
 	}
 

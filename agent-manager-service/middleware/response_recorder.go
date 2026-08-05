@@ -67,10 +67,16 @@ func (r *responseRecorder) Status() int {
 	return r.status
 }
 
-// setStatus overrides the recorded status. Used when a panic unwinds past the
-// audit middleware, where the response will become a 500 but the recorder has
-// not seen it yet.
+// setStatus records a status the handler never wrote itself. Used when a panic
+// unwinds past the audit middleware and the response will become a 500.
+//
+// A committed status wins. A handler that wrote 201 and then panicked did
+// create the resource, and the client received the 201 — recording 500 there
+// would make the trail contradict both the client and reality.
 func (r *responseRecorder) setStatus(code int) {
+	if r.written {
+		return
+	}
 	r.status = code
 	r.written = true
 }

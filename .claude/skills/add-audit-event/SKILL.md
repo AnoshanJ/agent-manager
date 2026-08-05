@@ -15,7 +15,7 @@ You need this skill only for one of these:
 
 | Situation | What to do |
 |---|---|
-| Build fails: `cannot derive an action for audited route` | Step 1 only — add an `actionOverrides` entry |
+| Build fails: `cannot derive an action for audited route` (a route with no `rbac.Permission`) | Step 1 only — add an `actionOverrides` entry |
 | The route's permission does not describe what it does | Step 1 only |
 | The operation touches credentials, privileges, membership, deployment or deletion | All steps |
 | Everything else | Nothing. Stop here. |
@@ -103,7 +103,7 @@ If a controller has no service layer (`controllers/identity_controller.go`), emi
 ## Step 4 — what may go in the record
 
 - **Never a request or response body.** Bodies are structurally out of reach; that is what makes auditing every route safe. Name the fields you want instead.
-- **`audit.Detail` takes only `string`, `bool`, `int`, `float64`, `[]string`.** Anything else is replaced with a type marker at the call site.
+- **`audit.Detail` records `string`, `bool`, `int`, `int32`, `int64`, `float64`, `[]string` and `fmt.Stringer`.** Anything else becomes a `[unsupported:<type>]` marker instead of being serialised. Pass the field you mean rather than relying on that.
 - **Never a secret value.** Use `audit.SecretRef(key, value)` (SHA-256 prefix + last four) or record the key *name*.
 - **Free-form maps: keys only.** Use `audit.AttributeKeySummary(attrs)` — it returns sorted key names, a count, and a flag when a key looks credential-shaped. Never the values.
 - **Identifiers and scope strings are fine, and usually the point.** `role:grant-permission` records the granted scopes in full; they are identifiers, not credentials.
@@ -124,7 +124,7 @@ require.ErrorIs(t, err, audit.ErrRecorderUnavailable)
 
 `auditableCtx(t)` lives in `services/audit_testing_test.go`. Do not redeclare it.
 
-To assert on the records themselves, drive `audit.NewRecorder` with `audit.NewMemorySink()` and read `sink.Events()` — see `audit/actions_domain_test.go`.
+To assert on the records themselves, write the test inside the `audit` package — `audit.NewMemorySink()` is a test double declared in `audit/sink_doubles_test.go` and is not importable from `services/` or `controllers/`. See `audit/actions_domain_test.go`. From another package, assert the behaviour (did the operation proceed or refuse) rather than the record.
 
 ## Done checklist
 

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -309,4 +310,34 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("condition not met before deadline")
+}
+
+// TestRecordDuringCloseDoesNotPanic pins the shutdown race.
+//
+// Close used to close the event channel while request goroutines were still
+// sending on it. The atomic guard in Record could not prevent that: checking a
+// flag and sending are two steps, and Close can land between them. In
+// production the window is wide open — the main server returns from Shutdown on
+// timeout with handlers still running, and background workers are never joined
+// — so an ordinary graceful shutdown could panic mid-request, or kill the
+// process outright from a worker goroutine with no recover.
+func TestRecordDuringCloseDoesNotPanic(t *testing.T) {
+	for range 200 {
+		rec := NewRecorder(NewMemorySink(), quietLogger(), Config{BufferSize: 1, BatchSize: 1})
+
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range 50 {
+					// A panic here fails the test: it crashes the test binary.
+					rec.Record(context.Background(), Event{Action: "agent:create"})
+				}
+			}()
+		}
+
+		_ = rec.Close(context.Background())
+		wg.Wait()
+	}
 }

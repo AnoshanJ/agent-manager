@@ -258,6 +258,10 @@ var actionOverrides = map[string]Action{
 	"PUT /orgs/{orgName}/llm-providers/{providerId}/catalog": "llm-provider:update-catalog",
 
 	// Reads expressed as POST because they carry a request body.
+	// The score-publish route carries no rbac.Permission at all — it is gated
+	// only by an audience check — so there is nothing to derive from.
+	"POST /publisher/monitors/{monitorId}/runs/{runId}/scores": "monitor-score:publish",
+
 	"POST /repositories/branches":                        "repository:list-branches",
 	"POST /repositories/commits":                         "repository:list-commits",
 	"POST /orgs/{orgName}/mcp-proxies/fetch-server-info": "mcp-server:fetch-server-info",
@@ -293,9 +297,13 @@ var methodVerbs = map[string]string{
 //  2. the sole gating permission verbatim — the common case, and why this scales
 //     to hundreds of routes without hundreds of map entries;
 //  3. for multi-permission routes, the first permission's resource with a verb
-//     from the HTTP method, since no single permission is authoritative;
-//  4. the trailing static path segment with a verb from the HTTP method, for the
-//     handful of routes registered with no permission at all.
+//     from the HTTP method, since no single permission is authoritative.
+//
+// A route carrying no permission at all has nothing to derive from and returns
+// empty, which makes NewRouteMeta panic. That is deliberate: such a route would
+// otherwise be labelled from its path, producing an action with no class, no
+// severity and no detail schema that nothing would ever flag. Declare it in
+// actionOverrides instead.
 func deriveAction(method, path string, perms []rbac.Permission) Action {
 	if override, ok := actionOverrides[method+" "+path]; ok {
 		return override
@@ -309,23 +317,6 @@ func deriveAction(method, path string, perms []rbac.Permission) Action {
 	}
 	if len(perms) > 1 {
 		return Action(Action(perms[0]).Resource() + ":" + verb)
-	}
-	if resource := resourceFromPath(path); resource != "" {
-		return Action(resource + ":" + verb)
-	}
-	return ""
-}
-
-// resourceFromPath returns the last static (non-parameter) segment of a path,
-// used to name routes that carry no permission.
-func resourceFromPath(path string) string {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	for i := len(segments) - 1; i >= 0; i-- {
-		s := segments[i]
-		if s == "" || strings.HasPrefix(s, "{") {
-			continue
-		}
-		return s
 	}
 	return ""
 }

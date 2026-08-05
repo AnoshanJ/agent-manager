@@ -71,7 +71,7 @@ Every route registered through `RouteRegistrar` is audited automatically: non-GE
 
 **Three things can require action from you.**
 
-**1. The build fails because an action cannot be derived.** The action defaults to the route's `rbac.Permission` (already `resource:verb`). If the route has no permission, or several, `audit.NewRouteMeta` panics at startup and `api/audit_coverage_test.go` fails. Fix it by adding one line to `actionOverrides` in `audit/policy.go`.
+**1. The build fails because an action cannot be derived.** The action defaults to the route's `rbac.Permission` (already `resource:verb`). A route registered with **no** permission has nothing to derive from, so `audit.NewRouteMeta` panics at startup and `api/audit_coverage_test.go` fails. Fix it by adding one line to `actionOverrides` in `audit/policy.go`. (A multi-permission route derives from the first permission's resource and does not panic — check the label is right.)
 
 **2. The permission does not describe the effect.** Same fix, and this is the common case. Add an override when:
 
@@ -86,7 +86,7 @@ Queries stay exact regardless, because `requestPath` records the route pattern �
 Rules:
 
 - **Never read a request or response body into a record.** Bodies are out of reach by design; that is what makes auditing every route safe. Pass named fields via `audit.Detail` instead.
-- **`audit.Detail` accepts only scalars and `[]string`.** A struct or map is rejected at the call site. Undeclared keys are dropped at write time and reported under `_droppedKeys`.
+- **`audit.Detail` records only scalars, `[]string` and `fmt.Stringer`.** Anything else is replaced with a `[unsupported:<type>]` marker rather than serialised — so a struct cannot leak, but do not rely on that: pass the field you mean. Undeclared keys are dropped at write time and reported under `_droppedKeys`.
 - **Never pass a secret.** Use `audit.SecretRef` (stores a fingerprint) or record the key *name* only.
 - A new action needs a class, a severity and a detail schema, all declared together in `audit/actions_domain.go`. A test fails if a registered action has no schema.
 

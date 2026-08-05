@@ -69,10 +69,17 @@ type bufferedRecorder struct {
 	logger *slog.Logger
 	cfg    Config
 
-	ch     chan Event
-	closed atomic.Bool
-	done   chan struct{}
-	once   sync.Once
+	ch chan Event
+	// stopping is closed by Close. The event channel itself is never closed:
+	// a producer cannot check a flag and send atomically, so closing the
+	// channel a request goroutine may be sending on is a send-on-closed panic
+	// waiting to happen. Signalling through a second channel removes the race
+	// rather than narrowing it — servers can still be draining requests when
+	// Close runs, and background workers are not joined at all.
+	stopping chan struct{}
+	closed   atomic.Bool
+	done     chan struct{}
+	once     sync.Once
 
 	dropped  atomic.Uint64
 	lastWarn atomic.Int64
@@ -94,11 +101,12 @@ func NewRecorder(sink Sink, logger *slog.Logger, cfg Config) Recorder {
 		cfg.FlushInterval = def.FlushInterval
 	}
 	r := &bufferedRecorder{
-		sink:   sink,
-		logger: logger,
-		cfg:    cfg,
-		ch:     make(chan Event, cfg.BufferSize),
-		done:   make(chan struct{}),
+		sink:     sink,
+		logger:   logger,
+		cfg:      cfg,
+		ch:       make(chan Event, cfg.BufferSize),
+		stopping: make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	go r.run()
 	return r
@@ -111,6 +119,8 @@ func NewRecorder(sink Sink, logger *slog.Logger, cfg Config) Recorder {
 // Drops are counted and reported so the loss is visible rather than silent.
 func (r *bufferedRecorder) Record(_ context.Context, e Event) {
 	if r.closed.Load() {
+		// Best-effort early exit once shutdown has begun. Correctness does not
+		// depend on it: the send below is safe whether or not this races.
 		return
 	}
 	prepare(&e)
@@ -139,7 +149,7 @@ func (r *bufferedRecorder) Close(ctx context.Context) error {
 	var err error
 	r.once.Do(func() {
 		r.closed.Store(true)
-		close(r.ch)
+		close(r.stopping)
 		select {
 		case <-r.done:
 		case <-ctx.Done():
@@ -176,17 +186,30 @@ func (r *bufferedRecorder) run() {
 
 	for {
 		select {
-		case e, ok := <-r.ch:
-			if !ok {
-				flush()
-				return
-			}
+		case e := <-r.ch:
 			batch = append(batch, e)
 			if len(batch) >= r.cfg.BatchSize {
 				flush()
 			}
 		case <-ticker.C:
 			flush()
+		case <-r.stopping:
+			// Drain whatever is already queued, then stop. Anything a late
+			// producer sends after this is left in the buffer and lost, which
+			// is the same outcome as dropping on a full buffer — and far
+			// better than panicking on a closed channel mid-request.
+			for {
+				select {
+				case e := <-r.ch:
+					batch = append(batch, e)
+					if len(batch) >= r.cfg.BatchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
 		}
 	}
 }
