@@ -55,6 +55,11 @@ jobs:
       - name: Create cluster with DinD fix
         run: |
           set -x
+          # CodeBuild self-hosted runners are NOT ephemeral — Docker state (k3d
+          # clusters, networks, iptables) can survive from a prior job whose
+          # cleanup didn't run (cancelled/failed). Start from a clean slate so a
+          # leaked cluster neither blocks create nor corrupts in-cluster routing.
+          k3d cluster delete amp-local || true
           DOCKER_GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
           echo "DOCKER_GW=${DOCKER_GW}"
           yq eval \
