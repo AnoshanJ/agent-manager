@@ -103,6 +103,74 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# ----------------------------------------------------------------------------
+# Docker-in-Docker (sibling-container) support for CI runners — gated, opt-in
+# ----------------------------------------------------------------------------
+# Everything below is a no-op unless AMP_K3D_DIND=1 is exported. Local runs and
+# GitHub-hosted (ubuntu-latest) runs never set it, so their behavior is
+# unchanged; only the nightly E2E job on the sibling-container CodeBuild runner
+# opts in.
+#
+# Why it's needed: on a sibling-container DinD runner (the job shares the host's
+# Docker socket) k3d publishes the API server host port (kubeAPI.hostPort 6550)
+# onto the *Docker host's* network namespace, not the job container's. The merged
+# kubeconfig then points kubectl at 0.0.0.0/127.0.0.1/host.k3d.internal, none of
+# which are reachable from the job — kubectl gets connection-refused and the
+# install fails its readiness wait. See PR #1233 for the history.
+#
+# The only reachable address is the Docker bridge gateway (the default route,
+# typically 172.17.0.1). Two things make kubectl work over it:
+#   1. add that IP as an API-server TLS SAN (else TLS verification fails), and
+#   2. rewrite the merged kubeconfig `server:` to https://<gateway>:6550.
+# Verified end-to-end by .github/workflows/k3d-dind-probe.yml.
+amp_k3d_dind_enabled() {
+    [ "${AMP_K3D_DIND:-}" = "1" ]
+}
+
+# Docker-host bridge gateway kubectl must reach the API on. Derived from the
+# default route rather than hardcoded, so a non-default bridge subnet still works.
+amp_k3d_dind_gateway() {
+    ip route 2>/dev/null | awk '/default/ {print $3; exit}'
+}
+
+# Echo the k3d config path to use for `k3d cluster create`. With DinD enabled,
+# emit a copy of the base config with the gateway added as an API-server IP SAN;
+# otherwise echo the base config unchanged.
+amp_k3d_config_for_env() {
+    local base_config=$1
+    if ! amp_k3d_dind_enabled; then
+        echo "${base_config}"
+        return 0
+    fi
+    local gw
+    gw=$(amp_k3d_dind_gateway)
+    if [ -z "${gw}" ] || ! command_exists yq; then
+        log_info "AMP_K3D_DIND set but gateway/yq unavailable; using base k3d config" >&2
+        echo "${base_config}"
+        return 0
+    fi
+    local out="/tmp/amp-k3d-config-dind.yaml"
+    yq eval \
+        ".options.k3s.extraArgs += [{\"arg\": \"--tls-san=${gw}\", \"nodeFilters\": [\"server:*\"]}]" \
+        "${base_config}" > "${out}"
+    log_info "DinD: added --tls-san=${gw} to k3d API server config" >&2
+    echo "${out}"
+}
+
+# Rewrite the merged kubeconfig server to the reachable Docker-host gateway.
+# No-op unless AMP_K3D_DIND=1. Call after every `k3d kubeconfig merge`.
+amp_k3d_rewrite_kubeconfig_for_env() {
+    amp_k3d_dind_enabled || return 0
+    local gw
+    gw=$(amp_k3d_dind_gateway)
+    if [ -z "${gw}" ]; then
+        log_error "AMP_K3D_DIND=1 but no default-route gateway found; cannot rewrite kubeconfig"
+        return 1
+    fi
+    kubectl config set-cluster "${CLUSTER_CONTEXT}" --server="https://${gw}:6550" >/dev/null
+    log_info "DinD: rewrote kubeconfig server to https://${gw}:6550"
+}
+
 # Check if a port is available
 check_port_available() {
     local port=$1
@@ -183,10 +251,15 @@ wait_for_k3d_cluster() {
                 # Give k3d a moment to register the kubeconfig context
                 sleep 2
                 
-                # Always try to merge kubeconfig to ensure it's up to date
+                # Always try to merge kubeconfig to ensure it's up to date.
+                # The merge resets the server to k3d's default (0.0.0.0), so on
+                # DinD runners re-apply the reachable-gateway rewrite before the
+                # cluster-info checks below — otherwise they never pass and this
+                # readiness loop spins until timeout (the PR #1233 hang).
                 k3d kubeconfig merge "${cluster_name}" --kubeconfig-merge-default 2>/dev/null || true
+                amp_k3d_rewrite_kubeconfig_for_env
                 sleep 2
-                
+
                 # Check if context exists in kubeconfig
                 if kubectl config get-contexts "${CLUSTER_CONTEXT}" &>/dev/null 2>&1; then
                     # Set context
@@ -224,6 +297,7 @@ wait_for_k3d_cluster() {
             log_info "Expected context: ${CLUSTER_CONTEXT}"
             log_info "Trying to merge kubeconfig one more time..."
             k3d kubeconfig merge "${cluster_name}" --kubeconfig-merge-default 2>&1 || true
+            amp_k3d_rewrite_kubeconfig_for_env
             sleep 2
             log_info "Contexts after merge:"
             kubectl config get-contexts 2>/dev/null || true
@@ -616,6 +690,7 @@ if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
             log_info "Cluster is running but not accessible yet. Merging kubeconfig and waiting..."
             # Merge kubeconfig to ensure context is available
             k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default 2>/dev/null || true
+            amp_k3d_rewrite_kubeconfig_for_env
             sleep 2
             
             if ! wait_for_k3d_cluster "${CLUSTER_NAME}" "${TIMEOUT_K3D_READY}"; then
@@ -630,6 +705,7 @@ if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
         # Merge kubeconfig to ensure context is available
         log_info "Merging k3d kubeconfig..."
         k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default 2>/dev/null || true
+        amp_k3d_rewrite_kubeconfig_for_env
         sleep 2
 
         # Wait for cluster to be fully ready (context registered and API accessible)
@@ -652,8 +728,10 @@ else
     # Create shared directory for OpenChoreo
     mkdir -p /tmp/k3d-shared
 
-    # Create k3d cluster
-    if k3d cluster create --config "${K3D_CONFIG}"; then
+    # Create k3d cluster. On DinD runners this uses a config with the Docker-host
+    # gateway added as an API-server TLS SAN; otherwise it's the base config.
+    K3D_CREATE_CONFIG=$(amp_k3d_config_for_env "${K3D_CONFIG}")
+    if k3d cluster create --config "${K3D_CREATE_CONFIG}"; then
         log_success "k3d cluster created successfully"
     else
         log_error "Failed to create k3d cluster"
@@ -663,6 +741,7 @@ else
     # Merge kubeconfig to ensure context is available
     log_info "Merging k3d kubeconfig..."
     k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default 2>/dev/null || true
+    amp_k3d_rewrite_kubeconfig_for_env
     sleep 2
 
     # Set kubectl context
