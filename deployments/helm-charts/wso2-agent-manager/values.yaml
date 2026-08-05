@@ -234,7 +234,7 @@ agentManagerService:
       privateKeyPath: "/app/keys/private.pem"
       publicKeysConfig: "/app/keys/public-keys-config.json"
       activeKeyId: "key-1"
-      defaultExpiry: "8760h"
+      defaultExpiry: "2160h"
       issuer: "agent-manager-service"
       defaultEnvironment: "default"
     # GitHub configuration for repository API access
