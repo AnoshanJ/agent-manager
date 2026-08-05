@@ -27,6 +27,7 @@ import (
 	"github.com/google/wire"
 	"gorm.io/gorm"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	observersvc "github.com/wso2/agent-manager/agent-manager-service/clients/observersvc"
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
@@ -162,6 +163,24 @@ var thunderProvisioningTestSet = wire.NewSet(
 // ProvideLogger provides the configured slog.Logger instance
 func ProvideLogger() *slog.Logger {
 	return slog.Default()
+}
+
+// ProvideAuditRecorder builds the audit recorder.
+//
+// Records go to stdout as structured JSON, where the platform's log pipeline
+// already collects them. That also gives the trail a copy this service cannot
+// rewrite, since there is no write path from here back into the log store.
+func ProvideAuditRecorder(cfg config.Config, logger *slog.Logger) audit.Recorder {
+	if !cfg.Audit.Enabled {
+		logger.Warn("audit logging is disabled; no record of privileged operations will be kept",
+			"setting", "AUDIT_ENABLED")
+		return audit.NewNoopRecorder()
+	}
+	return audit.NewRecorder(audit.NewStdoutSink(), logger, audit.Config{
+		BufferSize:    cfg.Audit.BufferSize,
+		BatchSize:     cfg.Audit.BatchSize,
+		FlushInterval: time.Duration(cfg.Audit.FlushIntervalMs) * time.Millisecond,
+	})
 }
 
 // ProvideInstrumentationCatalog loads the instrumentation catalog and
@@ -308,6 +327,7 @@ func ProvidePublisherProvisioner(cfg config.Config, encryptionKey []byte, logger
 
 var loggerProviderSet = wire.NewSet(
 	ProvideLogger,
+	ProvideAuditRecorder,
 )
 
 var repositoryProviderSet = wire.NewSet(

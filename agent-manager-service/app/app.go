@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/api"
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
@@ -178,6 +179,8 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		// Don't exit - templates can still be created via API
 	}
 
+	recordStartupPosture(cfg, dependencies.AuditRecorder)
+
 	// Create main API server handler
 	handler := api.MakeHTTPHandler(dependencies, opts.ExtraAPIRoutes)
 	mainServer := &http.Server{
@@ -254,6 +257,17 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		if err := internalServer.Shutdown(shutdownCtx); err != nil {
 			slog.Error("Internal server forced shutdown after timeout", "error", err)
 		}
+
+		// Flush the audit buffer last. Both servers have stopped, so no further
+		// events can be produced and every in-flight request has finished
+		// recording. Draining any earlier would discard the audit records of the
+		// requests still being served — note this is deliberately not where
+		// EventHub.Close sits, which runs before the servers stop.
+		if dependencies.AuditRecorder != nil {
+			if err := dependencies.AuditRecorder.Close(shutdownCtx); err != nil {
+				slog.Error("error flushing audit recorder; some events may be lost", "error", err)
+			}
+		}
 	})
 
 	// Start internal server in a goroutine
@@ -284,6 +298,41 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 	// Wait for graceful shutdown to complete
 	wg.Wait()
 	slog.Info("All servers shut down successfully")
+}
+
+// recordStartupPosture writes the audit trail's own bookend events.
+//
+// The startup record bounds any gap in the trail to a restart: a reader can
+// tell "nothing happened" apart from "the service was not running".
+//
+// The RBAC record matters more. Authorization enforcement is off by default, and
+// when it is off every permission check returns early. Without an event saying
+// so, that gap is visible only in a config file no auditor reads — and every
+// request in the trail would imply a check that never happened.
+func recordStartupPosture(cfg *config.Config, recorder audit.Recorder) {
+	if recorder == nil {
+		return
+	}
+	ctx := audit.WithRecorder(context.Background(), recorder)
+
+	audit.RecordAncillary(
+		ctx, audit.ActionSystemStartup,
+		audit.Actor(audit.ActorSystem, "system:agent-manager-service", ""),
+		audit.SurfaceOpt(audit.SurfaceSystem),
+		audit.Detail("sinks", []string{"stdout"}),
+	)
+
+	if !cfg.RBACEnabled {
+		audit.RecordAncillary(
+			ctx, audit.ActionSystemRBACDisabled,
+			audit.Actor(audit.ActorSystem, "system:agent-manager-service", ""),
+			audit.SurfaceOpt(audit.SurfaceSystem),
+			audit.RBACEnforced(false),
+			audit.Detail("reason", "rbac-enabled-false"),
+		)
+		slog.Warn("RBAC is disabled; every authenticated request is allowed regardless of token scopes",
+			"setting", "RBAC_ENABLED")
+	}
 }
 
 func setupLogger(cfg *config.Config) {

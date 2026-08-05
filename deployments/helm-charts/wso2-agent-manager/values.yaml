@@ -144,6 +144,21 @@ agentManagerService:
     corsAllowedOrigin: "*"
     # Enable RBAC enforcement on all routes
     rbacEnabled: "true"
+    # Audit trail. Every state-changing API call, every authorization denial and
+    # every rejected token is written to stdout as structured JSON tagged
+    # log_type=audit, for the cluster log pipeline to collect.
+    #
+    # Retention is NOT provided by this service. Route these records to an index
+    # or bucket with a retention period that matches your audit obligations —
+    # the observability plane's default log retention is far shorter than the
+    # evidence period most audits require.
+    audit:
+      enabled: "true"
+      # Queued events. On overflow, events are dropped and counted rather than
+      # blocking the request that produced them.
+      bufferSize: 4096
+      batchSize: 200
+      flushIntervalMs: 1000
     # In-cluster URL the agent-manager-service uses to query trace data server-side.
     amObserverURL: "http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098"
     # Externally reachable observer URL returned to out-of-cluster clients

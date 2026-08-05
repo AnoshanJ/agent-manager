@@ -73,4 +73,12 @@ data:
   RESOURCE_MAX_MEMORY: {{ .Values.agentManagerService.config.perAgentResourceLimits.maxMemory | default "512Mi" | quote }}
   # RBAC Configuration
   RBAC_ENABLED: {{ .Values.agentManagerService.config.rbacEnabled | default "true" | quote }}
+  # Audit logging. Records are written to stdout as structured JSON with
+  # log_type=audit and collected by the cluster log pipeline. Retention and
+  # immutability are properties of that pipeline — see
+  # agent-manager-service/docs/audit-logging.md for what the deployment must provide.
+  AUDIT_ENABLED: {{ .Values.agentManagerService.config.audit.enabled | default "true" | quote }}
+  AUDIT_BUFFER_SIZE: {{ .Values.agentManagerService.config.audit.bufferSize | default 4096 | quote }}
+  AUDIT_BATCH_SIZE: {{ .Values.agentManagerService.config.audit.batchSize | default 200 | quote }}
+  AUDIT_FLUSH_INTERVAL_MS: {{ .Values.agentManagerService.config.audit.flushIntervalMs | default 1000 | quote }}
 {{- end }}

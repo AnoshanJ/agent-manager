@@ -127,6 +127,34 @@ type Config struct {
 
 	// PerAgentResourceLimits defines the operator-configured maximum values for agent resource configs
 	PerAgentResourceLimits ResourceLimitsConfig
+
+	// Audit configures the audit trail.
+	Audit AuditConfig
+}
+
+// AuditConfig controls the audit trail.
+//
+// Records are written to stdout as structured JSON and collected by the
+// platform's log pipeline. Retention and immutability are therefore properties
+// of that pipeline, not of this service — see docs/audit-logging.md, which
+// documents the retention the deployment must provide.
+type AuditConfig struct {
+	// Enabled turns audit recording on. Disabling it leaves the platform with
+	// no record of who changed what, so it should only be off for local
+	// development.
+	Enabled bool
+
+	// BufferSize bounds queued events. When the buffer is full, events are
+	// dropped and counted rather than blocking the request that produced them:
+	// a slow sink must not become an outage.
+	BufferSize int
+
+	// BatchSize is the maximum number of events written to the sink at once.
+	BatchSize int
+
+	// FlushIntervalMs bounds how long an event waits before being written, so a
+	// quiet service still emits promptly.
+	FlushIntervalMs int
 }
 
 type TLSConfig struct {

@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -116,6 +117,64 @@ func hasValidPublisherAudience(audiences jwt.ClaimStrings) bool {
 	return false
 }
 
+// AuthFailureHook is notified when a request is rejected at the edge. The
+// reason is a classified label (see classifyAuthFailure), never the token or
+// any fragment of it.
+//
+// This exists as a hook rather than a direct call because the audit package
+// imports this one to read token claims; calling audit from here would be an
+// import cycle. The hook is installed once at startup from api/app.go.
+type AuthFailureHook func(r *http.Request, reason string)
+
+var authFailureHook atomic.Pointer[AuthFailureHook]
+
+// SetAuthFailureHook installs the handler notified on authentication failure.
+// Passing nil removes it.
+func SetAuthFailureHook(h AuthFailureHook) {
+	if h == nil {
+		authFailureHook.Store(nil)
+		return
+	}
+	authFailureHook.Store(&h)
+}
+
+// notifyAuthFailure invokes the installed hook, if any.
+func notifyAuthFailure(r *http.Request, reason string) {
+	if h := authFailureHook.Load(); h != nil {
+		(*h)(r, reason)
+	}
+}
+
+// classifyAuthFailure reduces a validation error to a stable label.
+//
+// The label is deliberately coarse. It has to distinguish an expired token
+// (routine) from a bad signature or unknown issuer (an attack signal) without
+// echoing attacker-controlled error text into the audit trail.
+func classifyAuthFailure(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	switch msg := err.Error(); {
+	case strings.Contains(msg, "expired"):
+		return "expired"
+	case strings.Contains(msg, "invalid issuer"), strings.Contains(msg, "allowed issuers"):
+		return "bad-issuer"
+	case strings.Contains(msg, "invalid audience"), strings.Contains(msg, "allowed audiences"):
+		return "bad-audience"
+	case strings.Contains(msg, "kid"):
+		return "unknown-kid"
+	case strings.Contains(msg, "signature"), strings.Contains(msg, "signing method"):
+		return "bad-signature"
+	case strings.Contains(msg, "failed to parse"), strings.Contains(msg, "invalid jwt"),
+		strings.Contains(msg, "failed to extract claims"):
+		return "malformed"
+	case strings.Contains(msg, "not valid"):
+		return "invalid"
+	default:
+		return "unknown"
+	}
+}
+
 func buildBearerChallenge(resourceMetadataURL, errorCode string) string {
 	parts := []string{`realm="agent-manager"`}
 	if errorCode != "" {
@@ -132,6 +191,7 @@ func JWTAuthMiddleware(header, resourceMetadataURL string) func(http.Handler) ht
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenString := r.Header.Get(header)
 			if tokenString == "" {
+				notifyAuthFailure(r, "missing-header")
 				w.Header().Set("WWW-Authenticate", buildBearerChallenge(resourceMetadataURL, ""))
 				utils.WriteErrorResponse(w, http.StatusUnauthorized, fmt.Sprintf("missing header: %s", header))
 				return
@@ -142,7 +202,15 @@ func JWTAuthMiddleware(header, resourceMetadataURL string) func(http.Handler) ht
 			// Validate the token using JWKS
 			claims, err := validateJWTWithJWKS(tokenString)
 			if err != nil {
-				slog.Error("JWT validation failed", "error", err)
+				// The path and client IP make this actionable: the previous form
+				// logged only the error, which left credential stuffing against
+				// the API undetectable.
+				slog.Error("JWT validation failed",
+					"error", err,
+					"reason", classifyAuthFailure(err),
+					"path", utils.SanitizeForLog(r.URL.Path),
+					"clientIp", utils.ClientIP(r))
+				notifyAuthFailure(r, classifyAuthFailure(err))
 				w.Header().Set("WWW-Authenticate", buildBearerChallenge(resourceMetadataURL, "invalid_token"))
 				utils.WriteErrorResponse(w, http.StatusUnauthorized, "invalid jwt")
 				return

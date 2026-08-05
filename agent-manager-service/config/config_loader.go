@@ -247,6 +247,15 @@ func loadEnvs() {
 	config.RBACEnabled = r.readOptionalBool("RBAC_ENABLED", false)
 	config.RootOUHandle = r.readOptionalString("ROOT_OU_HANDLE", "admin")
 
+	// Audit defaults to on. A deployment that wants no audit trail has to say
+	// so explicitly, rather than acquiring one by omission.
+	config.Audit = AuditConfig{
+		Enabled:         r.readOptionalBool("AUDIT_ENABLED", true),
+		BufferSize:      int(r.readOptionalInt64("AUDIT_BUFFER_SIZE", 4096)),
+		BatchSize:       int(r.readOptionalInt64("AUDIT_BATCH_SIZE", 200)),
+		FlushIntervalMs: int(r.readOptionalInt64("AUDIT_FLUSH_INTERVAL_MS", 1000)),
+	}
+
 	// Resource limits for agent resource configurations (operator-controlled ceilings)
 	config.PerAgentResourceLimits = ResourceLimitsConfig{
 		MaxReplicas: int(r.readOptionalInt64("RESOURCE_MAX_REPLICAS", 10)),

@@ -19,13 +19,49 @@ package api
 import (
 	"net/http"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
+	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/wiring"
 
 	"github.com/wso2/agent-manager/agent-manager-service/mcp"
 )
+
+// registerAPIRoutes registers every authenticated /api/v1 route.
+//
+// It is separated from MakeHTTPHandler so the audit coverage test can drive
+// registration with a bare registrar and assert that no mutating route shipped
+// unaudited. Keeping the list in one function is what makes that check total
+// rather than a sample.
+func registerAPIRoutes(rr *middleware.RouteRegistrar, params *wiring.AppParams) {
+	registerAgentRoutes(rr, params.AgentController)
+	registerAgentKindRoutes(rr, params.AgentKindController)
+	registerAgentTokenRoutes(rr, params.AgentTokenController)
+	registerInfraRoutes(rr, params.InfraResourceController)
+	registerRepositoryRoutes(rr, params.RepositoryController)
+	registerEnvironmentRoutes(rr, params.EnvironmentController)
+	RegisterGatewayRoutes(rr, params.GatewayController)
+	registerMonitorRoutes(rr, params.MonitorController)
+	registerMonitorScoreRoutes(rr, params.MonitorScoresController)
+	registerEvaluatorRoutes(rr, params.EvaluatorController)
+	registerCatalogRoutes(rr, params.CatalogController)
+	registerAgentBuildOptionsRoutes(rr, params.AgentBuildOptionsController)
+	RegisterLLMRoutes(rr, params.LLMController)
+	RegisterLLMDeploymentRoutes(rr, params.LLMDeploymentController)
+	RegisterLLMProviderAPIKeyRoutes(rr, params.LLMProviderAPIKeyController)
+	RegisterLLMProxyAPIKeyRoutes(rr, params.LLMProxyAPIKeyController)
+	RegisterAgentAPIKeyRoutes(rr, params.AgentAPIKeyController)
+	RegisterLLMProxyDeploymentRoutes(rr, params.LLMProxyDeploymentController)
+	RegisterMCPProxyRoutes(rr, params.MCPProxyController)
+	RegisterAgentConfigRoutes(rr, params.AgentConfigurationController)
+	RegisterMonitorPublisherRoutes(rr, params.MonitorScoresPublisherController)
+	RegisterGitSecretRoutes(rr, params.GitSecretController)
+	registerIdentityRoutes(rr, params.IdentityController)
+	registerMCPProxyScopeRoutes(rr, params.MCPProxyScopeController)
+	registerAgentIdentityRoutes(rr, params.AgentIdentityController)
+}
 
 // MakeHTTPHandler creates a new HTTP handler with middleware and routes.
 // extraAPIRoutes, if non-nil, is called to register additional routes onto the
@@ -53,35 +89,15 @@ func MakeHTTPHandler(params *wiring.AppParams, extraAPIRoutes func(*http.ServeMu
 		EnvironmentService:       params.EnvironmentService,
 	}, params.AuthMiddleware)
 
+	// Authentication is rejected before route matching, so the audit middleware
+	// installed per route never sees it. This hook is how a failed token
+	// reaches the trail; it is set once because the auth middleware is global.
+	jwtassertion.SetAuthFailureHook(audit.AuthFailureRecorder(params.AuditRecorder))
+
 	// Create a sub-mux for API v1 routes (JWT-authenticated)
 	apiMux := http.NewServeMux()
-	rr := middleware.NewRouteRegistrar(apiMux, params.OrgResolver)
-	registerAgentRoutes(rr, params.AgentController)
-	registerAgentKindRoutes(rr, params.AgentKindController)
-	registerAgentTokenRoutes(rr, params.AgentTokenController)
-	registerInfraRoutes(rr, params.InfraResourceController)
-	registerRepositoryRoutes(rr, params.RepositoryController)
-	registerEnvironmentRoutes(rr, params.EnvironmentController)
-	RegisterGatewayRoutes(rr, params.GatewayController)
-	registerMonitorRoutes(rr, params.MonitorController)
-	registerMonitorScoreRoutes(rr, params.MonitorScoresController)
-	registerEvaluatorRoutes(rr, params.EvaluatorController)
-	registerCatalogRoutes(rr, params.CatalogController)
-	registerAgentBuildOptionsRoutes(rr, params.AgentBuildOptionsController)
-	RegisterLLMRoutes(rr, params.LLMController)
-	RegisterLLMDeploymentRoutes(rr, params.LLMDeploymentController)
-	RegisterLLMProviderAPIKeyRoutes(rr, params.LLMProviderAPIKeyController)
-	RegisterLLMProxyAPIKeyRoutes(rr, params.LLMProxyAPIKeyController)
-	RegisterAgentAPIKeyRoutes(rr, params.AgentAPIKeyController)
-	RegisterLLMProxyDeploymentRoutes(rr, params.LLMProxyDeploymentController)
-	RegisterMCPProxyRoutes(rr, params.MCPProxyController)
-	RegisterAgentConfigRoutes(rr, params.AgentConfigurationController)
-	RegisterMonitorPublisherRoutes(rr, params.MonitorScoresPublisherController)
-	RegisterGitSecretRoutes(rr, params.GitSecretController)
-	registerIdentityRoutes(rr, params.IdentityController)
-	registerMCPProxyScopeRoutes(rr, params.MCPProxyScopeController)
-	registerAgentIdentityRoutes(rr, params.AgentIdentityController)
-
+	rr := middleware.NewRouteRegistrar(apiMux, params.OrgResolver, params.AuditRecorder)
+	registerAPIRoutes(rr, params)
 	if extraAPIRoutes != nil {
 		extraAPIRoutes(apiMux, params)
 	}
@@ -120,6 +136,11 @@ func MakeInternalHTTPHandler(params *wiring.AppParams) http.Handler {
 
 	// Apply basic middleware (no JWT auth)
 	internalHandler := http.Handler(internalMux)
+	// These routes bypass the route registrar, so they get the recorder from
+	// the chain instead. Semantic events for the gateway surface land in a
+	// later phase; installing the recorder now means those emits work without
+	// further wiring.
+	internalHandler = middleware.WithAuditRecorder(params.AuditRecorder, audit.SurfaceInternal)(internalHandler)
 	internalHandler = logger.RequestLogger()(internalHandler)
 	internalHandler = middleware.AddCorrelationID()(internalHandler)
 	internalHandler = middleware.CORS(config.GetConfig().CORSAllowedOrigin)(internalHandler)
