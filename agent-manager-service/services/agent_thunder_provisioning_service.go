@@ -309,6 +309,17 @@ func (s *agentThunderProvisioningService) resolveClientSecretKVPath(ctx context.
 // once per completed internal binding from the reconciler's unbounded
 // startup sweep; a no-op on every run after the first successful heal for a
 // given binding.
+//
+// The OpenChoreo resolve runs BEFORE the binding lock (never hold a lock
+// across I/O), but the write is gated on a fresh re-read taken INSIDE the
+// same bindingLocks key every other SecretRefPath writer (RegenerateSecret,
+// RevokeSecret, DeleteAllBindings) already holds. The sweep that calls this
+// runs concurrently with the HTTP server from process startup (Start()
+// backgrounds it and returns immediately) — without the re-read, a revoke or
+// delete landing on this binding between the sweep's initial snapshot and
+// this call's resolve would have its SecretRefPath="" clear silently
+// overwritten with a resolved-but-now-orphaned path, which the injection
+// reconciler would then treat as a live credential and re-inject.
 func (s *agentThunderProvisioningService) HealSecretRef(ctx context.Context, binding models.AgentThunderClient) error {
 	if binding.ProvisioningType != models.AgentProvisioningTypeInternal || binding.SecretRefPath == "" {
 		return nil
@@ -321,7 +332,24 @@ func (s *agentThunderProvisioningService) HealSecretRef(ctx context.Context, bin
 	if binding.SecretRefPath == kvPath {
 		return nil
 	}
-	return s.repo.UpdateSecretRef(ctx, binding.ID, kvPath)
+
+	release, lockErr := s.bindingLocks.Lock(ctx, bindingLockKey(binding.OUID, binding.ProjectName, binding.AgentName, binding.EnvironmentName))
+	if lockErr != nil {
+		return fmt.Errorf("heal secret ref for binding %s: %w", binding.ID, lockErr)
+	}
+	defer release()
+
+	current, err := s.repo.Get(ctx, binding.OUID, binding.ProjectName, binding.AgentName, binding.EnvironmentName)
+	if err != nil {
+		if errors.Is(err, repositories.ErrAgentThunderClientNotFound) {
+			return nil // deleted while this heal was resolving — nothing left to heal
+		}
+		return fmt.Errorf("heal secret ref for binding %s: %w", binding.ID, err)
+	}
+	if current.SecretRefPath == "" || current.SecretRefPath == kvPath {
+		return nil // revoked/cleared for deletion since the snapshot, or already healed
+	}
+	return s.repo.UpdateSecretRef(ctx, current.ID, kvPath)
 }
 
 // deleteCredential permanently removes the stored credential (and its

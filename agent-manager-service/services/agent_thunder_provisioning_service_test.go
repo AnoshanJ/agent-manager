@@ -2371,6 +2371,11 @@ func TestHealSecretRef_CorrectsStaleRow(t *testing.T) {
 	var updatedID uuid.UUID
 	var updatedPath string
 	impl.repo = &repomocks.AgentThunderClientRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentThunderClient, error) {
+			// The fresh re-read taken under the binding lock — still stale,
+			// matching the snapshot, so the write is expected to proceed.
+			return &binding, nil
+		},
 		UpdateSecretRefFunc: func(_ context.Context, id uuid.UUID, secretRefPath string) error {
 			updatedID = id
 			updatedPath = secretRefPath
@@ -2381,6 +2386,73 @@ func TestHealSecretRef_CorrectsStaleRow(t *testing.T) {
 	require.NoError(t, impl.HealSecretRef(context.Background(), binding))
 	assert.Equal(t, binding.ID, updatedID)
 	assert.Equal(t, "resolved/"+refName, updatedPath, "must heal to the value resolved via GetSecretReference, never a locally-computed name")
+}
+
+// TestHealSecretRef_RevokedAfterSnapshot_DoesNotResurrectCredential guards the
+// race a background startup sweep is exposed to: if a RevokeSecret or
+// DeleteAllBindings call clears SecretRefPath to "" for this binding between
+// the sweep's initial snapshot and this call's own GetSecretReference resolve
+// completing, the resolved (but now orphaned) path must never be written back
+// over the fresh, empty value — that would resurrect a revoked/deleted
+// credential for the injection reconciler to re-inject.
+func TestHealSecretRef_RevokedAfterSnapshot_DoesNotResurrectCredential(t *testing.T) {
+	svc := newTestProvisioningService(
+		&repomocks.AgentThunderClientRepositoryMock{},
+		&clientmocks.EnvThunderResolverMock{},
+		&clientmocks.SecretManagementClientMock{},
+	)
+	impl := svc.(*agentThunderProvisioningService)
+
+	staleBinding := models.AgentThunderClient{
+		ID: uuid.New(), OUID: "acme", ProjectName: "proj1", AgentName: "my-agent", EnvironmentName: "staging",
+		ProvisioningType: models.AgentProvisioningTypeInternal,
+		SecretRefPath:    "acme/proj1/staging/my-agent/my-agent-agent-identity", // the sweep's stale snapshot
+	}
+
+	impl.repo = &repomocks.AgentThunderClientRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentThunderClient, error) {
+			// A concurrent revoke/delete landed and cleared it since the snapshot.
+			revoked := staleBinding
+			revoked.SecretRefPath = ""
+			return &revoked, nil
+		},
+		UpdateSecretRefFunc: func(context.Context, uuid.UUID, string) error {
+			t.Fatal("must not write a resolved path back over a binding that was revoked/cleared since the snapshot")
+			return nil
+		},
+	}
+
+	require.NoError(t, impl.HealSecretRef(context.Background(), staleBinding))
+}
+
+// TestHealSecretRef_DeletedAfterSnapshot_NoOp guards the sibling case: the
+// binding row was deleted entirely (agent deletion) between the sweep's
+// snapshot and this call's resolve completing.
+func TestHealSecretRef_DeletedAfterSnapshot_NoOp(t *testing.T) {
+	svc := newTestProvisioningService(
+		&repomocks.AgentThunderClientRepositoryMock{},
+		&clientmocks.EnvThunderResolverMock{},
+		&clientmocks.SecretManagementClientMock{},
+	)
+	impl := svc.(*agentThunderProvisioningService)
+
+	staleBinding := models.AgentThunderClient{
+		ID: uuid.New(), OUID: "acme", ProjectName: "proj1", AgentName: "my-agent", EnvironmentName: "staging",
+		ProvisioningType: models.AgentProvisioningTypeInternal,
+		SecretRefPath:    "acme/proj1/staging/my-agent/my-agent-agent-identity",
+	}
+
+	impl.repo = &repomocks.AgentThunderClientRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentThunderClient, error) {
+			return nil, repositories.ErrAgentThunderClientNotFound
+		},
+		UpdateSecretRefFunc: func(context.Context, uuid.UUID, string) error {
+			t.Fatal("must not write for a binding deleted since the snapshot")
+			return nil
+		},
+	}
+
+	require.NoError(t, impl.HealSecretRef(context.Background(), staleBinding))
 }
 
 // TestHealSecretRef_NoOpWhenAlreadyCorrect guards against a needless DB write

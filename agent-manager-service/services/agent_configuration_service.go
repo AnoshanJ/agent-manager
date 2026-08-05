@@ -1482,7 +1482,11 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 	for envName := range req.EnvMappings {
 		touchedEnvNames[envName] = struct{}{}
 	}
-	go s.refreshTouchedMCPEnvironments(context.WithoutCancel(ctx), ouID, projectName, agentID, touchedEnvNames)
+	go func() {
+		refreshCtx, cancel := detachedRefreshContext(ctx)
+		defer cancel()
+		s.refreshTouchedMCPEnvironments(refreshCtx, ouID, projectName, agentID, touchedEnvNames)
+	}()
 
 	if isExternalAgent {
 		return s.buildExternalAgentConfigResponse(ctx, config, envCredentials)
@@ -2450,11 +2454,35 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 
 	// Detached onto its own goroutine, off the request path — cost scales
 	// with the number of touched environments, and this is already a
-	// best-effort step. context.WithoutCancel keeps request-scoped values
-	// (e.g. a correlation ID) without tying it to this handler's cancellation.
-	go s.refreshTouchedMCPEnvironments(context.WithoutCancel(ctx), ouID, projectName, agentName, touchedEnvNames)
+	// best-effort step. See detachedRefreshContext for why it's built the way
+	// it is.
+	go func() {
+		refreshCtx, cancel := detachedRefreshContext(ctx)
+		defer cancel()
+		s.refreshTouchedMCPEnvironments(refreshCtx, ouID, projectName, agentName, touchedEnvNames)
+	}()
 
 	return s.GetMCP(ctx, existingConfig.UUID, ouID, projectName, agentName)
+}
+
+// mcpRefreshTimeout bounds how long a detached refreshTouchedMCPEnvironments
+// goroutine may run after its triggering request has already returned a
+// response. The OpenChoreo HTTP client it calls through has no timeout of
+// its own, so without this bound a single hung call would tie up the
+// goroutine indefinitely; 30s matches the timeout convention already used
+// elsewhere in this codebase for external-call bounds (Thunder's HTTP
+// client).
+const mcpRefreshTimeout = 30 * time.Second
+
+// detachedRefreshContext derives the context a refreshTouchedMCPEnvironments
+// goroutine runs with: WithoutCancel so the refresh survives the triggering
+// request's own cancellation (it's deliberately best-effort work that
+// outlives the response, not tied to the handler's lifecycle) while still
+// carrying request-scoped values like a correlation ID, and WithTimeout so a
+// hung external call can't run forever. Callers must defer the returned
+// cancel func to release the timer once the goroutine finishes.
+func detachedRefreshContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), mcpRefreshTimeout)
 }
 
 // refreshTouchedMCPEnvironments brings every given environment's live AgentID
@@ -2465,10 +2493,10 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 // actually change (touchedEnvNames is the union of all existing and all
 // requested mappings, so this includes plenty of no-ops) never causes a
 // needless pod rollout. Best-effort: the caller runs this on a detached
-// goroutine after the MCP config change itself already succeeded, so a
-// refresh failure here must never turn that success into an error response —
-// it's logged and the agent simply picks up the change on its next
-// deploy/promote/rotation instead.
+// goroutine (see detachedRefreshContext) after the MCP config change itself
+// already succeeded, so a refresh failure here must never turn that success
+// into an error response — it's logged and the agent simply picks up the
+// change on its next deploy/promote/rotation instead.
 func (s *agentConfigurationService) refreshTouchedMCPEnvironments(ctx context.Context, ouID, projectName, agentName string, touchedEnvNames map[string]struct{}) {
 	for envName := range touchedEnvNames {
 		if err := s.agentIdentityInjection.ReconcileForEnvironment(ctx, ouID, projectName, agentName, envName); err != nil {
@@ -3902,7 +3930,11 @@ func (s *agentConfigurationService) deleteMCPConfig(ctx context.Context, existin
 			touchedEnvNames[envName] = struct{}{}
 		}
 	}
-	go s.refreshTouchedMCPEnvironments(context.WithoutCancel(ctx), ouID, projectName, agentName, touchedEnvNames)
+	go func() {
+		refreshCtx, cancel := detachedRefreshContext(ctx)
+		defer cancel()
+		s.refreshTouchedMCPEnvironments(refreshCtx, ouID, projectName, agentName, touchedEnvNames)
+	}()
 
 	return nil
 }
