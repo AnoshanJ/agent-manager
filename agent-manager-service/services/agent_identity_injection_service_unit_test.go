@@ -55,6 +55,12 @@ func testIdentitySecretRefName() string {
 	return agentIdentitySecretLocation(testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv).SecretRefName()
 }
 
+// testIdentityKVPath is a remote KV path distinct from
+// testIdentitySecretRefName(), so tests asserting createdReq.KVPath actually
+// exercise "value came from binding.SecretRefPath" rather than passing
+// vacuously because both happened to be the same string.
+const testIdentityKVPath = "openbao/agent-identities/test-agent/dev"
+
 func completedInternalBinding() *models.AgentThunderClient {
 	return &models.AgentThunderClient{
 		OUID:             testIdentityOrg,
@@ -65,7 +71,7 @@ func completedInternalBinding() *models.AgentThunderClient {
 		Status:           models.AgentThunderStatusCompleted,
 		ThunderAgentID:   "thunder-agent-1",
 		ThunderClientID:  "client-abc",
-		SecretRefPath:    testIdentitySecretRefName(),
+		SecretRefPath:    testIdentityKVPath,
 	}
 }
 
@@ -85,7 +91,7 @@ func identityRepoReturning(binding *models.AgentThunderClient, err error) *repom
 func noMCPConfigRepo() *repomocks.AgentConfigurationRepositoryMock {
 	return &repomocks.AgentConfigurationRepositoryMock{
 		ListMCPConfigsByAgentFunc: func(_ context.Context, _, _, _ string) ([]models.AgentConfiguration, error) {
-			return nil, nil
+			return []models.AgentConfiguration{}, nil
 		},
 	}
 }
@@ -140,7 +146,7 @@ func TestAgentIdentityInjection_EnvVarsForEnvironment_BuildsVarsFromResolvedSecr
 	require.Len(t, envVars, 4)
 
 	expectedRefName := testIdentitySecretRefName()
-	assert.Equal(t, testIdentitySecretRefName(), createdReq.KVPath,
+	assert.Equal(t, testIdentityKVPath, createdReq.KVPath,
 		"KVPath must come from binding.SecretRefPath, never recomputed independently")
 	assert.Equal(t, []string{thundersvc.AgentSecretKeyClientSecret}, createdReq.SecretKeys)
 	assert.Empty(t, createdReq.TemplateAnnotations, "a plain read must not stamp a rotated-at annotation")
@@ -622,7 +628,7 @@ func TestAgentIdentityInjection_RefreshAfterRotation_StampsAnnotationAndRollsPod
 	require.NotNil(t, createdReq.TemplateAnnotations)
 	assert.Equal(t, fixedNow.Format(secretRotatedAtFormat), createdReq.TemplateAnnotations[secretRotatedAtAnnotation],
 		"rotation must stamp a fresh annotation so the controller re-syncs the Secret immediately")
-	assert.Equal(t, testIdentitySecretRefName(), createdReq.KVPath, "rotation must not change the resolved KV path")
+	assert.Equal(t, testIdentityKVPath, createdReq.KVPath, "rotation must not change the resolved KV path")
 	assert.True(t, rolled, "rotation must roll the pod so it starts with the refreshed secret value")
 }
 

@@ -246,7 +246,7 @@ func (s *agentThunderReconcilerService) pageIdentityInjectionReconcile(ctx conte
 		for _, binding := range recent {
 			if healSecretRefs {
 				if err := s.provisioning.HealSecretRef(ctx, binding); err != nil {
-					s.logger.Warn("Failed to heal agent thunder binding secret ref", "bindingID", binding.ID, "agentName", binding.AgentName, "envName", binding.EnvironmentName, "error", err)
+					s.logger.Warn("Failed to heal agent thunder binding secret ref", "ouID", binding.OUID, "bindingID", binding.ID, "agentName", binding.AgentName, "envName", binding.EnvironmentName, "error", err)
 				}
 			}
 			reconcileWorkloadInjection(ctx, s.injector, binding, s.logger)

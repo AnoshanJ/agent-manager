@@ -2173,12 +2173,18 @@ func TestAttemptProvision_RecordFailure_SkipsInjection(t *testing.T) {
 	})
 }
 
-// TestDeleteAllBindings_DeletesStoredSecretsForBindingsThatHaveOne guards
-// cleanup of the stored credential (secretMgmtClient.DeleteSecret, which also
-// deletes CreateSecret's auto-created SecretReference — there is no separate
-// AMS-owned SecretReference for this method to clean up on top of that).
-// External agents never have a stored secret to begin with (SecretRefPath is
-// always empty for them), so this is the only cleanup path that matters.
+// TestDeleteAllBindings_DeletesStoredSecretsForBindingsThatHaveOne guards two
+// separate cleanup paths at once: the stored credential
+// (secretMgmtClient.DeleteSecret, which also deletes CreateSecret's
+// auto-created SecretReference) for whichever binding actually has one, and
+// the AMS-owned data-plane SecretReference (injector.CleanupForEnvironment)
+// for every internal binding regardless of whether it has a stored secret —
+// DeleteAllBindings runs that cleanup for internal bindings that never
+// completed too, since a crash between storeCredential creating the
+// SecretReference and UpdateAfterAttempt persisting SecretRefPath would
+// otherwise leave it permanently orphaned. External bindings never have a
+// stored secret (SecretRefPath is always empty for them) and never get the
+// data-plane cleanup, since it's an internal-agent-only concept.
 func TestDeleteAllBindings_DeletesStoredSecretsForBindingsThatHaveOne(t *testing.T) {
 	internalBinding := models.AgentThunderClient{
 		ID: uuid.New(), OUID: "acme", ProjectName: "proj1", AgentName: "my-agent",
@@ -2218,13 +2224,22 @@ func TestDeleteAllBindings_DeletesStoredSecretsForBindingsThatHaveOne(t *testing
 		DeleteByIDsFunc:     func(_ context.Context, _ []uuid.UUID) error { return nil },
 		UpdateSecretRefFunc: func(_ context.Context, _ uuid.UUID, _ string) error { return nil },
 	}
+	var cleanedUpEnvs []string
+	injector := &agentIdentityInjectorStub{
+		CleanupForEnvironmentFunc: func(_ context.Context, _, _, envName string) error {
+			cleanedUpEnvs = append(cleanedUpEnvs, envName)
+			return nil
+		},
+	}
 
-	svc := newTestProvisioningService(repo, resolver, store)
+	svc := newTestProvisioningServiceWithInjector(repo, resolver, store, injector)
 
 	svc.DeleteAllBindings(context.Background(), "acme", "proj1", "my-agent")
 
 	assert.Equal(t, []string{"dev"}, deletedEnvs,
 		"the stored secret is deleted only for the binding that actually has one")
+	assert.Equal(t, []string{"dev"}, cleanedUpEnvs,
+		"the data-plane SecretReference is cleaned up for the internal binding but not the external one")
 }
 
 func TestDeleteAllBindings_ContinuesExternalCleanupWhenDBRowDeleteFails(t *testing.T) {
@@ -2350,9 +2365,10 @@ func TestAttemptProvision_SerializesWithRegenerateSecret(t *testing.T) {
 
 // TestHealSecretRef_CorrectsStaleRow guards the one-time backfill: a binding
 // whose SecretRefPath still holds the old locally-computed KV-path guess
-// (from before storeCredential was fixed) gets corrected to the deterministic
-// SecretReference name — a pure local recomputation, no secret manager call
-// at all (the mock's every func is nil; a call would panic).
+// (from before storeCredential was fixed) gets corrected to the real remote
+// KV key, read back through GetSecretReference — never recomputed locally.
+// The secret management mock has every func nil, so a CreateSecret or
+// DeleteSecret call would panic: healing is a read plus one DB write.
 func TestHealSecretRef_CorrectsStaleRow(t *testing.T) {
 	svc := newTestProvisioningService(
 		&repomocks.AgentThunderClientRepositoryMock{},
