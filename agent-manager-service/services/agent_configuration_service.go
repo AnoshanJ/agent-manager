@@ -1471,6 +1471,19 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 		}
 	}
 
+	// A newly-created MCP config changes the agent's AgentID scope union just as
+	// much as editing an existing one does (see updateMCPConfig's identical call)
+	// — refresh every environment this config was just bound to so an
+	// already-running pod picks up the new scopes right away instead of waiting
+	// for its next deploy/promote/rotation. refreshTouchedMCPEnvironments already
+	// no-ops safely for external/unprovisioned agents, so this is safe to call
+	// unconditionally rather than duplicating the isExternalAgent branch here.
+	touchedEnvNames := make(map[string]struct{}, len(req.EnvMappings))
+	for envName := range req.EnvMappings {
+		touchedEnvNames[envName] = struct{}{}
+	}
+	go s.refreshTouchedMCPEnvironments(context.WithoutCancel(ctx), ouID, projectName, agentID, touchedEnvNames)
+
 	if isExternalAgent {
 		return s.buildExternalAgentConfigResponse(ctx, config, envCredentials)
 	}
@@ -3877,6 +3890,20 @@ func (s *agentConfigurationService) deleteMCPConfig(ctx context.Context, existin
 	}); err != nil {
 		return fmt.Errorf("failed to delete MCP configuration: %w", err)
 	}
+
+	// Removing this config drops its scopes from the agent's AgentID scope union
+	// just as much as adding one grows it (see createMCPConfig's identical call)
+	// — refresh every environment this config was bound to so an already-running
+	// pod stops requesting the now-removed MCP's scopes right away, instead of
+	// only on its next deploy/promote/rotation.
+	touchedEnvNames := make(map[string]struct{}, len(mappings))
+	for _, mapping := range mappings {
+		if envName := envIDNameMap[mapping.EnvironmentUUID.String()]; envName != "" {
+			touchedEnvNames[envName] = struct{}{}
+		}
+	}
+	go s.refreshTouchedMCPEnvironments(context.WithoutCancel(ctx), ouID, projectName, agentName, touchedEnvNames)
+
 	return nil
 }
 
