@@ -70,7 +70,7 @@ type Options struct {
 	// credentials). encryptionKey is the platform ENCRYPTION_KEY, used to decrypt
 	// the env-Thunder system-client credential from AMS's own Postgres — that one
 	// is not read back from a key vault.
-	AgentThunderProvisioning func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, encryptionKey []byte) services.AgentThunderProvisioningService
+	AgentThunderProvisioning func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient occlient.OpenChoreoClient, encryptionKey []byte) services.AgentThunderProvisioningService
 }
 
 // Run starts the application with the provided providers and options.
@@ -133,7 +133,7 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 			slog.Error("failed to load encryption key for AgentID provisioning", "error", err)
 			os.Exit(1)
 		}
-		agentThunderProvisioning = opts.AgentThunderProvisioning(database, secretMgmtClientForProvisioning, encryptionKey)
+		agentThunderProvisioning = opts.AgentThunderProvisioning(database, secretMgmtClientForProvisioning, ocClientForProvisioning, encryptionKey)
 	}
 
 	dependencies, err := wiring.InitializeAppParams(cfg, database, authProvider, secretProvider, opts.GatewayConfigApplier, agentThunderProvisioning)
