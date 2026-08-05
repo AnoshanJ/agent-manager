@@ -62,7 +62,10 @@ export function EnvironmentSectionsContent({
                 deploymentStatus={deploymentStatus}
             />
             <Grid container spacing={2} sx={{ mb: 1.5 }}>
-                <Grid size={{ xs: 12, md: 6 }}>
+                {/* EnvAgentInterfaceCard renders nothing for external agents
+                    (they aren't deployed through this platform), so Agent ID
+                    takes the full row instead of leaving an empty half. */}
+                <Grid size={{ xs: 12, md: external ? 12 : 6 }}>
                     <EnvAgentRolesGroupsSection
                         orgId={orgId}
                         projectId={projectId}

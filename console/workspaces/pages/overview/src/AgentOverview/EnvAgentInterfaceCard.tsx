@@ -56,7 +56,7 @@ const METHOD_COLOR: Record<string, ChipProps["color"]> = {
 export const EnvAgentInterfaceCard: React.FC<EnvAgentInterfaceCardProps> = ({
     orgId, projectId, agentId, envId, external, deploymentStatus,
 }) => {
-    const { resources, invokeUrl, isLoading } = useAgentEndpointResources({
+    const { resources, invokeUrl, isLoading, isError } = useAgentEndpointResources({
         orgId, projectId, agentId, envId, external,
     });
 
@@ -71,9 +71,11 @@ export const EnvAgentInterfaceCard: React.FC<EnvAgentInterfaceCardProps> = ({
     );
 
     // Mirrors EnvCapabilitiesSection's own gating: only worth showing once the
-    // environment is actually deployed and there's something to point at.
-    const show = deploymentStatus === DeploymentStatus.ACTIVE
-        && !isLoading && (resources.length > 0 || !!invokeUrl);
+    // environment is actually deployed and there's something to point at. A
+    // failed fetch is shown regardless, so the failure isn't silently treated
+    // as "nothing deployed yet".
+    const show = isError || (deploymentStatus === DeploymentStatus.ACTIVE
+        && !isLoading && (resources.length > 0 || !!invokeUrl));
 
     return (
         <CollapsibleSection show={show}>
@@ -81,9 +83,21 @@ export const EnvAgentInterfaceCard: React.FC<EnvAgentInterfaceCardProps> = ({
                 title="Agent Interface"
                 actionHref={tryItHref}
                 actionLabel="Try It"
-                sx={{ height: "100%" }}
+                // `height: "100%"` alone doesn't equalize this against the
+                // "Agent ID" card next to it — both sit inside a
+                // CollapsibleSection/Collapse, which sizes itself to its own
+                // content height rather than stretching to the Grid row's
+                // tallest sibling. A floor roughly matching Agent ID's usual
+                // height (avatar row + card chrome) keeps the row looking
+                // level when this card's own content (e.g. a single
+                // "Unable to find API schema" line) is much shorter.
+                sx={{ height: "100%", minHeight: 116 }}
             >
-                {resources.length === 0 ? (
+                {isError ? (
+                    <Typography variant="body2" color="error">
+                        Unable to load the agent interface. Try again later.
+                    </Typography>
+                ) : resources.length === 0 ? (
                     <Typography
                         variant="caption"
                         color="text.disabled"

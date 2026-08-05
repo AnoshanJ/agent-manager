@@ -33,20 +33,21 @@ interface UseAgentEndpointResourcesParams {
 }
 
 /**
- * Resolves an agent environment's deployed endpoints into the two things both
- * the "API Endpoint" and "Agent Interface" cards need: the invoke URL and the
- * deduped list of HTTP resources parsed from each endpoint's OpenAPI schema.
- * Shared so the two cards can be split across different parts of the page
- * layout without duplicating the fetch/parse logic. Not applicable to
- * external agents (they aren't deployed through this platform, so there's
- * nothing to fetch), so `external` withholds `orgName` to keep
+ * Resolves an agent environment's deployed endpoints into what both the
+ * "API Endpoint" and "Agent Interface" cards need: the invoke URL, the
+ * deduped list of HTTP resources parsed from each endpoint's OpenAPI schema,
+ * and the fetch's own error state so a failed request isn't silently treated
+ * as "no data yet". Shared so the two cards can be split across different
+ * parts of the page layout without duplicating the fetch/parse logic. Not
+ * applicable to external agents (they aren't deployed through this platform,
+ * so there's nothing to fetch), so `external` withholds `orgName` to keep
  * useGetAgentEndpoints disabled instead of firing a request that would just
  * be discarded.
  */
 export function useAgentEndpointResources({
     orgId, projectId, agentId, envId, external,
 }: UseAgentEndpointResourcesParams) {
-    const { data: endpoints, isLoading } = useGetAgentEndpoints(
+    const { data: endpoints, isLoading, isError } = useGetAgentEndpoints(
         { orgName: external ? "" : orgId, projName: projectId, agentName: agentId },
         { environment: envId },
     );
@@ -73,5 +74,5 @@ export function useAgentEndpointResources({
         };
     }, [endpoints]);
 
-    return { resources, invokeUrl, isLoading };
+    return { resources, invokeUrl, isLoading, isError };
 }

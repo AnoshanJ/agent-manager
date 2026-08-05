@@ -17,7 +17,7 @@
  */
 
 import { useState } from "react";
-import { Box, Button, Chip, Tooltip } from "@wso2/oxygen-ui";
+import { Box, Button, Chip, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Plug } from "@wso2/oxygen-ui-icons-react";
 import {
     CollapsibleSection,
@@ -110,7 +110,7 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
 }) => {
     const [consumerConfigOpen, setConsumerConfigOpen] = useState(false);
 
-    const { invokeUrl, isLoading } = useAgentEndpointResources({
+    const { invokeUrl, isLoading, isError } = useAgentEndpointResources({
         orgId, projectId, agentId, envId, external,
     });
 
@@ -151,57 +151,79 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
     // Only worth showing once the environment is actually deployed and has a
     // resolved invoke URL — an inactive environment can still have a URL left
     // over from a prior deployment, and surfacing it as if it were live would
-    // be misleading.
-    const show = deploymentStatus === DeploymentStatus.ACTIVE && !isLoading && !!invokeUrl;
+    // be misleading. A failed fetch is shown regardless, so the failure isn't
+    // silently treated as "nothing deployed yet".
+    const show = isError
+        || (deploymentStatus === DeploymentStatus.ACTIVE && !isLoading && !!invokeUrl);
 
     return (
-        <CollapsibleSection show={show}>
-            {invokeUrl && (
-                <OverviewSectionCard
-                    title="API Endpoint"
-                    actionHref={deploymentPath}
-                    actionLabel="Deployments"
-                    headerAction={(
-                        <Tooltip title="Open the consumer configuration">
-                            <Button
-                                size="small"
-                                variant="text"
-                                startIcon={<Plug size={14} />}
-                                onClick={() => setConsumerConfigOpen(true)}
-                                sx={{ minWidth: 0, fontSize: "0.75rem" }}
-                            >
-                                Connect
-                            </Button>
-                        </Tooltip>
-                    )}
-                    sx={{ mb: 1.5 }}
-                >
-                    <TextInput
-                        label="Invoke URL"
-                        value={invokeUrl}
-                        copyable
-                        copyTooltipText="Copy URL"
-                        slotProps={{ input: { readOnly: true } }}
-                        sx={{ mb: 1 }}
-                    />
-                    <Box display="flex" flexWrap="wrap" gap={1}>
-                        <StatusPill
-                            label="Auth"
-                            value={authLabel}
-                            tooltip={authTooltip}
-                        />
-                        <StatusPill
-                            label="CORS"
-                            value={corsLabel}
-                            tooltip={corsTooltip}
-                        />
-                        <IsolationTierChip tier={isolationTier} />
-                    </Box>
-                </OverviewSectionCard>
-            )}
+        <>
+            <CollapsibleSection show={show}>
+                {(invokeUrl || isError) && (
+                    <OverviewSectionCard
+                        title="API Endpoint"
+                        actionHref={deploymentPath}
+                        actionLabel="Deployments"
+                        headerAction={(
+                            <Tooltip title="Open the consumer configuration">
+                                <Button
+                                    size="small"
+                                    variant="text"
+                                    startIcon={<Plug size={14} />}
+                                    onClick={() => setConsumerConfigOpen(true)}
+                                    sx={{
+                                        minWidth: 0,
+                                        fontSize: (theme) => theme.typography.caption.fontSize,
+                                    }}
+                                >
+                                    Connect
+                                </Button>
+                            </Tooltip>
+                        )}
+                        sx={{ mb: 1.5 }}
+                    >
+                        {isError ? (
+                            <Typography variant="body2" color="error">
+                                Unable to load the API endpoint. Try again later.
+                            </Typography>
+                        ) : (
+                            <>
+                                <TextInput
+                                    label="Invoke URL"
+                                    value={invokeUrl}
+                                    copyable
+                                    copyTooltipText="Copy URL"
+                                    slotProps={{ input: { readOnly: true } }}
+                                    sx={{ mb: 1 }}
+                                />
+                                <Box display="flex" flexWrap="wrap" gap={1}>
+                                    <StatusPill
+                                        label="Auth"
+                                        value={authLabel}
+                                        tooltip={authTooltip}
+                                    />
+                                    <StatusPill
+                                        label="CORS"
+                                        value={corsLabel}
+                                        tooltip={corsTooltip}
+                                    />
+                                    <IsolationTierChip tier={isolationTier} />
+                                </Box>
+                            </>
+                        )}
+                    </OverviewSectionCard>
+                )}
+            </CollapsibleSection>
+            {/* Rendered outside CollapsibleSection so it isn't retained inside
+                collapsed (zero-height) content — DrawerWrapper's underlying
+                MUI Drawer portals to document.body regardless, so nesting it
+                inside a collapsed ancestor wouldn't actually hide it. Gating
+                `open` on `show` also closes it if the card itself disappears
+                (e.g. the environment goes inactive) instead of leaving a
+                stale drawer open with no visible trigger behind it. */}
             {invokeUrl && (
                 <ConsumerConfigDrawer
-                    open={consumerConfigOpen}
+                    open={consumerConfigOpen && show}
                     onClose={() => setConsumerConfigOpen(false)}
                     orgId={orgId}
                     projectId={projectId}
@@ -214,6 +236,6 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
                     oauthIssuers={oauthIssuers}
                 />
             )}
-        </CollapsibleSection>
+        </>
     );
 };
