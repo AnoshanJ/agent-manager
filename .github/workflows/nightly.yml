@@ -297,17 +297,10 @@ jobs:
   e2e:
     name: E2E
     needs: [compute-version, package-charts, update-dev-tag]
-    # Runs on the org's AWS CodeBuild self-hosted runner (higher vCPU than the
-    # 4-vCPU GitHub-hosted runners) so the single-node k3d cluster can fit several
-    # per-environment stacks concurrently — which is what lets --procs go above 1
-    # again. k3d does not work out-of-the-box on this runner's sibling-container
-    # Docker-in-Docker: the API server host port is published on the Docker host,
-    # not the job container, so kubectl can't reach it (see PR #1233). install.sh
-    # handles that when AMP_K3D_DIND=1 is set (below): it adds the Docker-host
-    # bridge gateway as an API-server TLS SAN and rewrites the kubeconfig server
-    # to it. Verified by .github/workflows/k3d-dind-probe.yml.
-    runs-on:
-      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ubuntu-24.04
+    # Bumped from 60 to accommodate the reduced test parallelism below: with
+    # --procs=1 (was -p, i.e. one proc per vCPU) suites run serially, so
+    # wall-clock grows even though no suite thrashes on CPU any more.
     timeout-minutes: 120
     permissions:
       contents: read
@@ -339,62 +332,9 @@ jobs:
           echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
           sudo install /tmp/yq /usr/local/bin/yq
 
-      # kubectl, helm and lsof are prerequisites of deployments/quick-start/install.sh.
-      # The GitHub-hosted runner image bundled them; the CodeBuild runner image does
-      # not, so install them explicitly here (pinned + checksum-verified).
-      - name: Install kubectl
-        env:
-          KUBECTL_VERSION: v1.32.9
-          KUBECTL_SHA256: 509ae171bac7ad3b98cc49f5594d6bc84900cf6860f155968d1059fde3be5286
-        run: |
-          curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-          echo "${KUBECTL_SHA256}  /tmp/kubectl" | sha256sum -c -
-          sudo install /tmp/kubectl /usr/local/bin/kubectl
-          kubectl version --client
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: '3.16.4'
-
-      # lsof: prerequisite of install.sh. jq + dig (dnsutils): used by the e2e
-      # add-environment / remove-environment scripts. Install any that the
-      # CodeBuild runner image lacks in one apt pass.
-      - name: Install shell tool prerequisites (lsof, jq, dig)
-        run: |
-          missing=()
-          command -v lsof >/dev/null 2>&1 || missing+=(lsof)
-          command -v jq   >/dev/null 2>&1 || missing+=(jq)
-          command -v dig  >/dev/null 2>&1 || missing+=(dnsutils)
-          if [ ${#missing[@]} -gt 0 ]; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq "${missing[@]}"
-          fi
-
-      # Capture the CodeBuild runner's actual CPU/memory so --procs below can be
-      # calibrated to real headroom rather than guessed. Printed once per run.
-      - name: Report runner resources
-        run: |
-          echo "nproc: $(nproc)"
-          echo "cpuset cpus: $(cat /sys/fs/cgroup/cpuset.cpus 2>/dev/null || cat /sys/fs/cgroup/cpuset/cpuset.cpus 2>/dev/null || echo unknown)"
-          echo "mem total: $(awk '/MemTotal/ {printf "%.1f GiB\n", $2/1024/1024}' /proc/meminfo)"
-          echo "default-route gateway (DinD API host): $(ip route | awk '/default/ {print $3; exit}')"
-
-      # The CodeBuild self-hosted runner is NOT ephemeral — Docker state (k3d
-      # clusters, networks, iptables) can survive from a prior job whose cleanup
-      # did not run (cancelled/failed). A leftover "amp-local" cluster would make
-      # install.sh reuse a stale cluster (risking corrupted in-cluster routing) or
-      # k3d create fail outright. Delete any pre-existing cluster so every run
-      # starts from a clean slate. Paired with the always() teardown at job end.
-      - name: Delete any leftover k3d cluster (pre-run)
-        run: k3d cluster delete amp-local || true
-
       - name: Install platform
         env:
           VERSION: ${{ needs.compute-version.outputs.dev-version }}
-          # Opt into install.sh's Docker-in-Docker k3d handling for this
-          # sibling-container CodeBuild runner. No-op anywhere this is unset
-          # (local dev, GitHub-hosted runners).
-          AMP_K3D_DIND: "1"
         run: |
           cd deployments/quick-start && bash install.sh
 
@@ -407,22 +347,15 @@ jobs:
           CHART_VERSION: ${{ needs.compute-version.outputs.dev-version }}
         run: |
           set -o pipefail
-          # Each parallel Ginkgo proc stands up its own per-environment stack
-          # (Thunder + isolated API Platform Gateway controller/runtime + agent
-          # runtime pods), which is CPU-heavy. On the 4-vCPU GitHub-hosted runner
-          # even 2 procs exhausted the single-node k3d cluster ("Insufficient
-          # cpu"), forcing --procs=1 and a long serial wall-clock. On the
-          # higher-vCPU CodeBuild runner we can parallelise again: use half the
-          # available cores (min 2), leaving headroom for k3d's own control plane,
-          # OpenSearch and the OTel/fluent-bit pipeline. Revisit once the "Report
-          # runner resources" step above shows the real core count.
-          PROCS=$(( $(nproc) / 2 ))
-          [ "${PROCS}" -lt 2 ] && PROCS=2
-          echo "Running Ginkgo with --procs=${PROCS}"
-          # --timeout is the real suite ceiling; keep it comfortably under the
-          # job's timeout-minutes (120) so ginkgo aborts and emits report.xml
-          # before the job is hard-killed.
-          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v --procs="${PROCS}" --timeout 110m \
+          # --procs=1 (was -p, which auto-picks one proc per vCPU = 4 on the
+          # ubuntu-24.04 runner). The single-node k3d cluster cannot fit
+          # multiple concurrent per-environment stacks (each env = its own
+          # Thunder + isolated API Platform Gateway controller/runtime + agent
+          # runtime pods); the node ran out of CPU, leaving pods Pending
+          # ("Insufficient cpu") and gateway bootstrap Jobs timing out. Running
+          # suites serially keeps the footprint to one environment at a time.
+          # --timeout raised to 90m to match the longer serial wall-clock.
+          cd test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v --procs=1 --timeout 90m \
             --poll-progress-after=600s --keep-going --junit-report=report.xml \
             ./tests/... 2>&1 | tee e2e-output.log
 
@@ -438,8 +371,8 @@ jobs:
           kubectl logs deployment/controller-manager -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-controller-manager.txt 2>&1 || true
           # OpenBao + external-secrets: the secret-sync path. When an ExternalSecret
           # never materializes (install times out "Waiting for secret ..."), the
-          # actual cause — e.g. OpenBao Kubernetes-auth "context deadline exceeded",
-          # or a ClusterSecretStore not ready — appears only in these logs.
+          # actual cause — e.g. a ClusterSecretStore not ready, or an OpenBao
+          # Kubernetes-auth failure — appears only in these logs.
           kubectl logs -n openbao openbao-0 --tail=500 > /tmp/pod-logs/openbao.txt 2>&1 || true
           kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=500 --all-containers=true > /tmp/pod-logs/external-secrets.txt 2>&1 || true
           kubectl get clustersecretstores,externalsecrets -A -o wide > /tmp/pod-logs/secret-stores.txt 2>&1 || true
@@ -533,13 +466,6 @@ jobs:
           SUMMARY="${PASSED} passed, ${FAILURES} failed, ${ERRORS} errored, ${SKIPPED} skipped (of ${TESTS})"
           echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
           echo "Test summary: $SUMMARY"
-
-      # Tear the cluster down on the non-ephemeral CodeBuild runner so it does not
-      # leak into the next job. Runs last and unconditionally, after the pod-logs
-      # dump above has already captured cluster state on failure.
-      - name: Delete k3d cluster (post-run cleanup)
-        if: always()
-        run: k3d cluster delete amp-local || true
 
   notify-google-chat:
     name: Notify Google Chat
