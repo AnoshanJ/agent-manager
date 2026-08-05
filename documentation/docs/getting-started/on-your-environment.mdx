@@ -45,7 +45,7 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | CPU per node | 4 cores |
 | RAM per node | 8 GB |
 | LoadBalancer support | Required |
-| Default StorageClass | Required, and it must actually provision volumes. Stock EKS ships a default `gp2` class bound to the **removed** in-tree provisioner: PVCs are accepted and stay `Pending` forever. Install the EBS CSI driver and make a CSI-backed class (e.g. `gp3`) the default |
+| Default StorageClass | Required, and it must actually provision volumes. On EKS check both halves: clusters created at 1.30+ ship **no default class at all**, and the stock `gp2` class (default on upgraded clusters) references the in-tree provisioner removed in Kubernetes 1.27, so without the EBS CSI driver its PVCs are accepted and stay `Pending` forever. Install the EBS CSI driver and mark a CSI-backed class (e.g. `gp3`) as default |
 | Node kernel (build nodes) | Linux **6.3+** for user-namespaced agent builds (idmapped-mount support). On older kernels (Ubuntu 22.04's 5.15, Amazon Linux 2's 5.10) set `buildWorkflows.userNamespaces=false` on the Platform Resources chart — see [Troubleshooting](#build-pods-fail-with-mount_attr_idmap--idmap-mounts-errors) |
 | NetworkPolicy-enforcing CNI | Recommended. The Observability and Evaluation extension charts each ship a `NetworkPolicy` (collector ingress, evaluation-job egress) — inert on a CNI that doesn't implement the NetworkPolicy API. EKS's default VPC CNI, AKS, and legacy GKE don't enforce it out of the box; enable your provider's policy add-on (or install Calico/Cilium) if you want these to actually take effect. k3s (local/CI) enforces it by default. |
 
@@ -146,10 +146,12 @@ The certificates below are single-level wildcards (`*.<base>`), so every managem
 :::
 
 :::caution Reading the unreleased (next) version of this guide?
-`0.0.0-dev` is a placeholder that is swapped for the real tag at release — it is **not itself a published tag**, so every `helm pull` and values-file download below will fail with it. Use the latest nightly instead, tagged `0.0.0-dev-<YYYYMMDD>`:
+`0.0.0-dev` is a placeholder that is swapped for the real tag at release — it is **not itself a published tag**, so every `helm pull` and values-file download below will fail with it. Point `VERSION` at the latest nightly instead, tagged `0.0.0-dev-<YYYYMMDD>` (run this **after** the export block above, so it overrides the placeholder):
 
 ```bash
-git ls-remote --tags https://github.com/wso2/agent-manager 'refs/tags/amp/v0.0.0-dev-*' | tail -1
+export VERSION="$(git ls-remote --refs --tags https://github.com/wso2/agent-manager 'refs/tags/amp/v0.0.0-dev-*' \
+  | awk -F/ '{print $NF}' | sed 's/^v//' | sort | tail -n 1)"
+echo "VERSION=${VERSION:?no nightly tag found}"
 ```
 :::
 
