@@ -99,6 +99,7 @@ type agentManagerService struct {
 	a2aCardRepo               repositories.A2AAgentCardRepository
 	deploymentRepo            repositories.DeploymentRepository
 	gatewayEventsService      *GatewayEventsService
+	buildSecretProvisioner    BuildSecretProvisioner
 	logger                    *slog.Logger
 }
 
@@ -122,6 +123,7 @@ func NewAgentManagerService(
 	a2aCardRepo repositories.A2AAgentCardRepository,
 	deploymentRepo repositories.DeploymentRepository,
 	gatewayEventsService *GatewayEventsService,
+	buildSecretProvisioner BuildSecretProvisioner,
 	logger *slog.Logger,
 ) AgentManagerService {
 	return &agentManagerService{
@@ -141,6 +143,7 @@ func NewAgentManagerService(
 		a2aCardRepo:               a2aCardRepo,
 		deploymentRepo:            deploymentRepo,
 		gatewayEventsService:      gatewayEventsService,
+		buildSecretProvisioner:    buildSecretProvisioner,
 		artifactRepo:              artifactRepo,
 		aiApplicationService:      aiApplicationService,
 		gatewayRepo:               gatewayRepo,
@@ -1368,7 +1371,59 @@ func paginateSlice[T any](items []T, offset, limit int32) []T {
 	return items[offset:end]
 }
 
+// prepareGitHubAppSource validates the cloud-only source metadata against the normal
+// repository configuration and normalizes the values persisted by the injected
+// provider. The source metadata is intentionally absent from the OpenChoreo client
+// request; OpenChoreo only receives the repository with an explicitly empty secretRef.
+func (s *agentManagerService) prepareGitHubAppSource(req *spec.CreateAgentRequest) error {
+	if req.GithubApp == nil {
+		return nil
+	}
+	if s.buildSecretProvisioner == nil {
+		return fmt.Errorf("%w: GitHub App repository sources are not enabled in this deployment", utils.ErrServiceUnavailable)
+	}
+	if req.Provisioning.Type != string(utils.InternalAgent) || req.Provisioning.Repository == nil || req.Provisioning.AgentKind != nil {
+		return fmt.Errorf("%w: githubApp requires a source-based internal agent", utils.ErrInvalidInput)
+	}
+
+	repository := req.Provisioning.Repository
+	if secretRef := repository.SecretRef.Get(); secretRef != nil && *secretRef != "" {
+		return fmt.Errorf("%w: githubApp cannot be combined with a PAT-backed secretRef", utils.ErrInvalidInput)
+	}
+	owner, repo := utils.ParseGitHubURL(repository.Url)
+	if owner == "" || repo == "" || !strings.EqualFold(owner, req.GithubApp.Owner) || !strings.EqualFold(repo, req.GithubApp.Repo) {
+		return fmt.Errorf("%w: githubApp owner/repo must match provisioning.repository.url", utils.ErrInvalidInput)
+	}
+	if req.GithubApp.RepositoryUrl != nil {
+		boundOwner, boundRepo := utils.ParseGitHubURL(*req.GithubApp.RepositoryUrl)
+		if !strings.EqualFold(boundOwner, owner) || !strings.EqualFold(boundRepo, repo) {
+			return fmt.Errorf("%w: githubApp repositoryUrl must match provisioning.repository.url", utils.ErrInvalidInput)
+		}
+	}
+	if req.GithubApp.Branch != nil && *req.GithubApp.Branch != repository.Branch {
+		return fmt.Errorf("%w: githubApp branch must match provisioning.repository.branch", utils.ErrInvalidInput)
+	}
+	if req.GithubApp.AppPath != nil && *req.GithubApp.AppPath != repository.AppPath {
+		return fmt.Errorf("%w: githubApp appPath must match provisioning.repository.appPath", utils.ErrInvalidInput)
+	}
+
+	// The checkout workflow derives the per-run secret name itself. An empty value keeps
+	// it from rendering the PAT-backed ExternalSecret while the provider writes the same
+	// exact Kubernetes Secret before the WorkflowRun is submitted.
+	repository.SetSecretRef("")
+	req.GithubApp.Owner = owner
+	req.GithubApp.Repo = repo
+	req.GithubApp.SetBranch(repository.Branch)
+	req.GithubApp.SetAppPath(repository.AppPath)
+	req.GithubApp.SetRepositoryUrl(repository.Url)
+	return nil
+}
+
 func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, projectName string, req *spec.CreateAgentRequest) error {
+	if err := s.prepareGitHubAppSource(req); err != nil {
+		return err
+	}
+
 	var requestedVersion *string
 	autoInstr := true
 	if req.Configurations != nil {
@@ -1747,6 +1802,13 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 			}
 			s.logger.Info("Bound kind-sourced agent release to environment", "agentName", req.Name, "environment", firstEnv)
 		} else {
+			if req.GithubApp != nil {
+				if err := s.buildSecretProvisioner.PutSource(ctx, ouID, projectName, req.Name, *req.GithubApp); err != nil {
+					s.logger.Error("Failed to persist GitHub App source binding", "agentName", req.Name, "error", err)
+					rollbackAgentCreate("GitHub App source binding failure")
+					return fmt.Errorf("failed to persist GitHub App source binding: %w", err)
+				}
+			}
 			if err := s.triggerInitialBuild(ctx, ouID, projectName, req); err != nil {
 				s.logger.Warn("Failed to trigger initial build for agent, build can be triggered manually", "agentName", req.Name, "error", err)
 			} else {
@@ -1802,6 +1864,28 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 	return nil
 }
 
+// prepareBuild creates the WorkflowRun name and provisions its clone secret when the
+// component has a GitHub App source binding. The empty name is intentional for on-prem,
+// public-repository, and PAT-backed builds: the OpenChoreo client keeps generating the
+// run name exactly as it did before this optional cloud integration existed.
+func (s *agentManagerService) prepareBuild(ctx context.Context, ouID, projectName, componentName string) (string, error) {
+	if s.buildSecretProvisioner == nil {
+		return "", nil
+	}
+	hasSource, err := s.buildSecretProvisioner.HasSource(ctx, ouID, projectName, componentName)
+	if err != nil {
+		return "", fmt.Errorf("failed to query GitHub App source binding: %w", err)
+	}
+	if !hasSource {
+		return "", nil
+	}
+	workflowRunName := fmt.Sprintf("%s-%d", componentName, time.Now().UnixMilli())
+	if err := s.buildSecretProvisioner.EnsureBuildSecret(ctx, ouID, projectName, componentName, workflowRunName); err != nil {
+		return "", fmt.Errorf("failed to provision build secret for workflow run %q: %w", workflowRunName, err)
+	}
+	return workflowRunName, nil
+}
+
 func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest) error {
 	// Get the latest commit from the repository
 	commitId := ""
@@ -1819,8 +1903,12 @@ func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, pro
 			}
 		}
 	}
-	// Trigger build in OpenChoreo with the latest commit
-	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, req.Name, commitId)
+	workflowRunName, err := s.prepareBuild(ctx, ouID, projectName, req.Name)
+	if err != nil {
+		return fmt.Errorf("failed to prepare initial build: %w", err)
+	}
+	// Trigger build only after any deployment-specific per-run secret exists.
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, req.Name, commitId, workflowRunName)
 	if err != nil {
 		return fmt.Errorf("failed to trigger initial build: agentName %s, error: %w", req.Name, err)
 	}
@@ -2720,6 +2808,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 		translatedErr := translateAgentError(err)
 		if errors.Is(translatedErr, utils.ErrAgentNotFound) {
 			s.logger.Warn("Agent not found during deletion, delete is idempotent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+			s.cleanupGitHubAppSource(ctx, ouID, projectName, agentName)
 			// The component is already gone but a previous partially-completed delete may
 			// have left agent_configurations rows behind, each still holding a live LLM
 			// proxy credential, so run the same revocation cleanup here.
@@ -2753,6 +2842,7 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	if s.agentThunderProvisioning != nil {
 		go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
 	}
+	s.cleanupGitHubAppSource(ctx, ouID, projectName, agentName)
 
 	// Cleanup agent_configs (per-environment instrumentation, CORS and security settings).
 	// Unrelated to the LLM proxy records the goroutine above revokes, so it does not wait
@@ -2770,6 +2860,18 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 
 	s.logger.Debug("Agent deleted from OpenChoreo successfully", "ouID", ouID, "agentName", agentName)
 	return nil
+}
+
+// cleanupGitHubAppSource removes the cloud-only source binding after the component is
+// confirmed absent. It is best-effort like the other post-delete cleanup operations:
+// the component deletion is already committed, and a later idempotent delete can retry.
+func (s *agentManagerService) cleanupGitHubAppSource(ctx context.Context, ouID, projectName, agentName string) {
+	if s.buildSecretProvisioner == nil {
+		return
+	}
+	if err := s.buildSecretProvisioner.DeleteSource(context.WithoutCancel(ctx), ouID, projectName, agentName); err != nil {
+		s.logger.Warn("Failed to delete GitHub App source binding during agent deletion", "agentName", agentName, "error", err)
+	}
 }
 
 // Agent-deletion cleanup runs detached from the request (see deleteAgentLLMConfigurations),
@@ -3037,11 +3139,15 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, proje
 	if agent.Provisioning.Type != string(utils.InternalAgent) {
 		return nil, fmt.Errorf("build operation is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
-	// Trigger build in OpenChoreo
+	workflowRunName, err := s.prepareBuild(ctx, ouID, projectName, agentName)
+	if err != nil {
+		return nil, translateBuildError(err)
+	}
+	// Trigger build only after any deployment-specific per-run secret exists.
 	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
 	// Builds are frequent and produce no credential, so this is recorded after
 	// the fact rather than refusing the build when the trail is unavailable.
-	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId)
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId, workflowRunName)
 	audit.Record(
 		ctx, audit.ActionAgentBuild,
 		audit.Org(ouID),
