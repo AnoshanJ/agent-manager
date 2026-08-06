@@ -337,10 +337,17 @@ func recordStartupPosture(cfg *config.Config, recorder audit.Recorder) {
 	}
 	ctx := audit.WithRecorder(context.Background(), recorder)
 
+	// rbacEnforced is set explicitly here. Outside a request there is no source
+	// to carry it, so it would otherwise serialise as false — and false is not a
+	// neutral default on this field: it is the assertion that no authorization
+	// check happened. On an RBAC-enabled deployment the startup record, which is
+	// the first thing a reader of the trail sees, then contradicts every request
+	// record that follows it.
 	audit.RecordAncillary(
 		ctx, audit.ActionSystemStartup,
 		audit.Actor(audit.ActorSystem, "system:agent-manager-service", ""),
 		audit.SurfaceOpt(audit.SurfaceSystem),
+		audit.RBACEnforced(cfg.RBACEnabled),
 		audit.Detail("sinks", []string{"stdout"}),
 	)
 
