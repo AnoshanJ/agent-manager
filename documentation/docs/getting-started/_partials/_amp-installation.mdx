@@ -514,6 +514,27 @@ helm install amp-evaluation-extension \
 Evaluation jobs publish scores using the `amp-publisher-client` OAuth2 credentials bootstrapped by the Thunder extension. The client secret is fetched from OpenBao at workflow runtime (`secret/amp-publisher-client-secret`) and must match the value set on `thunder.bootstrap.ampPublisherClient.clientSecret`.
 :::
 
+:::caution
+The eval job needs egress to your API server, and the NetworkPolicy matches it by address range after kube-proxy DNAT — the endpoint address, never the `kubernetes` Service ClusterIP. Check what that address is:
+
+```bash
+kubectl -n default get endpoints kubernetes
+```
+
+`networkPolicy.evaluationJob.apiServer.cidrs` defaults to all of RFC1918, which covers that address on most private clusters but also spans your pod and service CIDRs. Add this to the command above to narrow it to your control-plane subnet:
+
+```bash
+helm install amp-evaluation-extension \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-evaluation-extension \
+  --version ${VERSION} \
+  --namespace ${BUILD_CI_NS} \
+  --timeout 1800s \
+  --set "networkPolicy.evaluationJob.apiServer.cidrs[0]=<control-plane-subnet>"
+```
+
+Setting it is required if `kubernetes` resolves to a **public** endpoint (public GKE/AKS control planes) or to `100.64.0.0/10`. The default will not match those, and every evaluation will publish its scores and then report FAILED.
+:::
+
 #### Step 7: API Platform Gateway Extension
 
 Registers the API Platform Gateway with the Agent Manager and deploys the gateway stack. **Install this last** — it requires the Agent Manager API to be healthy and Thunder to be ready for token exchange.
