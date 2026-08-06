@@ -19,7 +19,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -1530,10 +1529,6 @@ func TestUpdateAgentDeploySettings_ResilienceTimeout(t *testing.T) {
 				UpdateReleaseBindingTraitConfigsFunc: func(_ context.Context, _, _, _ string, traitConfigs map[string]interface{}, _ map[string]interface{}) error {
 					pushedTraitEnvConfigs = traitConfigs
 					return nil
-				},
-				// No API key has been minted for this test agent, so simulate that.
-				GetSecretReferenceFunc: func(_ context.Context, _, _ string) (*client.SecretReferenceInfo, error) {
-					return nil, fmt.Errorf("secret reference not found")
 				},
 			}
 			artifactRepo := &repomocks.ArtifactRepositoryMock{
