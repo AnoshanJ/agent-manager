@@ -210,6 +210,13 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		<-stopCh
 		slog.Info("Shutdown signal received, stopping services...")
 
+		// Abort any AgentID pod rollout still waiting or in flight first —
+		// this is a plain context.CancelFunc, so there is no reason to run
+		// it after any of the synchronous shutdown steps below, some of
+		// which could otherwise delay it long enough for a still-waiting
+		// rollout to fire in the meantime.
+		agentIdentityRolloutCancel()
+
 		// Single timeout context for the entire shutdown sequence
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
@@ -219,10 +226,6 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 		if err := dependencies.MonitorScheduler.Stop(); err != nil {
 			slog.Error("error stopping monitor scheduler", "error", err)
 		}
-
-		// Abort any AgentID pod rollout still waiting or in flight rather
-		// than letting it fire after this point.
-		agentIdentityRolloutCancel()
 
 		agentThunderReconcilerCancel()
 		if agentThunderProvisioning != nil {
