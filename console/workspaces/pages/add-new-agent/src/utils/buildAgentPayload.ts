@@ -203,6 +203,7 @@ export const buildAgentCreationPayload = (
             secretRef: data.gitSecretRef || null,
           },
         },
+        ...(data.githubApp ? { githubApp: data.githubApp } : {}),
         // Three subtypes now, so a two-way ternary would silently map A2A to
         // chat. An A2A agent needs a port and no schema: it serves its own
         // agent card and the platform stores no copy.
