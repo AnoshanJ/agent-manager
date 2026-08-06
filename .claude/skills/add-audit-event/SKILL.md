@@ -108,6 +108,7 @@ In a controller, use `beginAuditOrFail(w, r, operation, failureMessage, action, 
 - **`audit.Detail` records `string`, `bool`, `int`, `int32`, `int64`, `float64`, `[]string` and `fmt.Stringer`.** Anything else becomes a `[unsupported:<type>]` marker instead of being serialised. Pass the field you mean rather than relying on that.
 - **Never a secret value.** Use `audit.SecretRef(key, value)` (SHA-256 prefix + last four) or record the key *name*.
 - **Free-form maps: keys only.** Use `audit.AttributeKeySummary(attrs)` — it returns sorted key names, a count, and a flag when a key looks credential-shaped. Never the values.
+- **URLs: declare them `KindURL`.** Pass the URL as-is; the kind is what strips userinfo, query and fragment at redaction, so a token in `?access_token=` or an `https://user:pass@host/` cannot reach a record. A test fails if a detail whose name ends in `uri`, `url` or `endpoint` is declared as anything else.
 - **Identifiers and scope strings are fine, and usually the point.** `role:grant-permission` records the granted scopes in full; they are identifiers, not credentials.
 - Keys not in the action's schema are dropped and reported under `_droppedKeys`.
 

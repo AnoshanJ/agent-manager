@@ -413,7 +413,7 @@ func init() {
 		"gatewayName":          KindName,
 		"identityProviderName": KindName,
 		"issuer":               KindName,
-		"jwksUri":              KindName,
+		"jwksUri":              KindURL,
 		"skipTlsVerify":        KindFlag,
 	}
 	Register(ActionGatewaySetIdentityProvider, ClassCredential, SeverityCritical)

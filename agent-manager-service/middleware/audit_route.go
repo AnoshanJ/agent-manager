@@ -128,7 +128,7 @@ func emitEnvelope(
 	// Routes a machine polls on a timer record once per caller per window.
 	// Without this the gateway bulk-sync endpoints alone would produce millions
 	// of near-identical records and bury everything else.
-	if meta.Coalesce > 0 && !routeCoalescer.allow(meta.Pattern+"|"+sourceKeyOf(ctx), meta.Coalesce) {
+	if meta.Coalesce > 0 && !routeCoalescer.allow(meta.Pattern+"|"+sourceKeyOf(ctx, scope), meta.Coalesce) {
 		return
 	}
 	// A semantic emit already recorded what happened. Keep the envelope for
@@ -151,10 +151,22 @@ func emitEnvelope(
 // routeCoalescer bounds how often a polled route is recorded per caller.
 var routeCoalescer = newCoalescer()
 
-// sourceKeyOf identifies the caller for coalescing. The actor is preferred; the
-// source IP stands in on surfaces with no token, which is exactly where the
-// polling happens.
-func sourceKeyOf(ctx context.Context) string {
+// sourceKeyOf identifies the caller for coalescing.
+//
+// The scope actor comes first, because it is the only one of the three that is
+// available on the surface where coalescing actually runs. The polled routes
+// are on the internal gateway server, which carries no token: Source is built
+// before the handler, so its ActorID is empty there, and the handler is what
+// authenticates the gateway. Without the scope this fell through to the source
+// IP, and two gateways behind one egress address suppressed each other.
+//
+// The IP still stands in when nothing identified the caller — a request that
+// never authenticated has nothing better, and suppressing a flood of those by
+// address is the right behaviour anyway.
+func sourceKeyOf(ctx context.Context, scope *audit.RequestScope) string {
+	if actor := scope.Actor(); actor != "" {
+		return actor
+	}
 	src, _ := audit.SourceFromContext(ctx)
 	if src.ActorID != "" {
 		return src.ActorID

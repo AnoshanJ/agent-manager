@@ -122,7 +122,13 @@ func (c *gatewayInternalController) authenticateGateway(
 		return gatewayIdentity{}, false
 	}
 
-	return gatewayIdentity{ID: gateway.UUID.String(), OUID: gateway.OUID}, true
+	gatewayID := gateway.UUID.String()
+	// Name the caller now that it is known. The coverage envelope is emitted
+	// after the handler returns and coalesces per caller; until this point the
+	// request carries only an address, which cannot tell two gateways apart.
+	audit.IdentifyActor(r.Context(), gatewayID)
+
+	return gatewayIdentity{ID: gatewayID, OUID: gateway.OUID}, true
 }
 
 // gatewayIdentity is the subset of an authenticated gateway the internal

@@ -87,6 +87,7 @@ type RequestScope struct {
 	mu       sync.Mutex
 	semantic bool
 	suppress bool
+	actor    string
 	resource resourceRef
 }
 
@@ -127,6 +128,42 @@ func (s *RequestScope) Suppressed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.suppress
+}
+
+// IdentifyActor names the principal behind a request on a surface that carries
+// no JWT, once the handler has authenticated it.
+//
+// Source is built before the handler runs, so on those surfaces it holds only
+// an address. That is enough to record, but not to tell two callers apart: the
+// per-caller coalescing on the gateway bulk-sync routes fell back to the source
+// IP, so two gateways sharing an egress address suppressed each other's
+// records — and "which gateway pulled key material, and when" is the only
+// question those records exist to answer.
+//
+// The scope is a pointer on the context, so a value set here is visible to the
+// envelope emitted after the handler returns. Outside a request this is a
+// no-op.
+func IdentifyActor(ctx context.Context, id string) {
+	if id == "" {
+		return
+	}
+	scope := scopeFrom(ctx)
+	if scope == nil {
+		return
+	}
+	scope.mu.Lock()
+	defer scope.mu.Unlock()
+	scope.actor = id
+}
+
+// Actor returns the principal set by IdentifyActor, or "" when none was.
+func (s *RequestScope) Actor() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.actor
 }
 
 func (s *RequestScope) markSemantic() {

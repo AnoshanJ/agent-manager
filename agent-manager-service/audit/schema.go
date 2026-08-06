@@ -40,6 +40,11 @@ const (
 	// KindFingerprint is a non-reversible reference to a secret, produced by
 	// Fingerprint. Never the secret itself.
 	KindFingerprint FieldKind = "fingerprint"
+	// KindURL is an operator-supplied URL, reduced to scheme, host and path
+	// before it is written. A URL is the one declared value that can carry a
+	// credential in its own syntax — userinfo, or a token in the query — so
+	// this kind is enforced rather than descriptive: see sanitizeURL.
+	KindURL FieldKind = "url"
 )
 
 // baseFields are permitted on every action. They describe the request rather

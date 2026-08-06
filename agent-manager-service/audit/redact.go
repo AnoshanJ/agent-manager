@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -143,9 +144,18 @@ func redactDetails(action Action, details map[string]any) map[string]any {
 			dropped = append(dropped, k)
 			continue
 		}
-		if _, ok := allowed[k]; !ok {
+		kind, ok := allowed[k]
+		if !ok {
 			dropped = append(dropped, k)
 			continue
+		}
+		// The declared kind is descriptive for every other field. KindURL is
+		// the exception, because a URL can hold a credential in its own syntax
+		// and no caller should have to remember that at the emit site.
+		if kind == KindURL {
+			if s, isString := v.(string); isString {
+				v = sanitizeURL(s)
+			}
 		}
 		out[k] = scrubValue(v)
 	}
@@ -161,6 +171,42 @@ func redactDetails(action Action, details map[string]any) map[string]any {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// sanitizeURL reduces an operator-supplied URL to scheme, host and path.
+//
+// Every other declared value is a name, a count or a flag — shapes that cannot
+// hold a credential. A URL can: RFC 3986 userinfo puts one in the authority
+// ("https://user:pass@idp.example/jwks"), and a query parameter puts one in
+// plain sight. Neither is what makes the URL worth recording. What forensics
+// needs from a JWKS URI is which host the gateway now fetches signing keys
+// from, and that survives here intact.
+//
+// Dropping the query rather than filtering known-bad parameter names is the
+// same allow-list reasoning the detail schema uses: a deny-list of parameter
+// names fails on the one nobody thought of.
+func sanitizeURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		// Not a URL this can reason about. Recording it verbatim would defeat
+		// the point, so record only that something unparseable was supplied.
+		return "[unparseable-url]"
+	}
+
+	sanitized := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
+	out := sanitized.String()
+	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		// Say that something was removed. A URI silently shortened reads as the
+		// one the operator configured, and "was there a token on it?" is a
+		// question an investigation will ask.
+		out += "[redacted-components]"
 	}
 	return out
 }
