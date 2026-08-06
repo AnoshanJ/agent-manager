@@ -97,11 +97,23 @@ func TestEnvelopeNamesAnActorTheHandlerAuthenticated(t *testing.T) {
 func TestExplicitActorBeatsTheScope(t *testing.T) {
 	ctx := WithSource(context.Background(), Source{Surface: SurfaceInternal})
 	ctx, _ = NewRequestScope(ctx)
-	IdentifyActor(ctx, ActorGateway, "gw-scope", "api-key")
+	// A different type from the explicit one below, so the assertion can tell
+	// "the option won" from "both happened to agree".
+	IdentifyActor(ctx, ActorService, "gw-scope", "api-key")
 
-	e := BuildEvent(ctx, ActionGatewayPushManifest, Actor(ActorGateway, "gw-explicit", ""))
+	e := BuildEvent(ctx, ActionGatewayPushManifest,
+		Actor(ActorGateway, "gw-explicit", ""), AuthMethod("mtls"))
+
 	if e.ActorID != "gw-explicit" {
 		t.Errorf("ActorID = %q; an explicit Actor option must win over the scope", e.ActorID)
+	}
+	if e.ActorType != ActorGateway {
+		t.Errorf("ActorType = %q, want %q; the scope must not override an explicit actor",
+			e.ActorType, ActorGateway)
+	}
+	if e.AuthMethod != "mtls" {
+		t.Errorf("AuthMethod = %q, want %q; the scope must not override an explicit one",
+			e.AuthMethod, "mtls")
 	}
 }
 
@@ -114,8 +126,15 @@ func TestJWTActorIsNotClobberedByAnEmptyScope(t *testing.T) {
 	ctx, _ = NewRequestScope(ctx)
 
 	e := BuildEvent(ctx, ActionAPIKeySync)
-	if e.ActorID != "alice@example.com" || e.ActorType != ActorUser {
-		t.Errorf("actor = %q/%q; an unused scope must not clear it", e.ActorType, e.ActorID)
+	if e.ActorID != "alice@example.com" {
+		t.Errorf("ActorID = %q; an unused scope must not clear it", e.ActorID)
+	}
+	if e.ActorType != ActorUser {
+		t.Errorf("ActorType = %q, want %q; an unused scope must not clear it", e.ActorType, ActorUser)
+	}
+	if e.AuthMethod != "jwt-bearer" {
+		t.Errorf("AuthMethod = %q, want %q; an unused scope must not clear it",
+			e.AuthMethod, "jwt-bearer")
 	}
 }
 
