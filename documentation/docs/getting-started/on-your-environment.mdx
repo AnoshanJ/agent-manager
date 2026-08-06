@@ -45,7 +45,7 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | CPU per node | 4 cores |
 | RAM per node | 8 GB |
 | LoadBalancer support | Required |
-| Default StorageClass | Required |
+| Default StorageClass | Required, and it must actually provision volumes. On EKS check both halves: clusters created at 1.30+ ship **no default class at all**, and the stock `gp2` class (default on upgraded clusters) references the in-tree provisioner removed in Kubernetes 1.27, so without the EBS CSI driver its PVCs are accepted and stay `Pending` forever. Install the EBS CSI driver and mark a CSI-backed class (e.g. `gp3`) as default |
 | Node kernel (build nodes) | Linux **6.3+** for user-namespaced agent builds (idmapped-mount support). On older kernels (Ubuntu 22.04's 5.15, Amazon Linux 2's 5.10) set `buildWorkflows.userNamespaces=false` on the Platform Resources chart — see [Troubleshooting](#build-pods-fail-with-mount_attr_idmap--idmap-mounts-errors) |
 | NetworkPolicy-enforcing CNI | Recommended. The Observability and Evaluation extension charts each ship a `NetworkPolicy` (collector ingress, evaluation-job egress) — inert on a CNI that doesn't implement the NetworkPolicy API. EKS's default VPC CNI, AKS, and legacy GKE don't enforce it out of the box; enable your provider's policy add-on (or install Calico/Cilium) if you want these to actually take effect. k3s (local/CI) enforces it by default. |
 
@@ -61,11 +61,23 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | Tool | Version | Purpose |
 |------|---------|---------|
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | v1.32+ | Kubernetes CLI |
-| [Helm](https://helm.sh/docs/intro/install/) | v3.12+ | Kubernetes package manager |
+| [Helm](https://helm.sh/docs/intro/install/) | v3.12+, **v3 only** | Kubernetes package manager |
 | curl / dig | — | DNS resolution of LoadBalancer hostnames |
 
 ```bash
 kubectl version --client && helm version
+```
+
+:::caution Helm 4 is not supported by this guide
+Helm 4 applies charts with Kubernetes server-side apply, where every field has an owner. Several charts below (OpenBao, cert-manager) have controllers that rewrite their own webhook `caBundle` at runtime under a different field manager, so any **re-run** of an install command — including the retries this guide's own troubleshooting recommends — fails with `Apply failed with 1 conflict`. Use Helm 3, or append `--server-side=false` to every `helm install`/`helm upgrade` in this guide.
+:::
+
+Verify LoadBalancer provisioning works before starting — the alternative is discovering it an hour into the install, when the first plane gateway hangs `<pending>`:
+
+```bash
+kubectl create deploy lbtest --image=nginx && kubectl expose deploy lbtest --port=80 --type=LoadBalancer
+kubectl wait --for=jsonpath='{.status.loadBalancer.ingress}' svc/lbtest --timeout=5m && echo "LoadBalancer OK"
+kubectl delete svc/lbtest deploy/lbtest
 ```
 
 ### Permissions
@@ -292,7 +304,15 @@ helm upgrade --install openbao oci://ghcr.io/openbao/charts/openbao \
   --set server.dataStorage.size=10Gi \
   --timeout 180s
 
-kubectl wait --for=condition=Ready=false pod/openbao-0 -n openbao --timeout=120s
+# A sealed OpenBao never reports Ready, and there is no pod condition that
+# means "running but sealed" — conditions are set before the container starts,
+# so waiting on one races the exec below ('container not found ("openbao")').
+# Poll bao itself: exit 2 = sealed but responding (the state we want here);
+# exit 0 = already unsealed (a re-run); anything else = not up yet.
+until kubectl exec -n openbao openbao-0 -- bao status >/dev/null 2>&1; do
+  [ $? -eq 2 ] && break
+  sleep 5
+done
 ```
 
 Initialize and unseal. **Store the unseal keys and root token in your secret manager immediately** — they are displayed once, and without them the data on that PVC is unrecoverable:
@@ -471,6 +491,12 @@ Every gateway certificate below references one ClusterIssuer named `openchoreo-c
 
 DNS-01 validation issues publicly trusted certificates (including the wildcards this guide needs) by writing a TXT record to your DNS zone — the CA never connects to your cluster. Create a credentials Secret for your DNS provider, then the issuer. The example below uses AWS Route 53; cert-manager supports [Cloudflare, Google Cloud DNS, Azure DNS, and others](https://cert-manager.io/docs/configuration/acme/dns01/) with the same structure.
 
+First confirm the zone is actually **delegated** — that the public DNS tree hands queries for it to your provider's nameservers. If it is not (a freshly created zone, or nameservers not yet changed at the registrar or parent zone), cert-manager writes its challenge records into a zone no resolver consults, and every certificate below hangs unissued with no obvious error. Query a public resolver, never the zone's own nameservers — those are authoritative the moment the zone exists, delegated or not:
+
+```bash
+dig +short NS <your-zone> @1.1.1.1   # must return your DNS provider's nameservers
+```
+
 ```bash
 kubectl create secret generic route53-credentials \
   --namespace cert-manager \
@@ -503,6 +529,10 @@ EOF
 
 :::tip
 Test with the Let's Encrypt staging server (`https://acme-staging-v02.api.letsencrypt.org/directory`) first if you expect to iterate — the production server rate-limits duplicate certificates to 5 per week.
+:::
+
+:::note Prefer ambient credentials over a static access key
+On EKS, cert-manager picks up IAM Roles for Service Accounts or Pod Identity credentials automatically — no long-lived access key in a cluster Secret. Bind a role scoped to `route53:ChangeResourceRecordSets`/`ListResourceRecordSets` on your one hosted zone (plus `route53:GetChange` and `ListHostedZonesByName`) to the cert-manager ServiceAccount, and reduce the solver to just `region` and `hostedZoneID`. See [cert-manager's Route 53 documentation](https://cert-manager.io/docs/configuration/acme/dns01/route53/) for the equivalent on other setups.
 :::
 
   </TabItem>
@@ -544,6 +574,16 @@ Thunder writes its issuer URL, the console client's redirect URIs, and every pla
 :::
 
 **Database.** Production installations use an external PostgreSQL. Thunder keeps three logical databases — `configdb`, `runtimedb`, and `userdb` — which can live on one server; create them and a role that owns all three before installing, then **load Thunder's schema into each one**. Nothing in the chart creates the tables for PostgreSQL: the init container only initialises the bundled SQLite files, so an empty database makes the pre-install hook fail.
+
+On a managed service (RDS, Cloud SQL, Azure Database) the admin user is **not a superuser**, and PostgreSQL 16+ only lets it create a database *owned by another role* if it holds membership in that role. Grant it first, or `CREATE DATABASE ... OWNER thunder` fails with `must be able to SET ROLE "thunder"`:
+
+```sql
+CREATE ROLE thunder LOGIN PASSWORD '...';
+GRANT thunder TO CURRENT_USER;  -- required on managed PostgreSQL; harmless elsewhere
+CREATE DATABASE configdb OWNER thunder;  -- likewise runtimedb, userdb
+```
+
+The same applies to the Agent Manager database role in [Phase 2](#phase-2-agent-manager-installation).
 
 <Tabs groupId="deployment-mode">
   <TabItem value="production" label="External PostgreSQL" default>

@@ -174,6 +174,10 @@ type SecretManagerConfig struct {
 	// RefreshInterval is how often SecretReference CRs should refresh from the
 	// secret store (default: "1h")
 	RefreshInterval string
+	// AgentIdentityRefreshInterval is the AgentID SecretReference's refresh
+	// cadence (default: "15s"), kept separate from RefreshInterval above so
+	// AgentID's fast rotation-to-pod requirement never depends on it.
+	AgentIdentityRefreshInterval string
 }
 
 // OpenBaoConfig holds OpenBao KV store configuration.

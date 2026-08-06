@@ -60,6 +60,17 @@ export function getAgentDeploymentPath(orgId: string, projectId: string, agentId
   );
 }
 
+/** The agent's per-environment Security (API key) page. */
+export function getAgentSecurityPath(
+  orgId: string, projectId: string, agentId: string, envId: string,
+): string {
+  return generatePath(
+    absoluteRouteMap.children.org.children.projects.children.agents
+      .children.environment.children.security.path,
+    { orgId, projectId, agentId, envId },
+  );
+}
+
 export enum DeploymentStatus {
   ACTIVE = "active",
   INACTIVE = "not-deployed",

@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -211,10 +212,11 @@ func loadEnvs() {
 	}
 
 	config.SecretManager = SecretManagerConfig{
-		Provider:        r.readOptionalString("SECRET_MANAGER_PROVIDER", "openchoreo"),
-		TargetPlaneKind: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_KIND", "ClusterDataPlane"),
-		TargetPlaneName: r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_NAME", "default"),
-		RefreshInterval: r.readOptionalString("SECRET_MANAGER_REFRESH_INTERVAL", "1h"),
+		Provider:                     r.readOptionalString("SECRET_MANAGER_PROVIDER", "openchoreo"),
+		TargetPlaneKind:              r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_KIND", "ClusterDataPlane"),
+		TargetPlaneName:              r.readOptionalString("SECRET_MANAGER_TARGET_PLANE_NAME", "default"),
+		RefreshInterval:              r.readOptionalString("SECRET_MANAGER_REFRESH_INTERVAL", "1h"),
+		AgentIdentityRefreshInterval: r.readOptionalString("AGENT_IDENTITY_REFRESH_INTERVAL", "15s"),
 	}
 
 	// OpenBao KV store configuration (data plane - for deployment secrets)
@@ -282,6 +284,7 @@ func loadEnvs() {
 	validateObserverURLs(config, r)
 	validateResourceLimitsConfig(config, r)
 	validatePostgresTLSConfig(config, r)
+	validateSecretManagerConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
 
 	r.logAndExitIfErrorsFound()
@@ -299,6 +302,24 @@ var validPostgresSSLModes = map[string]struct{}{
 	"require":     {},
 	"verify-ca":   {},
 	"verify-full": {},
+}
+
+// validateSecretManagerConfig fails config load on a malformed or nonpositive
+// AGENT_IDENTITY_REFRESH_INTERVAL, instead of silently falling back to
+// agentIdentityInjectionService's own default at first use (see
+// secretSyncWaitDuration's doc comment).
+func validateSecretManagerConfig(cfg *Config, r *configReader) {
+	d, err := time.ParseDuration(cfg.SecretManager.AgentIdentityRefreshInterval)
+	switch {
+	case err != nil:
+		r.errors = append(r.errors, fmt.Errorf(
+			"AGENT_IDENTITY_REFRESH_INTERVAL %q is not a valid duration: %w", cfg.SecretManager.AgentIdentityRefreshInterval, err,
+		))
+	case d <= 0:
+		r.errors = append(r.errors, fmt.Errorf(
+			"AGENT_IDENTITY_REFRESH_INTERVAL must be a positive duration, got %q", cfg.SecretManager.AgentIdentityRefreshInterval,
+		))
+	}
 }
 
 func validatePostgresTLSConfig(cfg *Config, r *configReader) {

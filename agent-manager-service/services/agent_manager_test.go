@@ -19,7 +19,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -77,6 +76,13 @@ func (s *stubAgentThunderProvisioning) GetAgentGroups(ctx context.Context, orgNa
 
 func (s *stubAgentThunderProvisioning) GetIdentityViews(ctx context.Context, ouID, projectName, agentName string) ([]models.AgentIdentityEnvironmentView, error) {
 	return s.GetIdentityViewsFunc(ctx, ouID, projectName, agentName)
+}
+
+// HealSecretRef is a no-op override: no test using this stub exercises the
+// reconciler's startup heal pass, but leaving it unimplemented would panic on
+// the nil embedded interface if that ever changes.
+func (s *stubAgentThunderProvisioning) HealSecretRef(ctx context.Context, binding models.AgentThunderClient) error {
+	return nil
 }
 
 func TestValidateInstrumentationVersion_UsesCatalog(t *testing.T) {
@@ -1523,10 +1529,6 @@ func TestUpdateAgentDeploySettings_ResilienceTimeout(t *testing.T) {
 				UpdateReleaseBindingTraitConfigsFunc: func(_ context.Context, _, _, _ string, traitConfigs map[string]interface{}, _ map[string]interface{}) error {
 					pushedTraitEnvConfigs = traitConfigs
 					return nil
-				},
-				// No API key has been minted for this test agent, so simulate that.
-				GetSecretReferenceFunc: func(_ context.Context, _, _ string) (*client.SecretReferenceInfo, error) {
-					return nil, fmt.Errorf("secret reference not found")
 				},
 			}
 			artifactRepo := &repomocks.ArtifactRepositoryMock{
