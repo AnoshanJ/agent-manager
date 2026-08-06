@@ -78,6 +78,9 @@ func (r *envAgentModelMappingRepository) GetByConfigAndEnv(ctx context.Context, 
 		Preload("LLMProxy").
 		Where("config_uuid = ? AND environment_uuid = ?", configUUID, envUUID).
 		First(&mapping).Error
+	if err == nil {
+		backfillLLMProxyHandle(mapping.LLMProxy)
+	}
 	return &mapping, err
 }
 
@@ -87,6 +90,11 @@ func (r *envAgentModelMappingRepository) ListByConfig(ctx context.Context, confi
 		Preload("LLMProxy").
 		Where("config_uuid = ?", configUUID).
 		Find(&mappings).Error
+	if err == nil {
+		for i := range mappings {
+			backfillLLMProxyHandle(mappings[i].LLMProxy)
+		}
+	}
 	return mappings, err
 }
 
