@@ -166,10 +166,15 @@ func backfillLLMProxyHandles(config *models.AgentConfiguration) {
 		return
 	}
 	for i := range config.EnvMappings {
-		proxy := config.EnvMappings[i].LLMProxy
-		if proxy != nil && proxy.Handle == "" {
-			proxy.Handle = proxy.Configuration.Name
-		}
+		backfillLLMProxyHandle(config.EnvMappings[i].LLMProxy)
+	}
+}
+
+// backfillLLMProxyHandle populates a single preloaded LLM proxy's Handle from
+// its Configuration.Name (see backfillLLMProxyHandles for why this is needed).
+func backfillLLMProxyHandle(proxy *models.LLMProxy) {
+	if proxy != nil && proxy.Handle == "" {
+		proxy.Handle = proxy.Configuration.Name
 	}
 }
 
