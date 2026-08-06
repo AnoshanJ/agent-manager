@@ -317,6 +317,68 @@ func TestValidatePostgresTLSConfig(t *testing.T) {
 	}
 }
 
+func TestValidateSecretManagerConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		interval    string
+		wantErrors  int
+		errContains string
+	}{
+		{
+			name:       "documented default accepted",
+			interval:   "15s",
+			wantErrors: 0,
+		},
+		{
+			name:       "other valid positive duration accepted",
+			interval:   "1h",
+			wantErrors: 0,
+		},
+		{
+			name:        "malformed duration rejected",
+			interval:    "not-a-duration",
+			wantErrors:  1,
+			errContains: "AGENT_IDENTITY_REFRESH_INTERVAL",
+		},
+		{
+			name:        "zero rejected",
+			interval:    "0s",
+			wantErrors:  1,
+			errContains: "must be a positive duration",
+		},
+		{
+			name:        "negative rejected",
+			interval:    "-15s",
+			wantErrors:  1,
+			errContains: "must be a positive duration",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{SecretManager: SecretManagerConfig{AgentIdentityRefreshInterval: tc.interval}}
+			r := &configReader{}
+			validateSecretManagerConfig(cfg, r)
+
+			if len(r.errors) != tc.wantErrors {
+				t.Fatalf("expected %d errors, got %d: %v", tc.wantErrors, len(r.errors), r.errors)
+			}
+			if tc.errContains != "" {
+				found := false
+				for _, e := range r.errors {
+					if strings.Contains(e.Error(), tc.errContains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected an error containing %q, got %v", tc.errContains, r.errors)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadEnvs_ObserverConfig(t *testing.T) {
 	requiredEnv := map[string]string{
 		"OPEN_CHOREO_BASE_URL": "http://localhost/api/v1",
