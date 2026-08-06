@@ -62,14 +62,17 @@ func TestEnvAgentModelMappingRepo_BackfillsLLMProxyHandle(t *testing.T) {
 		if err := tx.Exec("SET session_replication_role = 'replica'").Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(
+		// Restore on every exit path (including an INSERT failure) so a pooled
+		// connection is never handed back to another test stuck in 'replica'
+		// mode, which would silently skip FK/trigger checks for it too.
+		defer func() {
+			_ = tx.Exec("SET session_replication_role = 'origin'").Error
+		}()
+		return tx.Exec(
 			`INSERT INTO llm_proxies (uuid, project_uuid, provider_uuid, status, configuration)
 			 VALUES (?, ?, ?, 'deployed', ?)`,
 			proxyUUID, uuid.New(), uuid.New(), `{"name":"`+proxyName+`"}`,
-		).Error; err != nil {
-			return err
-		}
-		return tx.Exec("SET session_replication_role = 'origin'").Error
+		).Error
 	}))
 
 	envUUID := uuid.New()
