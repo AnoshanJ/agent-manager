@@ -47,6 +47,7 @@ import {
   useUpsertIdentityProvider,
 } from "@agent-management-platform/api-client";
 import {
+  getAgentManagerUrl,
   getAmpVersionHelm,
   getRawScriptUrl,
 } from "@agent-management-platform/shared-component";
@@ -110,6 +111,7 @@ function buildScript(i: ScriptInputs): string {
     `    ENV_NAME=${i.envName || "<env-name>"} \\`,
     `    GATEWAY_ID=${i.gatewayId || "<gateway-id>"} \\`,
     `    AGENT_MANAGER_TOKEN=${i.token} \\`,
+    `    AGENT_MANAGER_URL=${getAgentManagerUrl()} \\`,
     `    CHART_VERSION=${getAmpVersionHelm()} \\`,
     `    IDP_NAME=${i.name || "<identity-provider-name>"} \\`,
     ...actionEnvLines,
