@@ -427,6 +427,15 @@ helm install amp-platform-resources \\
 
 <RegistryConfig expanded={props.expandRegistryConfig} />
 
+:::warning Not every registry can back build workflows
+Two properties are required, and the failure surfaces only on the first agent build, long after the platform installs and verifies cleanly:
+
+- **Push-to-create.** Each build pushes its image as `<workflow-run-name>-image` — a repository name that is different on every run, so repositories cannot be pre-created. The registry must create them on push. **Amazon ECR does not** and fails every build with `repository ... not found`; the same applies to any registry that requires repositories to be provisioned first.
+- **Static credentials.** The push step reads a fixed `.dockerconfigjson` from the `registry-push-secret` Secret (or pushes unauthenticated if it is absent). Registries whose credentials expire — ECR again, with its 12-hour tokens — cannot be refreshed by anything in the build pipeline.
+
+[CNCF Distribution](https://distribution.github.io/distribution/), Harbor (with a project set to auto-create), and GitLab's registry satisfy both. If you have no registry yet, running Distribution in-cluster behind an internal LoadBalancer with a cert-manager certificate is a few resources — but it ships with **no authentication**; put htpasswd in front of it before it carries anything real.
+:::
+
 ---
 
 ### Extensions
