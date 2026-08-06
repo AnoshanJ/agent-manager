@@ -33,7 +33,8 @@ const ResourceServer = "amp"
 const ResourceServerIdentifier = "urn:wso2:amp"
 
 // Scope returns the OAuth2 scope string for this permission as Thunder issues it (e.g. "amp:org:view").
-// Thunder v0.45 builds permissions as <resource-server-handle>:<resource>:<action>
+// Thunder builds permissions as <resource-server-handle>:<resource>:<action> —
+// unchanged from v0.45 through the current v1.0.0-beta
 func (p Permission) Scope() string {
 	return ResourceServer + ":" + string(p)
 }

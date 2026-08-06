@@ -39,7 +39,7 @@ set -euo pipefail
 #   - ORG_NAME (default: default)
 #   - THUNDER_CHART: override the chart ref (default: oci://ghcr.io/thunder-id/helm-charts/thunderid —
 #     the upstream ThunderID release chart, pulled directly, NOT the agent-manager chart)
-#   - CHART_VERSION: pin the chart version (default: 1.0.0-alpha2; OCI charts only)
+#   - CHART_VERSION: pin the chart version (default: 1.0.0-beta; OCI charts only)
 #   - SYSTEM_CLIENT_SECRET (default: generated; reused if one already exists)
 #   - THUNDER_ADMIN_PASSWORD (default: generated 10-char password w/ letters, digits,
 #     and symbols; reused if one already exists) — native ThunderID superadmin password
@@ -667,7 +667,7 @@ main() {
   # whatever version platform Thunder happens to run.
   local version_args=()
   if printf '%s' "$chart" | grep -q '^oci://'; then
-    local chart_version="${CHART_VERSION:-1.0.0-alpha2}"
+    local chart_version="${CHART_VERSION:-1.0.0-beta}"
     echo "📌 Using Thunder chart version: ${chart_version}"
     version_args=(--version "$chart_version")
   fi
@@ -729,7 +729,7 @@ main() {
     # AMP component assumes, e.g. agent-manager-service/clients/thundersvc/naming.go's
     # "<release>-service" convention) instead of the chart's default fullname suffix.
     --set-string "fullnameOverride=${release}"
-    --set-string "deployment.image.tag=${CHART_VERSION:-1.0.0-alpha2}"
+    --set-string "deployment.image.tag=${CHART_VERSION:-1.0.0-beta}"
     # Single replica + writable root FS: required for SQLite (single-pod, local file DB).
     --set "deployment.replicaCount=1"
     --set "deployment.securityContext.readOnlyRootFilesystem=false"
@@ -950,7 +950,7 @@ ${ca_pem}"
   echo "  Environment:     ${ENV_NAME}"
   echo "  Namespace:       ${ns}"
   echo "  Release:         ${release}"
-  echo "  Chart:           ${chart} (${CHART_VERSION:-1.0.0-alpha2})"
+  echo "  Chart:           ${chart} (${CHART_VERSION:-1.0.0-beta})"
   echo "  Issuer:          ${issuer}"
   echo "  JWKS:            ${issuer}/oauth2/jwks"
   echo "  Trusted issuer:  ${pt_issuer}"

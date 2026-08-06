@@ -591,7 +591,7 @@ The same applies to the Agent Manager database role in [Phase 2](#phase-2-agent-
 Load the schema first. The scripts ship inside the Thunder image, so copy them out of the version the chart pins and apply each to its database as the owning role:
 
 ```bash
-THUNDER_IMAGE="ghcr.io/thunder-id/thunderid:0.45.0"
+THUNDER_IMAGE="ghcr.io/thunder-id/thunderid:1.0.0-beta"
 docker create --name thunder-schema "${THUNDER_IMAGE}"
 for db in configdb runtimedb userdb; do
   docker cp "thunder-schema:/opt/thunderid/dbscripts/${db}/postgres.sql" "./thunder-${db}.sql"
