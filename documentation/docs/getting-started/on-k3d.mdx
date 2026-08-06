@@ -746,8 +746,19 @@ helm list -A | grep -E 'openchoreo|amp|gateway'
 
 **Default credentials:** `admin` / `admin`
 
-:::note No HTTPS ingest on this setup
-The `ClusterDataPlane` manifest in [Step 8](#step-8-setup-data-plane) requests both an `http` and `https` external ingress listener, but OpenChoreo 1.1.1 only provisions the `http` one (port 19080) — the Data Plane's `gateway-default` Service has no 19443 listener, so an HTTPS OTLP endpoint is not currently reachable on this single-cluster k3d setup. Use the HTTP endpoint above for trace ingestion until this is fixed upstream in OpenChoreo.
+:::note HTTPS ingest is disabled by default on this setup
+[values-dp.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/single-cluster/values-dp.yaml), installed in [Step 8](#step-8-setup-data-plane), sets `gateway.tls.enabled: false` even though it already configures `httpsPort: 19443` and a `certificateRefs` entry pointing at the `gateway-tls` Secret (created earlier by cert-manager). With TLS disabled, the Data Plane's `gateway-default` Gateway/Service only get an `http` listener — there is no 19443 listener to connect to, so an HTTPS OTLP endpoint is not reachable on a default install.
+
+To enable it, set `gateway.tls.enabled: true` in `values-dp.yaml` before Step 8's `helm install`, or apply it afterwards with:
+```bash
+helm upgrade openchoreo-data-plane \
+  oci://ghcr.io/openchoreo/helm-charts/openchoreo-data-plane \
+  --version 1.1.1 \
+  --namespace openchoreo-data-plane \
+  --reuse-values \
+  --set gateway.tls.enabled=true
+```
+This isn't OpenChoreo lacking HTTPS support — the port, hostname, and certificate reference are already wired up in the values file; TLS is just switched off. Use the HTTP endpoint above for trace ingestion unless you've enabled and verified this yourself.
 :::
 
 ---
