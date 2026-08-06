@@ -149,13 +149,18 @@ func (c *gatewayController) UpsertGatewayIdentityProvider(w http.ResponseWriter,
 
 	// Which issuers a gateway trusts decides whose tokens it will accept, so
 	// this is recorded as a credential-class change and refused when the trail
-	// is unavailable.
+	// is unavailable. The JWKS URI and skipTlsVerify travel with the issuer
+	// because they decide where the signing keys come from and whether that
+	// fetch validates TLS — an issuer on its own does not say who can actually
+	// mint an accepted token.
 	ctx := r.Context()
 	attempt, ok := beginAuditOrFail(w, r, "UpsertGatewayIdentityProvider", "Failed to upsert identity provider", audit.ActionGatewaySetIdentityProvider,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
 		audit.Detail("identityProviderName", name),
 		audit.Detail("issuer", derefString(req.Issuer)),
+		audit.Detail("jwksUri", derefString(req.JwksUri)),
+		audit.Detail("skipTlsVerify", derefBool(req.SkipTlsVerify)),
 	)
 	if !ok {
 		return

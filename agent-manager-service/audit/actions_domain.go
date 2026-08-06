@@ -405,10 +405,16 @@ func init() {
 	// Changing which identity provider a gateway trusts changes who can mint
 	// tokens it will accept, so these rank with credential changes rather than
 	// with ordinary gateway configuration.
+	// jwksUri and skipTlsVerify are the trust inputs themselves: the first says
+	// where the gateway fetches signing keys from, the second lets it fetch them
+	// without validating the TLS certificate. An issuer alone does not say
+	// whether the keys behind it were obtained safely.
 	idpFields := map[string]FieldKind{
 		"gatewayName":          KindName,
 		"identityProviderName": KindName,
 		"issuer":               KindName,
+		"jwksUri":              KindName,
+		"skipTlsVerify":        KindFlag,
 	}
 	Register(ActionGatewaySetIdentityProvider, ClassCredential, SeverityCritical)
 	RegisterDetailSchema(ActionGatewaySetIdentityProvider, idpFields)

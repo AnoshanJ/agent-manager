@@ -3155,6 +3155,7 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 
 	// If no envMappings provided, return the updated config immediately.
 	if req.EnvMappings == nil {
+		s.recordConfigUpdate(ctx, configUUID, ouID, projectName, agentName, existingConfig, req)
 		return s.Get(ctx, configUUID, ouID, projectName, agentName)
 	}
 
@@ -3329,9 +3330,29 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 		)
 	}
 
-	// A real audit record. This previously wrote only an slog line labelled as
-	// an audit log: it carried no actor, no outcome and no durability, so it
-	// could not answer who changed the configuration.
+	s.recordConfigUpdate(ctx, configUUID, ouID, projectName, agentName, existingConfig, req)
+
+	// Return updated configuration
+	return s.Get(ctx, configUUID, ouID, projectName, agentName)
+}
+
+// recordConfigUpdate records a completed configuration update. It is called on
+// every successful return from Update, not only the one that rewrites the
+// environment mappings: a rename or a description change is still a change
+// somebody has to be able to attribute.
+//
+// The resource name comes from existingConfig rather than from the request,
+// because req.Name is empty on any update that is not a rename — recording it
+// directly produced records that named no configuration at all.
+func (s *agentConfigurationService) recordConfigUpdate(ctx context.Context, configUUID uuid.UUID,
+	ouID, projectName, agentName string, existingConfig *models.AgentConfiguration,
+	req models.UpdateAgentModelConfigRequest,
+) {
+	configName := req.Name
+	if configName == "" && existingConfig != nil {
+		configName = existingConfig.Name
+	}
+
 	updatedFields := []string{}
 	if req.Name != "" {
 		updatedFields = append(updatedFields, "name")
@@ -3342,12 +3363,19 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 	if req.EnvMappings != nil {
 		updatedFields = append(updatedFields, "envMappings")
 	}
+	if req.EnvironmentVariables != nil {
+		updatedFields = append(updatedFields, "environmentVariables")
+	}
+
+	// A real audit record. This previously wrote only an slog line labelled as
+	// an audit log: it carried no actor, no outcome and no durability, so it
+	// could not answer who changed the configuration.
 	audit.Record(ctx, audit.ActionAgentConfigUpdate,
 		audit.Org(ouID),
-		audit.ResourceNamed("agent-config", configUUID.String(), req.Name),
+		audit.ResourceNamed("agent-config", configUUID.String(), configName),
 		audit.Project(projectName),
 		audit.Detail("agentName", agentName),
-		audit.Detail("configName", req.Name),
+		audit.Detail("configName", configName),
 		audit.Detail("updatedFields", updatedFields),
 	)
 	s.logger.Info(
@@ -3356,9 +3384,6 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 		"ouID", ouID,
 		"updatedFields", updatedFields,
 	)
-
-	// Return updated configuration
-	return s.Get(ctx, configUUID, ouID, projectName, agentName)
 }
 
 // DeleteMCP deletes an MCP proxy mapping and all associated resources.

@@ -153,7 +153,9 @@ agentManagerService:
     # the observability plane's default log retention is far shorter than the
     # evidence period most audits require.
     audit:
-      enabled: "true"
+      # Boolean, not a quoted string, so setting it to false actually disables
+      # recording — see the AUDIT_ENABLED note in the service ConfigMap.
+      enabled: true
       # Queued events. On overflow, events are dropped and counted rather than
       # blocking the request that produced them.
       bufferSize: 4096
