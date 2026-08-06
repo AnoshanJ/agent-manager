@@ -743,21 +743,12 @@ helm list -A | grep -E 'openchoreo|amp|gateway'
 | **Agent Manager API** | [http://api.amp.localhost:8080](http://api.amp.localhost:8080) |
 | **Agent Manager Observer** | [http://traces.amp.localhost:11080](http://traces.amp.localhost:11080) |
 | **OTLP trace ingest (HTTP)** | http://default-default.gateway.localhost:19080/otel |
-| **OTLP trace ingest (HTTPS)** | https://default-default.gateway.localhost:19443/otel |
 
 **Default credentials:** `admin` / `admin`
 
-### Self-Signed Certificate for OTEL HTTPS
-
-If your OTEL exporters encounter certificate errors on the HTTPS ingest endpoint (the Data Plane gateway serves a self-signed certificate by default):
-
-```bash
-kubectl get secret gateway-tls \
-  -n openchoreo-data-plane \
-  -o jsonpath='{.data.ca\.crt}' | base64 --decode > ca.crt
-
-export OTEL_EXPORTER_OTLP_CERTIFICATE=$(pwd)/ca.crt
-```
+:::note No HTTPS ingest on this setup
+The `ClusterDataPlane` manifest in [Step 8](#step-8-setup-data-plane) requests both an `http` and `https` external ingress listener, but OpenChoreo 1.1.1 only provisions the `http` one (port 19080) — the Data Plane's `gateway-default` Service has no 19443 listener, so an HTTPS OTLP endpoint is not currently reachable on this single-cluster k3d setup. Use the HTTP endpoint above for trace ingestion until this is fixed upstream in OpenChoreo.
+:::
 
 ---
 
@@ -860,5 +851,5 @@ All Agent Manager-specific configuration files used in this guide:
 | [values-op.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/single-cluster/values-op.yaml) | Observability Plane — standalone OpenSearch, AMP Thunder OIDC |
 | [values-openbao.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/single-cluster/values-openbao.yaml) | OpenBao — dev mode, Kubernetes auth, pre-seeded secrets |
 | [oc-collector-configmap.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/values/oc-collector-configmap.yaml) | Custom OTel Collector ConfigMap for trace ingestion |
-| [wso2-amp-api-platform-gateway-extension](https://github.com/wso2/agent-manager/tree/amp/deployments/helm-charts/wso2-amp-api-platform-gateway-extension) | API Platform Gateway Helm chart (includes gateway config, bootstrap, CR) |
+| [wso2-amp-api-platform-gateway-extension](https://github.com/wso2/agent-manager/tree/amp/v0.0.0-dev/deployments/helm-charts/wso2-amp-api-platform-gateway-extension) | API Platform Gateway Helm chart (includes gateway config, bootstrap, CR) |
 | [otel-collector-rest-api.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/values/otel-collector-rest-api.yaml) | OTel Collector REST API resource |
