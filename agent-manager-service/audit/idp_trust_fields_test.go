@@ -181,10 +181,27 @@ func TestScopesOfRendersPermissionsAsRecorded(t *testing.T) {
 		t.Errorf("ScopesOf(one) = %q, want %q", one, rbac.GitSecretCreate.Scope())
 	}
 
+	// The serialised form is asserted literally, not just for agreement between
+	// the two paths: RequiredPermissions delegates to ScopesOf, so comparing
+	// them is comparing a function to itself and would accept an empty or
+	// malformed value from both. A multi-permission route records one
+	// space-separated string, which is what a SIEM query has to match.
 	many := []rbac.Permission{rbac.GitSecretCreate, rbac.GitSecretDelete}
+	const wantMany = "amp:git-secret:create amp:git-secret:delete"
+
 	viaHelper := ScopesOf(many)
+	if viaHelper != wantMany {
+		t.Errorf("ScopesOf(many) = %q, want %q", viaHelper, wantMany)
+	}
+
 	viaOption := Event{}
 	RequiredPermissions(many...)(&viaOption)
+	if viaOption.RequiredPermission != wantMany {
+		t.Errorf("RequiredPermissions(many) recorded %q, want %q",
+			viaOption.RequiredPermission, wantMany)
+	}
+
+	// Kept so the two stay tied together if one is ever reimplemented.
 	if viaHelper != viaOption.RequiredPermission {
 		t.Errorf("helper %q and option %q disagree; the same route would record "+
 			"two different strings depending on which tier wrote it",
