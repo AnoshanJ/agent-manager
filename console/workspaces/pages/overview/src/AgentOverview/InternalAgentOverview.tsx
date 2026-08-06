@@ -34,6 +34,7 @@ import {
 import { KindInfoCard } from "./KindInfoCard";
 import { AgentInfoCard } from "./AgentInfoCard";
 import { EnvironmentSectionsContent } from "./EnvironmentSectionsContent";
+import { EnvironmentSingleHeader } from "./EnvironmentSingleHeader";
 import { EnvironmentTabsBar } from "./EnvironmentTabsBar";
 import { UppercaseCaptionLabel } from "./SectionHeader";
 import { useSelectedEnvironmentParam } from "./useSelectedEnvironmentParam";
@@ -85,6 +86,7 @@ export const InternalAgentOverview = () => {
 
     const isKindAgent = !!agent?.kindName;
     const hasMultipleEnvironments = sortedEnvironmentList.length > 1;
+    const selectedEnvironmentStatus = statusOf(deployments, selectedEnvironment?.name ?? "");
 
     return (
         <Box display="flex" flexDirection="column" gap={2}>
@@ -125,9 +127,8 @@ export const InternalAgentOverview = () => {
                         isFirstEnvironment={
                             sortedEnvironmentList[0]?.name === selectedEnvironment.name
                         }
-                        hideEnvTitle={!hasMultipleEnvironments}
                         tabsHeader={
-                            hasMultipleEnvironments && (
+                            hasMultipleEnvironments ? (
                                 <EnvironmentTabsBar
                                     environments={sortedEnvironmentList}
                                     selectedName={selectedEnvironment.name}
@@ -135,6 +136,12 @@ export const InternalAgentOverview = () => {
                                     dotColor={(env) => (
                                         DOT_COLOR_BY_STATUS[statusOf(deployments, env.name)]
                                     )}
+                                />
+                            ) : (
+                                <EnvironmentSingleHeader
+                                    environment={selectedEnvironment}
+                                    status={selectedEnvironmentStatus}
+                                    dotColor={DOT_COLOR_BY_STATUS[selectedEnvironmentStatus]}
                                 />
                             )
                         }
@@ -146,7 +153,7 @@ export const InternalAgentOverview = () => {
                                 envId={selectedEnvironment.name}
                                 configurations={agent?.configurations}
                                 isolationTier={selectedEnvironment.isolationTier}
-                                deploymentStatus={statusOf(deployments, selectedEnvironment.name)}
+                                deploymentStatus={selectedEnvironmentStatus}
                             />
                         }
                     />

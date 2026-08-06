@@ -45,7 +45,7 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | CPU per node | 4 cores |
 | RAM per node | 8 GB |
 | LoadBalancer support | Required |
-| Default StorageClass | Required |
+| Default StorageClass | Required, and it must actually provision volumes. On EKS check both halves: clusters created at 1.30+ ship **no default class at all**, and the stock `gp2` class (default on upgraded clusters) references the in-tree provisioner removed in Kubernetes 1.27, so without the EBS CSI driver its PVCs are accepted and stay `Pending` forever. Install the EBS CSI driver and mark a CSI-backed class (e.g. `gp3`) as default |
 | Node kernel (build nodes) | Linux **6.3+** for user-namespaced agent builds (idmapped-mount support). On older kernels (Ubuntu 22.04's 5.15, Amazon Linux 2's 5.10) set `buildWorkflows.userNamespaces=false` on the Platform Resources chart — see [Troubleshooting](#build-pods-fail-with-mount_attr_idmap--idmap-mounts-errors) |
 | NetworkPolicy-enforcing CNI | Recommended. The Observability and Evaluation extension charts each ship a `NetworkPolicy` (collector ingress, evaluation-job egress) — inert on a CNI that doesn't implement the NetworkPolicy API. EKS's default VPC CNI, AKS, and legacy GKE don't enforce it out of the box; enable your provider's policy add-on (or install Calico/Cilium) if you want these to actually take effect. k3s (local/CI) enforces it by default. |
 
@@ -61,11 +61,23 @@ The main flow assumes you control a DNS zone. If you are evaluating on a cluster
 | Tool | Version | Purpose |
 |------|---------|---------|
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | v1.32+ | Kubernetes CLI |
-| [Helm](https://helm.sh/docs/intro/install/) | v3.12+ | Kubernetes package manager |
+| [Helm](https://helm.sh/docs/intro/install/) | v3.12+, **v3 only** | Kubernetes package manager |
 | curl / dig | — | DNS resolution of LoadBalancer hostnames |
 
 ```bash
 kubectl version --client && helm version
+```
+
+:::caution Helm 4 is not supported by this guide
+Helm 4 applies charts with Kubernetes server-side apply, where every field has an owner. Several charts below (OpenBao, cert-manager) have controllers that rewrite their own webhook `caBundle` at runtime under a different field manager, so any **re-run** of an install command — including the retries this guide's own troubleshooting recommends — fails with `Apply failed with 1 conflict`. Use Helm 3, or append `--server-side=false` to every `helm install`/`helm upgrade` in this guide.
+:::
+
+Verify LoadBalancer provisioning works before starting — the alternative is discovering it an hour into the install, when the first plane gateway hangs `<pending>`:
+
+```bash
+kubectl create deploy lbtest --image=nginx && kubectl expose deploy lbtest --port=80 --type=LoadBalancer
+kubectl wait --for=jsonpath='{.status.loadBalancer.ingress}' svc/lbtest --timeout=5m && echo "LoadBalancer OK"
+kubectl delete svc/lbtest deploy/lbtest
 ```
 
 ### Permissions
@@ -171,11 +183,11 @@ export OPENSEARCH_PASSWORD="$(openssl rand -base64 24)"
 | Variable | Set on | Also consumed by |
 |---|---|---|
 | `AMP_API_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager, API Platform Gateway extension (Phase 2) |
-| `AMP_SYSTEM_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager (Phase 2), OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) |
+| `AMP_SYSTEM_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Agent Manager (Phase 2), OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) |
 | `AMP_PUBLISHER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | OpenBao seed — read by evaluation workflows at runtime |
 | `AM_OBSERVER_CLIENT_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) | Observability extension (Phase 2) |
-| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) **and** OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | OpenChoreo workflow plane and observer |
-| `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD` | OpenBao seed ([Step 2](#step-2-setup-secrets-store-openbao)) | Observability Plane and logs module ([Step 8](#step-8-setup-observability-plane)) |
+| `WORKFLOW_PUBLISHER_SECRET`, `OBSERVER_READER_SECRET` | Thunder ([Step 4](#step-4-install-thunder-extension-identity-provider)) **and** OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) | OpenChoreo workflow plane and observer |
+| `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD` | OpenBao seed ([Step 2](#step-2-set-up-the-secret-stores)) | Observability Plane and logs module ([Step 8](#step-8-setup-observability-plane)) |
 
 Keep this shell session for the whole install, and store the values in your secret manager — Thunder's are frozen after [Step 4](#step-4-install-thunder-extension-identity-provider).
 
@@ -259,9 +271,25 @@ helm upgrade --install kgateway oci://cr.kgateway.dev/kgateway-dev/charts/kgatew
 Evaluating on Rancher Desktop / k3s? See the [Rancher Desktop / k3s appendix](#appendix-rancher-desktop--k3s) — Traefik must be removed before this step.
 :::
 
-### Step 2: Setup Secrets Store (OpenBao)
+### Step 2: Set Up the Secret Stores
 
-OpenBao provides secret management for the Workflow Plane and deployed agents.
+Every secret the platform stores is reached through the External Secrets Operator, so the backend behind it is a deployment choice rather than something the platform hardcodes. Each OpenChoreo plane names its own store in `secretStoreRef`, which is what lets one plane use a different backend from another.
+
+**OpenBao is required, and this guide installs it.** Agent Manager reads Git credentials for private repositories from OpenBao directly over the Vault API, not through External Secrets, so a store that does not speak that API cannot serve them. That read is what backs the repository and branch pickers in the console.
+
+**The data-plane store is yours to choose.** Deployed agents' environment variables are pushed and pulled entirely through External Secrets, so the data plane can name whichever store you prefer. Both of these are supported:
+
+- **One store for everything.** The data plane also uses `default`, so OpenBao holds every secret on the platform. This is what the rest of this guide assumes, and it is a perfectly good production answer — nothing below is required.
+- **A separate store for the data plane.** Point it at any [provider External Secrets supports](https://external-secrets.io/latest/provider/aws-secrets-manager/) — a cloud provider's secret manager, a separate Vault or OpenBao instance, or anything else in that list. See [using a different secret store for deployed agents](#using-a-different-secret-store-for-deployed-agents) below.
+
+Worth being precise about one thing: OpenBao is itself an External Secrets provider, reached through ESO's `vault` provider like any other backend. The Git-credential read described above is the *only* path on the platform that bypasses External Secrets — so "OpenBao" and "an External Secrets provider" are not alternatives, and choosing a different data-plane store changes the backend, not the mechanism.
+
+| Secrets | Stored for | Backend |
+|---|---|---|
+| Platform OAuth client secrets, OpenSearch credentials | Control, workflow and observability planes | OpenBao (seeded below) |
+| Git credentials for private repositories | Workflow plane, and read directly by Agent Manager | **OpenBao — required** |
+| Build-time secrets (registry push, workload publisher) | Workflow plane | OpenBao |
+| Deployed agents' environment variables | Data plane | OpenBao, or any External Secrets provider |
 
 <Tabs groupId="deployment-mode">
   <TabItem value="production" label="Production" default>
@@ -276,7 +304,15 @@ helm upgrade --install openbao oci://ghcr.io/openbao/charts/openbao \
   --set server.dataStorage.size=10Gi \
   --timeout 180s
 
-kubectl wait --for=condition=Ready=false pod/openbao-0 -n openbao --timeout=120s
+# A sealed OpenBao never reports Ready, and there is no pod condition that
+# means "running but sealed" — conditions are set before the container starts,
+# so waiting on one races the exec below ('container not found ("openbao")').
+# Poll bao itself: exit 2 = sealed but responding (the state we want here);
+# exit 0 = already unsealed (a re-run); anything else = not up yet.
+until kubectl exec -n openbao openbao-0 -- bao status >/dev/null 2>&1; do
+  [ $? -eq 2 ] && break
+  sleep 5
+done
 ```
 
 Initialize and unseal. **Store the unseal keys and root token in your secret manager immediately** — they are displayed once, and without them the data on that PVC is unrecoverable:
@@ -347,7 +383,9 @@ kubectl create secret generic amp-openbao-token -n ${AMP_NS} \
 ```
 
 :::danger The chart defaults to the dev-mode token
-`agentManagerService.config.openbao.token` defaults to **`root`**, which only exists in dev mode. Against a sealed OpenBao that token is rejected, and the platform installs cleanly, passes every health check, and then fails **every agent creation** with a `500` — the underlying error being an OpenBao `permission denied` surfaced as `failed to store secrets in KV`. Phase 2 must reference the Secret created above; the periodic token also needs renewing before its period lapses, or agent creation starts failing again.
+`agentManagerService.config.workflowPlaneOpenbao.token` defaults to **`root`**, which only exists in dev mode. Against a sealed OpenBao that token is rejected, and the platform installs cleanly, passes every health check, and then fails on any operation that reads a Git credential — the repository and branch pickers return an error instead of a list, so an agent cannot be created from a private repository. Phase 2 must reference the Secret created above, and the periodic token needs renewing before its period lapses or those reads start failing again.
+
+The sibling `agentManagerService.config.openbao.*` values are wired into the deployment but read by nothing; deployment secrets travel through the OpenChoreo secret API, which addresses the plane's store rather than OpenBao directly. Set them consistently anyway — they are the obvious lever to reach for, and a future release may put them back to work.
 :::
 
 :::tip Tighten the policies
@@ -375,7 +413,7 @@ Every secret is lost when the pod restarts, including on node drains: already-ru
   </TabItem>
 </Tabs>
 
-Configure the External Secrets ClusterSecretStore (identical either way):
+Configure the External Secrets ClusterSecretStore (identical either way). It must be named `default` — the build workflow templates reference that name directly, so a store under any other name leaves every build unable to read its Git and registry credentials:
 
 ```bash
 kubectl apply -f - <<'EOF'
@@ -405,6 +443,45 @@ spec:
 EOF
 ```
 
+#### Using a different secret store for deployed agents
+
+**Optional.** Skip this entire subsection if OpenBao is holding everything — that is the guide's default and needs no extra configuration.
+
+Deployed agents' environment variables are the one class of secret that never passes through the Vault API: Agent Manager hands them to the OpenChoreo secret API, which pushes them into whatever store the **data plane** names and generates the ExternalSecret that reads them back. Both halves go through External Secrets, so this plane can point at [any provider External Secrets supports](https://external-secrets.io/latest/provider/aws-secrets-manager/) — AWS Secrets Manager, GCP Secret Manager and Azure Key Vault are the common choices, but a separate Vault or OpenBao instance works the same way.
+
+The example below uses Google Cloud Secret Manager. Add a second store alongside `default`, using your provider's own authentication:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: dataplane-secrets
+spec:
+  provider:
+    # Replace with your provider's stanza — see the External Secrets provider docs.
+    gcpsm:
+      projectID: "your-project"
+      auth:
+        workloadIdentity:
+          clusterLocation: us-central1
+          clusterName: your-cluster
+          serviceAccountRef:
+            name: external-secrets
+            namespace: external-secrets
+EOF
+```
+
+Then name it on the ClusterDataPlane in [Step 6](#step-6-setup-data-plane) — `secretStoreRef.name: dataplane-secrets` in place of `default`. Leave the ClusterWorkflowPlane in [Step 7](#step-7-setup-workflow-plane) on `default`.
+
+:::warning Leave `default` pointing at OpenBao
+It is tempting to repoint `default` at the cloud provider and be done with one store. Two things break, both quietly.
+
+Agent Manager reads Git credentials over the Vault API, so private-repository builds lose the repository and branch pickers in the console — the platform stays healthy and the agent-creation form simply cannot list anything. There is no override; the read has no External Secrets path to fall back to.
+
+The platform's own seeded secrets are also read with remote keys shaped for a KV v2 store — `opensearch-password` and the OAuth client secrets are fetched with `property: value`, while `registry-push-secret` is fetched whole. Reproducing those shapes in another provider is possible but undocumented, and a mismatch surfaces as an ExternalSecret stuck in `SecretSyncedError` rather than as a clear failure.
+:::
+
 ### Step 3: Setup TLS Issuer
 
 Every gateway certificate below references one ClusterIssuer named `openchoreo-ca`. Create it from your chosen certificate authority — the rest of the guide is identical regardless of which tab you pick.
@@ -413,6 +490,12 @@ Every gateway certificate below references one ClusterIssuer named `openchoreo-c
   <TabItem value="letsencrypt" label="Let's Encrypt (DNS-01)" default>
 
 DNS-01 validation issues publicly trusted certificates (including the wildcards this guide needs) by writing a TXT record to your DNS zone — the CA never connects to your cluster. Create a credentials Secret for your DNS provider, then the issuer. The example below uses AWS Route 53; cert-manager supports [Cloudflare, Google Cloud DNS, Azure DNS, and others](https://cert-manager.io/docs/configuration/acme/dns01/) with the same structure.
+
+First confirm the zone is actually **delegated** — that the public DNS tree hands queries for it to your provider's nameservers. If it is not (a freshly created zone, or nameservers not yet changed at the registrar or parent zone), cert-manager writes its challenge records into a zone no resolver consults, and every certificate below hangs unissued with no obvious error. Query a public resolver, never the zone's own nameservers — those are authoritative the moment the zone exists, delegated or not:
+
+```bash
+dig +short NS <your-zone> @1.1.1.1   # must return your DNS provider's nameservers
+```
 
 ```bash
 kubectl create secret generic route53-credentials \
@@ -446,6 +529,10 @@ EOF
 
 :::tip
 Test with the Let's Encrypt staging server (`https://acme-staging-v02.api.letsencrypt.org/directory`) first if you expect to iterate — the production server rate-limits duplicate certificates to 5 per week.
+:::
+
+:::note Prefer ambient credentials over a static access key
+On EKS, cert-manager picks up IAM Roles for Service Accounts or Pod Identity credentials automatically — no long-lived access key in a cluster Secret. Bind a role scoped to `route53:ChangeResourceRecordSets`/`ListResourceRecordSets` on your one hosted zone (plus `route53:GetChange` and `ListHostedZonesByName`) to the cert-manager ServiceAccount, and reduce the solver to just `region` and `hostedZoneID`. See [cert-manager's Route 53 documentation](https://cert-manager.io/docs/configuration/acme/dns01/route53/) for the equivalent on other setups.
 :::
 
   </TabItem>
@@ -487,6 +574,16 @@ Thunder writes its issuer URL, the console client's redirect URIs, and every pla
 :::
 
 **Database.** Production installations use an external PostgreSQL. Thunder keeps three logical databases — `configdb`, `runtimedb`, and `userdb` — which can live on one server; create them and a role that owns all three before installing, then **load Thunder's schema into each one**. Nothing in the chart creates the tables for PostgreSQL: the init container only initialises the bundled SQLite files, so an empty database makes the pre-install hook fail.
+
+On a managed service (RDS, Cloud SQL, Azure Database) the admin user is **not a superuser**, and PostgreSQL 16+ only lets it create a database *owned by another role* if it holds membership in that role. Grant it first, or `CREATE DATABASE ... OWNER thunder` fails with `must be able to SET ROLE "thunder"`:
+
+```sql
+CREATE ROLE thunder LOGIN PASSWORD '...';
+GRANT thunder TO CURRENT_USER;  -- required on managed PostgreSQL; harmless elsewhere
+CREATE DATABASE configdb OWNER thunder;  -- likewise runtimedb, userdb
+```
+
+The same applies to the Agent Manager database role in [Phase 2](#phase-2-agent-manager-installation).
 
 <Tabs groupId="deployment-mode">
   <TabItem value="production" label="External PostgreSQL" default>
@@ -602,7 +699,7 @@ kubectl wait --for=condition=Available \
 ```
 
 :::danger Override all six client secrets
-The chart bootstraps **six** OAuth clients, and every one it is not given keeps its shipped default. `workloadPublisherClient` and `observerResourceReaderClient` are easy to miss because their secrets are also seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao) — but seeding OpenBao only tells the *consumer*; Thunder still registers the default unless the two `--set` lines above are present.
+The chart bootstraps **six** OAuth clients, and every one it is not given keeps its shipped default. `workloadPublisherClient` and `observerResourceReaderClient` are easy to miss because their secrets are also seeded into OpenBao in [Step 2](#step-2-set-up-the-secret-stores) — but seeding OpenBao only tells the *consumer*; Thunder still registers the default unless the two `--set` lines above are present.
 
 Leaving them out breaks the platform in two ways at once. The defaults stay valid, so an install that looks hardened still accepts `openchoreo-workload-publisher-secret` and `openchoreo-observer-resource-reader-client-secret`. And because the consumers read the *generated* values from OpenBao, they present a secret Thunder does not have: every agent build fails at the workload-publish step with `Failed to get access token`, from a `401 invalid_client` that never reaches the build log.
 
@@ -872,6 +969,8 @@ $(echo "$CA_CERT" | sed 's/^/        /')
 EOF
 ```
 
+`secretStoreRef` is where deployed agents' environment variables are stored. Leave it as `default` to keep them in OpenBao, or name the separate store instead if you set one up in [Step 2](#using-a-different-secret-store-for-deployed-agents).
+
 ### Step 7: Setup Workflow Plane
 
 Copy the cluster-gateway CA certificate:
@@ -937,6 +1036,8 @@ $(echo "$BP_CA_CERT" | sed 's/^/        /')
     name: default
 EOF
 ```
+
+This plane's `secretStoreRef` holds the Git credentials for private repositories and the build-time secrets, so it stays on `default` — the OpenBao-backed store. Agent Manager reads Git credentials from it over the Vault API rather than through External Secrets, which is why this one is not interchangeable.
 
 ### Step 8: Setup Observability Plane
 
@@ -1030,6 +1131,8 @@ Apply the custom OpenTelemetry Collector ConfigMap (required for trace ingestion
 kubectl apply -f https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/values/oc-collector-configmap.yaml \
   -n openchoreo-observability-plane
 ```
+
+The collector reads its OpenSearch credentials from the `opensearch-admin-credentials` Secret through environment variables the tracing module injects, so the generated password flows through without any substitution here.
 
 Create the gateway certificate, then install the Observability Plane:
 
@@ -1149,7 +1252,7 @@ Turning off `hostNetwork` instead is not a workaround — the filter then cannot
 :::
 
 :::note Sizing and the admin password
-Two values above differ from the chart defaults. `openSearch.persistence.size` raises the volume from its 8Gi default — size it to your retention needs, since this single-node instance holds every trace, log, and metric the platform stores. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` override makes OpenSearch's own admin password match the one seeded into OpenBao in [Step 2](#step-2-setup-secrets-store-openbao); without it OpenSearch keeps the chart's published default while every client authenticates with yours, and all observability queries fail. Note the capital **S** in `openSearch` — it is the subchart alias, and lowercase `opensearch.*` values are silently ignored.
+Two values above differ from the chart defaults. `openSearch.persistence.size` raises the volume from its 8Gi default — size it to your retention needs, since this single-node instance holds every trace, log, and metric the platform stores. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` override makes OpenSearch's own admin password match the one seeded into OpenBao in [Step 2](#step-2-set-up-the-secret-stores); without it OpenSearch keeps the chart's published default while every client authenticates with yours, and all observability queries fail. Note the capital **S** in `openSearch` — it is the subchart alias, and lowercase `opensearch.*` values are silently ignored.
 
 Both are storage-layer choices you can revisit later: growing the volume needs a storage class with expansion enabled, and moving to a managed OpenSearch is a reindex. See [Production Reference](#observability-storage) for the external-OpenSearch route.
 :::
@@ -1267,10 +1370,16 @@ helm upgrade amp-platform-resources oci://${HELM_CHART_REGISTRY}/wso2-amp-platfo
   --reuse-values \
   --set global.oauth.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set environment.gateway.http.host="${AGENTS_DOMAIN}" \
-  --set environment.gateway.http.port=443 \
+  --set environment.gateway.http.port=80 \
   --set environment.gateway.https.host="${AGENTS_DOMAIN}" \
   --set environment.gateway.https.port=443
 ```
+
+:::warning Both variants, each on its own port
+The Environment's gateway binding **wholly replaces** the data plane's, so a partial override silently discards what [Step 6](#step-6-setup-data-plane) wrote rather than merging with it. Set both variants, and give each the port its listener actually serves — `80` for `http`, `443` for `https`, matching the plane gateway.
+
+Putting `443` on the `http` variant is the trap: the console then publishes `http://<host>:443`, an HTTP scheme on the TLS port, and a browser refuses to call it from the HTTPS console as mixed content. Nothing in the platform reports an error, because the gateway and the agent are both fine.
+:::
 
 ### Provision Thunder Identity Provider for the Default Environment
 
@@ -1377,6 +1486,51 @@ kubectl get secret amp-thunder-default-default-admin-credentials \
 
 Safe to re-run: the system-client secret and admin password are reused, never rotated.
 
+### Point the Gateway at the Environment's Thunder
+
+The gateway extension was installed before this Environment's Thunder existed, so it has no way to validate the tokens that Thunder issues. Wire it now that the issuer is known — this registers Thunder both as a gateway key manager (JWT validation for deployed agents) and as an identity provider visible in the console:
+
+```bash
+export ENV_THUNDER_RELEASE="amp-thunder-default-default"
+export ENV_THUNDER_ISSUER="https://default-default.thunder.${BASE_DOMAIN}"
+export ENV_THUNDER_JWKS="http://${ENV_THUNDER_RELEASE}-service.${ENV_THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
+
+helm upgrade api-platform-default-default \
+  oci://${HELM_CHART_REGISTRY}/wso2-amp-api-platform-gateway-extension \
+  --version ${VERSION} \
+  --namespace ${DATA_PLANE_NS} \
+  --reuse-values \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].name=agent-manager-service" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].issuer=agent-manager-service" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].jwks.remote.uri=http://amp-api.${AMP_NS}.svc.cluster.local:9000/auth/external/jwks.json" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].jwks.remote.skipTlsVerify=true" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${ENV_THUNDER_ISSUER}" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${ENV_THUNDER_JWKS}" \
+  --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=false" \
+  --set "bootstrap.identityProviders[0].name=ThunderKeyManager" \
+  --set "bootstrap.identityProviders[0].issuer=${ENV_THUNDER_ISSUER}" \
+  --set "bootstrap.identityProviders[0].jwksUri=${ENV_THUNDER_JWKS}" \
+  --set "bootstrap.identityProviders[0].skipTlsVerify=false" \
+  --timeout 900s
+```
+
+Both key managers must be listed. Helm's `--set` on an indexed array replaces the whole list, so re-stating `keymanagers[0]` is what keeps the internal `agent-manager-service` entry that API-key authentication relies on.
+
+:::warning Without this, agents cannot accept OAuth tokens
+Skipping this step leaves the gateway with only its internal key manager. Agents still work with API keys, so the platform looks complete — but no agent endpoint can validate a Thunder-issued OAuth token, and the console's gateway page shows *No identity providers configured* with nothing to explain why.
+:::
+
+:::note The controller restarts, and its volume is single-attach
+This upgrade rolls the gateway controller. Its data volume is `ReadWriteOnce`, so on a multi-node cluster the replacement pod may be scheduled to a different node and block with `Multi-Attach error for volume`, leaving the `APIGateway` at `Programmed=False` indefinitely. Delete the old controller pod to release the volume; the new one then starts and the gateway returns to `Ready`.
+
+```bash
+kubectl get pods -n ${DATA_PLANE_NS} | grep gateway-controller
+# If two are listed and one is stuck ContainerCreating, delete the older Running pod
+kubectl delete pod <old-gateway-controller-pod> -n ${DATA_PLANE_NS}
+```
+:::
+
 ---
 
 ## Verify and Access the Platform
@@ -1463,7 +1617,7 @@ Work down this table against an existing install. The **When** column matters: t
 | Thunder platform client secrets are not the shipped defaults | [Step 4](#step-4-install-thunder-extension-identity-provider) | Install only |
 | Thunder issuer and console redirect URIs are the final hostnames | [Step 4](#step-4-install-thunder-extension-identity-provider) | Install only |
 | Agent Manager on external PostgreSQL | [Phase 2](#phase-2-agent-manager-installation) | Install (migration afterwards) |
-| OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-setup-secrets-store-openbao) | Any time — re-seeding required |
+| OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-set-up-the-secret-stores) | Any time — re-seeding required |
 | OpenSearch volume sized to retention, admin password matches OpenBao | [Step 8](#step-8-setup-observability-plane) | Any time |
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
 | Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
@@ -1603,16 +1757,44 @@ AI gateways can also run **outside** the cluster (for example, close to a privat
 
 Agent builds run as Argo workflows in the Workflow Plane, and build pods have **no built-in resource ceiling** — a burst of builds can starve the platform and agent workloads on a shared node. Two mitigations, in order of preference:
 
-1. **Dedicated build nodes** — run the workflow plane's build workloads on a separate node pool so build spikes cannot affect serving workloads. Remember the build-node kernel requirement (Linux 6.3+ for user-namespaced builds, see [Prerequisites](#cluster-requirements)).
-2. **Namespace ResourceQuota** — cap total build resource consumption in the workflow-plane namespace:
+1. **Dedicated build nodes** — run the workflow plane's build workloads on a separate node pool so build spikes cannot affect serving workloads. Remember the build-node kernel requirement (Linux 6.3+ for user-namespaced builds, see [Prerequisites](#cluster-requirements)). This is the preferred mitigation: it needs no per-pod resource declarations and cannot reject a build.
+
+2. **Namespace ResourceQuota plus a LimitRange** — cap total build resource consumption. Both objects go in the namespace where builds actually run, which is **`workflows-<environment>`** (`workflows-default` for the default environment), not the workflow-plane namespace — that one holds the Argo controller and cluster agent, not the build pods.
+
+   The `LimitRange` is not optional, and it has to come before the quota. Build pods declare no requests or limits of their own, and a ResourceQuota that tracks `requests.*`/`limits.*` **rejects** every pod that omits them. Applying the quota alone fails each build within seconds at its first step with `must specify limits.cpu for: init,main,wait` — a hard failure, not a queued build. Note all three containers in that message: `main` is the build step, while `init` and `wait` are injected by Argo, so a `LimitRange` is what covers them all from one object you control.
+
+   **Measure before you set these.** The values below are placeholders, not recommendations — the right numbers depend on what your agents build. Run one build with the `LimitRange` absent and watch what a step actually uses:
+
+```bash
+# While a build is running, in another shell:
+kubectl top pod -n workflows-default --containers
+```
+
+   Set `defaultRequest` near the steady-state usage you observe and `default` (the limit) above the peak, with headroom. Then apply both objects:
 
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: v1
+kind: LimitRange
+metadata:
+  name: build-workload-defaults
+  namespace: workflows-default
+spec:
+  limits:
+    - type: Container
+      # Replace with your measured values.
+      defaultRequest:
+        cpu: 500m
+        memory: 1Gi
+      default:
+        cpu: "2"
+        memory: 4Gi
+---
+apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: build-workloads
-  namespace: openchoreo-workflow-plane
+  namespace: workflows-default
 spec:
   hard:
     requests.cpu: "8"
@@ -1622,7 +1804,15 @@ spec:
 EOF
 ```
 
-Size the quota to your expected build concurrency; builds beyond the quota queue rather than fail.
+Size the quota to your expected build concurrency: the quota divided by the per-container defaults is what decides how many build steps run at once. With the defaults in place, builds beyond that cap stay Pending until capacity frees up instead of failing.
+
+:::warning Defaults set too low fail builds in a way that looks unrelated
+A memory limit under what a build needs gets the step OOMKilled, and a low CPU limit throttles it into a timeout. Either reads as a broken build rather than a resource cap, and the build log rarely says which. If builds start failing after you apply these, raise the limits before looking anywhere else — and prefer generous limits with a smaller quota, since the quota is what actually bounds total consumption.
+:::
+
+:::note The namespace appears when the environment first runs a workflow
+`workflows-<environment>` is created by OpenChoreo the first time a workflow runs there, so apply these after the first successful build rather than during the install. Repeat them for each environment you add.
+:::
 
 ### High Availability and Scaling
 

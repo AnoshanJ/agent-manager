@@ -23,7 +23,7 @@ The Agent Manager installs as a set of Helm charts on top of OpenChoreo. The com
 2. **Extensions :** Secret Management, Observability, Evaluation extensions and the API Platform Gateway Extension.
 
 :::info Prerequisites
-Thunder (identity provider) must be installed before proceeding — see the Thunder installation step in Phase 1. The variables `THUNDER_PUBLIC_URL`, `THUNDER_INTERNAL_URL`, `CONSOLE_PUBLIC_URL`, `API_PUBLIC_URL`, `OBS_API_PUBLIC_URL`, `CONSOLE_PUBLIC_HOST`, `API_PUBLIC_HOST`, `OBS_API_PUBLIC_HOST`, and `INSTRUMENTATION_URL` must be set from the Configuration Variables section. The `*_PUBLIC_HOST` variables carry the bare hostname (no scheme or port) and become the HTTPRoute hostnames on the plane gateways.
+Thunder (identity provider) must be installed before proceeding — see the Thunder installation step in Phase 1. The variables `THUNDER_PUBLIC_URL`, `THUNDER_INTERNAL_URL`, `CONSOLE_PUBLIC_URL`, `API_PUBLIC_URL`, `OBS_API_PUBLIC_URL`, `CONSOLE_PUBLIC_HOST`, `API_PUBLIC_HOST`, `OBS_API_PUBLIC_HOST`, and `INSTRUMENTATION_URL` must be set from the Configuration Variables section. The production steps below additionally use `AGENTS_DOMAIN` — the domain deployed agents are served on, `agents.<your base domain>` — to build the gateway's hostname and virtual host. The `*_PUBLIC_HOST` variables carry the bare hostname (no scheme or port) and become the HTTPRoute hostnames on the plane gateways.
 :::
 
 ---
@@ -219,6 +219,7 @@ helm install amp \
   --set agentManagerService.config.oidc.clientSecret="${AMP_API_CLIENT_SECRET}" \
   --set agentManagerService.config.thunder.clientSecret="${AMP_SYSTEM_CLIENT_SECRET}" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
+  --set agentManagerService.config.tlsEnabled=true \
   --set agentManagerService.replicaCount=2 \
   --set agentManagerService.autoscaling.minReplicas=2 \
   --set console.replicaCount=2 \
@@ -250,10 +251,18 @@ kubectl wait --for=condition=Available \
 
 `agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
 
+:::warning `tlsEnabled` decides which agent invoke URL the console publishes
+`agentManagerService.config.tlsEnabled` defaults to `false`, and it is what selects between an Environment's `http` and `https` endpoint variants when the API builds an agent's invoke URL. Left at the default on an HTTPS platform, the console publishes an `http://` URL — which the browser then refuses to call from an HTTPS page, showing the request as `blocked:mixed-content` with no error anywhere in the platform. The agent itself is healthy and reachable; only the published URL is wrong.
+:::
+
 :::warning Two values that look redundant but are not
 `agentManagerService.autoscaling.minReplicas=2` is what actually gives the API two replicas. Autoscaling is **on by default** for this component with `minReplicas: 1`, so the HPA takes ownership of the replica count and scales `replicaCount=2` straight back down to one — silently, within seconds. The console has autoscaling off by default, which is why `replicaCount` alone appears to work there.
 
-The two `openbao.existingSecret` values point at the Secret minted in [Step 2](#step-2-setup-secrets-store-openbao). Without them the chart falls back to the dev-mode token `root`, which a sealed OpenBao rejects, and **every agent creation fails** with a `500` while the platform otherwise looks healthy.
+{/* No step link below on purpose: this partial is shared between installation paths
+whose step numbering differs (secret stores are Step 2 on one page, Step 4 on the
+other), so a step anchor here resolves on one page and dangles on the other. */}
+
+The two `openbao.existingSecret` values point at the Secret minted when you set up the secret stores. Without them the chart falls back to the dev-mode token `root`, which a sealed OpenBao rejects. `workflowPlaneOpenbao` is the one that bites: it is what Agent Manager uses to read Git credentials, so the repository and branch pickers fail and no agent can be created from a private repository, while the platform otherwise looks healthy.
 :::
 
 :::warning Require TLS on the database connection
@@ -341,6 +350,7 @@ helm install amp-platform-resources \
   oci://${HELM_CHART_REGISTRY}/wso2-amp-platform-resources-extension \
   --version ${VERSION} \
   --namespace ${DEFAULT_NS} \
+  --set apiPlatformGateway.namespace=${DATA_PLANE_NS} \
   --timeout 1800s
 ```
 
@@ -357,6 +367,7 @@ helm install amp-platform-resources \
   --set global.oauth.hostHeader="amp-thunder-extension-service.${THUNDER_NS}.svc.cluster.local" \
   --set global.apiServer.url="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --set global.apiServer.hostHeader="openchoreo-api.openchoreo-control-plane.svc.cluster.local" \
+  --set apiPlatformGateway.namespace=${DATA_PLANE_NS} \
   --timeout 1800s
 ```
 
@@ -367,6 +378,14 @@ Nothing earlier in the install touches these values, so a platform that installs
 :::
 
 </Prod>
+
+:::warning Point the traits at the namespace the gateway is actually in
+Deployed agents reach the gateway runtime by DNS name, and both the trace-export endpoint and the route agent traffic is forwarded through are built from `apiPlatformGateway.namespace`. Leaving it empty derives the per-org-env convention `<org>-<env>`, which is what `add-environment.sh` creates — but [Step 7](#step-7-api-platform-gateway-extension) installs the gateway extension into `${DATA_PLANE_NS}`, matching that chart's own `apiGateway.namespace` default. Set this to the same namespace, as above.
+
+Get it wrong and nothing reports an error. The agent starts and serves requests while every span batch fails inside it with `Failed to resolve '…-gw-gateway-gateway-runtime.default-default' ([Errno -2] Name or service not known)`, so the Traces view stays empty; and the backend agent routes forward to has no reachable host, so invocation never reaches the gateway. The only evidence is a `Transient error` warning in the agent's own log.
+
+If you install the gateway extension into `<org>-<env>` instead, leave this unset.
+:::
 
 export const RegistryConfig = ({expanded}) => {
   const content = (
@@ -407,6 +426,15 @@ helm install amp-platform-resources \\
 };
 
 <RegistryConfig expanded={props.expandRegistryConfig} />
+
+:::warning Not every registry can back build workflows
+Two properties are required, and the failure surfaces only on the first agent build, long after the platform installs and verifies cleanly:
+
+- **Push-to-create.** Each build pushes its image as `<workflow-run-name>-image` — a repository name that is different on every run, so repositories cannot be pre-created. The registry must create them on push. **Amazon ECR does not** and fails every build with `repository ... not found`; the same applies to any registry that requires repositories to be provisioned first.
+- **Static credentials.** The push step reads a fixed `.dockerconfigjson` from the `registry-push-secret` Secret (or pushes unauthenticated if it is absent). Registries whose credentials expire — ECR again, with its 12-hour tokens — cannot be refreshed by anything in the build pipeline.
+
+[CNCF Distribution](https://distribution.github.io/distribution/), Harbor (with a project set to auto-create), and GitLab's registry satisfy both. If you have no registry yet, running Distribution in-cluster behind an internal LoadBalancer with a cert-manager certificate is a few resources — but it ships with **no authentication**; put htpasswd in front of it before it carries anything real.
+:::
 
 ---
 
@@ -525,12 +553,20 @@ helm install api-platform-default-default \
   --set gateway.environment=default \
   --set gateway.type=BOTH \
   --set developmentMode=false \
+  --set gateway.vhost="https://default-default.${AGENTS_DOMAIN}" \
+  --set gateway.hostname="default-default.${AGENTS_DOMAIN}" \
   --set agentManager.idp.existingSecret=gateway-idp-credentials \
   --timeout 1800s
 
 kubectl wait --for=condition=complete job/api-platform-default-default-bootstrap \
   -n ${DATA_PLANE_NS} --timeout=300s
 ```
+
+:::warning Set the vhost now — it cannot be changed later
+`gateway.vhost` and `gateway.hostname` default to the local k3d addresses (`http://default-default.gateway.localhost:19080`). The bootstrap job writes them into Agent Manager at **first registration only**: on every later run it finds the gateway already present, logs `already exists`, and exits without reconciling the record. A `helm upgrade` with corrected values changes nothing, and there is no error to notice — the console simply keeps showing the `.localhost:19080` virtual host, which is what an operator would copy when wiring an external caller.
+
+Correcting it after the fact means deleting the gateway registration and re-registering, so get these right on the first install.
+:::
 
 `gateway.type=BOTH` registers this gateway to serve both inbound and outbound traffic, which is what a single-gateway environment needs. It matches the chart default and is set explicitly here because the role is written once at registration and never rewritten — see [Gateway roles and topology](#gateway-roles-and-topology) for the split alternative and its constraints.
 

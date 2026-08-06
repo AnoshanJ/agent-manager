@@ -86,7 +86,7 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
       <OverviewSectionCard
         title="Agent ID"
         actionHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
-        sx={{ mb: 1.5, maxWidth: { md: 460 } }}
+        sx={{ height: "100%" }}
       >
         <Box display="flex" gap={2} alignItems="center">
           <Avatar
@@ -107,7 +107,12 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
                 <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
                   Agent ID:
                 </Typography>
-                <Typography variant="body2" fontWeight={600} noWrap sx={{ fontFamily: "monospace" }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ fontFamily: "monospace" }}
+                >
                   {thunderAgentId}
                 </Typography>
                 <Tooltip title={copied ? "Copied" : "Copy Agent ID"}>

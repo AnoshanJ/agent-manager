@@ -80,6 +80,7 @@ type apiKeyServiceFixture struct {
 	upsertedKeys *[]*models.StoredAPIKey
 	lookedUpName *string
 	connChecker  *stubConnChecker
+	gateway      *models.Gateway
 }
 
 // newAPIKeyServiceFixture wires an AgentAPIKeyService whose artifact/env/gateway
@@ -130,6 +131,7 @@ func newAPIKeyServiceFixture(t *testing.T, existing *models.StoredAPIKey) *apiKe
 		upsertedKeys: upserted,
 		lookedUpName: lookedUp,
 		connChecker:  connChecker,
+		gateway:      gateway,
 	}
 }
 
@@ -199,11 +201,29 @@ func TestAgentAPIKeyService_IssueTestAPIKey_PerUser(t *testing.T) {
 		require.NotNil(t, resp.GatewayConnected)
 		assert.True(t, *resp.GatewayConnected)
 
+		// Only when both the local registry and is_active say otherwise is the
+		// gateway reported disconnected.
 		fx.connChecker.connected = false
+		fx.gateway.IsActive = false
 		resp, err = fx.svc.IssueTestAPIKey(context.Background(), org, proj, agent, env, "user-a-sub")
 		require.NoError(t, err)
 		require.NotNil(t, resp.GatewayConnected)
 		assert.False(t, *resp.GatewayConnected)
+	})
+
+	t.Run("falls back to is_active when this replica does not hold the websocket", func(t *testing.T) {
+		// A gateway holds its websocket with exactly one replica, so a replica
+		// without the socket sees an empty local registry for a live gateway.
+		// Reporting disconnected there is a false negative that the console acts
+		// on, so is_active — written by the holding replica — decides instead.
+		fx := newAPIKeyServiceFixture(t, nil)
+		fx.connChecker.connected = false
+		fx.gateway.IsActive = true
+
+		resp, err := fx.svc.IssueTestAPIKey(context.Background(), org, proj, agent, env, "user-a-sub")
+		require.NoError(t, err)
+		require.NotNil(t, resp.GatewayConnected)
+		assert.True(t, *resp.GatewayConnected)
 	})
 
 	t.Run("rejects reissue when the existing row is not a test key", func(t *testing.T) {
@@ -273,6 +293,7 @@ func TestAgentAPIKeyService_CreateAPIKey_ReservedTestKeyPrefix(t *testing.T) {
 	t.Run("reports gateway websocket connectivity in the response", func(t *testing.T) {
 		fx := newAPIKeyServiceFixture(t, nil)
 		fx.connChecker.connected = false
+		fx.gateway.IsActive = false
 
 		resp, err := fx.svc.CreateAPIKey(context.Background(), org, proj, agent, env,
 			&models.CreateAPIKeyRequest{Name: "my-key"})
@@ -280,5 +301,18 @@ func TestAgentAPIKeyService_CreateAPIKey_ReservedTestKeyPrefix(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.GatewayConnected)
 		assert.False(t, *resp.GatewayConnected)
+	})
+
+	t.Run("falls back to is_active when this replica does not hold the websocket", func(t *testing.T) {
+		fx := newAPIKeyServiceFixture(t, nil)
+		fx.connChecker.connected = false
+		fx.gateway.IsActive = true
+
+		resp, err := fx.svc.CreateAPIKey(context.Background(), org, proj, agent, env,
+			&models.CreateAPIKeyRequest{Name: "my-key"})
+
+		require.NoError(t, err)
+		require.NotNil(t, resp.GatewayConnected)
+		assert.True(t, *resp.GatewayConnected)
 	})
 }

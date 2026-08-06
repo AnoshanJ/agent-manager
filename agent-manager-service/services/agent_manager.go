@@ -845,32 +845,22 @@ func (s *agentManagerService) storeAgentAPIKey(ctx context.Context, ouID, projec
 		return "", "", fmt.Errorf("failed to store agent API key in secret store: %w", err)
 	}
 
-	key, property, err = s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, envName)
-	if err != nil {
-		return "", "", err
-	}
-	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
-		"secretRefName", secretRefName, "remoteKey", key)
-	return key, property, nil
-}
-
-// resolveAgentAPIKeySecretRef returns the remote KV key/property of an environment's agent API key
-// WITHOUT minting or storing anything — it derives the deterministic SecretReference name from the
-// location and reads the existing reference. Used by the deploy-settings rebuild to re-attach the
-// per-env secret ref that would otherwise be dropped when trait configs are replaced.
-func (s *agentManagerService) resolveAgentAPIKeySecretRef(ctx context.Context, ouID, projectName, agentName, envName string) (key string, property string, err error) {
-	location := agentAPIKeySecretLocation(ouID, projectName, agentName, envName)
-	secretRefName := location.SecretRefName()
 	secretRef, err := s.ocClient.GetSecretReference(ctx, ouID, secretRefName)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to resolve agent API key secret reference %q: %w", secretRefName, err)
 	}
 	for _, ds := range secretRef.Data {
 		if ds.SecretKey == secretmanagersvc.SecretKeyAPIKey {
-			return ds.RemoteRef.Key, ds.RemoteRef.Property, nil
+			key, property = ds.RemoteRef.Key, ds.RemoteRef.Property
+			break
 		}
 	}
-	return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+	if key == "" {
+		return "", "", fmt.Errorf("agent API key secret reference %q has no %q data source", secretRefName, secretmanagersvc.SecretKeyAPIKey)
+	}
+	s.logger.Debug("Stored agent API key in secret store", "agentName", agentName, "environment", envName,
+		"secretRefName", secretRefName, "remoteKey", key)
+	return key, property, nil
 }
 
 // injectAgentAPIKeySecretRef adds the env-injection trait's per-environment agentApiKeySecretRef
@@ -1168,9 +1158,21 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 		if req.Configurations != nil {
 			envVars = req.Configurations.Env
 		}
+		if err := RejectDuplicateEnvKeys(envVars); err != nil {
+			return err
+		}
 		if err := ValidateKindConfigValues(kindVersion.ConfigSchema, envVars); err != nil {
 			return err
 		}
+		// The kind's own config schema carries the authoritative default for each
+		// parameter, including secret ones, which a client is never shown once set.
+		// Applying it here — rather than expecting the client to send it back — is
+		// what lets someone accept a kind's defaults without retyping them.
+		envVars = ApplySecretConfigDefaults(kindVersion.ConfigSchema, envVars)
+		if req.Configurations == nil {
+			req.Configurations = &spec.Configurations{}
+		}
+		req.Configurations.Env = envVars
 		if kindVersion.ImageId == "" {
 			return fmt.Errorf("kind version %q has no stored image; re-publish the kind from a successfully built agent", req.Provisioning.AgentKind.Version)
 		}
@@ -1305,6 +1307,14 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				ev.SetValue(f.GetValue())
 				ev.SetIsSensitive(true)
 				allSecretVars = append(allSecretVars, ev)
+			}
+		}
+		// A sensitive var with neither a value nor a secretRef would otherwise be
+		// silently persisted as an empty secret (e.g. if a kind-declared secret's
+		// default backfill above ever has a gap). Fail loudly instead.
+		for _, env := range allSecretVars {
+			if env.GetIsSensitive() && env.GetValue() == "" && !env.HasSecretRef() {
+				return fmt.Errorf("%w: sensitive environment variable %q requires either a value or secretRef", utils.ErrInvalidInput, env.Key)
 			}
 		}
 		secretReference, err = s.saveSecretsAndCreateReference(ctx, secretLocation, allSecretVars)
@@ -4043,17 +4053,6 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 		return resolveErr
 	}
 	traitEnvConfigs := buildTraitEnvConfigs(agentName, policies, artifact.UUID.String(), resilienceTimeoutSeconds, isPythonBuildpack, isBallerinaBuildpack, tracingCfg.EnableAutoInstrumentation, instrumentationImage)
-
-	// Re-attach the per-env agent API key secret ref. buildTraitEnvConfigs omits it and the update
-	// below REPLACES the binding's trait configs, so without this a non-lowest env falls back to the
-	// base (lowest env's) ref and never sees its own key — including after a regenerate. Resolving is
-	// read-only (no new key minted); it heals bindings whose ref was previously dropped.
-	if apiKeySecretRef, apiKeySecretProperty, resolveErr := s.resolveAgentAPIKeySecretRef(ctx, ouID, projectName, agentName, req.EnvironmentName); resolveErr != nil {
-		s.logger.Warn("Failed to resolve agent API key secret ref for deploy settings; env-injection trait will fall back to the base ref",
-			"agentName", agentName, "environment", req.EnvironmentName, "error", resolveErr)
-	} else {
-		injectAgentAPIKeySecretRef(traitEnvConfigs, agentName, apiKeySecretRef, apiKeySecretProperty)
-	}
 
 	// Apply to the release binding (atomic: trait configs + component-type configs + restartedAt in a single update).
 	settingsCTConfigs := buildComponentTypeEnvConfigs(targetEnv)

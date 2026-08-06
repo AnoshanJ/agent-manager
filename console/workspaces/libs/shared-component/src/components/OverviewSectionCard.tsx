@@ -16,7 +16,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Box, Button, Card, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
+import { Box, Button, Card, Divider, Typography, type SxProps, type Theme } from "@wso2/oxygen-ui";
 import { ChevronRight } from "@wso2/oxygen-ui-icons-react";
 import { Link } from "react-router-dom";
 
@@ -26,6 +26,8 @@ interface OverviewSectionCardProps {
   /** Omit when there's nowhere to link out to — the action button is skipped entirely. */
   actionHref?: string;
   actionLabel?: string;
+  /** Extra action rendered in the header row, to the left of the actionHref button. */
+  headerAction?: ReactNode;
   /**
    * "card" (default) wraps the content in an outlined Card; "plain" keeps the
    * same header row but wraps the content in a bare Box — no border/padding
@@ -44,7 +46,7 @@ interface OverviewSectionCardProps {
  * variant="plain" to drop the card chrome and render into a plain Box instead.
  */
 export const OverviewSectionCard: React.FC<OverviewSectionCardProps> = ({
-  title, actionHref, actionLabel = "View all", variant = "card", sx, children,
+  title, actionHref, actionLabel = "View all", headerAction, variant = "card", sx, children,
 }) => {
   const content = (
     <>
@@ -57,18 +59,24 @@ export const OverviewSectionCard: React.FC<OverviewSectionCardProps> = ({
         >
           {title}
         </Typography>
-        {actionHref && (
-          <Button
-            size="small"
-            variant="text"
-            endIcon={<ChevronRight size={14} />}
-            component={Link}
-            to={actionHref}
-            sx={{ minWidth: 0, fontSize: "0.75rem" }}
-          >
-            {actionLabel}
-          </Button>
-        )}
+        <Box display="flex" alignItems="center" gap={0.5}>
+          {headerAction}
+          {headerAction && actionHref && (
+            <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
+          )}
+          {actionHref && (
+            <Button
+              size="small"
+              variant="text"
+              endIcon={<ChevronRight size={14} />}
+              component={Link}
+              to={actionHref}
+              sx={{ minWidth: 0, fontSize: "0.75rem" }}
+            >
+              {actionLabel}
+            </Button>
+          )}
+        </Box>
       </Box>
       {children}
     </>

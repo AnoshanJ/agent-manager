@@ -33,9 +33,9 @@ export type PageHeaderVariant = 'plain' | 'card';
 // Hoisted so this header — which every page renders, and which re-renders with
 // whatever page state sits above it — doesn't hand emotion new style objects to
 // serialize on each pass.
-const PLAIN_TITLE_SX = { mb: 4 } as const;
+const PLAIN_TITLE_SX = { mb: 2 } as const;
 const CARD_TITLE_SX = { mb: 0, flex: 1, minWidth: 0 } as const;
-const CARD_WRAPPER_SX = { mb: 4, display: 'flex', flexDirection: 'column', gap: 1 } as const;
+const CARD_WRAPPER_SX = { mb: 2, display: 'flex', flexDirection: 'column', gap: 1 } as const;
 const CARD_SX = { p: 2.5 } as const;
 const CARD_ROW_SX = { display: 'flex', alignItems: 'flex-start', gap: 2 } as const;
 const CARD_ACTIONS_SX = { display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 } as const;

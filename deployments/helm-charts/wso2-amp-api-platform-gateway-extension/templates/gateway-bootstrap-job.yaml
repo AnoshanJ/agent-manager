@@ -251,6 +251,22 @@ spec:
                 return 0
               }
 
+              warn_vhost_drift() {
+                # _vh_ prefix: POSIX sh has no portable `local`, so these leak as globals.
+                _vh_want="$1"; _vh_have="$2"
+                if [ -z "${_vh_want}" ] || [ "${_vh_want}" = "${_vh_have}" ]; then
+                  return 0
+                fi
+                # Unlike runtimeUrl there is no PUT for vhost: it is not part of the
+                # gateway update API, so registration is the only chance to set it and a
+                # supplied value that differs is silently discarded. Say so, rather than
+                # leaving the operator to notice the console still shows the old host.
+                log_info "WARNING: gateway.vhost is '${_vh_want}' but this gateway is registered with '${_vh_have}'."
+                log_info "WARNING: vhost is written at first registration only and cannot be updated, so the registered value stays in effect."
+                log_info "WARNING: Applying it means deleting this gateway registration and re-registering."
+                return 0
+              }
+
               # ----------------------------------------------------------------
               # Step 1: Wait for Agent Manager API to be healthy
               # ----------------------------------------------------------------
@@ -327,6 +343,13 @@ spec:
                   grep -o '"name":"'"${GATEWAY_NAME}"'"[^}]*"runtimeUrl":"[^"]*"' | \
                   grep -o '"runtimeUrl":"[^"]*"' | cut -d'"' -f4 | head -1)
                 sync_runtime_url "${GATEWAY_RUNTIME_URL}" "${REGISTERED_RUNTIME_URL}"
+
+                # Same window reasoning as runtimeUrl above: vhost sorts after name and
+                # everything between them is scalar.
+                REGISTERED_VHOST=$(echo "${LIST_RESPONSE}" | \
+                  grep -o '"name":"'"${GATEWAY_NAME}"'"[^}]*"vhost":"[^"]*"' | \
+                  grep -o '"vhost":"[^"]*"' | cut -d'"' -f4 | head -1)
+                warn_vhost_drift "${GATEWAY_VHOST}" "${REGISTERED_VHOST}"
               else
                 # ----------------------------------------------------------------
                 # Step 4: Find the environment by name
@@ -393,6 +416,22 @@ spec:
               EXISTING_TOKEN=$(kubectl get secret "${TOKEN_SECRET_NAME}" \
                 --namespace="${TOKEN_SECRET_NAMESPACE}" \
                 -o jsonpath="{.data.${TOKEN_SECRET_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+
+              # The Secret is created with kubectl below, so Helm does not own it and
+              # `helm uninstall` leaves it behind. Reusing it unconditionally would then
+              # hand the controller a credential the control plane has no record of —
+              # which is what happens on a reinstall after the gateway's tokens are gone,
+              # and it authenticates nowhere while looking correctly configured. Only
+              # reuse the Secret when this gateway still has at least one token.
+              if [ -n "${EXISTING_TOKEN}" ]; then
+                TOKEN_LIST=$(http_get \
+                  "${AMP_API_URL}/orgs/${ORG_NAME}/gateways/${GATEWAY_ID}/tokens" \
+                  "${ACCESS_TOKEN}" || true)
+                if ! echo "${TOKEN_LIST}" | grep -q '"id"'; then
+                  log_info "Token Secret '${TOKEN_SECRET_NAME}' exists but gateway '${GATEWAY_ID}' has no registered tokens — minting a new one."
+                  EXISTING_TOKEN=""
+                fi
+              fi
 
               if [ -n "${EXISTING_TOKEN}" ]; then
                 log_info "Token Secret '${TOKEN_SECRET_NAME}' already exists — skipping token rotation."
