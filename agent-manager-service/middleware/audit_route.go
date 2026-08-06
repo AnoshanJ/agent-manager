@@ -62,6 +62,12 @@ func WithAudit(recorder audit.Recorder, meta audit.RouteMeta) func(http.HandlerF
 				Method:       meta.Method,
 				Pattern:      meta.Path,
 				RBACEnforced: rbacEnabled,
+				// Carried on the source so semantic emits inherit it. They know
+				// what they changed but not which permission gated the route,
+				// and "rbacEnforced: false" without it says a check was skipped
+				// without saying which — on exactly the credential and privilege
+				// operations where that is worth knowing.
+				RequiredPermission: audit.ScopesOf(meta.Perms),
 			})
 			ctx, scope := audit.NewRequestScope(ctx)
 

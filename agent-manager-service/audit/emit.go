@@ -171,6 +171,7 @@ func newEvent(ctx context.Context, action Action) Event {
 		e.RequestMethod = src.Method
 		e.RequestPath = src.Pattern
 		e.RBACEnforced = src.RBACEnforced
+		e.RequiredPermission = src.RequiredPermission
 		if src.ActorType != "" {
 			e.ActorType = src.ActorType
 		}
@@ -320,18 +321,28 @@ func Denied(perm rbac.Permission) Option {
 // when the check was skipped, so a record shows what would have applied.
 func RequiredPermissions(perms ...rbac.Permission) Option {
 	return func(e *Event) {
-		switch len(perms) {
-		case 0:
-			return
-		case 1:
-			e.RequiredPermission = perms[0].Scope()
-		default:
-			scopes := make([]string, 0, len(perms))
-			for _, p := range perms {
-				scopes = append(scopes, p.Scope())
-			}
-			e.RequiredPermission = joinScopes(scopes)
+		if scope := ScopesOf(perms); scope != "" {
+			e.RequiredPermission = scope
 		}
+	}
+}
+
+// ScopesOf renders the permissions gating a route as they are recorded: one
+// scope, or several space-separated. Exported so the middleware can put the
+// same string on the audit source, which is how a semantic emit — which knows
+// what it changed but not which permission gated it — comes to carry one.
+func ScopesOf(perms []rbac.Permission) string {
+	switch len(perms) {
+	case 0:
+		return ""
+	case 1:
+		return perms[0].Scope()
+	default:
+		scopes := make([]string, 0, len(perms))
+		for _, p := range perms {
+			scopes = append(scopes, p.Scope())
+		}
+		return joinScopes(scopes)
 	}
 }
 

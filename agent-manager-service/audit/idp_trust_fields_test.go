@@ -19,6 +19,8 @@ package audit
 import (
 	"context"
 	"testing"
+
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 )
 
 // TestIdentityProviderTrustInputsAreRecorded pins the fields that decide which
@@ -114,5 +116,59 @@ func TestJWTActorIsNotClobberedByAnEmptyScope(t *testing.T) {
 	e := BuildEvent(ctx, ActionAPIKeySync)
 	if e.ActorID != "alice@example.com" || e.ActorType != ActorUser {
 		t.Errorf("actor = %q/%q; an unused scope must not clear it", e.ActorType, e.ActorID)
+	}
+}
+
+// TestSemanticRecordsCarryTheGatingPermission is the regression for half a
+// claim.
+//
+// The design says every record carries rbacEnforced "alongside the
+// requiredPermission that would have applied". The coverage tier passed the
+// permission explicitly, but a semantic emit does not know its route, so those
+// records carried rbacEnforced:false and no permission at all.
+//
+// Found by running with RBAC_ENABLED=false: a git-secret:create that would have
+// been refused recorded that no check happened, without saying which check —
+// and semantic records are exactly the severity-4 credential and privilege
+// operations where that matters most.
+func TestSemanticRecordsCarryTheGatingPermission(t *testing.T) {
+	ctx := WithSource(context.Background(), Source{
+		Surface:            SurfaceAPI,
+		Pattern:            "/orgs/{orgName}/git-secrets",
+		Method:             "POST",
+		RBACEnforced:       false,
+		RequiredPermission: "amp:git-secret:create",
+	})
+	ctx, _ = NewRequestScope(ctx)
+
+	e := BuildEvent(ctx, ActionGitSecretCreate)
+	if e.RequiredPermission != "amp:git-secret:create" {
+		t.Errorf("RequiredPermission = %q; a semantic record must say which check "+
+			"would have applied, especially when rbacEnforced is false", e.RequiredPermission)
+	}
+	if e.RBACEnforced {
+		t.Error("RBACEnforced should have come from the source")
+	}
+}
+
+// TestScopesOfRendersPermissionsAsRecorded pins the shared rendering, since the
+// middleware and the option must produce the same string for the same route.
+func TestScopesOfRendersPermissionsAsRecorded(t *testing.T) {
+	if got := ScopesOf(nil); got != "" {
+		t.Errorf("ScopesOf(nil) = %q, want empty", got)
+	}
+	one := ScopesOf([]rbac.Permission{rbac.GitSecretCreate})
+	if one != rbac.GitSecretCreate.Scope() {
+		t.Errorf("ScopesOf(one) = %q, want %q", one, rbac.GitSecretCreate.Scope())
+	}
+
+	many := []rbac.Permission{rbac.GitSecretCreate, rbac.GitSecretDelete}
+	viaHelper := ScopesOf(many)
+	viaOption := Event{}
+	RequiredPermissions(many...)(&viaOption)
+	if viaHelper != viaOption.RequiredPermission {
+		t.Errorf("helper %q and option %q disagree; the same route would record "+
+			"two different strings depending on which tier wrote it",
+			viaHelper, viaOption.RequiredPermission)
 	}
 }

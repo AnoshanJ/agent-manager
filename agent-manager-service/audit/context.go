@@ -41,6 +41,12 @@ type Source struct {
 	AuthMethod string
 	// RBACEnforced is false when authorization checks were skipped.
 	RBACEnforced bool
+	// RequiredPermission is the scope gating this route, carried alongside
+	// RBACEnforced because the pair is only meaningful together: "no check
+	// happened" is half an answer without "and this is the check that would
+	// have run". The coverage tier passes it explicitly, but a semantic emit
+	// does not know its route, so it reaches those records through here.
+	RequiredPermission string
 }
 
 type (
