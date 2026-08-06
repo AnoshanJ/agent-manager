@@ -126,7 +126,7 @@ func (c *gatewayInternalController) authenticateGateway(
 	// Name the caller now that it is known. The coverage envelope is emitted
 	// after the handler returns and coalesces per caller; until this point the
 	// request carries only an address, which cannot tell two gateways apart.
-	audit.IdentifyActor(r.Context(), gatewayID)
+	audit.IdentifyActor(r.Context(), audit.ActorGateway, gatewayID, "api-key")
 
 	return gatewayIdentity{ID: gatewayID, OUID: gateway.OUID}, true
 }

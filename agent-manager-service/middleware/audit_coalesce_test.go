@@ -44,7 +44,7 @@ func TestCoalesceKeyDistinguishesGatewaysBehindOneAddress(t *testing.T) {
 		})
 		ctx, scope := audit.NewRequestScope(ctx)
 		if gatewayID != "" {
-			audit.IdentifyActor(ctx, gatewayID)
+			audit.IdentifyActor(ctx, audit.ActorGateway, gatewayID, "api-key")
 		}
 		return ctx, scope
 	}
@@ -106,5 +106,5 @@ func TestIdentifyActorOutsideARequestIsANoop(t *testing.T) {
 			t.Fatalf("IdentifyActor panicked outside a request: %v", r)
 		}
 	}()
-	audit.IdentifyActor(context.Background(), "gateway-a")
+	audit.IdentifyActor(context.Background(), audit.ActorGateway, "gateway-a", "api-key")
 }

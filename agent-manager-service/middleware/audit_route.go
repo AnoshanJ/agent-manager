@@ -164,7 +164,7 @@ var routeCoalescer = newCoalescer()
 // never authenticated has nothing better, and suppressing a flood of those by
 // address is the right behaviour anyway.
 func sourceKeyOf(ctx context.Context, scope *audit.RequestScope) string {
-	if actor := scope.Actor(); actor != "" {
+	if _, actor, _ := scope.Actor(); actor != "" {
 		return actor
 	}
 	src, _ := audit.SourceFromContext(ctx)

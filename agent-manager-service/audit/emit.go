@@ -182,6 +182,21 @@ func newEvent(ctx context.Context, action Action) Event {
 		}
 	}
 
+	// Last, because it is the only source that can have run: on a surface with
+	// no JWT the handler authenticates the caller, and Source was built before
+	// it. Without this the coverage envelope for an authenticated gateway
+	// recorded actorType "anonymous" and no id — which is precisely the
+	// attribution those records exist to carry.
+	if typ, id, authMethod := scopeFrom(ctx).Actor(); id != "" {
+		e.ActorID = id
+		if typ != "" {
+			e.ActorType = typ
+		}
+		if authMethod != "" {
+			e.AuthMethod = authMethod
+		}
+	}
+
 	return e
 }
 

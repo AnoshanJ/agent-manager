@@ -87,8 +87,16 @@ type RequestScope struct {
 	mu       sync.Mutex
 	semantic bool
 	suppress bool
-	actor    string
+	actor    scopeActor
 	resource resourceRef
+}
+
+// scopeActor is a principal named by the handler after it authenticated the
+// caller, on a surface where the middleware could not know it up front.
+type scopeActor struct {
+	typ        ActorType
+	id         string
+	authMethod string
 }
 
 type resourceRef struct {
@@ -134,16 +142,19 @@ func (s *RequestScope) Suppressed() bool {
 // no JWT, once the handler has authenticated it.
 //
 // Source is built before the handler runs, so on those surfaces it holds only
-// an address. That is enough to record, but not to tell two callers apart: the
-// per-caller coalescing on the gateway bulk-sync routes fell back to the source
-// IP, so two gateways sharing an egress address suppressed each other's
-// records — and "which gateway pulled key material, and when" is the only
-// question those records exist to answer.
+// an address — and the handler is what authenticates the caller. Without this,
+// two things went wrong on the internal gateway server: the per-caller
+// coalescing fell back to the source IP, so two gateways sharing an egress
+// address suppressed each other's records; and the coverage envelope recorded
+// an authenticated gateway as `actorType: anonymous` with no id, so a record
+// whose stated purpose is "which gateway pulled key material, and when" could
+// not name the gateway.
 //
 // The scope is a pointer on the context, so a value set here is visible to the
 // envelope emitted after the handler returns. Outside a request this is a
-// no-op.
-func IdentifyActor(ctx context.Context, id string) {
+// no-op. An explicit audit.Actor option still wins, since options are applied
+// after the event is built.
+func IdentifyActor(ctx context.Context, actorType ActorType, id, authMethod string) {
 	if id == "" {
 		return
 	}
@@ -153,17 +164,18 @@ func IdentifyActor(ctx context.Context, id string) {
 	}
 	scope.mu.Lock()
 	defer scope.mu.Unlock()
-	scope.actor = id
+	scope.actor = scopeActor{typ: actorType, id: id, authMethod: authMethod}
 }
 
-// Actor returns the principal set by IdentifyActor, or "" when none was.
-func (s *RequestScope) Actor() string {
+// Actor returns the principal named by IdentifyActor. The id is "" when none
+// was named.
+func (s *RequestScope) Actor() (actorType ActorType, id, authMethod string) {
 	if s == nil {
-		return ""
+		return "", "", ""
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.actor
+	return s.actor.typ, s.actor.id, s.actor.authMethod
 }
 
 func (s *RequestScope) markSemantic() {
