@@ -6,8 +6,9 @@ sidebar_position: 8
 
 OAuth security protects platform-hosted API agent endpoints at the gateway. When enabled,
 callers must send a valid JWT, by default in the `Authorization: Bearer <token>` header. The
-gateway validates the token against the [identity providers](../administration/configure-identity-providers.mdx)
-you select for the agent.
+gateway validates the token's issuer, signature, and expiry against the
+[identity providers](../administration/configure-identity-providers.mdx) you select for the
+agent, and its `aud` claim if you configure audiences.
 
 OAuth and [API key security](./secure-agent-endpoints-with-api-keys.mdx) are mutually exclusive —
 an agent uses one or the other, not both.
@@ -28,7 +29,8 @@ an agent uses one or the other, not both.
 ## Step 2: Configure OAuth
 
 1. **Identity Providers** (required) — select one or more providers whose tokens the gateway
-   should accept for this agent.
+   should accept for this agent. Every installation ships a bundled identity provider,
+   ThunderID, already registered as `ThunderKeyManager`.
 2. **Audiences** (optional) — add accepted token audiences (the `aud` claim). Leave empty to
    disable audience validation.
 3. **Header name** and **Auth header prefix** — the defaults are `Authorization` and `Bearer`.
@@ -45,6 +47,18 @@ If you change the authentication setting later, redeploy the agent so the gatewa
 updated.
 :::
 
+## Get a Token from the Bundled Identity Provider
+
+ThunderID runs per environment and is already trusted by that environment's gateway as
+`ThunderKeyManager`, so you can issue tokens for your callers without adding a provider:
+
+1. Log in to the environment's ThunderID console. See
+   [Access the Environment ThunderID Console](../administration/environment-management.mdx#access-the-environment-thunderid-console) for
+   the URL, the `admin` username, and the password generated when the environment was created.
+2. Create an OAuth application, following ThunderID's
+   [Manage Applications](https://thunderid.dev/docs/v1.0.x/guides/applications/manage-applications/)
+   guide, and use it to obtain tokens for your callers.
+
 ## Step 4: Invoke the Agent with a Token
 
 Send the token in the configured header when calling the deployed agent endpoint:
@@ -57,7 +71,7 @@ curl -X POST "<agent-invoke-url>" \
 ```
 
 Replace `<agent-invoke-url>`, `<token>`, and `<request-body>` with the values for your agent.
-Obtain the token from one of the agent's configured identity providers.
+The token must come from one of the agent's configured identity providers.
 
 ## Testing from the Console
 
@@ -75,3 +89,4 @@ key security cannot be active at the same time.
 - Accepted issuers and audiences come from the
   [identity providers configured on the gateway](../administration/configure-identity-providers.mdx).
 - An agent uses one authentication method at a time — OAuth or API key, not both.
+- Authentication will be enforced by the gateway based on issuer and audience claims.
