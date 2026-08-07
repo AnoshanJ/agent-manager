@@ -37,6 +37,7 @@ import {
   X,
 } from "@wso2/oxygen-ui-icons-react";
 import { scoreColor } from "@agent-management-platform/views";
+import { extractActionReason } from "./statusMessage";
 
 interface BasicInfoSectionProps {
   span: Span;
@@ -104,6 +105,12 @@ export function BasicInfoSection({ span, evaluatorScores }: BasicInfoSectionProp
   };
 
   const statusMessage = span.ampAttributes?.status?.message;
+  // For guardrail failures the status message wraps a payload whose actionReason
+  // is the human-readable cause (e.g. "Violation of applied content length
+  // constraints detected."). Surface it as the error chip label when present.
+  const actionReason = statusMessage
+    ? extractActionReason(statusMessage)
+    : undefined;
 
   return (
     <Stack spacing={1}>
@@ -120,8 +127,20 @@ export function BasicInfoSection({ span, evaluatorScores }: BasicInfoSectionProp
               icon={<X size={16} />}
               size="small"
               variant="outlined"
-              label={span.ampAttributes?.status?.errorType || "Failed"}
+              label={
+                actionReason ||
+                span.ampAttributes?.status?.errorType ||
+                "Failed"
+              }
               color="error"
+              sx={{
+                height: "auto",
+                "& .MuiChip-label": {
+                  whiteSpace: "normal",
+                  overflow: "visible",
+                  py: 0.5,
+                },
+              }}
             />
           </Tooltip>
         )}
