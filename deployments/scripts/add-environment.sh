@@ -41,6 +41,10 @@ set -euo pipefail
 #     https listener variant. Set ENV_INGRESS_HTTPS_HOST=$ENV_INGRESS_HOST for
 #     the TLS toggle alone; without it the deployed-agent invoke URL is empty.
 #   - ENV_INGRESS_HTTPS_PORT (default: 443): port for the https listener variant.
+#   - GATEWAY_BASE_DOMAIN (default: gateway.localhost): base domain for this
+#     environment's api-platform gateway. On VM installs set it to the public
+#     gateway host (gateway.amp.<ip>.sslip.io) so the hostname resolves and Caddy's
+#     *.<base> site can issue a certificate for it.
 #   - IDP_SKIP_TLS_VERIFY (default: true): skipTlsVerify for the seeded env-Thunder identity provider.
 
 # --- Required inputs ---
@@ -233,6 +237,12 @@ EXTERNAL_LISTENERS="\"http\": {\"host\": \"${ENV_INGRESS_HOST}\", \"port\": ${GA
 if [ -n "${ENV_INGRESS_HTTPS_HOST}" ]; then
     EXTERNAL_LISTENERS="${EXTERNAL_LISTENERS}, \"https\": {\"host\": \"${ENV_INGRESS_HTTPS_HOST}\", \"port\": ${ENV_INGRESS_HTTPS_PORT}}"
 fi
+
+# Base domain for this environment's api-platform gateway. Defaults to the local-dev
+# value; VM installs pass the public gateway host so the name resolves and Caddy's
+# *.<base> site can issue a cert for it.
+GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-gateway.localhost}"
+GATEWAY_HOSTNAME="${ENV_NAME}-${ORG_NAME}.${GATEWAY_BASE_DOMAIN}"
 
 # Optional pod runtime isolation tier for this environment. "gvisor" makes agents run
 # under the runsc RuntimeClass (requires a gVisor node — see `make setup-gvisor`); "kata"
@@ -470,7 +480,8 @@ helm upgrade --install "${RELEASE_NAME}" "${CHART_REF}" \
     --set apiGateway.namespace="${GATEWAY_NAMESPACE}" \
     --set gateway.type="${INGRESS_TYPE}" \
     --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway" \
-    --set gateway.vhost="http://${ENV_NAME}-${ORG_NAME}.gateway.localhost:${GATEWAY_VHOST_PORT}" \
+    --set gateway.hostname="${GATEWAY_HOSTNAME}" \
+    --set gateway.vhost="http://${GATEWAY_HOSTNAME}:${GATEWAY_VHOST_PORT}" \
     "${HELM_ARGS[@]}"
 
 if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
@@ -480,7 +491,7 @@ if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
     EGRESS_NAMESPACE="${GATEWAY_NAMESPACE}-egress"
     EGRESS_RELEASE_NAME=$(echo "api-platform-${ORG_NAME}-${ENV_NAME}-egress" | head -c 53 | sed 's/-*$//')
     EGRESS_GATEWAY_NAME="api-platform-${ORG_NAME}-${ENV_NAME}-egress"
-    EGRESS_HOSTNAME="${ENV_NAME}-${ORG_NAME}-egress.gateway.localhost"
+    EGRESS_HOSTNAME="${ENV_NAME}-${ORG_NAME}-egress.${GATEWAY_BASE_DOMAIN}"
 
     # Both namespaces must carry this label. The sandbox NetworkPolicy at
     # wso2-amp-platform-resources-extension/templates/component-types/agent-api.yaml:206-213
@@ -537,5 +548,5 @@ echo "=== Environment '${ENV_NAME}' setup complete ==="
 echo ""
 echo "  Environment:     ${ENV_NAME}"
 echo "  Display Name:    ${DISPLAY_NAME}"
-echo "  Gateway Runtime: ${ENV_NAME}-${ORG_NAME}.gateway.${ENV_INGRESS_HOST}:${GATEWAY_VHOST_PORT}"
+echo "  Gateway Runtime: ${GATEWAY_HOSTNAME}:${GATEWAY_VHOST_PORT}"
 echo ""
