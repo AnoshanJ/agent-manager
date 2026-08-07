@@ -471,6 +471,11 @@ caddyfile() {
   # ClusterIP, not through this host.)
   _site "$AMP_HOST_GATEWAY"  19080  # api-platform gateway via kgateway (LLM proxy)
 
+  # Per-environment gateways (<env>-<org>.$AMP_HOST_GATEWAY, added post-install) share
+  # the listener above; on-demand TLS since TLS-ALPN-01 cannot issue a wildcard cert.
+  printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:19080\n}\n\n' \
+    "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_GATEWAY" "$addr_suffix" "$agent_tls"
+
   if [[ -n "$AMP_HOST_CP" ]]; then
     # Gateway control plane rides the OC control-plane kgateway (host-routed;
     # the kgateway re-encrypts to the TLS backend via BackendTLSPolicy).

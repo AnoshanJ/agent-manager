@@ -258,6 +258,10 @@ assert_eq "caddy env-thunder wildcard site" "*.thunder.amp.203.0.113.10.sslip.io
 # since 19080 is shared with the agents site.
 assert_eq "caddy gateway upstream (via kgateway)" "	reverse_proxy 127.0.0.1:19080" \
   "$(grep -F -A8 'gateway.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
+assert_eq "caddy env-gateway wildcard site" "*.gateway.amp.203.0.113.10.sslip.io {" \
+  "$(grep -F '*.gateway.amp' <<<"$cf" | head -1)"
+assert_eq "caddy env-gateway wildcard upstream" "	reverse_proxy 127.0.0.1:19080" \
+  "$(grep -F -A8 '*.gateway.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
 assert_eq "caddy no 22893 dead-end" "" "$(grep -F '127.0.0.1:22893' <<<"$cf")"
 assert_eq "caddy no cp when disabled" "" "$(grep -F 'cp.amp' <<<"$cf")"
 assert_eq "caddy api upstream (via kgateway)" "	reverse_proxy 127.0.0.1:8080" \
@@ -274,8 +278,8 @@ assert_eq "issuer acme"                "yes" "$(has "$cf_tls" 'issuer acme')"
 assert_eq "disable_http_challenge"     "yes" "$(has "$cf_tls" 'disable_http_challenge')"
 assert_eq "keeps email"                "yes" "$(has "$cf_tls" 'email ops@example.com')"
 # per-site tls block on each public host incl. cp (6) + the env-Thunder wildcard (1)
-# + the agent wildcard (1) = 8
-assert_eq "tls block per site (8)"     "8"   "$(grep -cF 'issuer acme' <<<"$cf_tls")"
+# + the env-gateway wildcard (1) + the agent wildcard (1) = 9
+assert_eq "tls block per site (9)"     "9"   "$(grep -cF 'issuer acme' <<<"$cf_tls")"
 # never serves plain http / disables auto-https
 assert_eq "no auto_https off"          "no"  "$(has "$cf_tls" 'auto_https off')"
 assert_eq "no http:// public site"     "no"  "$(has "$cf_tls" 'http://console')"
