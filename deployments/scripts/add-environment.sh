@@ -41,7 +41,10 @@ set -euo pipefail
 #   - ENV_INGRESS_HTTPS_HOST (default: unset): on TLS deployments, advertises an
 #     https listener variant. Set ENV_INGRESS_HTTPS_HOST=$ENV_INGRESS_HOST for
 #     the TLS toggle alone; without it the deployed-agent invoke URL is empty.
-#   - ENV_INGRESS_HTTPS_PORT (default: 443): port for the https listener variant.
+#   - ENV_INGRESS_PORT (default: the install's AGENTS_HTTP_PORT, else 19080) and
+#     ENV_INGRESS_HTTPS_PORT (default: the install's AGENTS_HTTPS_PORT, else 443):
+#     the port each listener variant serves. They differ on a plane gateway that
+#     serves http on 80 and https on 443; neither is inferred from the other.
 #   - GATEWAY_BASE_DOMAIN (default: the install's GATEWAY_BASE_DOMAIN, else
 #     gateway.localhost): base domain for this environment's api-platform gateway.
 #   - GATEWAY_VHOST_SCHEME (default: the install's GATEWAY_VHOST_SCHEME, else http)
@@ -279,6 +282,20 @@ if [ -z "${ENV_INGRESS_HOST:-}" ]; then
 fi
 ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-am-gateway.localhost}"
 ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HTTPS_HOST:-}"
+# Each listener variant carries the port ITS listener serves, and the two are not
+# always the same: a Caddy-fronted VM terminates both on 443, while a plane gateway
+# commonly serves http on 80 and https on 443. Guessing one from the other publishes
+# "http://<host>:443" — an http scheme on the TLS port, which a browser blocks as
+# mixed content from the https console. So take both from the install.
+if [ -z "${ENV_INGRESS_PORT:-}" ]; then
+    ams_config_value AGENTS_HTTP_PORT
+    ENV_INGRESS_PORT="${AMS_CONFIG_VALUE}"
+fi
+ENV_INGRESS_PORT="${ENV_INGRESS_PORT:-19080}"
+if [ -z "${ENV_INGRESS_HTTPS_PORT:-}" ]; then
+    ams_config_value AGENTS_HTTPS_PORT
+    ENV_INGRESS_HTTPS_PORT="${AMS_CONFIG_VALUE}"
+fi
 ENV_INGRESS_HTTPS_PORT="${ENV_INGRESS_HTTPS_PORT:-443}"
 
 # --- Published gateway vhost (scheme + host + port) ---
@@ -315,15 +332,11 @@ gateway_vhost_url() {   # <scheme> <host> <port>
 }
 
 # Without an https variant the console reports an empty invoke URL on TLS deployments.
-# A recorded (non-localhost) agents base means the install fronts agents with TLS on
-# ENV_INGRESS_HTTPS_PORT, so pin the http variant to the same port rather than leaving
-# it on the gateway runtime's node port — the two variants describe one listener, and
-# the default environment seeded by the chart advertises both on 443.
+# A recorded (non-localhost) agents base means the install fronts agents publicly, so
+# advertise the TLS variant alongside the plain one.
 if [ -z "${ENV_INGRESS_HTTPS_HOST}" ] && [ "${ENV_INGRESS_HOST}" != "am-gateway.localhost" ]; then
     ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HOST}"
-    ENV_INGRESS_PORT="${ENV_INGRESS_PORT:-${ENV_INGRESS_HTTPS_PORT}}"
 fi
-ENV_INGRESS_PORT="${ENV_INGRESS_PORT:-${GATEWAY_VHOST_PORT}}"
 
 # Build the external listener set. Always advertise http; add an https variant when
 # ENV_INGRESS_HTTPS_HOST is set (TLS deployments). The console reads the https
