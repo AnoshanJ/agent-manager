@@ -54,6 +54,18 @@ EGRESS_RELEASE_NAME=$(echo "api-platform-${ORG_NAME}-${ENV_NAME}-egress" | head 
 echo "=== Removing Environment: ${ENV_NAME} ==="
 echo ""
 
+# Checked before any work: an unreachable cluster otherwise surfaces much later as an
+# opaque helm/kubectl error, and `command -v kubectl` passes with no kubeconfig at all.
+if ! kubectl version > /dev/null 2>&1; then
+    echo "❌ kubectl cannot reach the cluster."
+    echo "   Check: kubectl config current-context"
+    echo "   A single-VM install configures the cluster for root only, so either:"
+    echo "     - re-run this command with sudo (place it before 'bash'), or"
+    echo "     - give your user a context:"
+    echo "         sudo k3d kubeconfig merge amp-local --kubeconfig-merge-default --kubeconfig-switch-context"
+    exit 1
+fi
+
 # --- Step 1: Delete the environment via Agent Manager API ---
 # Thunder is deprovisioned ONLY after a successful 204/404 below.
 # Tearing it down first would permanently destroy the identity layer
