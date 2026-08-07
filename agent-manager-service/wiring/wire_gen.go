@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/wire"
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/observersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
@@ -40,6 +41,7 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	thunderConfig := ProvideThunderConfig(configConfig)
 	identityClient := ProvideIdentityClient(thunderConfig)
 	orgResolver := ProvideOrgResolver(identityClient)
+	recorder := ProvideAuditRecorder(configConfig, logger)
 	openChoreoClient, err := ProvideOCClient(configConfig, authProvider)
 	if err != nil {
 		return nil, err
@@ -173,6 +175,7 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 		AuthMiddleware:                   middleware,
 		Logger:                           logger,
 		OrgResolver:                      orgResolver,
+		AuditRecorder:                    recorder,
 		AgentController:                  agentController,
 		AgentKindController:              agentKindController,
 		InfraResourceController:          infraResourceController,
@@ -224,6 +227,7 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	thunderConfig := ProvideThunderConfig(configConfig)
 	identityClient := ProvideIdentityClient(thunderConfig)
 	orgResolver := ProvideOrgResolver(identityClient)
+	recorder := ProvideAuditRecorder(configConfig, logger)
 	openChoreoClient := ProvideTestOpenChoreoClient(testClients)
 	secretManagementClient := ProvideTestSecretManagementClient(testClients)
 	gitCredentialsService, err := ProvideGitCredentialsService(openChoreoClient, configConfig)
@@ -349,6 +353,7 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 		AuthMiddleware:                   authMiddleware,
 		Logger:                           logger,
 		OrgResolver:                      orgResolver,
+		AuditRecorder:                    recorder,
 		AgentController:                  agentController,
 		AgentKindController:              agentKindController,
 		InfraResourceController:          infraResourceController,
@@ -438,6 +443,24 @@ var thunderProvisioningTestSet = wire.NewSet(services.NewAgentThunderProvisionin
 // ProvideLogger provides the configured slog.Logger instance
 func ProvideLogger() *slog.Logger {
 	return slog.Default()
+}
+
+// ProvideAuditRecorder builds the audit recorder.
+//
+// Records go to stdout as structured JSON, where the platform's log pipeline
+// already collects them. That also gives the trail a copy this service cannot
+// rewrite, since there is no write path from here back into the log store.
+func ProvideAuditRecorder(cfg config.Config, logger *slog.Logger) audit.Recorder {
+	if !cfg.Audit.Enabled {
+		logger.Warn("audit logging is disabled; no record of privileged operations will be kept",
+			"setting", "AUDIT_ENABLED")
+		return audit.NewNoopRecorder()
+	}
+	return audit.NewRecorder(audit.NewStdoutSink(), logger, audit.Config{
+		BufferSize:    cfg.Audit.BufferSize,
+		BatchSize:     cfg.Audit.BatchSize,
+		FlushInterval: time.Duration(cfg.Audit.FlushIntervalMs) * time.Millisecond,
+	})
 }
 
 // ProvideInstrumentationCatalog loads the instrumentation catalog and
@@ -584,6 +607,7 @@ func ProvidePublisherProvisioner(cfg config.Config, encryptionKey []byte, logger
 
 var loggerProviderSet = wire.NewSet(
 	ProvideLogger,
+	ProvideAuditRecorder,
 )
 
 var repositoryProviderSet = wire.NewSet(

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -121,7 +122,21 @@ func (s *LLMProxyAPIKeyService) CreateAPIKey(
 	if proxy == nil {
 		return nil, utils.ErrLLMProxyNotFound
 	}
-	return s.broadcaster.broadcastCreate(ctx, orgID, proxyID, proxy.UUID.String(), req)
+
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyCreate, apiKeyAuditTarget{
+		OUID:      orgID,
+		OwnerType: audit.APIKeyOwnerLLMProxy,
+		OwnerID:   proxy.UUID.String(),
+		OwnerName: proxy.Name,
+		KeyName:   keyNameOf(req),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.broadcaster.broadcastCreate(ctx, orgID, proxyID, proxy.UUID.String(), req)
+	attempt.Complete(ctx, err)
+	return resp, err
 }
 
 // RevokeAPIKey broadcasts an API key revocation event to all gateways for this organization.
@@ -136,7 +151,21 @@ func (s *LLMProxyAPIKeyService) RevokeAPIKey(
 	if proxy == nil {
 		return utils.ErrLLMProxyNotFound
 	}
-	return s.broadcaster.broadcastRevoke(ctx, orgID, proxyID, proxy.UUID.String(), keyName)
+
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyRevoke, apiKeyAuditTarget{
+		OUID:      orgID,
+		OwnerType: audit.APIKeyOwnerLLMProxy,
+		OwnerID:   proxy.UUID.String(),
+		OwnerName: proxy.Name,
+		KeyName:   keyName,
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.broadcaster.broadcastRevoke(ctx, orgID, proxyID, proxy.UUID.String(), keyName)
+	attempt.Complete(ctx, err)
+	return err
 }
 
 // RotateAPIKey generates a new API key value and broadcasts the update to all gateways.
@@ -153,5 +182,19 @@ func (s *LLMProxyAPIKeyService) RotateAPIKey(
 	if proxy == nil {
 		return nil, utils.ErrLLMProxyNotFound
 	}
-	return s.broadcaster.broadcastRotate(ctx, orgID, proxyID, proxy.UUID.String(), keyName, req)
+
+	attempt, err := beginAPIKeyAudit(ctx, audit.ActionAPIKeyRotate, apiKeyAuditTarget{
+		OUID:      orgID,
+		OwnerType: audit.APIKeyOwnerLLMProxy,
+		OwnerID:   proxy.UUID.String(),
+		OwnerName: proxy.Name,
+		KeyName:   keyName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.broadcaster.broadcastRotate(ctx, orgID, proxyID, proxy.UUID.String(), keyName, req)
+	attempt.Complete(ctx, err)
+	return resp, err
 }

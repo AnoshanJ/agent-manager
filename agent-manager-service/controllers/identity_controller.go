@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/constants"
@@ -193,12 +194,31 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 		Password:   password,
 	}
 
+	// The attributes map is free-form and is known to carry a password, so only
+	// its key names and shape are recorded — never a value. See
+	// audit.AttributeKeySummary.
+	attrKeys, attrCount, hasSensitive := audit.AttributeKeySummary(body.Attributes)
+	attempt, ok := beginAuditOrFail(w, r, "CreateUser", "Failed to create user", audit.ActionUserCreate,
+		audit.Org(ouID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceUser, body.Attributes["username"], body.Attributes["username"]),
+		audit.Detail("username", body.Attributes["username"]),
+		audit.Detail("userType", body.Type),
+		audit.Detail("attributeKeys", attrKeys),
+		audit.Detail("attributeCount", attrCount),
+		audit.Detail("containsSensitiveKey", hasSensitive),
+	)
+	if !ok {
+		return
+	}
+
 	user, err := c.client.CreateUser(ctx, req)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("CreateUser failed", "username", body.Attributes["username"], "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusCreated, user)
 }
 
@@ -281,7 +301,17 @@ func (c *identityController) DeleteUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	attempt, ok := beginAuditOrFail(w, r, "DeleteUser", "Failed to delete user", audit.ActionUserDelete,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceUser, userID, userIdentifier(user)),
+		audit.Detail("username", userIdentifier(user)),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.DeleteUser(ctx, userID); err != nil {
+		attempt.Complete(ctx, err)
 		if thundersvc.IsNotFound(err) {
 			utils.WriteErrorResponse(w, http.StatusNotFound, "User not found")
 			return
@@ -290,6 +320,7 @@ func (c *identityController) DeleteUser(w http.ResponseWriter, r *http.Request) 
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete user")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -394,12 +425,26 @@ func (c *identityController) InviteUser(w http.ResponseWriter, r *http.Request) 
 	if !config.GetConfig().IsOnPremDeployment {
 		ouIDForInvite = resolvedOrg.OUID
 	}
+	// The invite link grants org access to whoever holds it, so an invite is a
+	// membership change and is refused when it cannot be recorded. The link
+	// itself is never recorded.
+	attempt, ok := beginAuditOrFail(w, r, "InviteUser", "Failed to invite user", audit.ActionUserInvite,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceUser, body.Email, body.Email),
+		audit.Detail("email", body.Email),
+	)
+	if !ok {
+		return
+	}
+
 	inviteLink, err := c.client.InviteUser(ctx, body.Email, ouIDForInvite)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("InviteUser failed", "ouID", resolvedOrg.OUID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to invite user")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, map[string]string{"inviteLink": inviteLink})
 }
 
@@ -665,11 +710,24 @@ func (c *identityController) AddGroupMembers(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	attempt, ok := beginAuditOrFail(w, r, "AddGroupMembers", "Failed to add group members", audit.ActionGroupAddMember,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
+		audit.Detail("groupName", group.Name),
+		audit.Detail("members", req.UserIDs),
+		audit.Detail("memberCount", len(req.UserIDs)),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.AddGroupMembers(ctx, groupID, req.UserIDs); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("AddGroupMembers failed", "groupID", groupID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to add group members")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -715,11 +773,24 @@ func (c *identityController) RemoveGroupMembers(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	attempt, ok := beginAuditOrFail(w, r, "RemoveGroupMembers", "Failed to remove group members", audit.ActionGroupRemoveMember,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
+		audit.Detail("groupName", group.Name),
+		audit.Detail("members", req.UserIDs),
+		audit.Detail("memberCount", len(req.UserIDs)),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.RemoveGroupMembers(ctx, groupID, req.UserIDs); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("RemoveGroupMembers failed", "groupID", groupID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to remove group members")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -1092,11 +1163,28 @@ func (c *identityController) AddRolePermissions(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// The granted scopes are recorded in full. This is the privilege-escalation
+	// path, and a record naming only the role cannot answer "who granted what
+	// to whom" — which is the question this event exists for.
+	attempt, ok := beginAuditOrFail(w, r, "AddRolePermissions", "Failed to add role permissions", audit.ActionRoleGrantPermission,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
+		audit.Detail("roleName", role.Name),
+		audit.Detail("permissions", req.Permissions),
+		audit.Detail("permissionCount", len(req.Permissions)),
+		audit.Detail("resourceServerId", req.ResourceServerID),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.AddRolePermissions(ctx, roleID, req); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("AddRolePermissions failed", "roleID", roleID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to add role permissions")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -1132,11 +1220,25 @@ func (c *identityController) RemoveRolePermissions(w http.ResponseWriter, r *htt
 		return
 	}
 
+	attempt, ok := beginAuditOrFail(w, r, "RemoveRolePermissions", "Failed to remove role permissions", audit.ActionRoleRevokePermission,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
+		audit.Detail("roleName", role.Name),
+		audit.Detail("permissions", req.Permissions),
+		audit.Detail("permissionCount", len(req.Permissions)),
+		audit.Detail("resourceServerId", req.ResourceServerID),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.RemoveRolePermissions(ctx, roleID, req); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("RemoveRolePermissions failed", "roleID", roleID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to remove role permissions")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -1172,11 +1274,26 @@ func (c *identityController) AddRoleAssignees(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
+	attempt, ok := beginAuditOrFail(w, r, "AddRoleAssignees", "Failed to add role assignees", audit.ActionRoleAssign,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
+		audit.Detail("roleName", role.Name),
+		audit.Detail("assignees", assigneeIDs),
+		audit.Detail("assigneeTypes", assigneeTypes),
+		audit.Detail("assigneeCount", len(req.Assignments)),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.AddRoleAssignees(ctx, roleID, req); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("AddRoleAssignees failed", "roleID", roleID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to add role assignees")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -1212,11 +1329,26 @@ func (c *identityController) RemoveRoleAssignees(w http.ResponseWriter, r *http.
 		return
 	}
 
+	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
+	attempt, ok := beginAuditOrFail(w, r, "RemoveRoleAssignees", "Failed to remove role assignees", audit.ActionRoleUnassign,
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
+		audit.Detail("roleName", role.Name),
+		audit.Detail("assignees", assigneeIDs),
+		audit.Detail("assigneeTypes", assigneeTypes),
+		audit.Detail("assigneeCount", len(req.Assignments)),
+	)
+	if !ok {
+		return
+	}
+
 	if err := c.client.RemoveRoleAssignees(ctx, roleID, req); err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("RemoveRoleAssignees failed", "roleID", roleID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to remove role assignees")
 		return
 	}
+	attempt.Complete(ctx, nil)
 	utils.WriteSuccessResponse(w, http.StatusOK, struct{}{})
 }
 
@@ -1498,4 +1630,33 @@ func validateReservedGroupName(w http.ResponseWriter, groupName string) bool {
 // renamed to Administrator.
 func validateReservedRoleName(w http.ResponseWriter, roleName string) bool {
 	return validateReservedName(w, roleName, thundersvc.NativeAdministratorRoleName, "role")
+}
+
+// assignmentSummary flattens role assignments into parallel id and type lists
+// for an audit record. Principal ids and types are identifiers, not secrets,
+// and "which principals were assigned" is the point of the event.
+func assignmentSummary(assignments []thundersvc.AssignmentEntry) (ids, types []string) {
+	ids = make([]string, 0, len(assignments))
+	types = make([]string, 0, len(assignments))
+	for _, a := range assignments {
+		ids = append(ids, a.ID)
+		types = append(types, a.Type)
+	}
+	return ids, types
+}
+
+// userIdentifier returns the most useful human-readable handle for a user in an
+// audit record, falling back through the attributes Thunder populates.
+func userIdentifier(user *thundersvc.ThunderUser) string {
+	if user == nil {
+		return ""
+	}
+	for _, key := range []string{"username", "email", "userName"} {
+		// Attributes is a free-form map, so a non-string value is possible and
+		// must not panic on the audit path.
+		if v, ok := user.Attributes[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return user.ID
 }

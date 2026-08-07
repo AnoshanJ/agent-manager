@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -3195,6 +3196,7 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 
 	// If no envMappings provided, return the updated config immediately.
 	if req.EnvMappings == nil {
+		s.recordConfigUpdate(ctx, configUUID, ouID, projectName, agentName, existingConfig, req)
 		return s.Get(ctx, configUUID, ouID, projectName, agentName)
 	}
 
@@ -3369,28 +3371,60 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 		)
 	}
 
-	// Audit log for configuration update
+	s.recordConfigUpdate(ctx, configUUID, ouID, projectName, agentName, existingConfig, req)
+
+	// Return updated configuration
+	return s.Get(ctx, configUUID, ouID, projectName, agentName)
+}
+
+// recordConfigUpdate records a completed configuration update. It is called on
+// every successful return from Update, not only the one that rewrites the
+// environment mappings: a rename or a description change is still a change
+// somebody has to be able to attribute.
+//
+// The resource name comes from existingConfig rather than from the request,
+// because req.Name is empty on any update that is not a rename — recording it
+// directly produced records that named no configuration at all.
+func (s *agentConfigurationService) recordConfigUpdate(ctx context.Context, configUUID uuid.UUID,
+	ouID, projectName, agentName string, existingConfig *models.AgentConfiguration,
+	req models.UpdateAgentModelConfigRequest,
+) {
+	configName := req.Name
+	if configName == "" && existingConfig != nil {
+		configName = existingConfig.Name
+	}
+
+	updatedFields := []string{}
+	if req.Name != "" {
+		updatedFields = append(updatedFields, "name")
+	}
+	if req.Description != "" {
+		updatedFields = append(updatedFields, "description")
+	}
+	if req.EnvMappings != nil {
+		updatedFields = append(updatedFields, "envMappings")
+	}
+	if req.EnvironmentVariables != nil {
+		updatedFields = append(updatedFields, "environmentVariables")
+	}
+
+	// A real audit record. This previously wrote only an slog line labelled as
+	// an audit log: it carried no actor, no outcome and no durability, so it
+	// could not answer who changed the configuration.
+	audit.Record(ctx, audit.ActionAgentConfigUpdate,
+		audit.Org(ouID),
+		audit.ResourceNamed("agent-config", configUUID.String(), configName),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("configName", configName),
+		audit.Detail("updatedFields", updatedFields),
+	)
 	s.logger.Info(
 		"Agent configuration updated successfully",
 		"configUUID", configUUID,
 		"ouID", ouID,
-		"updatedFields", func() []string {
-			fields := []string{}
-			if req.Name != "" {
-				fields = append(fields, "name")
-			}
-			if req.Description != "" {
-				fields = append(fields, "description")
-			}
-			if req.EnvMappings != nil {
-				fields = append(fields, "envMappings")
-			}
-			return fields
-		}(),
+		"updatedFields", updatedFields,
 	)
-
-	// Return updated configuration
-	return s.Get(ctx, configUUID, ouID, projectName, agentName)
 }
 
 // DeleteMCP deletes an MCP proxy mapping and all associated resources.
@@ -3662,7 +3696,14 @@ func (s *agentConfigurationService) deleteLLMConfig(ctx context.Context, existin
 		return err
 	}
 
-	// Audit log for configuration deletion
+	audit.Record(ctx, audit.ActionAgentConfigDelete,
+		audit.Org(ouID),
+		audit.ResourceNamed("agent-config", configUUID.String(), existingConfig.Name),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("configName", existingConfig.Name),
+		audit.Detail("environmentCount", len(mappings)),
+	)
 	s.logger.Info(
 		"Agent configuration deleted successfully",
 		"configUUID", configUUID,
