@@ -233,7 +233,7 @@ The config file is plain shell, one `KEY=value` assignment per line. Generate an
 | `HOST_CONSOLE`, `HOST_API`, `HOST_THUNDER`, `HOST_OBSERVER`, `HOST_GATEWAY`, `HOST_CP` | no | Override an individual service hostname (default `<svc>.<DOMAIN_BASE>`) |
 | `AGENTS_BASE` | no | Base for deployed-agent hostnames (default `agents.<DOMAIN_BASE>`) |
 
-With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus two dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com` and per-environment Thunder at `<org>-<env>.thunder.amp.mycompany.com`. cert-manager issues one **wildcard** certificate covering all of them, so there are no per-host certificate steps.
+With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<org>-<env>.thunder.amp.mycompany.com`, and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. cert-manager issues one **wildcard** certificate covering all of them, so there are no per-host certificate steps.
 
 ### DNS provider credentials {#adv-dns-provider}
 
@@ -323,7 +323,7 @@ flowchart TB
     dpgw --> dpsvc
 ```
 
-The two wildcard routes matter because those tiers are **dynamic**: deploying into a new org/project adds a `<org>-<project>.agents.<DOMAIN_BASE>` host (agents in an existing project share theirs), and each environment you create adds a `<org>-<env>.thunder.<DOMAIN_BASE>` host. `*.agents` and `*.thunder` are matched by the front-proxy routes and covered by the wildcard certificate up front, so nothing has to be re-issued or re-attached after install.
+The wildcard routes matter because those tiers are **dynamic**: deploying into a new org/project adds a `<org>-<project>.agents.<DOMAIN_BASE>` host (agents in an existing project share theirs), and each environment you create adds both a `<org>-<env>.thunder.<DOMAIN_BASE>` host and an `<env>-<org>.gateway.<DOMAIN_BASE>` host for its API Platform Gateway. `*.agents`, `*.thunder`, and `*.gateway` are matched by the front-proxy routes and covered by the wildcard certificate up front, so nothing has to be re-issued or re-attached after install.
 
 Note that `gateway.<DOMAIN_BASE>/otel` carries traces only from agents hosted **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](../components/amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager export straight to the in-cluster gateway runtime, so their traces never reach the `:443` listener at all.
 
@@ -389,21 +389,26 @@ Certificate issuance itself needs **no A records**, because cert-manager proves 
 *.amp.mycompany.com          A  <VM_PUBLIC_IP>   # console/api/thunder/observer/gateway/cp
 thunder.amp.mycompany.com    A  <VM_PUBLIC_IP>   # explicit, see the warning below
 *.thunder.amp.mycompany.com  A  <VM_PUBLIC_IP>   # per-environment Thunder
+gateway.amp.mycompany.com    A  <VM_PUBLIC_IP>   # explicit, see the warning below
+*.gateway.amp.mycompany.com  A  <VM_PUBLIC_IP>   # per-environment API Platform Gateways
 *.agents.amp.mycompany.com   A  <VM_PUBLIC_IP>   # deployed agents
 ```
 
-:::warning `thunder.<DOMAIN_BASE>` needs its own explicit A record
-A DNS wildcard never matches a name that already exists as a node in the zone ([RFC 4592](https://datatracker.ietf.org/doc/html/rfc4592#section-2.2.1)). Creating `*.thunder.amp.mycompany.com` brings `thunder.amp.mycompany.com` into existence as an *empty non-terminal*, which immediately stops `*.amp.mycompany.com` from covering it. Without the explicit record, `thunder.amp.mycompany.com` resolves to nothing and **OAuth login breaks**, even though every other host works. Add the explicit A record whenever you add the deeper `*.thunder` wildcard.
+:::warning `thunder.<DOMAIN_BASE>` and `gateway.<DOMAIN_BASE>` need their own explicit A records
+A DNS wildcard never matches a name that already exists as a node in the zone ([RFC 4592](https://datatracker.ietf.org/doc/html/rfc4592#section-2.2.1)). Creating `*.thunder.amp.mycompany.com` brings `thunder.amp.mycompany.com` into existence as an *empty non-terminal*, which immediately stops `*.amp.mycompany.com` from covering it. Without the explicit record, `thunder.amp.mycompany.com` resolves to nothing and **OAuth login breaks**, even though every other host works.
 
-Verify all four tiers resolve before installing:
+`*.gateway.amp.mycompany.com` does exactly the same thing to `gateway.amp.mycompany.com`, which serves OTel ingest for externally-hosted agents. Add the explicit A record whenever you add either deeper wildcard.
+:::
+
+Verify every tier resolves before installing. The `x-y.` names are throwaway probes: they resolve only if the wildcard above them exists.
 
 ```bash
 for h in console.amp.mycompany.com thunder.amp.mycompany.com \
-         x-y.agents.amp.mycompany.com default.thunder.amp.mycompany.com; do
+         gateway.amp.mycompany.com x-y.agents.amp.mycompany.com \
+         x-y.thunder.amp.mycompany.com x-y.gateway.amp.mycompany.com; do
   printf '%-40s %s\n' "$h" "$(dig +short "$h" A)"
 done
 ```
-:::
 
 </TabItem>
 <TabItem value="private" label="Private network">
@@ -462,11 +467,12 @@ Then point every service hostname at the tunnel in your workstation's `/etc/host
 ```
 
 :::note Deployed agents need their own `/etc/hosts` entries
-`/etc/hosts` has no wildcard support, so the `*.agents` and `*.thunder` tiers are not covered by the lines above. Each time you deploy an agent or create an environment, add its exact hostname:
+`/etc/hosts` has no wildcard support, so the `*.agents`, `*.thunder`, and `*.gateway` tiers are not covered by the lines above. Each time you deploy an agent or create an environment, add its exact hostname:
 
 ```
 127.0.0.1  <org>-<project>.agents.amp.mycompany.com
 127.0.0.1  <org>-<env>.thunder.amp.mycompany.com
+127.0.0.1  <env>-<org>.gateway.amp.mycompany.com
 ```
 
 If agent invocation fails with a DNS error while the console works, this is almost always why. A local DNS resolver that supports wildcards (dnsmasq, or a private DNS zone) avoids the per-agent edits.

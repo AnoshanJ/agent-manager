@@ -168,11 +168,14 @@ render_frontproxy_resources() {
     "$OBS_GW_NS" "$OBS_GW_SVC" "$OBS_GW_PORT" "$AMP_HOST_OBSERVER"
   echo "---"
   # Data plane: OTel/LLM-proxy gateway host + deployed-agent wildcard -> DP gateway
-  # (cross-namespace). The *.agents wildcard covers every agent deployed later.
+  # (cross-namespace). The *.agents wildcard covers every agent deployed later, and
+  # *.<gateway host> every per-environment api-platform gateway add-environment.sh
+  # installs later — both land on the same DP gateway, which discriminates by Host.
   render_backend_referencegrant "$DP_GW_NS"
   echo "---"
   render_frontproxy_route amp-frontproxy-dataplane "$CONSOLIDATED_GATEWAY" \
-    "$DP_GW_NS" "$DP_GW_SVC" "$DP_GW_PORT" "$AMP_HOST_GATEWAY" "*.${AMP_AGENTS_BASE}"
+    "$DP_GW_NS" "$DP_GW_SVC" "$DP_GW_PORT" "$AMP_HOST_GATEWAY" "*.${AMP_AGENTS_BASE}" \
+    "*.${AMP_HOST_GATEWAY}"
 }
 
 run_advanced_install() {
