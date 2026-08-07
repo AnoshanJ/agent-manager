@@ -225,15 +225,32 @@ DISPLAY_NAME_JSON=$(printf '%s' "${DISPLAY_NAME}" | sed -e 's/\\/\\\\/g' -e 's/"
 echo ""
 echo "🌍 Creating environment '${ENV_NAME}'..."
 
-# Base domain the install recorded for itself; empty when absent, so callers fall back.
-ams_base_domain() {
-    kubectl get configmap "${AMS_CONFIGMAP_NAME}" -n "${AMS_CONFIGMAP_NAMESPACE}" \
-        -o "jsonpath={.data.$1}" 2>/dev/null || true
-}
 AMS_CONFIGMAP_NAME="${AMS_CONFIGMAP_NAME:-amp-api}"
 AMS_CONFIGMAP_NAMESPACE="${AMS_CONFIGMAP_NAMESPACE:-wso2-amp}"
 
-ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-$(ams_base_domain AGENTS_BASE_DOMAIN)}"
+# Base domain the install recorded for itself. An absent ConfigMap (legacy or local
+# install) yields empty so callers fall back; an unreachable or forbidden cluster must
+# not silently do the same, or the fallback picks localhost hosts that resolve nowhere
+# and the failure only surfaces as a TLS error at invoke time.
+AMS_BASE_DOMAIN=""
+ams_base_domain() {
+    local out rc
+    AMS_BASE_DOMAIN=""
+    out="$(kubectl get configmap "${AMS_CONFIGMAP_NAME}" -n "${AMS_CONFIGMAP_NAMESPACE}" \
+        -o "jsonpath={.data.$1}" 2>&1)" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        AMS_BASE_DOMAIN="$out"
+    elif ! printf '%s' "$out" | grep -q 'NotFound'; then
+        echo "❌ Could not read ${AMS_CONFIGMAP_NAMESPACE}/${AMS_CONFIGMAP_NAME}: ${out}" >&2
+        echo "   Fix cluster access, or set ENV_INGRESS_HOST and GATEWAY_BASE_DOMAIN explicitly." >&2
+        exit 1
+    fi
+}
+
+if [ -z "${ENV_INGRESS_HOST:-}" ]; then
+    ams_base_domain AGENTS_BASE_DOMAIN
+    ENV_INGRESS_HOST="${AMS_BASE_DOMAIN}"
+fi
 ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-am-gateway.localhost}"
 ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HTTPS_HOST:-}"
 ENV_INGRESS_HTTPS_PORT="${ENV_INGRESS_HTTPS_PORT:-443}"
@@ -254,7 +271,10 @@ if [ -n "${ENV_INGRESS_HTTPS_HOST}" ]; then
 fi
 
 # Caddy's *.<base> site issues the cert for the resulting hostname on VM installs.
-GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-$(ams_base_domain GATEWAY_BASE_DOMAIN)}"
+if [ -z "${GATEWAY_BASE_DOMAIN:-}" ]; then
+    ams_base_domain GATEWAY_BASE_DOMAIN
+    GATEWAY_BASE_DOMAIN="${AMS_BASE_DOMAIN}"
+fi
 GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-gateway.localhost}"
 GATEWAY_HOSTNAME="${ENV_NAME}-${ORG_NAME}.${GATEWAY_BASE_DOMAIN}"
 
