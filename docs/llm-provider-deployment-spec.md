@@ -143,7 +143,8 @@ The checkbox is the single inclusion control in all four states, so the emitted 
 always "the resolved gateway of every checked row". Unchecking a **Deployed** row is how an
 undeploy is expressed — which is also the first half of the two-step gateway swap (§6).
 
-Footer: **"N of M environments deployed."** — only when `M > 1`, matching
+Footer: **"N of M environments selected."** — "selected", not "deployed": N counts
+unsaved staging too, and in the create form nothing is deployed yet. Only when `M > 1`, matching
 `EndpointsEditorSection.tsx:235-240`.
 
 `onChange` emits the flat union of resolved gateway UUIDs across all included

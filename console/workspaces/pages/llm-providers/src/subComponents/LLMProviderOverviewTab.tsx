@@ -147,7 +147,7 @@ export function LLMProviderOverviewTab({
     { orgName: orgName ?? "", providerId: providerId ?? "" },
     { status: "DEPLOYED" },
   );
-  const { data: gatewaysData } = useListGateways(
+  const { data: gatewaysData, isLoading: isLoadingGateways } = useListGateways(
     { orgName: orgName ?? "" },
     { limit: 500 },
   );
@@ -178,19 +178,23 @@ export function LLMProviderOverviewTab({
 
   const deployedPlacement = useMemo(() => {
     const deployedIds = new Set(providerData?.gateways ?? []);
-    const deployedGateways = (gatewaysData?.gateways ?? []).filter((g) =>
-      deployedIds.has(g.uuid),
-    );
+    const allGateways = gatewaysData?.gateways ?? [];
+    const knownIds = new Set(allGateways.map((g) => g.uuid));
     const environmentNames = new Set<string>();
-    const unmappedGatewayUuids: string[] = [];
-    deployedGateways.forEach((g) => {
+    // A deployed UUID absent from the fetched gateway list (deleted gateway,
+    // truncated page) still gets a chip rather than vanishing from the card.
+    const unmappedGatewayUuids = [...deployedIds].filter(
+      (uuid) => !knownIds.has(uuid),
+    );
+    allGateways.forEach((g) => {
+      if (!deployedIds.has(g.uuid)) return;
       const environments = g.environments ?? [];
       if (environments.length === 0) {
         unmappedGatewayUuids.push(g.uuid);
         return;
       }
       environments.forEach((env) =>
-        environmentNames.add(env.displayName ?? env.name),
+        environmentNames.add(env.displayName || env.name),
       );
     });
     return {
@@ -480,7 +484,12 @@ export function LLMProviderOverviewTab({
               >
                 Deployment
               </Typography>
-              {(providerData.gateways ?? []).length > 0 ? (
+              {/* Until the gateway list arrives, every deployed UUID would
+                  wrongly render as "Unmapped". */}
+              {(providerData.gateways ?? []).length > 0 && isLoadingGateways && (
+                <Skeleton variant="rounded" width={120} height={24} />
+              )}
+              {(providerData.gateways ?? []).length > 0 && !isLoadingGateways && (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   {deployedPlacement.environmentNames.map((name) => (
                     <Chip
@@ -500,7 +509,8 @@ export function LLMProviderOverviewTab({
                     />
                   ))}
                 </Stack>
-              ) : (
+              )}
+              {(providerData.gateways ?? []).length === 0 && (
                 <>
                   <Typography variant="body2" color="text.secondary">
                     Not deployed

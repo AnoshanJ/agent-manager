@@ -221,7 +221,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
     );
   }
 
-  const deployedCount = rows.filter((row) =>
+  const selectedCount = rows.filter((row) =>
     row.candidates.some((candidate) => valueSet.has(candidate.uuid)),
   ).length;
 
@@ -361,7 +361,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
       })}
       {rows.length > 1 && (
         <Typography variant="caption" color="text.secondary">
-          {deployedCount} of {rows.length} environments deployed.
+          {selectedCount} of {rows.length} environments selected.
         </Typography>
       )}
     </Stack>

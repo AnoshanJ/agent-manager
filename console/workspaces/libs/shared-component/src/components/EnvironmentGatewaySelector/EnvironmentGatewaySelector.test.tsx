@@ -310,7 +310,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(screen.queryByText("Unmapped")).not.toBeInTheDocument();
   });
 
-  it("shows the deployment footer only when there is more than one environment", () => {
+  it("shows the selection footer only when there is more than one environment", () => {
     const { unmount } = renderWithTheme(
       <ControlledSelector
         environments={[
@@ -325,7 +325,7 @@ describe("EnvironmentGatewaySelectorView", () => {
       />,
     );
     expect(
-      screen.getByText("1 of 2 environments deployed."),
+      screen.getByText("1 of 2 environments selected."),
     ).toBeInTheDocument();
     unmount();
 
@@ -336,7 +336,7 @@ describe("EnvironmentGatewaySelectorView", () => {
         initialValue={["gw-1"]}
       />,
     );
-    expect(screen.queryByText(/environments deployed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/environments selected/)).not.toBeInTheDocument();
   });
 });
 

@@ -48,7 +48,7 @@ export function LLMProviderDeploymentTab({
   onUpdate,
   isUpdating,
 }: LLMProviderDeploymentTabProps) {
-  const initializedProviderIdRef = useRef<string | null>(null);
+  const seededRef = useRef<{ uuid: string; gateways: string[] } | null>(null);
   const [selectedGatewayIds, setSelectedGatewayIds] = useState<string[]>([]);
   const [isSelectionValid, setIsSelectionValid] = useState(true);
   const [status, setStatus] = useState<{
@@ -57,11 +57,22 @@ export function LLMProviderDeploymentTab({
   } | null>(null);
   const { addConfirmation } = useConfirmationDialog();
 
+  // Re-seed only when the server's gateway set disagrees with the last seed:
+  // a background refetch that changes unrelated provider fields must not
+  // discard an unsaved selection.
   useEffect(() => {
     if (!providerData) return;
-    if (initializedProviderIdRef.current === providerData.uuid) return;
-    initializedProviderIdRef.current = providerData.uuid;
-    setSelectedGatewayIds(providerData.gateways ?? []);
+    const gateways = providerData.gateways ?? [];
+    const seeded = seededRef.current;
+    if (
+      seeded &&
+      seeded.uuid === providerData.uuid &&
+      sameGatewaySet(seeded.gateways, gateways)
+    ) {
+      return;
+    }
+    seededRef.current = { uuid: providerData.uuid, gateways };
+    setSelectedGatewayIds(gateways);
   }, [providerData]);
 
   const deployedGatewayIds = useMemo(
@@ -85,9 +96,15 @@ export function LLMProviderDeploymentTab({
       await onUpdate({ gateways: selectedGatewayIds });
       // The PUT response drops per-gateway deploy outcomes; only the refetched
       // GET (the mutation invalidates ["llm-provider"]) reports what actually
-      // deployed. Clearing the seed guard lets that refetch re-seed the
-      // selection, so a gateway whose deploy failed reverts to undeployed.
-      initializedProviderIdRef.current = null;
+      // deployed. Recording the requested set as the seed makes the effect
+      // re-seed from any refetch that disagrees with it, so a gateway whose
+      // deploy failed reverts to undeployed.
+      if (seededRef.current) {
+        seededRef.current = {
+          ...seededRef.current,
+          gateways: selectedGatewayIds,
+        };
+      }
       setStatus({
         message: "Deployment updated successfully.",
         severity: "success",

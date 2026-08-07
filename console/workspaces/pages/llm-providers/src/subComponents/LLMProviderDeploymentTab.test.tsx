@@ -168,6 +168,19 @@ describe("LLMProviderDeploymentTab", () => {
     expect(getSaveButton()).toBeEnabled();
   });
 
+  it("keeps an unsaved selection across a background refetch that leaves the gateway set unchanged", () => {
+    const { rerenderTab } = renderTab({ providerData: makeProvider(["gw-a"]) });
+    fireEvent.click(getCheckbox("Beta"));
+    expect(getSaveButton()).toBeEnabled();
+
+    // New object identity, same gateway set — e.g. a window-focus refetch
+    // that changed an unrelated provider field.
+    rerenderTab({ providerData: makeProvider(["gw-a"]) });
+
+    expect(getCheckbox("Beta")).toBeChecked();
+    expect(getSaveButton()).toBeEnabled();
+  });
+
   it("reconciles the selection down to the post-save refetch when a deploy fails", async () => {
     const onUpdate = vi
       .fn()
