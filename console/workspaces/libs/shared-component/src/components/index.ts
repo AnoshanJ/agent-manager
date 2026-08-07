@@ -91,3 +91,9 @@ export {
   type PermissionTreeItem,
   type PermissionTreeProps,
 } from "./PermissionTree/PermissionTree";
+export {
+  EnvironmentGatewaySelector,
+  EnvironmentGatewaySelectorView,
+  type EnvironmentGatewaySelectorProps,
+  type EnvironmentGatewaySelectorViewProps,
+} from "./EnvironmentGatewaySelector/EnvironmentGatewaySelector";

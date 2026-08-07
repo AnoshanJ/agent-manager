@@ -45,6 +45,7 @@ import {
   Chip,
   Divider,
   Grid,
+  Link,
   useTheme,
   Skeleton,
   Stack,
@@ -71,6 +72,7 @@ export type LLMProviderOverviewTabProps = {
   error?: Error | null;
   onUpdate: (fields: UpdateLLMProviderRequest) => Promise<LLMProviderResponse>;
   isUpdating: boolean;
+  onGoToDeploymentTab?: () => void;
 };
 
 function buildInvokeUrl(vhost: string, context: string): string {
@@ -88,6 +90,7 @@ export function LLMProviderOverviewTab({
   error: providerError = null,
   onUpdate,
   isUpdating,
+  onGoToDeploymentTab,
 }: LLMProviderOverviewTabProps) {
   const theme = useTheme();
   const [isDownloading, setIsDownloading] = useState(false);
@@ -172,6 +175,29 @@ export function LLMProviderOverviewTab({
     orgName,
     providerId,
   ]);
+
+  const deployedPlacement = useMemo(() => {
+    const deployedIds = new Set(providerData?.gateways ?? []);
+    const deployedGateways = (gatewaysData?.gateways ?? []).filter((g) =>
+      deployedIds.has(g.uuid),
+    );
+    const environmentNames = new Set<string>();
+    const unmappedGatewayUuids: string[] = [];
+    deployedGateways.forEach((g) => {
+      const environments = g.environments ?? [];
+      if (environments.length === 0) {
+        unmappedGatewayUuids.push(g.uuid);
+        return;
+      }
+      environments.forEach((env) =>
+        environmentNames.add(env.displayName ?? env.name),
+      );
+    });
+    return {
+      environmentNames: [...environmentNames],
+      unmappedGatewayUuids,
+    };
+  }, [providerData?.gateways, gatewaysData]);
 
   const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
@@ -441,6 +467,56 @@ export function LLMProviderOverviewTab({
                 variant="outlined"
                 sx={{ width: "fit-content" }}
               />
+            </Stack>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Stack spacing={0.5}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: 500 }}
+              >
+                Deployment
+              </Typography>
+              {(providerData.gateways ?? []).length > 0 ? (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {deployedPlacement.environmentNames.map((name) => (
+                    <Chip
+                      key={name}
+                      label={name}
+                      size="small"
+                      variant="outlined"
+                      color="success"
+                    />
+                  ))}
+                  {deployedPlacement.unmappedGatewayUuids.map((uuid) => (
+                    <Chip
+                      key={uuid}
+                      label="Unmapped"
+                      size="small"
+                      variant="outlined"
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    Not deployed
+                  </Typography>
+                  {onGoToDeploymentTab && (
+                    <Link
+                      component="button"
+                      variant="body2"
+                      onClick={onGoToDeploymentTab}
+                      sx={{ width: "fit-content" }}
+                    >
+                      Deploy to a gateway
+                    </Link>
+                  )}
+                </>
+              )}
             </Stack>
           </Card>
         </Grid>
