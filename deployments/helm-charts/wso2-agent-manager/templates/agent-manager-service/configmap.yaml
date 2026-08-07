@@ -40,6 +40,9 @@ data:
   # reports diverge from the actual env-Thunder hosts (e.g. amp.localhost vs the
   # public sslip.io/custom domain on a VM install).
   THUNDER_HOST_BASE_DOMAIN: {{ .Values.agentManagerService.config.thunderHostBaseDomain | default "amp.localhost" | quote }}
+  # Read back by add-environment.sh so added environments inherit these domains.
+  AGENTS_BASE_DOMAIN: {{ .Values.agentManagerService.config.agentsBaseDomain | default "am-gateway.localhost" | quote }}
+  GATEWAY_BASE_DOMAIN: {{ .Values.agentManagerService.config.gatewayBaseDomain | default "gateway.localhost" | quote }}
   OAUTH_SCOPES_SUPPORTED: {{ .Values.agentManagerService.config.oauthScopesSupported | default "" | quote }}
   IS_ON_PREM_DEPLOYMENT: {{ .Values.agentManagerService.config.isOnPremDeployment | quote }}
   IDP_TOKEN_URL: {{ .Values.agentManagerService.config.oidc.tokenUrl | quote }}
