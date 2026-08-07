@@ -1381,6 +1381,36 @@ The Environment's gateway binding **wholly replaces** the data plane's, so a par
 Putting `443` on the `http` variant is the trap: the console then publishes `http://<host>:443`, an HTTP scheme on the TLS port, and a browser refuses to call it from the HTTPS console as mixed content. Nothing in the platform reports an error, because the gateway and the agent are both fine.
 :::
 
+**Environments you add later** — the override above applies to the default Environment only. Environments created afterwards with [`add-environment.sh`](../administration/environment-management.mdx) read their hostnames from Agent Manager's own config, which still holds the chart's placeholder defaults. Record the same values there so an added environment resolves the way the default one does:
+
+```bash
+helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
+  --version ${VERSION} \
+  --namespace ${AMP_NS} \
+  --reuse-values \
+  --set agentManagerService.config.agentsBaseDomain="${AGENTS_DOMAIN}" \
+  --set agentManagerService.config.agentsHttpPort=80 \
+  --set agentManagerService.config.agentsHttpsPort=443
+```
+
+The two ports must match the `environment.gateway.http.port` and `https.port` you set above — the same one-port-per-listener rule, for the same reason.
+
+Skip this and added environments still install, but their agents are published on `am-gateway.localhost`: the console shows an empty invoke URL and try-out returns `405` against its own host. The symptom appears only when you create a second environment, long after this step.
+
+:::note Publishing added environments' gateways
+Each added environment also gets its own API Platform Gateway at `<env>-<org>.<gatewayBaseDomain>`, which carries that environment's OTel ingest and LLM-proxy endpoints. Those stay in-cluster unless you gave the gateway a public hostname (see [`INSTRUMENTATION_URL`](#1-hostnames)) — deployed agents reach the runtime in-cluster either way, so this only matters for callers outside the cluster.
+
+If you did, record it too, so added environments publish a reachable URL rather than a `localhost` one:
+
+```bash
+  --set agentManagerService.config.gatewayBaseDomain="otel.${BASE_DOMAIN}" \
+  --set agentManagerService.config.gatewayVhostScheme=https \
+  --set agentManagerService.config.gatewayVhostPort=443
+```
+
+That needs a `*.otel.${BASE_DOMAIN}` DNS record and gateway certificate coverage — and, per [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592), adding that wildcard makes `otel.${BASE_DOMAIN}` an empty non-terminal that a broader `*.${BASE_DOMAIN}` stops covering, so keep an explicit record for it. This is the same trap the `*.thunder.${BASE_DOMAIN}` record carries.
+:::
+
 ### Provision Thunder Identity Provider for the Default Environment
 
 Every Environment needs its own dedicated Thunder ID instance. This is separate from the platform Thunder installed in Phase 1, which only handles console and API login. This instance is what issues each agent its own OAuth2 credential (AgentID) in that Environment. Run this once for the default Environment: agents can still be created without it, but they will never get an AgentID there, since there is no Thunder instance to provision one against, and Agent Manager will keep retrying and failing in the background. Run it after Agent Manager (`amp`) is installed and reachable at `API_PUBLIC_URL`, since this step registers the generated credential with the Agent Manager API.
