@@ -43,6 +43,10 @@ data:
   # Read back by add-environment.sh so added environments inherit these domains.
   AGENTS_BASE_DOMAIN: {{ .Values.agentManagerService.config.agentsBaseDomain | default "am-gateway.localhost" | quote }}
   GATEWAY_BASE_DOMAIN: {{ .Values.agentManagerService.config.gatewayBaseDomain | default "gateway.localhost" | quote }}
+  # ...and the scheme/port that domain is actually served on, so the vhost an added
+  # environment publishes is callable and not just correctly named.
+  GATEWAY_VHOST_SCHEME: {{ .Values.agentManagerService.config.gatewayVhostScheme | default "http" | quote }}
+  GATEWAY_VHOST_PORT: {{ .Values.agentManagerService.config.gatewayVhostPort | default "19080" | quote }}
   OAUTH_SCOPES_SUPPORTED: {{ .Values.agentManagerService.config.oauthScopesSupported | default "" | quote }}
   IS_ON_PREM_DEPLOYMENT: {{ .Values.agentManagerService.config.isOnPremDeployment | quote }}
   IDP_TOKEN_URL: {{ .Values.agentManagerService.config.oidc.tokenUrl | quote }}

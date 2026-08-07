@@ -44,8 +44,14 @@ set -euo pipefail
 #   - ENV_INGRESS_HTTPS_PORT (default: 443): port for the https listener variant.
 #   - GATEWAY_BASE_DOMAIN (default: the install's GATEWAY_BASE_DOMAIN, else
 #     gateway.localhost): base domain for this environment's api-platform gateway.
+#   - GATEWAY_VHOST_SCHEME (default: the install's GATEWAY_VHOST_SCHEME, else http)
+#     and GATEWAY_VHOST_PORT (default: the install's, else 19080): the scheme and
+#     port the gateway vhost is published on. A VM install fronts the runtime with
+#     TLS on :443; a local k3d install serves plain http on the node port.
+#   - GATEWAY_VHOST (default: composed from the three above): full override of the
+#     published gateway URL, for a topology none of the recorded values describe.
 #   - AMS_CONFIGMAP_NAME / AMS_CONFIGMAP_NAMESPACE (default: amp-api / wso2-amp):
-#     where the two base domains above are read from on a non-default release.
+#     where the recorded values above are read from on a non-default release.
 #   - IDP_SKIP_TLS_VERIFY (default: true): skipTlsVerify for the seeded env-Thunder identity provider.
 
 # --- Required inputs ---
@@ -159,8 +165,8 @@ else
     echo "📌 Using pinned chart version: ${CHART_VERSION}"
 fi
 
-# Port the gateway runtime is exposed on (matches values.yaml gateway.vhost default).
-GATEWAY_VHOST_PORT="${GATEWAY_VHOST_PORT:-19080}"
+# GATEWAY_VHOST_PORT is resolved further down, together with the other values the
+# install records on the AMS ConfigMap — defaulting it here would pre-empt that lookup.
 
 # Base URL the gateway uses to reach Agent Manager. Both /api/v1 and the
 # unauthenticated /auth/external/jwks.json endpoint are served from this host:port
@@ -228,55 +234,98 @@ echo "🌍 Creating environment '${ENV_NAME}'..."
 AMS_CONFIGMAP_NAME="${AMS_CONFIGMAP_NAME:-amp-api}"
 AMS_CONFIGMAP_NAMESPACE="${AMS_CONFIGMAP_NAMESPACE:-wso2-amp}"
 
-# Base domain the install recorded for itself. An absent ConfigMap (legacy or local
+# Value the install recorded for itself. An absent ConfigMap (legacy or local
 # install) yields empty so callers fall back; an unreachable or forbidden cluster must
 # not silently do the same, or the fallback picks localhost hosts that resolve nowhere
 # and the failure only surfaces as a TLS error at invoke time.
-AMS_BASE_DOMAIN=""
-ams_base_domain() {
-    local out rc
-    AMS_BASE_DOMAIN=""
+#
+# stdout and stderr are captured separately: folding them together would splice any
+# kubectl warning into the value on the success path, silently yielding a hostname or
+# port built from a diagnostic string.
+AMS_CONFIG_VALUE=""
+ams_config_value() {
+    local out err rc
+    AMS_CONFIG_VALUE=""
+    err="$(mktemp)"
     out="$(kubectl get configmap "${AMS_CONFIGMAP_NAME}" -n "${AMS_CONFIGMAP_NAMESPACE}" \
-        -o "jsonpath={.data.$1}" 2>&1)" && rc=0 || rc=$?
+        -o "jsonpath={.data.$1}" 2>"${err}")" && rc=0 || rc=$?
     if [ "$rc" -eq 0 ]; then
-        AMS_BASE_DOMAIN="$out"
-    elif ! printf '%s' "$out" | grep -q 'NotFound'; then
-        echo "❌ Could not read ${AMS_CONFIGMAP_NAMESPACE}/${AMS_CONFIGMAP_NAME}: ${out}" >&2
-        echo "   Fix cluster access, or set ENV_INGRESS_HOST and GATEWAY_BASE_DOMAIN explicitly." >&2
+        AMS_CONFIG_VALUE="$out"
+    elif ! grep -q 'NotFound' "${err}"; then
+        echo "❌ Could not read ${AMS_CONFIGMAP_NAMESPACE}/${AMS_CONFIGMAP_NAME}: $(cat "${err}")" >&2
+        echo "   Fix cluster access, or set ENV_INGRESS_HOST and GATEWAY_VHOST explicitly." >&2
+        rm -f "${err}"
         exit 1
     fi
+    rm -f "${err}"
 }
 
+# --- Agent-facing ingress (the Environment CR's external listeners) ---
 if [ -z "${ENV_INGRESS_HOST:-}" ]; then
-    ams_base_domain AGENTS_BASE_DOMAIN
-    ENV_INGRESS_HOST="${AMS_BASE_DOMAIN}"
+    ams_config_value AGENTS_BASE_DOMAIN
+    ENV_INGRESS_HOST="${AMS_CONFIG_VALUE}"
 fi
 ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-am-gateway.localhost}"
 ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HTTPS_HOST:-}"
 ENV_INGRESS_HTTPS_PORT="${ENV_INGRESS_HTTPS_PORT:-443}"
 
+# --- Published gateway vhost (scheme + host + port) ---
+# The vhost is the public URL the controller mints into LLM-proxy and OTel endpoints,
+# and the console appends "/otel" to it verbatim. Getting the hostname right is not
+# enough: on a VM the runtime is reached over TLS on :443 through the front proxy, and
+# the node port (19080) is bound to loopback only, so the localhost-era "http://<host>:19080"
+# still resolves to nothing callable. Take scheme and port from the install too.
+if [ -z "${GATEWAY_BASE_DOMAIN:-}" ]; then
+    ams_config_value GATEWAY_BASE_DOMAIN
+    GATEWAY_BASE_DOMAIN="${AMS_CONFIG_VALUE}"
+fi
+GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-gateway.localhost}"
+if [ -z "${GATEWAY_VHOST_SCHEME:-}" ]; then
+    ams_config_value GATEWAY_VHOST_SCHEME
+    GATEWAY_VHOST_SCHEME="${AMS_CONFIG_VALUE}"
+fi
+GATEWAY_VHOST_SCHEME="${GATEWAY_VHOST_SCHEME:-http}"
+if [ -z "${GATEWAY_VHOST_PORT:-}" ]; then
+    ams_config_value GATEWAY_VHOST_PORT
+    GATEWAY_VHOST_PORT="${AMS_CONFIG_VALUE}"
+fi
+GATEWAY_VHOST_PORT="${GATEWAY_VHOST_PORT:-19080}"
+
+# Omit the port when it is the scheme's default. The installer writes the default
+# environment's vhost without one ("https://gateway.<base>"), and the two must agree:
+# they are compared as strings wherever a caller matches an endpoint back to a gateway.
+gateway_vhost_url() {   # <scheme> <host> <port>
+    if { [ "$1" = "https" ] && [ "$3" = "443" ]; } || { [ "$1" = "http" ] && [ "$3" = "80" ]; }; then
+        printf '%s://%s' "$1" "$2"
+    else
+        printf '%s://%s:%s' "$1" "$2" "$3"
+    fi
+}
+
 # Without an https variant the console reports an empty invoke URL on TLS deployments.
+# A recorded (non-localhost) agents base means the install fronts agents with TLS on
+# ENV_INGRESS_HTTPS_PORT, so pin the http variant to the same port rather than leaving
+# it on the gateway runtime's node port — the two variants describe one listener, and
+# the default environment seeded by the chart advertises both on 443.
 if [ -z "${ENV_INGRESS_HTTPS_HOST}" ] && [ "${ENV_INGRESS_HOST}" != "am-gateway.localhost" ]; then
     ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HOST}"
+    ENV_INGRESS_PORT="${ENV_INGRESS_PORT:-${ENV_INGRESS_HTTPS_PORT}}"
 fi
+ENV_INGRESS_PORT="${ENV_INGRESS_PORT:-${GATEWAY_VHOST_PORT}}"
 
 # Build the external listener set. Always advertise http; add an https variant when
 # ENV_INGRESS_HTTPS_HOST is set (TLS deployments). The console reads the https
 # endpoint variant when tlsEnabled=true, and an Environment's external gateway
 # wholly replaces the dataplane's, so an http-only override on a TLS platform leaves
 # the deployed-agent invoke URL empty (try-out then 405s against the console host).
-EXTERNAL_LISTENERS="\"http\": {\"host\": \"${ENV_INGRESS_HOST}\", \"port\": ${GATEWAY_VHOST_PORT}}"
+EXTERNAL_LISTENERS="\"http\": {\"host\": \"${ENV_INGRESS_HOST}\", \"port\": ${ENV_INGRESS_PORT}}"
 if [ -n "${ENV_INGRESS_HTTPS_HOST}" ]; then
     EXTERNAL_LISTENERS="${EXTERNAL_LISTENERS}, \"https\": {\"host\": \"${ENV_INGRESS_HTTPS_HOST}\", \"port\": ${ENV_INGRESS_HTTPS_PORT}}"
 fi
 
 # Caddy's *.<base> site issues the cert for the resulting hostname on VM installs.
-if [ -z "${GATEWAY_BASE_DOMAIN:-}" ]; then
-    ams_base_domain GATEWAY_BASE_DOMAIN
-    GATEWAY_BASE_DOMAIN="${AMS_BASE_DOMAIN}"
-fi
-GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-gateway.localhost}"
 GATEWAY_HOSTNAME="${ENV_NAME}-${ORG_NAME}.${GATEWAY_BASE_DOMAIN}"
+GATEWAY_VHOST="${GATEWAY_VHOST:-$(gateway_vhost_url "${GATEWAY_VHOST_SCHEME}" "${GATEWAY_HOSTNAME}" "${GATEWAY_VHOST_PORT}")}"
 
 # Optional pod runtime isolation tier for this environment. "gvisor" makes agents run
 # under the runsc RuntimeClass (requires a gVisor node — see `make setup-gvisor`); "kata"
@@ -515,7 +564,7 @@ helm upgrade --install "${RELEASE_NAME}" "${CHART_REF}" \
     --set gateway.type="${INGRESS_TYPE}" \
     --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway" \
     --set gateway.hostname="${GATEWAY_HOSTNAME}" \
-    --set gateway.vhost="http://${GATEWAY_HOSTNAME}:${GATEWAY_VHOST_PORT}" \
+    --set gateway.vhost="${GATEWAY_VHOST}" \
     "${HELM_ARGS[@]}"
 
 if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
@@ -526,6 +575,7 @@ if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
     EGRESS_RELEASE_NAME=$(echo "api-platform-${ORG_NAME}-${ENV_NAME}-egress" | head -c 53 | sed 's/-*$//')
     EGRESS_GATEWAY_NAME="api-platform-${ORG_NAME}-${ENV_NAME}-egress"
     EGRESS_HOSTNAME="${ENV_NAME}-${ORG_NAME}-egress.${GATEWAY_BASE_DOMAIN}"
+    EGRESS_VHOST="$(gateway_vhost_url "${GATEWAY_VHOST_SCHEME}" "${EGRESS_HOSTNAME}" "${GATEWAY_VHOST_PORT}")"
 
     # Both namespaces must carry this label. The sandbox NetworkPolicy at
     # wso2-amp-platform-resources-extension/templates/component-types/agent-api.yaml:206-213
@@ -554,7 +604,7 @@ if [ "$GATEWAY_TOPOLOGY" = "split" ]; then
         --set gateway.name="${EGRESS_GATEWAY_NAME}" \
         --set gateway.displayName="${DISPLAY_NAME} API Platform Gateway (Egress)" \
         --set gateway.hostname="${EGRESS_HOSTNAME}" \
-        --set gateway.vhost="http://${EGRESS_HOSTNAME}:${GATEWAY_VHOST_PORT}" \
+        --set gateway.vhost="${EGRESS_VHOST}" \
         "${HELM_ARGS[@]}"
 fi
 
@@ -582,5 +632,6 @@ echo "=== Environment '${ENV_NAME}' setup complete ==="
 echo ""
 echo "  Environment:     ${ENV_NAME}"
 echo "  Display Name:    ${DISPLAY_NAME}"
-echo "  Gateway Runtime: ${GATEWAY_HOSTNAME}:${GATEWAY_VHOST_PORT}"
+echo "  Gateway Vhost:   ${GATEWAY_VHOST}"
+echo "  Agent Endpoints: ${ENV_NAME}-${ORG_NAME}.${ENV_INGRESS_HTTPS_HOST:-${ENV_INGRESS_HOST}}"
 echo ""

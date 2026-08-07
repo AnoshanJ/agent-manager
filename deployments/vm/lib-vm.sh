@@ -49,7 +49,9 @@ amp_helm_args() {
       "--set" "${k}.config.tlsEnabled=true" \
       "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
       "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
-      "--set" "${k}.config.gatewayBaseDomain=${AMP_HOST_GATEWAY}"
+      "--set" "${k}.config.gatewayBaseDomain=${AMP_HOST_GATEWAY}" \
+      "--set" "${k}.config.gatewayVhostScheme=https" \
+      "--set" "${k}.config.gatewayVhostPort=443"
   done
 
   printf '%s\n' \

@@ -99,6 +99,22 @@ assert_eq "amp cp url by default" \
 assert_eq "amp gateway-mgmt route hostname when cp on" \
   "agentManagerService.ocIngress.gatewayMgmt.hostnames={cp.amp.203.0.113.10.sslip.io}" \
   "$(grep -F 'gatewayMgmt.hostnames' <<<"$amp")"
+# Recorded on the AMS ConfigMap for add-environment.sh to read back. The two base
+# domains give an added environment the right hostnames; the scheme/port give it a
+# vhost that is actually callable — the runtime is fronted by TLS on :443 here, and
+# the chart-default http://<host>:19080 points at a loopback-bound node port.
+assert_eq "amp agentsBaseDomain (service key)" \
+  "agentManagerService.config.agentsBaseDomain=agents.203.0.113.10.sslip.io" \
+  "$(grep -F 'agentManagerService.config.agentsBaseDomain' <<<"$amp")"
+assert_eq "amp gatewayBaseDomain (service key)" \
+  "agentManagerService.config.gatewayBaseDomain=gateway.amp.203.0.113.10.sslip.io" \
+  "$(grep -F 'agentManagerService.config.gatewayBaseDomain' <<<"$amp")"
+assert_eq "amp gatewayVhostScheme (service key)" \
+  "agentManagerService.config.gatewayVhostScheme=https" \
+  "$(grep -F 'agentManagerService.config.gatewayVhostScheme' <<<"$amp")"
+assert_eq "amp gatewayVhostPort (service key)" \
+  "agentManagerService.config.gatewayVhostPort=443" \
+  "$(grep -F 'agentManagerService.config.gatewayVhostPort' <<<"$amp")"
 
 # --- build_amp_helm_args (external gateways disabled) ---
 amp_nocp="$(build_amp_helm_args 203.0.113.10 false)"
@@ -420,6 +436,22 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core cp oidc issuer" \
     "security.oidc.issuer=https://thunder.amp.example.com" \
     "$(grep -F 'security.oidc.issuer' <<<"$core_cp")"
+
+  # The advanced install has no Caddy: one DNS-01 wildcard cert covers the dynamic
+  # tiers instead of on-demand issuance. Per-environment gateways are one of those
+  # tiers, so *.<gateway host> must be a SAN — without it an added environment gets a
+  # hostname that resolves and routes but fails the TLS handshake.
+  dns_names="$(cert_dns_names)"
+  assert_eq "cert covers the agents wildcard" "*.agents.amp.example.com" \
+    "$(grep -Fx '*.agents.amp.example.com' <<<"$dns_names")"
+  assert_eq "cert covers the env-Thunder wildcard" "*.thunder.amp.example.com" \
+    "$(grep -Fx '*.thunder.amp.example.com' <<<"$dns_names")"
+  assert_eq "cert covers the env-gateway wildcard" "*.gateway.amp.example.com" \
+    "$(grep -Fx '*.gateway.amp.example.com' <<<"$dns_names")"
+  # The exact gateway host must stay a SAN alongside its wildcard: *.gateway makes
+  # gateway.<base> an empty non-terminal, so nothing broader covers it (RFC 4592).
+  assert_eq "cert keeps the exact gateway host" "gateway.amp.example.com" \
+    "$(grep -Fx 'gateway.amp.example.com' <<<"$dns_names")"
 )
 
 # --- core respects AMP_HOST_CP="" as external-gateways-off ---
