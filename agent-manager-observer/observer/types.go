@@ -16,7 +16,11 @@
 
 package observer
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+)
 
 // ComponentSearchScope identifies a component in the observer service.
 // Namespace is required; Project, Component, and Environment are optional filters.
@@ -65,6 +69,33 @@ type TracesQueryResponse struct {
 type SpanStatus struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+// UnmarshalJSON accepts both shapes the tracing adapter can emit for a span
+// status, so the observer isn't coupled to a specific adapter version:
+func (s *SpanStatus) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+	// Legacy string form: the value is the status code.
+	if trimmed[0] == '"' {
+		var code string
+		if err := json.Unmarshal(trimmed, &code); err != nil {
+			return err
+		}
+		s.Code = code
+		s.Message = ""
+		return nil
+	}
+	// Object form. Alias avoids recursing back into this method.
+	type spanStatusAlias SpanStatus
+	var alias spanStatusAlias
+	if err := json.Unmarshal(trimmed, &alias); err != nil {
+		return err
+	}
+	*s = SpanStatus(alias)
+	return nil
 }
 
 // SpanInfo represents a single span in TraceSpansQueryResponse.

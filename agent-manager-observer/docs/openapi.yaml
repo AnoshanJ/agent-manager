@@ -760,6 +760,16 @@ components:
         durationNs:
           type: integer
           format: int64
+        error:
+          type: boolean
+          description: >
+            True when the span's OTel status code is "error". Sourced from the
+            span-list response (no per-span detail fetch), so the trace tree can
+            flag failed spans up front.
+        statusMessage:
+          type: string
+          description: Developer-facing status message from the span's OTel status (typically set on error).
+          nullable: true
 
     SpanSummaryListResponse:
       type: object
