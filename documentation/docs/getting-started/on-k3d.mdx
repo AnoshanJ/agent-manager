@@ -746,19 +746,12 @@ helm list -A | grep -E 'openchoreo|amp|gateway'
 
 **Default credentials:** `admin` / `admin`
 
-:::note HTTPS ingest is disabled by default on this setup
+:::note HTTPS ingest is disabled by default on this setup, and enabling it doesn't cover the documented hosts
 [values-dp.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v0.0.0-dev/deployments/single-cluster/values-dp.yaml), installed in [Step 8](#step-8-setup-data-plane), sets `gateway.tls.enabled: false` even though it already configures `httpsPort: 19443` and a `certificateRefs` entry pointing at the `gateway-tls` Secret (created earlier by cert-manager). With TLS disabled, the Data Plane's `gateway-default` Gateway/Service only get an `http` listener — there is no 19443 listener to connect to, so an HTTPS OTLP endpoint is not reachable on a default install.
 
-To enable it, set `gateway.tls.enabled: true` in `values-dp.yaml` before Step 8's `helm install`, or apply it afterwards with:
-```bash
-helm upgrade openchoreo-data-plane \
-  oci://ghcr.io/openchoreo/helm-charts/openchoreo-data-plane \
-  --version 1.1.1 \
-  --namespace openchoreo-data-plane \
-  --reuse-values \
-  --set gateway.tls.enabled=true
-```
-This isn't OpenChoreo lacking HTTPS support — the port, hostname, and certificate reference are already wired up in the values file; TLS is just switched off. Use the HTTP endpoint above for trace ingestion unless you've enabled and verified this yourself.
+Turning `gateway.tls.enabled` on would not make the OTLP host above reachable over HTTPS anyway: `gateway-tls`'s certificate only covers `*.agentmanager.localhost` and `*.am-gateway.localhost` (its configured `hostname` and SANs), not `*.gateway.localhost` — the domain `default-default.gateway.localhost` above actually uses. Reaching HTTPS on that specific host would additionally require reissuing the certificate with `*.gateway.localhost` in its `dnsNames` and pointing `gateway.tls.hostname` at it.
+
+Given that, this setup keeps TLS disabled and uses the HTTP endpoint above for trace ingestion.
 :::
 
 ---
