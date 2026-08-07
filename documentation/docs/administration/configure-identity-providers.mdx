@@ -20,8 +20,7 @@ An identity provider is any external issuer you add, such as an Auth0 tenant or 
 
 When an environment is provisioned with its own Thunder instance (the default in
 `add-environment.sh`), that instance is registered automatically as an identity provider on the
-environment's gateway. The provider is named after the Thunder release (`amp-thunder-<org>-<env>`),
-so each instance is identifiable in the organization-wide identity provider list. Re-running the
+environment's gateway, under the name `ThunderKeyManager`. Re-running the
 script re-seeds the provider idempotently; the `IDP_SKIP_TLS_VERIFY` variable (default `true`)
 controls its **Skip TLS verification** setting.
 
