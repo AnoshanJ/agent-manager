@@ -113,9 +113,11 @@ export interface EnvironmentGatewaySelectorProps {
 | Environments | `useListEnvironments({ orgName })` → `Environment[]` | `id`, `name`, `displayName` (`types/src/api/deployments.ts:151`) |
 | Gateways | `useListGateways({ orgName }, { limit: 500 })` | Filter `gatewayType === "EGRESS" \|\| "BOTH"` |
 
-Group gateways by `gateway.environments[].id` into
-`Record<string, GatewayResponse[]>` — identical to `egressGatewaysByEnv`
-(`EndpointFormFields.tsx:159-171`).
+Group gateways by `gateway.environments[0].id` into
+`Record<string, GatewayResponse[]>` — same shape as `egressGatewaysByEnv`
+(`EndpointFormFields.tsx:159-171`). A gateway belongs to exactly one
+environment (business rule; the wire field is an array). A gateway with no
+mapping is handled by the "Unmapped" row (§7).
 
 > **Pass `{ limit: 500 }`.** `useListGateways` takes an optional query and
 > `LLMProviderOverviewTab.tsx:147-150` already passes it; `EndpointFormFields.tsx:154`
@@ -269,7 +271,7 @@ discover it via a 400.
 | Org has zero egress-capable gateways | Every row `Unavailable`; keep the existing warning Alert; Save disabled |
 | Environment has zero egress gateways | Row disabled with explanatory caption (do not hide it — hiding makes the org look misconfigured in a way the user can't see) |
 | Deployed gateway later deleted | It drops out of `gateways` on the next `GET`; the row reverts to undeployed. Acceptable |
-| Gateway attached to 2+ environments | Appears as a candidate in each. Selecting it in one environment must **disable it in the others**, or the emitted array would deploy it twice and trip `validateEgressPlacement`. Enforce client-side. |
+| Gateway attached to 2+ environments | **Cannot happen** — a gateway belongs to exactly one environment (business rule; the wire field is an array only in shape). No cross-row conflict exists; the placement invariant reduces to replacing the previous same-environment selection when a row's candidate changes. |
 | Provider deployed to a gateway with no environment mapping | Cannot be attributed to a row. Render as an extra "Unmapped" locked row so it is visible and not silently dropped from the emitted array on save |
 | Deselecting the last environment | Emits `[]` → `UpdateAndSync` undeploys everything. Confirm via dialog; copy: *"This will undeploy the provider from all gateways. Invoke URLs will stop working."* |
 | User wants a different gateway in a deployed environment | Not doable in one save (see §6). Locked row forces deselect → save → reselect → save. Caption must say so |
@@ -343,7 +345,7 @@ the first half of a gateway swap — that is a one-line change to the same guard
 - 0 candidates → checkbox disabled, contributes nothing to `onChange`
 - `lockedGatewayIds` → checkbox checked, `Select` disabled, `Deployed` chip present
 - Unchecking a locked row → its gateway drops out of `onChange` (stages the undeploy)
-- Gateway spanning 2 environments → selecting it in one disables it in the other
+- Choosing a different candidate in an environment → previous selection evicted from `onChange`, never joined
 - `onChange` never emits 2 gateways sharing an environment (property test over generated fixtures)
 
 **Unit — `LLMProviderDeploymentTab`**

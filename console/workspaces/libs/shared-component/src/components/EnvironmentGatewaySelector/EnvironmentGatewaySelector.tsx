@@ -56,8 +56,10 @@ export interface EnvironmentGatewaySelectorViewProps
   isLoading?: boolean;
 }
 
-const environmentIdsOf = (gateway: GatewayResponse): string[] =>
-  (gateway.environments ?? []).flatMap((env) => (env.id ? [env.id] : []));
+// A gateway belongs to exactly one environment (business rule; the wire shape
+// is an array). A gateway with no mapping surfaces via the "Unmapped" row.
+const environmentIdOf = (gateway: GatewayResponse): string | undefined =>
+  gateway.environments?.[0]?.id;
 
 const gatewayLabel = (gateway: GatewayResponse): string =>
   gateway.displayName || gateway.name;
@@ -111,28 +113,12 @@ export const EnvironmentGatewaySelectorView: React.FC<
       if (gateway.gatewayType !== "EGRESS" && gateway.gatewayType !== "BOTH") {
         return;
       }
-      (gateway.environments ?? []).forEach((env) => {
-        if (!env.id) return;
-        (map[env.id] ??= []).push(gateway);
-      });
+      const envId = environmentIdOf(gateway);
+      if (!envId) return;
+      (map[envId] ??= []).push(gateway);
     });
     return map;
   }, [gateways]);
-
-  const lockedCoveredEnvIds = useMemo(() => {
-    const covered = new Set<string>();
-    value.forEach((uuid) => {
-      if (!lockedSet.has(uuid)) return;
-      const gateway = gatewayByUuid.get(uuid);
-      if (!gateway) return;
-      environmentIdsOf(gateway).forEach((envId) => covered.add(envId));
-    });
-    return covered;
-  }, [value, lockedSet, gatewayByUuid]);
-
-  const isBlockedByLocked = (gateway: GatewayResponse): boolean =>
-    !lockedSet.has(gateway.uuid) &&
-    environmentIdsOf(gateway).some((envId) => lockedCoveredEnvIds.has(envId));
 
   const rows = useMemo<EnvironmentRow[]>(
     () =>
@@ -190,15 +176,15 @@ export const EnvironmentGatewaySelectorView: React.FC<
     onChange(value.filter((selected) => selected !== uuid));
   };
 
+  // Evicting any same-environment gateway before adding keeps the emitted
+  // array inside the server's one-gateway-per-environment placement rule.
   const emitAdd = (gateway: GatewayResponse) => {
-    if (isBlockedByLocked(gateway)) return;
-    const addedEnvIds = new Set(environmentIdsOf(gateway));
+    const envId = environmentIdOf(gateway);
     const next = value.filter((uuid) => {
       if (uuid === gateway.uuid) return false;
-      if (lockedSet.has(uuid)) return true;
       const other = gatewayByUuid.get(uuid);
-      if (!other) return true;
-      return !environmentIdsOf(other).some((envId) => addedEnvIds.has(envId));
+      if (!other || envId === undefined) return true;
+      return environmentIdOf(other) !== envId;
     });
     onChange([...next, gateway.uuid]);
   };
@@ -292,11 +278,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
             }}
           >
             {row.candidates.map((candidate) => (
-              <MenuItem
-                key={candidate.uuid}
-                value={candidate.uuid}
-                disabled={isBlockedByLocked(candidate)}
-              >
+              <MenuItem key={candidate.uuid} value={candidate.uuid}>
                 {gatewayLabel(candidate)}
               </MenuItem>
             ))}
@@ -309,19 +291,6 @@ export const EnvironmentGatewaySelectorView: React.FC<
         )}
       </>
     );
-  };
-
-  const isRowCheckboxDisabled = (row: EnvironmentRow): boolean => {
-    if (disabled) return true;
-    if (row.candidates.length === 0) return true;
-    if (
-      row.candidates.length === 1 &&
-      !row.checked &&
-      isBlockedByLocked(row.candidates[0])
-    ) {
-      return true;
-    }
-    return false;
   };
 
   return (
@@ -337,7 +306,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
           <Checkbox
             size="small"
             checked={row.checked}
-            disabled={isRowCheckboxDisabled(row)}
+            disabled={disabled || row.candidates.length === 0}
             onChange={() => handleToggle(row)}
             inputProps={{ "aria-label": row.label }}
             sx={{ p: 0.5 }}

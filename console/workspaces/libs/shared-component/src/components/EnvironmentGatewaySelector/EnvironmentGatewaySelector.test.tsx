@@ -47,9 +47,10 @@ const makeEnvironment = (id: string, name: string): Environment => ({
   createdAt: "2026-01-01T00:00:00Z",
 });
 
+// A gateway belongs to exactly one environment; the wire shape is an array.
 const makeGateway = (
   uuid: string,
-  envIds: string[],
+  envId: string,
   gatewayType: GatewayType = "EGRESS",
 ): GatewayResponse => ({
   uuid,
@@ -62,17 +63,19 @@ const makeGateway = (
   status: "ACTIVE",
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
-  environments: envIds.map((envId) => ({
-    id: envId,
-    organizationName: "org",
-    name: envId,
-    displayName: envId,
-    dataplaneRef: "dp-1",
-    dnsPrefix: envId,
-    isProduction: false,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-  })),
+  environments: [
+    {
+      id: envId,
+      organizationName: "org",
+      name: envId,
+      displayName: envId,
+      dataplaneRef: "dp-1",
+      dnsPrefix: envId,
+      isProduction: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    },
+  ],
 });
 
 // Controlled wrapper so onChange results flow back into value, mirroring how
@@ -134,7 +137,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", ["env-a"])]}
+        gateways={[makeGateway("gw-1", "env-a")]}
         onChangeSpy={onChangeSpy}
       />,
     );
@@ -150,7 +153,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", ["env-a"])]}
+        gateways={[makeGateway("gw-1", "env-a")]}
         onChangeSpy={onChangeSpy}
       />,
     );
@@ -165,8 +168,8 @@ describe("EnvironmentGatewaySelectorView", () => {
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
-          makeGateway("gw-1", ["env-a"]),
-          makeGateway("gw-2", ["env-a"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-a"),
         ]}
         onChangeSpy={onChangeSpy}
         onValidityChange={onValidityChange}
@@ -190,8 +193,8 @@ describe("EnvironmentGatewaySelectorView", () => {
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
-          makeGateway("gw-1", ["env-a"]),
-          makeGateway("gw-2", ["env-a"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-a"),
         ]}
         onValidityChange={onValidityChange}
       />,
@@ -223,8 +226,8 @@ describe("EnvironmentGatewaySelectorView", () => {
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
-          makeGateway("gw-1", ["env-a"]),
-          makeGateway("gw-2", ["env-a"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-a"),
         ]}
         initialValue={["gw-1"]}
         lockedGatewayIds={["gw-1"]}
@@ -246,8 +249,8 @@ describe("EnvironmentGatewaySelectorView", () => {
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
-          makeGateway("gw-1", ["env-a"]),
-          makeGateway("gw-2", ["env-a"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-a"),
         ]}
         initialValue={["gw-1"]}
         lockedGatewayIds={["gw-1"]}
@@ -260,7 +263,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-1"]);
   });
 
-  it("renders every environment a multi-env gateway covers as checked and never pairs it with an overlapping gateway", () => {
+  it("evicts the previously selected gateway when a different candidate is chosen in the same environment", () => {
     const onChangeSpy = vi.fn();
     renderWithTheme(
       <ControlledSelector
@@ -269,27 +272,24 @@ describe("EnvironmentGatewaySelectorView", () => {
           makeEnvironment("env-b", "Beta"),
         ]}
         gateways={[
-          makeGateway("gw-shared", ["env-a", "env-b"]),
-          makeGateway("gw-solo", ["env-a"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-a"),
+          makeGateway("gw-3", "env-b"),
         ]}
         onChangeSpy={onChangeSpy}
       />,
     );
     fireEvent.click(getCheckbox("Alpha"));
-    chooseOption("Egress gateway for Alpha", "Gateway gw-shared");
-    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-shared"]);
-    expect(getCheckbox("Beta")).toBeChecked();
+    chooseOption("Egress gateway for Alpha", "Gateway gw-1");
+    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-1"]);
 
-    // Replacing the shared gateway in Alpha evicts it everywhere it deploys.
-    chooseOption("Egress gateway for Alpha", "Gateway gw-solo");
-    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-solo"]);
-    expect(getCheckbox("Beta")).not.toBeChecked();
-
-    // Re-selecting the shared gateway evicts the solo one from Alpha.
-    chooseOption("Egress gateway for Alpha", "Gateway gw-shared");
-    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-shared"]);
+    // A gateway in a different environment coexists.
     fireEvent.click(getCheckbox("Beta"));
-    expect(onChangeSpy).toHaveBeenLastCalledWith([]);
+    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-1", "gw-3"]);
+
+    // Switching Alpha's candidate replaces gw-1 rather than joining it.
+    chooseOption("Egress gateway for Alpha", "Gateway gw-2");
+    expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-3", "gw-2"]);
   });
 
   it("renders an unmapped selected gateway as a removable locked row", () => {
@@ -297,7 +297,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", ["env-a"])]}
+        gateways={[makeGateway("gw-1", "env-a")]}
         initialValue={["ghost-gw"]}
         onChangeSpy={onChangeSpy}
       />,
@@ -318,8 +318,8 @@ describe("EnvironmentGatewaySelectorView", () => {
           makeEnvironment("env-b", "Beta"),
         ]}
         gateways={[
-          makeGateway("gw-1", ["env-a"]),
-          makeGateway("gw-2", ["env-b"]),
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-b"),
         ]}
         initialValue={["gw-1"]}
       />,
@@ -332,7 +332,7 @@ describe("EnvironmentGatewaySelectorView", () => {
     renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", ["env-a"])]}
+        gateways={[makeGateway("gw-1", "env-a")]}
         initialValue={["gw-1"]}
       />,
     );
@@ -354,7 +354,7 @@ interface Fixture {
   gateways: GatewayResponse[];
   lockedGatewayIds: string[];
   initialValue: string[];
-  envIdsByUuid: Record<string, string[]>;
+  envIdByUuid: Record<string, string | undefined>;
 }
 
 const generateFixture = (rand: () => number): Fixture => {
@@ -363,40 +363,35 @@ const generateFixture = (rand: () => number): Fixture => {
     makeEnvironment(`env-${i}`, `Env ${i}`),
   );
   const gatewayCount = 2 + Math.floor(rand() * 5);
-  const gateways = Array.from({ length: gatewayCount }, (_, i) => {
-    const covered = environments
-      .filter(() => rand() < 0.4)
-      .map((env) => env.id as string);
-    if (covered.length === 0) {
-      covered.push(environments[Math.floor(rand() * envCount)].id as string);
-    }
-    return makeGateway(`gw-${i}`, covered);
-  });
+  const gateways = Array.from({ length: gatewayCount }, (_, i) =>
+    makeGateway(
+      `gw-${i}`,
+      environments[Math.floor(rand() * envCount)].id as string,
+    ),
+  );
 
-  const envIdsByUuid: Record<string, string[]> = {};
+  const envIdByUuid: Record<string, string | undefined> = {};
   gateways.forEach((gateway) => {
-    envIdsByUuid[gateway.uuid] = (gateway.environments ?? []).map(
-      (env) => env.id,
-    );
+    envIdByUuid[gateway.uuid] = gateway.environments?.[0]?.id;
   });
 
   const lockedGatewayIds: string[] = [];
   const lockedEnvIds = new Set<string>();
   gateways.forEach((gateway) => {
     if (rand() >= 0.35) return;
-    const envIds = envIdsByUuid[gateway.uuid];
-    if (envIds.some((envId) => lockedEnvIds.has(envId))) return;
+    const envId = envIdByUuid[gateway.uuid];
+    if (!envId || lockedEnvIds.has(envId)) return;
     lockedGatewayIds.push(gateway.uuid);
-    envIds.forEach((envId) => lockedEnvIds.add(envId));
+    lockedEnvIds.add(envId);
   });
 
   const initialValue = [...lockedGatewayIds];
   if (rand() < 0.3) {
     initialValue.push("ghost-gw");
-    envIdsByUuid["ghost-gw"] = [];
+    envIdByUuid["ghost-gw"] = undefined;
   }
 
-  return { environments, gateways, lockedGatewayIds, initialValue, envIdsByUuid };
+  return { environments, gateways, lockedGatewayIds, initialValue, envIdByUuid };
 };
 
 const performRandomAction = (rand: () => number) => {
@@ -425,7 +420,7 @@ const performRandomAction = (rand: () => number) => {
 
 describe("EnvironmentGatewaySelectorView placement invariant", () => {
   it.each([7, 42, 1337, 20260807])(
-    "never emits two gateways with intersecting environment sets (seed %i)",
+    "never emits two gateways in the same environment (seed %i)",
     (seed) => {
       const rand = makeLcg(seed);
       const fixture = generateFixture(rand);
@@ -446,15 +441,15 @@ describe("EnvironmentGatewaySelectorView placement invariant", () => {
           const emitted = emissions[verified];
           const coveredEnvIds = new Set<string>();
           emitted.forEach((uuid) => {
-            (fixture.envIdsByUuid[uuid] ?? []).forEach((envId) => {
-              if (coveredEnvIds.has(envId)) {
-                throw new Error(
-                  `seed ${seed}, emission ${verified}: env ${envId} covered ` +
-                    `twice in [${emitted.join(", ")}]`,
-                );
-              }
-              coveredEnvIds.add(envId);
-            });
+            const envId = fixture.envIdByUuid[uuid];
+            if (!envId) return;
+            if (coveredEnvIds.has(envId)) {
+              throw new Error(
+                `seed ${seed}, emission ${verified}: env ${envId} covered ` +
+                  `twice in [${emitted.join(", ")}]`,
+              );
+            }
+            coveredEnvIds.add(envId);
           });
         }
       };
