@@ -166,6 +166,8 @@ export interface TraceSpanSummary {
   startTime: string;
   endTime: string;
   durationNs: number;
+  error?: boolean;
+  statusMessage?: string;
 }
 
 export interface TraceSpanSummaryListResponse {
