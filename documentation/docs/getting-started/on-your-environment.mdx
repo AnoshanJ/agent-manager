@@ -1643,7 +1643,7 @@ Two cautions learned the hard way. Because these use `kubectl patch`/`apply`, th
 
 ### Identity and Access
 
-The seeded `admin`/`admin` console login is for bootstrap only. Create real users in Thunder or connect your organization's identity provider before exposing the platform — see [Configure Identity Providers at the Gateway](../administration/configure-identity-providers.mdx).
+The seeded `admin`/`admin` console login is for bootstrap only. Create real users in Thunder or connect your organization's identity provider before exposing the platform — see [Configure Identity Providers at the Gateway](../administration/configure-identity-providers-at-the-gateway.mdx).
 
 Each environment also gets its own Thunder instance, provisioned in Phase 2, which issues agents their OAuth credentials in that environment. Those are separate installations from the platform Thunder; its admin password is generated once at provisioning and shown only in the verify step, so capture it into your secret manager then. Apply the same database and credential hygiene per environment.
 
