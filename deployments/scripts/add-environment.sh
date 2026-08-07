@@ -204,6 +204,7 @@ ELAPSED=0
 until curl -sf "${AGENT_MANAGER_URL}/healthz" > /dev/null 2>&1; do
     if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
         echo "❌ Agent Manager not reachable at ${AGENT_MANAGER_URL}/healthz after ${MAX_WAIT}s"
+        echo "   Set AGENT_MANAGER_URL to the URL you use to reach the console's API."
         exit 1
     fi
     sleep 3

@@ -113,6 +113,7 @@ echo ""
 echo "⏳ Checking Agent Manager is healthy..."
 if ! curl -sf "${AGENT_MANAGER_URL}/healthz" > /dev/null 2>&1; then
     echo "❌ Agent Manager not reachable at ${AGENT_MANAGER_URL}/healthz"
+    echo "   Set AGENT_MANAGER_URL to the URL you use to reach the console's API."
     exit 1
 fi
 echo "✅ Agent Manager is healthy"

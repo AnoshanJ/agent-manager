@@ -43,6 +43,7 @@ import { useAuthHooks } from "@agent-management-platform/auth";
 import { useListDataPlanes } from "@agent-management-platform/api-client";
 import { globalConfig, type DataPlane } from "@agent-management-platform/types";
 import {
+  getAgentManagerUrl,
   getAmpVersionHelm,
   getIsolationTierMeta,
   getRawScriptUrl,
@@ -143,6 +144,7 @@ function buildScript(
       ? [`    ISOLATION_TIER=${isolationTier} \\`]
       : []),
     `    AGENT_MANAGER_TOKEN=${token} \\`,
+    `    AGENT_MANAGER_URL=${getAgentManagerUrl()} \\`,
     `    CHART_VERSION=${chartVersion || "<chart-version>"} \\`,
     ...(isProduction ? ["    IS_PRODUCTION=true \\"] : []),
     ...(internalBase
