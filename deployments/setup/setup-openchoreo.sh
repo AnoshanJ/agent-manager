@@ -58,6 +58,7 @@ _sync_chart_crds_body() {
             return 1
         fi
     fi
+    return 0
 }
 
 # verify_agent_logs prints a plane's cluster-agent logs as a post-setup sanity
