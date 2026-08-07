@@ -42,6 +42,10 @@ data:
   THUNDER_HOST_BASE_DOMAIN: {{ .Values.agentManagerService.config.thunderHostBaseDomain | default "amp.localhost" | quote }}
   # Read back by add-environment.sh so added environments inherit these domains.
   AGENTS_BASE_DOMAIN: {{ .Values.agentManagerService.config.agentsBaseDomain | default "am-gateway.localhost" | quote }}
+  # One port per listener variant: they coincide behind a single TLS front door but
+  # not on a plane gateway serving http on 80 and https on 443, so neither is inferred.
+  AGENTS_HTTP_PORT: {{ .Values.agentManagerService.config.agentsHttpPort | default "19080" | quote }}
+  AGENTS_HTTPS_PORT: {{ .Values.agentManagerService.config.agentsHttpsPort | default "443" | quote }}
   GATEWAY_BASE_DOMAIN: {{ .Values.agentManagerService.config.gatewayBaseDomain | default "gateway.localhost" | quote }}
   # ...and the scheme/port that domain is actually served on, so the vhost an added
   # environment publishes is callable and not just correctly named.

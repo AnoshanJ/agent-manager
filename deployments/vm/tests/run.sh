@@ -106,6 +106,15 @@ assert_eq "amp gateway-mgmt route hostname when cp on" \
 assert_eq "amp agentsBaseDomain (service key)" \
   "agentManagerService.config.agentsBaseDomain=agents.203.0.113.10.sslip.io" \
   "$(grep -F 'agentManagerService.config.agentsBaseDomain' <<<"$amp")"
+# Both agent listener variants sit behind Caddy on :443 here — there is no :80 on a
+# VM at all — so an added environment must advertise the same pair the installer
+# writes for the default environment rather than inferring one port from the other.
+assert_eq "amp agentsHttpPort (service key)" \
+  "agentManagerService.config.agentsHttpPort=443" \
+  "$(grep -F 'agentManagerService.config.agentsHttpPort' <<<"$amp")"
+assert_eq "amp agentsHttpsPort (service key)" \
+  "agentManagerService.config.agentsHttpsPort=443" \
+  "$(grep -F 'agentManagerService.config.agentsHttpsPort' <<<"$amp")"
 assert_eq "amp gatewayBaseDomain (service key)" \
   "agentManagerService.config.gatewayBaseDomain=gateway.amp.203.0.113.10.sslip.io" \
   "$(grep -F 'agentManagerService.config.gatewayBaseDomain' <<<"$amp")"

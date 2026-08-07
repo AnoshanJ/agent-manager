@@ -243,6 +243,13 @@ agentManagerService:
     agentsBaseDomain: "am-gateway.localhost"
     gatewayBaseDomain: "gateway.localhost"
 
+    # Port each agent-facing listener variant serves. Behind a single TLS front door
+    # both are 443; on a plane gateway they are typically 80 and 443. Set them to what
+    # the environment.gateway.http/https.port overrides on the platform-resources chart
+    # say, so an added environment advertises the same pair as the default one.
+    agentsHttpPort: "19080"
+    agentsHttpsPort: "443"
+
     # Scheme and port the gateway vhost above is published on. The defaults describe a
     # local k3d install (plain http on the node port). Set these to https/443 wherever a
     # front proxy terminates TLS, or added environments publish a reachable hostname on
