@@ -36,15 +36,16 @@ set -euo pipefail
 #     release for the egress role and lowers the ENV_NAME ceiling by 7 characters.
 #   - ORG_NAME (default: default), DATAPLANE_REF (default: default)
 #   - AGENT_MANAGER_URL (default: http://api.amp.localhost:8080)
-#   - ENV_INGRESS_HOST (default: am-gateway.localhost): agent-facing gateway host.
+#   - ENV_INGRESS_HOST (default: the install's AGENTS_BASE_DOMAIN, else
+#     am-gateway.localhost): agent-facing gateway host.
 #   - ENV_INGRESS_HTTPS_HOST (default: unset): on TLS deployments, advertises an
 #     https listener variant. Set ENV_INGRESS_HTTPS_HOST=$ENV_INGRESS_HOST for
 #     the TLS toggle alone; without it the deployed-agent invoke URL is empty.
 #   - ENV_INGRESS_HTTPS_PORT (default: 443): port for the https listener variant.
-#   - GATEWAY_BASE_DOMAIN (default: gateway.localhost): base domain for this
-#     environment's api-platform gateway. On VM installs set it to the public
-#     gateway host (gateway.amp.<ip>.sslip.io) so the hostname resolves and Caddy's
-#     *.<base> site can issue a certificate for it.
+#   - GATEWAY_BASE_DOMAIN (default: the install's GATEWAY_BASE_DOMAIN, else
+#     gateway.localhost): base domain for this environment's api-platform gateway.
+#   - AMS_CONFIGMAP_NAME / AMS_CONFIGMAP_NAMESPACE (default: amp-api / wso2-amp):
+#     where the two base domains above are read from on a non-default release.
 #   - IDP_SKIP_TLS_VERIFY (default: true): skipTlsVerify for the seeded env-Thunder identity provider.
 
 # --- Required inputs ---
@@ -224,9 +225,23 @@ DISPLAY_NAME_JSON=$(printf '%s' "${DISPLAY_NAME}" | sed -e 's/\\/\\\\/g' -e 's/"
 echo ""
 echo "🌍 Creating environment '${ENV_NAME}'..."
 
+# Base domain the install recorded for itself; empty when absent, so callers fall back.
+ams_base_domain() {
+    kubectl get configmap "${AMS_CONFIGMAP_NAME}" -n "${AMS_CONFIGMAP_NAMESPACE}" \
+        -o "jsonpath={.data.$1}" 2>/dev/null || true
+}
+AMS_CONFIGMAP_NAME="${AMS_CONFIGMAP_NAME:-amp-api}"
+AMS_CONFIGMAP_NAMESPACE="${AMS_CONFIGMAP_NAMESPACE:-wso2-amp}"
+
+ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-$(ams_base_domain AGENTS_BASE_DOMAIN)}"
 ENV_INGRESS_HOST="${ENV_INGRESS_HOST:-am-gateway.localhost}"
 ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HTTPS_HOST:-}"
 ENV_INGRESS_HTTPS_PORT="${ENV_INGRESS_HTTPS_PORT:-443}"
+
+# Without an https variant the console reports an empty invoke URL on TLS deployments.
+if [ -z "${ENV_INGRESS_HTTPS_HOST}" ] && [ "${ENV_INGRESS_HOST}" != "am-gateway.localhost" ]; then
+    ENV_INGRESS_HTTPS_HOST="${ENV_INGRESS_HOST}"
+fi
 
 # Build the external listener set. Always advertise http; add an https variant when
 # ENV_INGRESS_HTTPS_HOST is set (TLS deployments). The console reads the https
@@ -238,9 +253,8 @@ if [ -n "${ENV_INGRESS_HTTPS_HOST}" ]; then
     EXTERNAL_LISTENERS="${EXTERNAL_LISTENERS}, \"https\": {\"host\": \"${ENV_INGRESS_HTTPS_HOST}\", \"port\": ${ENV_INGRESS_HTTPS_PORT}}"
 fi
 
-# Base domain for this environment's api-platform gateway. Defaults to the local-dev
-# value; VM installs pass the public gateway host so the name resolves and Caddy's
-# *.<base> site can issue a cert for it.
+# Caddy's *.<base> site issues the cert for the resulting hostname on VM installs.
+GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-$(ams_base_domain GATEWAY_BASE_DOMAIN)}"
 GATEWAY_BASE_DOMAIN="${GATEWAY_BASE_DOMAIN:-gateway.localhost}"
 GATEWAY_HOSTNAME="${ENV_NAME}-${ORG_NAME}.${GATEWAY_BASE_DOMAIN}"
 
