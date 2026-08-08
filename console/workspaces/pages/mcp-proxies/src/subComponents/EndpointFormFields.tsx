@@ -535,7 +535,7 @@ export function EndpointFormFields({
       {availableEnvironments.length !== 1 && (
         <FormControl fullWidth>
           <FormLabel required={availableEnvironments.length > 1}>
-            Environments
+            Gateway
           </FormLabel>
           {availableEnvironments.length > 1 ? (
             <>
@@ -555,8 +555,33 @@ export function EndpointFormFields({
                 }
                 getOptionLabel={(option) => option.displayName || option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={(props, option) => {
+                  const { key, ...optionProps } = props;
+                  const gatewayNames = (
+                    (option.id ? egressGatewaysByEnv[option.id] : null) ?? []
+                  )
+                    .map((gw) => gw.displayName || gw.name)
+                    .join(", ");
+                  return (
+                    <Box
+                      component="li"
+                      key={key}
+                      {...optionProps}
+                      sx={{ display: "flex", alignItems: "baseline", gap: 1 }}
+                    >
+                      <Typography variant="body2">
+                        {gatewayNames || option.displayName || option.name}
+                      </Typography>
+                      {gatewayNames && (
+                        <Typography variant="caption" color="text.disabled">
+                          {option.displayName || option.name}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                }}
                 renderInput={(params) => (
-                  <TextField {...params} placeholder="Select environment(s)" />
+                  <TextField {...params} placeholder="Select gateway(s)" />
                 )}
                 sx={{ mt: 0.5 }}
               />
