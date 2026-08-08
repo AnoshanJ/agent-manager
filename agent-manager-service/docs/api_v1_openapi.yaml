@@ -15688,14 +15688,14 @@ components:
       properties:
         timeout:
           type: string
-          pattern: '^\d+(\.\d+)?(ms|s|m|h)$'
+          pattern: '^\d+(ms|s|m|h)$'
           description: >-
             Max duration for the whole request→upstream-response. "0s"
             disables it; omit to use the gateway's default.
           example: 15s
         idleTimeout:
           type: string
-          pattern: '^\d+(\.\d+)?(ms|s|m|h)$'
+          pattern: '^\d+(ms|s|m|h)$'
           description: >-
             Per-route stream idle timeout. "0s" disables it; omit to use the
             gateway's default.

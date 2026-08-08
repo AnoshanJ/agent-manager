@@ -29,7 +29,7 @@ func TestResilienceValidate(t *testing.T) {
 		{name: "valid seconds", resilience: &Resilience{Timeout: strPtr("15s"), IdleTimeout: strPtr("20s")}, wantErr: false},
 		{name: "valid milliseconds", resilience: &Resilience{Timeout: strPtr("500ms")}, wantErr: false},
 		{name: "valid minutes and hours", resilience: &Resilience{Timeout: strPtr("1m"), IdleTimeout: strPtr("2h")}, wantErr: false},
-		{name: "valid decimal", resilience: &Resilience{Timeout: strPtr("1.5s")}, wantErr: false},
+		{name: "decimal rejected", resilience: &Resilience{Timeout: strPtr("1.5s")}, wantErr: true},
 		{name: "zero disables", resilience: &Resilience{Timeout: strPtr("0s")}, wantErr: false},
 		{name: "missing unit", resilience: &Resilience{Timeout: strPtr("15")}, wantErr: true},
 		{name: "invalid unit", resilience: &Resilience{Timeout: strPtr("15sec")}, wantErr: true},

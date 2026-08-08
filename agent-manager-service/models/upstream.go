@@ -23,7 +23,8 @@ import (
 
 // durationPattern matches the gateway's accepted duration strings (e.g. "15s", "500ms"),
 // mirroring the pattern enforced by the api-platform gateway-controller's Resilience schema.
-var durationPattern = regexp.MustCompile(`^\d+(\.\d+)?(ms|s|m|h)$`)
+// Whole numbers only — fractional durations (e.g. "1.5s") are not accepted.
+var durationPattern = regexp.MustCompile(`^\d+(ms|s|m|h)$`)
 
 // UpstreamConfig represents the upstream configuration.
 //
