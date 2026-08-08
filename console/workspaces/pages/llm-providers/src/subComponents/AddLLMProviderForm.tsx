@@ -19,7 +19,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   CardContent,
@@ -39,6 +38,7 @@ import {
 } from "../form/schema";
 import { useValidatedForm } from "../hooks/useValidatedForm";
 import {
+  EnvironmentGatewaySelector,
   PolicyListSection,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
@@ -97,12 +97,6 @@ interface AddLLMProviderFormProps {
    * connection config).
    */
   showGuardrails?: boolean;
-  /**
-   * Set to false to hide the multi-gateway Deployment Configuration section.
-   * A gateway is still required and auto-selected under the hood; only the
-   * UI is simplified based on how many active gateways the org has.
-   */
-  showGatewaySelector?: boolean;
   onCancel: () => void;
   onSubmit: (
     values: AddLLMProviderFormValues,
@@ -144,7 +138,6 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
   submitLabel = "Add provider",
   showAdvancedBasicDetails = true,
   showGuardrails = true,
-  showGatewaySelector = true,
   onCancel,
   onSubmit,
 }) => {
@@ -169,9 +162,12 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
     [formData.templateId, templates],
   );
 
-  const { data: gatewaysData, isLoading: isLoadingGateways } = useListGateways({
-    orgName: orgId,
-  });
+  // limit: 500 — without it the server's default page size silently truncates
+  // the list and the zero-egress warning could fire against a partial view.
+  const { data: gatewaysData, isLoading: isLoadingGateways } = useListGateways(
+    { orgName: orgId },
+    { limit: 500 },
+  );
 
   // Egress-capable only: ingress gateways are not legal LLM placement targets and the
   // server rejects them. No status filter — the server's candidate set is not
@@ -185,19 +181,12 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
     [gatewaysData?.gateways],
   );
 
-  // Auto-select only when the choice is unambiguous. With two egress gateways the user
-  // must pick, because the server 400s on an unnamed gateway in that case.
-  useEffect(() => {
-    if (gateways.length === 1 && formData.gatewayIds?.length === 0) {
-      setFormData({ ...formData, gatewayIds: [gateways[0].uuid] });
-    }
-  }, [gateways]);
-
   const hasTemplateUrl = Boolean(selectedTemplate?.hasTemplateUrl);
   const requiresUpstream = !hasTemplateUrl;
   const requiresApiKey = !!selectedTemplate?.hasTemplateAuthHeader;
 
   const [guardrails, setGuardrails] = useState<GuardrailSelection[]>([]);
+  const [isGatewaySelectionValid, setIsGatewaySelectionValid] = useState(true);
   const [endpointEditable, setEndpointEditable] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -631,83 +620,25 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
           />
         </Collapse>
       )}
-      {showGatewaySelector ? (
-        <Collapse in={!!formData.templateId}>
-          <Form.Section>
-            <Form.Subheader>Deployment Configuration</Form.Subheader>
-            <Form.ElementWrapper label="Gateway" name="gatewayIds">
-              {isLoadingGateways ? (
-                <Skeleton variant="rounded" height={40} />
-              ) : (
-                <Autocomplete
-                  multiple
-                  options={gateways}
-                  size="small"
-                  value={gateways.filter((g) =>
-                    (formData.gatewayIds ?? []).includes(g.uuid),
-                  )}
-                  onChange={(_, newValue) => {
-                    handleFieldChange(
-                      "gatewayIds",
-                      newValue.map((g) => g.uuid),
-                    );
-                  }}
-                  getOptionLabel={(option) =>
-                    option.displayName || option.name || option.uuid
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder="Select gateway(s)"
-                      error={Boolean(errors.gatewayIds)}
-                      helperText={errors.gatewayIds}
-                    />
-                  )}
-                />
-              )}
-            </Form.ElementWrapper>
-          </Form.Section>
-        </Collapse>
-      ) : (
-        <Collapse in={!!formData.templateId}>
-          {!isLoadingGateways && gateways.length === 0 && (
-            <Alert severity="warning">
-              No egress-capable gateway is configured for this organization.
-              Ask an admin to configure one before creating an LLM provider.
-            </Alert>
-          )}
-          {!isLoadingGateways && gateways.length > 1 && (
-            <Form.ElementWrapper label="Gateway" name="gatewayIds">
-              <Autocomplete
-                options={gateways}
-                size="small"
-                value={
-                  gateways.find((g) =>
-                    (formData.gatewayIds ?? []).includes(g.uuid),
-                  ) ?? null
-                }
-                onChange={(_, newValue) => {
-                  handleFieldChange(
-                    "gatewayIds",
-                    newValue ? [newValue.uuid] : [],
-                  );
-                }}
-                getOptionLabel={(option) =>
-                  option.displayName || option.name || option.uuid
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    placeholder="Select gateway"
-                    error={Boolean(errors.gatewayIds)}
-                    helperText={errors.gatewayIds}
-                  />
-                )}
-              />
-            </Form.ElementWrapper>
-          )}
-        </Collapse>
-      )}
+      <Collapse in={!!formData.templateId}>
+        <Form.Section>
+          <Form.Subheader>Deployment Configuration</Form.Subheader>
+          <Form.Stack spacing={2}>
+            {!isLoadingGateways && gateways.length === 0 && (
+              <Alert severity="warning">
+                No egress-capable gateway is configured for this organization.
+                Ask an admin to configure one before creating an LLM provider.
+              </Alert>
+            )}
+            <EnvironmentGatewaySelector
+              orgId={orgId}
+              value={formData.gatewayIds ?? []}
+              onChange={(ids) => handleFieldChange("gatewayIds", ids)}
+              onValidityChange={setIsGatewaySelectionValid}
+            />
+          </Form.Stack>
+        </Form.Section>
+      </Collapse>
       {errorMessage && (
         <Alert severity="error">
           <Typography variant="body2">{errorMessage}</Typography>
@@ -740,7 +671,8 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
           disabled={
             isSubmitting ||
             !formData.gatewayIds ||
-            formData.gatewayIds?.length === 0
+            formData.gatewayIds?.length === 0 ||
+            !isGatewaySelectionValid
           }
         >
           {isSubmitting ? "Creating..." : submitLabel}
