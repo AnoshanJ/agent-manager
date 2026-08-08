@@ -925,8 +925,11 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 
 	// Validate all providers exist and are in catalog (shared with the create-time preflight).
 	handles := make([]string, 0, len(req.EnvMappings))
-	for _, envMapping := range req.EnvMappings {
+	for envName, envMapping := range req.EnvMappings {
 		handles = append(handles, envMapping.ProviderName)
+		if err := envMapping.Configuration.Resilience.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: environment %s: %w", utils.ErrInvalidInput, envName, err)
+		}
 	}
 	if err := s.ValidateProvidersInCatalog(ctx, ouID, handles); err != nil {
 		return nil, err
@@ -2953,6 +2956,9 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 	// Validate all providers exist and are in catalog (if envMappings provided)
 	if req.EnvMappings != nil {
 		for envName, envMapping := range req.EnvMappings {
+			if err := envMapping.Configuration.Resilience.Validate(); err != nil {
+				return nil, fmt.Errorf("%w: environment %s: %w", utils.ErrInvalidInput, envName, err)
+			}
 			provider, err := s.llmProviderRepo.GetByHandle(envMapping.ProviderName, ouID)
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -4137,7 +4143,8 @@ func (s *agentConfigurationService) buildLLMProxyConfig(
 					In:      "header",
 				},
 			},
-			Policies: envMapping.Configuration.Policies,
+			Policies:   envMapping.Configuration.Policies,
+			Resilience: envMapping.Configuration.Resilience,
 		},
 	}
 
@@ -4213,6 +4220,7 @@ func (s *agentConfigurationService) buildLLMProxyUpdateConfig(
 			Security:     existingProxy.Configuration.Security,
 			Policies:     envMapping.Configuration.Policies,
 			UpstreamAuth: existingProxy.Configuration.UpstreamAuth,
+			Resilience:   envMapping.Configuration.Resilience,
 		},
 	}
 
@@ -4982,9 +4990,10 @@ func (s *agentConfigurationService) buildConfigResponse(ctx context.Context, con
 		var proxyInfo *models.LLMProxyInfo = nil
 		if mapping.LLMProxy != nil {
 			proxyInfo = &models.LLMProxyInfo{
-				ProxyUUID: utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
-				ProxyName: utils.StrAsStrPointer(mapping.LLMProxy.Handle),
-				Policies:  mapping.PolicyConfiguration,
+				ProxyUUID:  utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
+				ProxyName:  utils.StrAsStrPointer(mapping.LLMProxy.Handle),
+				Policies:   mapping.PolicyConfiguration,
+				Resilience: mapping.LLMProxy.Configuration.Resilience,
 			}
 			if provider, err := s.llmProviderRepo.GetByUUID(mapping.LLMProxy.ProviderUUID.String(), config.OUID); err == nil && provider.Artifact != nil {
 				proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)
@@ -5111,9 +5120,10 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 		var proxyInfo *models.LLMProxyInfo
 		if mapping.LLMProxy != nil {
 			proxyInfo = &models.LLMProxyInfo{
-				ProxyUUID: utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
-				ProxyName: utils.StrAsStrPointer(mapping.LLMProxy.Handle),
-				Policies:  mapping.PolicyConfiguration,
+				ProxyUUID:  utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
+				ProxyName:  utils.StrAsStrPointer(mapping.LLMProxy.Handle),
+				Policies:   mapping.PolicyConfiguration,
+				Resilience: mapping.LLMProxy.Configuration.Resilience,
 			}
 			if provider, err := s.llmProviderRepo.GetByUUID(mapping.LLMProxy.ProviderUUID.String(), config.OUID); err == nil && provider.Artifact != nil {
 				proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)

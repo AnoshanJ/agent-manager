@@ -2713,6 +2713,9 @@ type EnvProviderConfigMappings struct {
 // EnvProviderConfiguration defines model for EnvProviderConfiguration.
 type EnvProviderConfiguration struct {
 	Policies *[]LLMPolicy `json:"policies,omitempty"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 }
 
 // Environment defines model for Environment.
@@ -4468,6 +4471,9 @@ type ProviderConfig struct {
 
 	// ProxyUuid UUID of the proxy created
 	ProxyUuid openapi_types.UUID `json:"proxyUuid"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 
 	// Status Status of the proxy
 	Status *string `json:"status,omitempty"`

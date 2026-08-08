@@ -609,7 +609,8 @@ func convertCreateAgentModelConfigRequest(specReq spec.CreateAgentModelConfigReq
 		envMappings[envName] = models.EnvModelConfigRequest{
 			ProviderName: proxyName,
 			Configuration: models.EnvProviderConfiguration{
-				Policies: convertToModelPolicies(&envConfig.Configuration),
+				Policies:   convertToModelPolicies(&envConfig.Configuration),
+				Resilience: utils.ConvertSpecToModelResilience(envConfig.Configuration.Resilience),
 			},
 		}
 	}
@@ -650,7 +651,8 @@ func convertUpdateAgentModelConfigRequest(specReq spec.UpdateAgentModelConfigReq
 			envMappings[envName] = models.EnvModelConfigRequest{
 				ProviderName: proxyName,
 				Configuration: models.EnvProviderConfiguration{
-					Policies: convertToModelPolicies(&envConfig.Configuration),
+					Policies:   convertToModelPolicies(&envConfig.Configuration),
+					Resilience: utils.ConvertSpecToModelResilience(envConfig.Configuration.Resilience),
 				},
 			}
 		}
@@ -688,6 +690,7 @@ func convertAgentModelConfigResponse(modelResp models.AgentModelConfigResponse) 
 				ProxyUuid:    proxyUUID,
 				ProviderName: providerName,
 				Policies:     convertToSpecPolicies(&envConfig.LLMProxy.Policies),
+				Resilience:   utils.ConvertModelToSpecResilience(envConfig.LLMProxy.Resilience),
 			}
 			if modelResp.Type == "mcp" {
 				modelEnvConfig.SetProxyName(providerName)

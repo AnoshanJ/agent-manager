@@ -16640,6 +16640,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
 
     UpdateAgentModelConfigRequest:
       type: object
@@ -16800,6 +16802,8 @@ components:
           description: Provider-specific policy configurations
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         status:
           type: string
           description: Status of the proxy

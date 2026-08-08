@@ -35,7 +35,8 @@ type ProviderConfig struct {
 	Url      string    `json:"url"`
 	AuthInfo *AuthInfo `json:"authInfo,omitempty"`
 	// Provider-specific policy configurations
-	Policies []LLMPolicy `json:"policies,omitempty"`
+	Policies   []LLMPolicy `json:"policies,omitempty"`
+	Resilience *Resilience `json:"resilience,omitempty"`
 	// Status of the proxy
 	Status *string `json:"status,omitempty"`
 }
@@ -324,6 +325,38 @@ func (o *ProviderConfig) SetPolicies(v []LLMPolicy) {
 	o.Policies = v
 }
 
+// GetResilience returns the Resilience field value if set, zero value otherwise.
+func (o *ProviderConfig) GetResilience() Resilience {
+	if o == nil || IsNil(o.Resilience) {
+		var ret Resilience
+		return ret
+	}
+	return *o.Resilience
+}
+
+// GetResilienceOk returns a tuple with the Resilience field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ProviderConfig) GetResilienceOk() (*Resilience, bool) {
+	if o == nil || IsNil(o.Resilience) {
+		return nil, false
+	}
+	return o.Resilience, true
+}
+
+// HasResilience returns a boolean if a field has been set.
+func (o *ProviderConfig) HasResilience() bool {
+	if o != nil && !IsNil(o.Resilience) {
+		return true
+	}
+
+	return false
+}
+
+// SetResilience gets a reference to the given Resilience and assigns it to the Resilience field.
+func (o *ProviderConfig) SetResilience(v Resilience) {
+	o.Resilience = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *ProviderConfig) GetStatus() string {
 	if o == nil || IsNil(o.Status) {
@@ -386,6 +419,9 @@ func (o ProviderConfig) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Policies) {
 		toSerialize["policies"] = o.Policies
+	}
+	if !IsNil(o.Resilience) {
+		toSerialize["resilience"] = o.Resilience
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
