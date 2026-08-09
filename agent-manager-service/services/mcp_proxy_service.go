@@ -971,6 +971,7 @@ func buildMCPEndpointDTOsForResponse(endpoints []models.MCPProxyEndpoint) []mode
 			ID:           endpoint.Handle,
 			Name:         endpoint.Name,
 			Upstream:     models.UpstreamConfig{Main: sanitizeMCPUpstreamEndpointForResponse(cfg.Upstream)},
+			Resilience:   cfg.Resilience,
 			Capabilities: copyMCPCapabilities(cfg.Capabilities),
 			Security:     cfg.Security,
 		}
@@ -1180,6 +1181,9 @@ func validateMCPEndpoints(ctx context.Context, endpoints []models.MCPProxyEndpoi
 		}
 		if err := ssrf.ValidateURL(ctx, strings.TrimSpace(endpoint.Upstream.Main.URL)); err != nil {
 			return fmt.Errorf("%w: endpoint %q upstream url: %w", utils.ErrInvalidURL, handle, err)
+		}
+		if err := endpoint.Resilience.Validate(); err != nil {
+			return fmt.Errorf("%w: endpoint %q: %w", utils.ErrInvalidInput, handle, err)
 		}
 
 		if len(endpoint.Environments) == 0 {
@@ -1447,6 +1451,7 @@ func (s *MCPProxyService) buildMCPEndpointsForStorage(incoming []models.MCPProxy
 	for _, incomingEndpoint := range incoming {
 		handle := strings.TrimSpace(incomingEndpoint.ID)
 		config := models.MCPEndpointConfig{
+			Resilience:   incomingEndpoint.Resilience,
 			Policies:     copyMCPPolicies(policiesFromPtr(incomingEndpoint.Policies)),
 			Capabilities: copyMCPCapabilities(incomingEndpoint.Capabilities),
 			Security:     defaultMCPProxySecurity(incomingEndpoint.Security),

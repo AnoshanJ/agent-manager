@@ -49,7 +49,10 @@ import {
 } from "@wso2/oxygen-ui";
 import { ChevronDown, HelpCircle } from "@wso2/oxygen-ui-icons-react";
 import { useSnackBar } from "@agent-management-platform/views";
-import { validateEndpointUrl } from "@agent-management-platform/shared-component";
+import {
+  ResilienceTimeoutFields,
+  validateEndpointUrl,
+} from "@agent-management-platform/shared-component";
 import { MCPCapabilitiesView } from "../components/MCPCapabilitiesView";
 import { AuthHeaderRow } from "./AuthHeaderRow";
 
@@ -63,6 +66,9 @@ export interface EndpointDraft {
   url: string;
   authHeader: string;
   authValue: string;
+  // Route-level request/idle timeouts (e.g. "15s", "500ms") for this endpoint.
+  resilienceTimeout: string;
+  resilienceIdleTimeout: string;
   // Environment UUIDs (not names) this endpoint serves — stable across renames.
   environments: string[];
   // Egress gateway chosen per environment UUID, for environments with 2+
@@ -82,6 +88,8 @@ const MASKED_CREDENTIAL_VALUE = "••••••••••••";
 // How long to wait after the last URL/auth edit before auto-fetching server info,
 // so a fetch isn't fired on every keystroke.
 const FETCH_DEBOUNCE_MS = 600;
+
+const DURATION_PATTERN = /^\d+(\.\d+)?(ms|s|m|h)$/;
 
 export interface EndpointFormFieldsProps {
   orgId: string;
@@ -139,8 +147,20 @@ export function EndpointFormFields({
     useState<MCPServerInfoFetchResponse | null>(
       initialDraft?.fetchedInfo ?? null,
     );
+  const [resilienceTimeout, setResilienceTimeout] = useState(
+    initialDraft?.resilienceTimeout ?? "",
+  );
+  const [resilienceIdleTimeout, setResilienceIdleTimeout] = useState(
+    initialDraft?.resilienceIdleTimeout ?? "",
+  );
   const [urlError, setUrlError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [resilienceTimeoutError, setResilienceTimeoutError] = useState<string | null>(
+    null,
+  );
+  const [resilienceIdleTimeoutError, setResilienceIdleTimeoutError] = useState<
+    string | null
+  >(null);
 
   // When exactly one environment is available, there's nothing to choose between —
   // assign it automatically instead of showing a single-option selector.
@@ -210,9 +230,14 @@ export function EndpointFormFields({
     trimmedUrl !== initialDraft.url ||
     effectiveAuthHeader !== initialDraft.authHeader ||
     Boolean(resolvedAuthValue) ||
+    authHeader.trim() !== initialDraft.authHeader ||
+    (!isCredentialMasked && authValue.trim().length > 0) ||
+    resilienceTimeout.trim() !== (initialDraft.resilienceTimeout ?? "") ||
+    resilienceIdleTimeout.trim() !== (initialDraft.resilienceIdleTimeout ?? "") ||
     !sameIdSet(selectedEnvIds, initialDraft.environments) ||
     !sameGatewayMap(effectiveGatewayByEnv, initialDraft.gatewayByEnv ?? {}) ||
     capabilitiesChanged(fetchedInfo, initialDraft.fetchedInfo);
+
   // An environment with 2+ egress candidates and no pick would be rejected by the
   // server as ambiguous, so require a selection wherever the picker renders.
   const hasGatewaySelection = selectedEnvIds.every((envId) => {
@@ -222,7 +247,13 @@ export function EndpointFormFields({
       Boolean(deployedGatewayByEnv[envId] ?? selectedGatewayByEnv[envId])
     );
   });
-  const canSave = canAdd && hasChanges && hasGatewaySelection;
+
+  const canSave =
+    canAdd &&
+    hasChanges &&
+    hasGatewaySelection &&
+    !resilienceTimeoutError &&
+    !resilienceIdleTimeoutError;
 
   const clearFetched = useCallback(() => {
     setFetchedInfo(null);
@@ -356,6 +387,8 @@ export function EndpointFormFields({
       url: trimmedUrl,
       authHeader: effectiveAuthHeader,
       authValue: resolvedAuthValue,
+      resilienceTimeout: resilienceTimeout.trim(),
+      resilienceIdleTimeout: resilienceIdleTimeout.trim(),
       environments: selectedEnvIds,
       gatewayByEnv: effectiveGatewayByEnv,
       fetchedInfo,
@@ -370,6 +403,8 @@ export function EndpointFormFields({
     effectiveAuthHeader,
     resolvedAuthValue,
     effectiveGatewayByEnv,
+    resilienceTimeout,
+    resilienceIdleTimeout,
     fetchedInfo,
     initialDraft,
     name,
@@ -473,6 +508,29 @@ export function EndpointFormFields({
           />
         </AccordionDetails>
       </Accordion>
+
+      <ResilienceTimeoutFields
+        requestTimeout={resilienceTimeout}
+        onRequestTimeoutChange={(value) => {
+          setResilienceTimeout(value);
+          setResilienceTimeoutError(
+            value.trim() && !DURATION_PATTERN.test(value.trim())
+              ? "Enter a duration like 5s, 500ms, or 1m"
+              : null,
+          );
+        }}
+        requestTimeoutError={resilienceTimeoutError}
+        idleTimeout={resilienceIdleTimeout}
+        onIdleTimeoutChange={(value) => {
+          setResilienceIdleTimeout(value);
+          setResilienceIdleTimeoutError(
+            value.trim() && !DURATION_PATTERN.test(value.trim())
+              ? "Enter a duration like 5s, 500ms, or 1m"
+              : null,
+          );
+        }}
+        idleTimeoutError={resilienceIdleTimeoutError}
+      />
 
       {availableEnvironments.length !== 1 && (
         <FormControl fullWidth>

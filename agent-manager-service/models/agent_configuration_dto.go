@@ -38,6 +38,9 @@ type EnvModelConfigRequest struct {
 // EnvProviderConfiguration contains provider-specific policies
 type EnvProviderConfiguration struct {
 	Policies []LLMPolicy `json:"policies,omitempty"`
+	// Resilience overrides the proxy's request/idle timeout for this environment.
+	// When nil, the gateway's own default timeout applies.
+	Resilience *Resilience `json:"resilience,omitempty"`
 }
 
 // UpdateAgentModelConfigRequest represents the request to update an agent model configuration
@@ -77,6 +80,9 @@ type LLMProxyInfo struct {
 	ProxyName      *string     `json:"proxyName,omitempty"` // Handle of the LLM proxy (used to manage proxy API keys)
 	ProviderName   *string     `json:"providerName"`        // Handle/name of the provider
 	Policies       []LLMPolicy `json:"policies,omitempty"`
+	// Resilience is the explicitly stored override, if any. Nil means the
+	// gateway's own default timeout applies.
+	Resilience *Resilience `json:"resilience,omitempty"`
 }
 
 // EnvironmentVariableConfig represents the variable name exposed to agent

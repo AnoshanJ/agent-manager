@@ -113,6 +113,13 @@ export function buildCreateLLMProviderRequest(
           : undefined,
       },
     },
+    resilience:
+      values.resilienceTimeout?.trim() || values.resilienceIdleTimeout?.trim()
+        ? {
+            timeout: values.resilienceTimeout?.trim() || undefined,
+            idleTimeout: values.resilienceIdleTimeout?.trim() || undefined,
+          }
+        : undefined,
     description: values.description?.trim() || undefined,
     security: values.apiKey
       ? {

@@ -1642,7 +1642,10 @@ func convertConfiguration(cfg spec.EnvProviderConfiguration) models.EnvProviderC
 			Paths:   paths,
 		})
 	}
-	return models.EnvProviderConfiguration{Policies: policies}
+	return models.EnvProviderConfiguration{
+		Policies:   policies,
+		Resilience: utils.ConvertSpecToModelResilience(cfg.Resilience),
+	}
 }
 
 func convertEnvVars(specVars []spec.EnvironmentVariableConfig) []models.EnvironmentVariableConfig {
