@@ -1126,29 +1126,14 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 	if err != nil {
 		return "", err
 	}
-	rsID := ""
-	if rs != nil {
-		rsID = rs.ID
-		if rs.Identifier != identifier {
-			if err := c.updateProxyResourceServerIdentifier(ctx, token, rs, proxyHandle, identifier); err != nil {
-				return "", err
-			}
-		}
-	}
-	if rsID == "" {
+	var rsID string
+	if rs == nil {
 		ouID, err := c.getDefaultOUID(ctx, token)
 		if err != nil {
 			return "", fmt.Errorf("thunder ensure proxy resource server (default ou): %w", err)
 		}
 		body, err := c.doRequest(ctx, http.MethodPost, c.baseURL+"/resource-servers", token,
-			map[string]string{
-				"name":       displayName,
-				"identifier": identifier,
-				"handle":     proxyHandle,
-				"ouId":       ouID,
-				"delimiter":  proxyResourceServerDelimiter,
-				"type":       proxyResourceServerType,
-			})
+			proxyResourceServerBody(displayName, identifier, proxyHandle, ouID))
 		if err != nil {
 			return "", fmt.Errorf("thunder create proxy resource server: %w", err)
 		}
@@ -1157,6 +1142,13 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 			return "", fmt.Errorf("thunder create proxy resource server decode: %w", err)
 		}
 		rsID = created.ID
+	} else {
+		rsID = rs.ID
+		if rs.Identifier != identifier {
+			if err := c.updateProxyResourceServerIdentifier(ctx, token, rs, proxyHandle, identifier); err != nil {
+				return "", err
+			}
+		}
 	}
 
 	existing, err := c.listProxyRootActions(ctx, token, rsID)
@@ -1178,8 +1170,21 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 	return rsID, nil
 }
 
+// proxyResourceServerBody is the request payload shared by the proxy RS create
+// (POST) and identifier-update (PUT) calls.
+func proxyResourceServerBody(name, identifier, proxyHandle, ouID string) map[string]string {
+	return map[string]string{
+		"name":       name,
+		"identifier": identifier,
+		"handle":     proxyHandle,
+		"ouId":       ouID,
+		"delimiter":  proxyResourceServerDelimiter,
+		"type":       proxyResourceServerType,
+	}
+}
+
 // updateProxyResourceServerIdentifier rewrites a drifted identifier in place via
-// PUT /resource-servers/{id}; the body mirrors the create payload.
+// PUT /resource-servers/{id}.
 func (c *thunderClient) updateProxyResourceServerIdentifier(ctx context.Context, token string, rs *ThunderResourceServer, proxyHandle, identifier string) error {
 	ouID, err := c.getDefaultOUID(ctx, token)
 	if err != nil {
@@ -1190,14 +1195,7 @@ func (c *thunderClient) updateProxyResourceServerIdentifier(ctx context.Context,
 		name = proxyHandle
 	}
 	_, err = c.doRequest(ctx, http.MethodPut, c.baseURL+"/resource-servers/"+rs.ID, token,
-		map[string]string{
-			"name":       name,
-			"identifier": identifier,
-			"handle":     proxyHandle,
-			"ouId":       ouID,
-			"delimiter":  proxyResourceServerDelimiter,
-			"type":       proxyResourceServerType,
-		})
+		proxyResourceServerBody(name, identifier, proxyHandle, ouID))
 	if err != nil {
 		return fmt.Errorf("thunder update proxy resource server identifier: %w", err)
 	}

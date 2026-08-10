@@ -42,7 +42,11 @@ import (
 // identifier reaches the RS ensure call.
 type stubRSIdentifierResolver struct{ err error }
 
-func (s stubRSIdentifierResolver) MCPResourceServerIdentifier(_ context.Context, _, _ string, proxy *models.MCPProxy) (string, error) {
+func (s stubRSIdentifierResolver) EnvironmentUUIDByName(_ context.Context, _, _ string) (uuid.UUID, error) {
+	return uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil
+}
+
+func (s stubRSIdentifierResolver) MCPResourceServerIdentifier(_ context.Context, _ string, _ uuid.UUID, proxy *models.MCPProxy) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}

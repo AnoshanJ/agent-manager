@@ -325,29 +325,30 @@ func buildEmptyMCPEnvVars(templates []EnvConfigTemplate) []client.EnvVar {
 	return envVars
 }
 
-// mcpProxyServingBase is the public base the gateway actually serves the proxy
-// on: the proxy's own vhost override when set (the deployment spec forwards it),
-// else the gateway's vhost. Bare hosts default to https.
+// mcpProxyServingBase is the fully normalized public base the gateway actually
+// serves the proxy on: the proxy's own vhost override when set (the deployment
+// spec forwards it), else the gateway's vhost. Bare hosts default to https and
+// any trailing slash is dropped.
 func mcpProxyServingBase(gateway *models.Gateway, override *string) string {
+	base := gateway.Vhost
 	if override != nil {
 		if host := strings.TrimSpace(*override); host != "" {
-			return ensureURLScheme(host)
+			base = host
 		}
 	}
-	return ensureURLScheme(gateway.Vhost)
+	return strings.TrimRight(ensureURLScheme(strings.TrimSpace(base)), "/")
 }
 
 // buildMCPProxyURL constructs the MCP proxy URL from the serving base and the
 // proxy's optional context path, appending the "/mcp" route.
 func buildMCPProxyURL(gateway *models.Gateway, cfg models.MCPProxyConfig) string {
-	base := strings.TrimRight(strings.TrimSpace(mcpProxyServingBase(gateway, cfg.Vhost)), "/")
 	path := "/mcp"
 	if cfg.Context != nil {
 		if trimmed := strings.TrimSpace(*cfg.Context); trimmed != "" {
 			path = strings.TrimRight(trimmed, "/") + "/mcp"
 		}
 	}
-	return base + path
+	return mcpProxyServingBase(gateway, cfg.Vhost) + path
 }
 
 // stripURLScheme drops the leading scheme, yielding the resource-identifier form.

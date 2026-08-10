@@ -148,7 +148,7 @@ func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.
 }
 
 func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) {
-	rsCreated, rsUpdated, actCreated := 0, 0, 0
+	actCreated := 0
 	var createActionBodies []map[string]string
 	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -158,10 +158,8 @@ func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) 
 				"total":           1,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
-			rsCreated++
 			t.Fatalf("no RS create expected when the resource server already exists")
 		case r.Method == http.MethodPut && r.URL.Path == "/resource-servers/rs-1":
-			rsUpdated++
 			t.Fatalf("no RS update expected when the identifier already matches")
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -183,8 +181,6 @@ func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) 
 	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read", "write"})
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
-	assert.Equal(t, 0, rsCreated)
-	assert.Equal(t, 0, rsUpdated)
 	require.Len(t, createActionBodies, 1, "only the missing action must be created")
 	assert.Equal(t, "write", createActionBodies[0]["handle"])
 }

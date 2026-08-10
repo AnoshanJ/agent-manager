@@ -24,48 +24,58 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // ErrMCPProxyNotDeployedToEnvironment means the proxy has no deployed
 // (endpoint, environment) binding to anchor a resource identifier on.
 var ErrMCPProxyNotDeployedToEnvironment = errors.New("MCP proxy is not deployed to this environment")
 
-// MCPResourceServerIdentifier derives the protocol-stripped public URI the proxy
-// is invoked at in the named environment — the value the env-Thunder resource
-// server's identifier must carry.
-func (s *MCPProxyService) MCPResourceServerIdentifier(ctx context.Context, ouID, envName string, proxy *models.MCPProxy) (string, error) {
-	envs, err := s.infraManager.ListOrgEnvironments(ctx, ouID)
+// environmentUUIDByName resolves an environment's UUID from its name, wrapping
+// a missing environment in utils.ErrEnvironmentNotFound.
+func environmentUUIDByName(ctx context.Context, infra InfraResourceManager, ouID, envName string) (uuid.UUID, error) {
+	envs, err := infra.ListOrgEnvironments(ctx, ouID)
 	if err != nil {
-		return "", fmt.Errorf("failed to list environments: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to list org environments: %w", err)
 	}
-	envID := ""
 	for _, env := range envs {
-		if env.Name == envName {
-			envID = env.UUID
-			break
+		if env.Name != envName {
+			continue
 		}
+		envUUID, err := uuid.Parse(env.UUID)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("failed to parse environment UUID %q: %w", env.UUID, err)
+		}
+		return envUUID, nil
 	}
-	if envID == "" {
-		return "", fmt.Errorf("environment %q not found", envName)
-	}
+	return uuid.Nil, fmt.Errorf("%w: %s", utils.ErrEnvironmentNotFound, envName)
+}
 
-	_, ee := resolveMCPEndpointForEnv(proxy, envID)
+// EnvironmentUUIDByName resolves the named environment's UUID for the org.
+// Callers deriving identifiers for several proxies in one environment resolve
+// once and pass the UUID to each MCPResourceServerIdentifier call.
+func (s *MCPProxyService) EnvironmentUUIDByName(ctx context.Context, ouID, envName string) (uuid.UUID, error) {
+	return environmentUUIDByName(ctx, s.infraManager, ouID, envName)
+}
+
+// MCPResourceServerIdentifier derives the protocol-stripped public URI the proxy
+// is invoked at in the given environment — the value the env-Thunder resource
+// server's identifier must carry.
+func (s *MCPProxyService) MCPResourceServerIdentifier(ctx context.Context, ouID string, envID uuid.UUID, proxy *models.MCPProxy) (string, error) {
+	_ = ctx
+	_, ee := resolveMCPEndpointForEnv(proxy, envID.String())
 	if ee == nil || ee.ArtifactUUID == uuid.Nil {
-		return "", fmt.Errorf("%w: proxy %q, environment %q", ErrMCPProxyNotDeployedToEnvironment, proxyHandleOf(proxy), envName)
+		return "", fmt.Errorf("%w: proxy %q, environment %s", ErrMCPProxyNotDeployedToEnvironment, proxyHandleOf(proxy), envID)
 	}
 
 	deployed, err := s.deploymentRepo.GetDeployedGatewaysByProvider(ee.ArtifactUUID, ouID)
 	if err != nil {
 		return "", fmt.Errorf("failed to list deployed gateways for MCP artifact %s: %w", ee.ArtifactUUID, err)
 	}
-	envUUID, err := uuid.Parse(envID)
-	if err != nil {
-		return "", fmt.Errorf("invalid environment UUID %q: %w", envID, err)
-	}
-	gateway, err := resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
+	gateway, err := resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envID, deployed, nil)
 	if err != nil {
 		if errors.Is(err, errNoGatewayForEnvironment) || errors.Is(err, errNoEgressGatewayForEnvironment) {
-			return "", fmt.Errorf("%w: proxy %q, environment %q", ErrMCPProxyNotDeployedToEnvironment, proxyHandleOf(proxy), envName)
+			return "", fmt.Errorf("%w: proxy %q, environment %s", ErrMCPProxyNotDeployedToEnvironment, proxyHandleOf(proxy), envID)
 		}
 		return "", err
 	}

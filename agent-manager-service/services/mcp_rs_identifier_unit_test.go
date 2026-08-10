@@ -25,6 +25,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 func TestMCPResourceServerIdentifier_DerivesPublicURI(t *testing.T) {
@@ -64,7 +65,11 @@ func TestMCPResourceServerIdentifier_DerivesPublicURI(t *testing.T) {
 		logger: discardLogger(),
 	}
 
-	id, err := svc.MCPResourceServerIdentifier(context.Background(), "ou-1", "dev", proxy)
+	envID, err := svc.EnvironmentUUIDByName(context.Background(), "ou-1", "dev")
+	require.NoError(t, err)
+	require.Equal(t, envUUID, envID)
+
+	id, err := svc.MCPResourceServerIdentifier(context.Background(), "ou-1", envID, proxy)
 
 	require.NoError(t, err)
 	require.Equal(t, "gw.example.com/github/mcp", id)
@@ -72,6 +77,14 @@ func TestMCPResourceServerIdentifier_DerivesPublicURI(t *testing.T) {
 
 func TestMCPResourceServerIdentifier_NotDeployedToEnvironment(t *testing.T) {
 	proxy := &models.MCPProxy{UUID: uuid.New(), Handle: "gh-proxy"}
+	svc := &MCPProxyService{logger: discardLogger()}
+
+	_, err := svc.MCPResourceServerIdentifier(context.Background(), "ou-1", uuid.New(), proxy)
+
+	require.ErrorIs(t, err, ErrMCPProxyNotDeployedToEnvironment)
+}
+
+func TestEnvironmentUUIDByName_NotFound(t *testing.T) {
 	svc := &MCPProxyService{
 		infraManager: stubInfraManager{listOrgEnvs: func(_ context.Context, _ string) ([]*models.EnvironmentResponse, error) {
 			return []*models.EnvironmentResponse{{Name: "dev", UUID: uuid.NewString()}}, nil
@@ -79,7 +92,7 @@ func TestMCPResourceServerIdentifier_NotDeployedToEnvironment(t *testing.T) {
 		logger: discardLogger(),
 	}
 
-	_, err := svc.MCPResourceServerIdentifier(context.Background(), "ou-1", "dev", proxy)
+	_, err := svc.EnvironmentUUIDByName(context.Background(), "ou-1", "prod")
 
-	require.ErrorIs(t, err, ErrMCPProxyNotDeployedToEnvironment)
+	require.ErrorIs(t, err, utils.ErrEnvironmentNotFound)
 }
