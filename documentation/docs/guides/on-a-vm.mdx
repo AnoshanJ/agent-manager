@@ -16,7 +16,7 @@ For production, run Agent Manager on a properly operated Kubernetes platform wit
 :::
 
 :::info Stronger agent isolation tiers
-Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers, **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM), but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](../administration/isolation-tiers/gvisor.mdx) and [Kata Containers](../administration/isolation-tiers/kata.mdx) setup guides.
+Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers, **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM), but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](./isolation-tiers/gvisor.mdx) and [Kata Containers](./isolation-tiers/kata.mdx) setup guides.
 :::
 
 Install Agent Manager on a Linux VM where Docker is the only host dependency. Pick the path that fits you:
@@ -150,7 +150,7 @@ Two of these tiers are **dynamic**: a new host appears the first time you deploy
 | `https://cp.amp.<IP>.sslip.io` | Gateway control plane; connect external gateways here (on by default) |
 
 :::note Agents deployed on this VM do not use the public OTel host
-`gateway.amp.<IP>.sslip.io/otel` exists for agents running **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](../components/amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager run inside the cluster and export their traces straight to the in-cluster gateway runtime instead, so their traffic never leaves the VM or passes through Caddy.
+`gateway.amp.<IP>.sslip.io/otel` exists for agents running **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](./amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager run inside the cluster and export their traces straight to the in-cluster gateway runtime instead, so their traffic never leaves the VM or passes through Caddy.
 :::
 
 ## Log in
@@ -325,7 +325,7 @@ flowchart TB
 
 The wildcard routes matter because those tiers are **dynamic**: deploying into a new org/project adds a `<org>-<project>.agents.<DOMAIN_BASE>` host (agents in an existing project share theirs), and each environment you create adds both a `<org>-<env>.thunder.<DOMAIN_BASE>` host and an `<env>-<org>.gateway.<DOMAIN_BASE>` host for its API Platform Gateway. `*.agents`, `*.thunder`, and `*.gateway` are matched by the front-proxy routes and covered by the wildcard certificate up front, so nothing has to be re-issued or re-attached after install.
 
-Note that `gateway.<DOMAIN_BASE>/otel` carries traces only from agents hosted **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](../components/amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager export straight to the in-cluster gateway runtime, so their traces never reach the `:443` listener at all.
+Note that `gateway.<DOMAIN_BASE>/otel` carries traces only from agents hosted **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](./amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager export straight to the in-cluster gateway runtime, so their traces never reach the `:443` listener at all.
 
 ## Install {#adv-install}
 

@@ -59,13 +59,13 @@ window.__RUNTIME_CONFIG__ = {
     enableProfileManagement: '$FEATURE_FLAG_ENABLE_PROFILE_MANAGEMENT' === 'true',
     enableUserManagement: '$FEATURE_FLAG_ENABLE_USER_MANAGEMENT' === 'true',
   },
-  docsUrl: 'https://wso2.github.io/agent-manager/docs/next',
+  docsUrl: 'https://wso2.github.io/agent-manager/docs/latest',
   footerLinks: {
     privacyPolicyUrl: 'https://wso2.com/agent-platform/agent-manager/',
     termsOfUseUrl: 'https://wso2.com/agent-platform/agent-manager/',
   },
   instrumentationDocLinks: {
-    manualInstrumentation: '/components/amp-instrumentation/#manual-instrumentation',
-    versionMapping: '/components/amp-instrumentation/#amp-instrumentation-version-mapping',
+    manualInstrumentation: '/guides/amp-instrumentation/#manual-instrumentation',
+    versionMapping: '/guides/amp-instrumentation/#amp-instrumentation-version-mapping',
   },
 };

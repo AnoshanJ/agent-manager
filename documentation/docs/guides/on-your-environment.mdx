@@ -11,11 +11,11 @@ import TabItem from '@theme/TabItem';
 Set up a production-grade, single-cluster Agent Manager deployment on an existing Kubernetes cluster — AWS EKS, Google GKE, Azure AKS, or any distribution with LoadBalancer support. Each step carries its production configuration inline, so following the guide top to bottom produces a deployment you can put in front of real users. The [Production Reference](#production-reference) at the end is the checklist to audit against, plus the operational concerns that belong to no single step.
 
 :::tip Just want to evaluate?
-The [Quick Start Guide](./quick-start.mdx) installs everything in a single command using a dev container with k3d, the [k3d guide](./on-k3d.mdx) covers a local cluster install, and the [VM guide](./on-a-vm.mdx) covers a single-machine install. Use this page when you are deploying to a real cluster.
+The [Quick Start Guide](../get-started/quick-start.mdx) installs everything in a single command using a dev container with k3d, the [k3d guide](./on-k3d.mdx) covers a local cluster install, and the [VM guide](./on-a-vm.mdx) covers a single-machine install. Use this page when you are deploying to a real cluster.
 :::
 
 :::info Stronger agent isolation tiers
-Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers — **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM) — but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](../administration/isolation-tiers/gvisor.mdx) and [Kata Containers](../administration/isolation-tiers/kata.mdx) setup guides.
+Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers — **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM) — but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](./isolation-tiers/gvisor.mdx) and [Kata Containers](./isolation-tiers/kata.mdx) setup guides.
 :::
 
 ## What You Will Get
@@ -199,7 +199,7 @@ Keep this shell session for the whole install, and store the values in your secr
 
 :::info External AI gateways
 
-AI gateways running outside this cluster connect through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Phase 2 passes this hostname to the Agent Manager install; nothing else is needed beyond the DNS record. See [Register an AI Gateway](../administration/register-ai-gateway.mdx).
+AI gateways running outside this cluster connect through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Phase 2 passes this hostname to the Agent Manager install; nothing else is needed beyond the DNS record. See [Register an AI Gateway](./register-ai-gateway.mdx).
 
 :::
 
@@ -1381,7 +1381,7 @@ The Environment's gateway binding **wholly replaces** the data plane's, so a par
 Putting `443` on the `http` variant is the trap: the console then publishes `http://<host>:443`, an HTTP scheme on the TLS port, and a browser refuses to call it from the HTTPS console as mixed content. Nothing in the platform reports an error, because the gateway and the agent are both fine.
 :::
 
-**Environments you add later** — the override above applies to the default Environment only. Environments created afterwards with [`add-environment.sh`](../administration/environment-management.mdx) read their hostnames from Agent Manager's own config, which still holds the chart's placeholder defaults. Record the same values there so an added environment resolves the way the default one does:
+**Environments you add later** — the override above applies to the default Environment only. Environments created afterwards with [`add-environment.sh`](./environment-management.mdx) read their hostnames from Agent Manager's own config, which still holds the chart's placeholder defaults. Record the same values there so an added environment resolves the way the default one does:
 
 ```bash
 helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
@@ -1680,7 +1680,7 @@ Two cautions learned the hard way. Because these use `kubectl patch`/`apply`, th
 
 ### Identity and Access
 
-The seeded `admin`/`admin` console login is for bootstrap only. Create real users in Thunder or connect your organization's identity provider before exposing the platform — see [Configure Identity Providers](../administration/configure-identity-providers.mdx).
+The seeded `admin`/`admin` console login is for bootstrap only. Create real users in Thunder or connect your organization's identity provider before exposing the platform — see [Configure Identity Providers](./configure-identity-providers.mdx).
 
 Each environment also gets its own Thunder instance, provisioned in Phase 2, which issues agents their OAuth credentials in that environment. Those are separate installations from the platform Thunder; its admin password is generated once at provisioning and shown only in the verify step, so capture it into your secret manager then. Apply the same database and credential hygiene per environment.
 
@@ -1779,7 +1779,7 @@ The extension's bootstrap job runs as a `pre-install`, `pre-upgrade` **and `pre-
 
 Every gateway declares a role: **`INGRESS`** for traffic arriving at the agents in an environment, **`EGRESS`** for the calls those agents make out to LLMs and MCP servers, or **`BOTH`**. The install above registers the default environment's gateway as `BOTH`, which is what a single-gateway environment needs.
 
-Running the two directions on separate gateways lets you scale and harden them independently — an internet-facing ingress gateway and an egress gateway that reaches your model providers are rarely under the same load or the same threat model. That **split topology** is created per environment with `GATEWAY_TOPOLOGY=split`, which installs a second, egress-only release beside the ingress one. See [Gateway topology](../administration/environment-management.mdx#gateway-topology) for how to create an environment that way, including the shorter name limit it imposes.
+Running the two directions on separate gateways lets you scale and harden them independently — an internet-facing ingress gateway and an egress gateway that reaches your model providers are rarely under the same load or the same threat model. That **split topology** is created per environment with `GATEWAY_TOPOLOGY=split`, which installs a second, egress-only release beside the ingress one. See [Gateway topology](./environment-management.mdx#gateway-topology) for how to create an environment that way, including the shorter name limit it imposes.
 
 Two constraints are worth knowing before you choose:
 
@@ -1788,7 +1788,7 @@ Two constraints are worth knowing before you choose:
 
 `REGULAR` and `AI` are still accepted as input, mapping to `BOTH` and `EGRESS`, but they are deprecated; prefer the role names.
 
-AI gateways can also run **outside** the cluster (for example, close to a private LLM endpoint), connecting back through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Register those as `EGRESS`, since they serve outbound traffic only — see [Register an AI Gateway](../administration/register-ai-gateway.mdx). The WSO2 [AI Gateway Kubernetes deployment guide](https://wso2.com/api-platform/docs/ai-gateway/1.1.0/deployment-modes/kubernetes/gateway-operator/) covers running one under the gateway operator.
+AI gateways can also run **outside** the cluster (for example, close to a private LLM endpoint), connecting back through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Register those as `EGRESS`, since they serve outbound traffic only — see [Register an AI Gateway](./register-ai-gateway.mdx). The WSO2 [AI Gateway Kubernetes deployment guide](https://wso2.com/api-platform/docs/ai-gateway/1.1.0/deployment-modes/kubernetes/gateway-operator/) covers running one under the gateway operator.
 
 ### Build Workflows
 
@@ -1873,7 +1873,7 @@ Confirm your CNI actually **enforces** the `NetworkPolicy` objects the platform 
 
 ### Agent Isolation
 
-Agents run sandboxed under **runc** by default. Environments that execute untrusted or externally authored agent code can be moved to stronger isolation tiers — [gVisor](../administration/isolation-tiers/gvisor.mdx) (userspace kernel) or [Kata Containers](../administration/isolation-tiers/kata.mdx) (per-agent VM). Both have hardware/OS requirements and need dedicated nodes; plan the node pools alongside the build-node decision above.
+Agents run sandboxed under **runc** by default. Environments that execute untrusted or externally authored agent code can be moved to stronger isolation tiers — [gVisor](./isolation-tiers/gvisor.mdx) (userspace kernel) or [Kata Containers](./isolation-tiers/kata.mdx) (per-agent VM). Both have hardware/OS requirements and need dedicated nodes; plan the node pools alongside the build-node decision above.
 
 ---
 
