@@ -5,6 +5,7 @@ import {
   Menu,
   Typography,
   useTheme,
+  type Theme,
 } from "@wso2/oxygen-ui";
 import { ChevronDown, ChevronRight, X } from "@wso2/oxygen-ui-icons-react";
 import { type ElementType, type MouseEvent, type ReactNode } from "react";
@@ -24,6 +25,17 @@ export const asLink = (
   to,
 });
 
+/** Shared border treatment for the nav switchers — darkens on hover. */
+export const hoverBorderSx = (theme: Theme) => ({
+  border: `1px solid ${theme.vars?.palette.divider}`,
+  borderRadius: theme.spacing(1),
+  "&:hover": {
+    border: `1px solid ${theme.vars?.palette.text.primary}`,
+  },
+});
+
+const CARD_MAX_WIDTH = 220;
+
 interface LevelSwitcherCardProps {
   /** Small caption shown above the value, e.g. "Projects" / "Agents". */
   label: string;
@@ -34,16 +46,15 @@ interface LevelSwitcherCardProps {
    */
   selected?: {
     to: LinkProps["to"];
-    goToTooltip: string;
+    goToLabel: string;
     /** The value row rendered below the label, e.g. the display name (+ badge). */
     content: ReactNode;
-    closeTooltip: string;
+    closeLabel: string;
     onClose: () => void;
   };
-  /** Tooltip/aria-label for the control that opens the switcher menu. */
-  chevronTooltip: string;
+  /** aria-label for the control that opens the switcher menu. */
+  chevronLabel: string;
   anchorEl: HTMLElement | null;
-  menuOpen: boolean;
   onOpenMenu: (event: MouseEvent<HTMLElement>) => void;
   onCloseMenu: () => void;
   /** Menu items rendered inside the switcher dropdown. */
@@ -61,14 +72,14 @@ interface LevelSwitcherCardProps {
 export function LevelSwitcherCard({
   label,
   selected,
-  chevronTooltip,
+  chevronLabel,
   anchorEl,
-  menuOpen,
   onOpenMenu,
   onCloseMenu,
   children,
 }: LevelSwitcherCardProps) {
   const theme = useTheme();
+  const menuOpen = Boolean(anchorEl);
 
   if (!selected) {
     return (
@@ -76,19 +87,15 @@ export function LevelSwitcherCard({
         <IconButton
           onClick={onOpenMenu}
           size="small"
-          aria-label={chevronTooltip}
+          aria-label={chevronLabel}
           sx={{
             "& .chevron-icon": {
               transform: menuOpen ? "rotate(90deg)" : "rotate(0deg)",
               transition: "transform 0.2s",
             },
-            borderRadius: theme.spacing(1),
             color: theme.vars?.palette.text.primary,
-            border: `1px solid ${theme.vars?.palette.divider}`,
             p: theme.spacing(1, 1),
-            "&:hover": {
-              border: `1px solid ${theme.vars?.palette.text.primary}`,
-            },
+            ...hoverBorderSx(theme),
           }}
         >
           <ChevronRight size={20} className="chevron-icon" />
@@ -105,16 +112,13 @@ export function LevelSwitcherCard({
       position="relative"
       sx={{
         minWidth: 180,
-        borderRadius: theme.spacing(1),
-        border: `1px solid ${theme.vars?.palette.divider}`,
-        "&:hover": {
-          border: `1px solid ${theme.vars?.palette.text.primary}`,
-        },
+        maxWidth: CARD_MAX_WIDTH,
+        ...hoverBorderSx(theme),
       }}
     >
       <ButtonBase
         {...asLink(selected.to)}
-        aria-label={selected.goToTooltip}
+        aria-label={selected.goToLabel}
         sx={{
           display: "flex",
           flexDirection: "column",
@@ -132,7 +136,7 @@ export function LevelSwitcherCard({
       </ButtonBase>
       <IconButton
         size="small"
-        aria-label={selected.closeTooltip}
+        aria-label={selected.closeLabel}
         sx={{
           position: "absolute",
           top: 2,
@@ -145,7 +149,7 @@ export function LevelSwitcherCard({
       </IconButton>
       <IconButton
         size="small"
-        aria-label={chevronTooltip}
+        aria-label={chevronLabel}
         onClick={onOpenMenu}
         sx={{
           position: "absolute",

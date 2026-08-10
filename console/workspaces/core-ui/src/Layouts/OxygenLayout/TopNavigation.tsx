@@ -18,15 +18,8 @@ import {
 import { Building2, Plus } from "@wso2/oxygen-ui-icons-react";
 import { useMemo, useState } from "react";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
-import { asLink, LevelSwitcherCard } from "./LevelSwitcherCard";
+import { asLink, hoverBorderSx, LevelSwitcherCard } from "./LevelSwitcherCard";
 import { useActiveAgentPage, useActiveOrgPage, useActiveProjectPage } from "./path-map";
-
-const MAX_DISPLAY_NAME_LENGTH = 25;
-
-const truncateName = (name: string) =>
-  name.length > MAX_DISPLAY_NAME_LENGTH
-    ? `${name.slice(0, MAX_DISPLAY_NAME_LENGTH)}…`
-    : name;
 
 export function TopNavigation() {
   const navigate = useNavigate();
@@ -43,10 +36,8 @@ export function TopNavigation() {
   const [projectAnchorEl, setProjectAnchorEl] = useState<null | HTMLElement>(
     null,
   );
-  const projectMenuOpen = Boolean(projectAnchorEl);
 
   const [agentAnchorEl, setAgentAnchorEl] = useState<null | HTMLElement>(null);
-  const agentMenuOpen = Boolean(agentAnchorEl);
 
   // Get all organizations
   const { data: organizations } = useListOrganizations();
@@ -122,12 +113,8 @@ export function TopNavigation() {
 
                   sx={{
                     color: theme.vars?.palette.text.primary,
-                    border: `1px solid ${theme.vars?.palette.divider}`,
                     p: theme.spacing(1.75, 1.75),
-                    borderRadius: theme.spacing(1),
-                    "&:hover": {
-                      border: `1px solid ${theme.vars?.palette.text.primary}`,
-                    },
+                    ...hoverBorderSx(theme),
                   }}>
                     <Building2 size={22} />
                   </ButtonBase>
@@ -141,9 +128,8 @@ export function TopNavigation() {
         {projects?.projects && (
           <LevelSwitcherCard
             label="Projects"
-            chevronTooltip={selectedProject ? "Switch project" : "Select or create a project"}
+            chevronLabel={selectedProject ? "Switch project" : "Select or create a project"}
             anchorEl={projectAnchorEl}
-            menuOpen={projectMenuOpen}
             onOpenMenu={(e) => setProjectAnchorEl(e.currentTarget)}
             onCloseMenu={() => setProjectAnchorEl(null)}
             selected={
@@ -153,15 +139,15 @@ export function TopNavigation() {
                     absoluteRouteMap.children.org.children.projects.path,
                     { orgId, projectId },
                   ) + (commonProjectPages ? `/${commonProjectPages}` : ""),
-                goToTooltip: `Go to ${selectedProject.displayName}`,
-                closeTooltip: "Close project",
+                goToLabel: `Go to ${selectedProject.displayName}`,
+                closeLabel: "Close project",
                 onClose: () =>
                   navigate(
                     generatePath(absoluteRouteMap.children.org.path, { orgId }),
                   ),
                 content: (
                   <Typography variant="body1" noWrap sx={{ maxWidth: "100%" }}>
-                    {truncateName(selectedProject.displayName)}
+                    {selectedProject.displayName}
                   </Typography>
                 ),
               }
@@ -200,9 +186,8 @@ export function TopNavigation() {
         {agents?.agents && (
           <LevelSwitcherCard
             label="Agents"
-            chevronTooltip={selectedAgent ? "Switch agent" : "Select or create an agent"}
+            chevronLabel={selectedAgent ? "Switch agent" : "Select or create an agent"}
             anchorEl={agentAnchorEl}
-            menuOpen={agentMenuOpen}
             onOpenMenu={(e) => setAgentAnchorEl(e.currentTarget)}
             onCloseMenu={() => setAgentAnchorEl(null)}
             selected={
@@ -213,8 +198,8 @@ export function TopNavigation() {
                       .agents.path,
                     { orgId, projectId, agentId },
                   ) + (commonAgentPages ? `/${commonAgentPages}` : ""),
-                goToTooltip: `Go to ${selectedAgent.displayName}`,
-                closeTooltip: "Close agent",
+                goToLabel: `Go to ${selectedAgent.displayName}`,
+                closeLabel: "Close agent",
                 onClose: () =>
                   navigate(
                     generatePath(
@@ -230,7 +215,7 @@ export function TopNavigation() {
                     sx={{ maxWidth: "100%", minWidth: 0 }}
                   >
                     <Typography variant="body1" noWrap sx={{ minWidth: 0 }}>
-                      {truncateName(selectedAgent.displayName)}
+                      {selectedAgent.displayName}
                     </Typography>
                     {selectedAgent.provisioning.type === "external" && (
                       <Chip label={"External"} size="small" variant="outlined" />
