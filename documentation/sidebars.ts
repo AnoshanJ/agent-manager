@@ -63,7 +63,7 @@ const sidebars: SidebarsConfig = {
           label: 'Securing Agent Endpoints',
           collapsed: true,
           items: [
-            'guides/configure-identity-providers',
+            'guides/configure-identity-providers-at-the-gateway',
             {
               type: 'category',
               label: 'Configure Sandboxing',
@@ -74,7 +74,7 @@ const sidebars: SidebarsConfig = {
               ],
             },
             'guides/secure-agent-endpoints-with-api-keys',
-            'guides/secure-agent-endpoints-with-oauth',
+            'guides/secure-agents-with-jwt-authentication',
             'guides/configure-cors-for-agent-endpoints',
           ],
         },

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,13 +73,20 @@ type TraceQueryParams struct {
 
 // SpanSummary is a lightweight span summary for the span list endpoint.
 type SpanSummary struct {
-	SpanID       string    `json:"spanId"`
-	SpanName     string    `json:"spanName"`
-	SpanKind     string    `json:"spanKind,omitempty"`
-	ParentSpanID string    `json:"parentSpanId,omitempty"`
-	StartTime    time.Time `json:"startTime"`
-	EndTime      time.Time `json:"endTime"`
-	DurationNs   int64     `json:"durationNs"`
+	SpanID        string    `json:"spanId"`
+	SpanName      string    `json:"spanName"`
+	SpanKind      string    `json:"spanKind,omitempty"`
+	ParentSpanID  string    `json:"parentSpanId,omitempty"`
+	StartTime     time.Time `json:"startTime"`
+	EndTime       time.Time `json:"endTime"`
+	DurationNs    int64     `json:"durationNs"`
+	Error         bool      `json:"error,omitempty"`
+	StatusMessage string    `json:"statusMessage,omitempty"`
+}
+
+// returns (e.g. "Error"), which is enough for the trace tree to flag failed spans.
+func spanStatusIsError(s *observer.SpanStatus) bool {
+	return s != nil && strings.EqualFold(s.Code, "error")
 }
 
 // SpanListResponse is the response for GET /api/v1/traces/{traceId}/spans.
@@ -495,7 +503,7 @@ func (c *TracingController) GetTraceSpans(ctx context.Context, traceID string, p
 
 	summaries := make([]SpanSummary, 0, len(spansResp.Spans))
 	for _, s := range spansResp.Spans {
-		summaries = append(summaries, SpanSummary{
+		summary := SpanSummary{
 			SpanID:       s.SpanID,
 			SpanName:     s.SpanName,
 			SpanKind:     string(opensearch.DetermineSpanKindFromName(s.SpanName)),
@@ -503,7 +511,12 @@ func (c *TracingController) GetTraceSpans(ctx context.Context, traceID string, p
 			StartTime:    s.StartTime,
 			EndTime:      s.EndTime,
 			DurationNs:   s.DurationNs,
-		})
+			Error:        spanStatusIsError(s.Status),
+		}
+		if s.Status != nil {
+			summary.StatusMessage = s.Status.Message
+		}
+		summaries = append(summaries, summary)
 	}
 
 	log.Info("Retrieved trace spans",

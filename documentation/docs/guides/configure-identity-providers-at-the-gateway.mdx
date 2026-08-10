@@ -2,11 +2,11 @@
 sidebar_position: 7
 ---
 
-# Configure Identity Providers
+# Configure Identity Providers at the Gateway
 
 Identity providers are the token issuers your gateway trusts. When an agent endpoint is secured
-with [OAuth](./secure-agent-endpoints-with-oauth.mdx), the gateway validates incoming JWTs
-against the identity providers configured on it. Each agent then chooses which of those
+with [JWT authentication](./secure-agents-with-jwt-authentication.mdx), the gateway validates
+incoming tokens against the identity providers configured on it. Each agent then chooses which of those
 providers it accepts.
 
 Identity providers are **owned by the gateway**, not by Agent Manager. You manage them from the
@@ -20,8 +20,7 @@ An identity provider is any external issuer you add, such as an Auth0 tenant or 
 
 When an environment is provisioned with its own Thunder instance (the default in
 `add-environment.sh`), that instance is registered automatically as an identity provider on the
-environment's gateway. The provider is named after the Thunder release (`amp-thunder-<org>-<env>`),
-so each instance is identifiable in the organization-wide identity provider list. Re-running the
+environment's gateway, under the name `ThunderKeyManager`. Re-running the
 script re-seeds the provider idempotently; the `IDP_SKIP_TLS_VERIFY` variable (default `true`)
 controls its **Skip TLS verification** setting.
 
@@ -80,7 +79,8 @@ Behind the scenes the command:
 4. Waits for the gateway to finish reprogramming.
 
 The command is idempotent — it is safe to re-run. Once it completes, the new provider appears in
-the gateway's **Identity Providers** card and becomes selectable when securing an agent with OAuth.
+the gateway's **Identity Providers** card and becomes selectable when securing an agent with JWT
+authentication.
 
 ## Step 4: Remove an Identity Provider
 
@@ -101,4 +101,4 @@ deploy successfully while the gateway rejects every token at runtime.
 - Agents reference an identity provider by its **name**, not its issuer URL.
 - A provider name is unique within a gateway.
 - After adding a provider, secure an agent with it by following
-  [Secure Agent Endpoints with OAuth](./secure-agent-endpoints-with-oauth.mdx).
+  [Secure Agents with JWT Authentication](./secure-agents-with-jwt-authentication.mdx).
