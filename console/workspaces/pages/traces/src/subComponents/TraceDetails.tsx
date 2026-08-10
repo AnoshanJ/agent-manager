@@ -54,6 +54,15 @@ function TraceDetailsSkeleton() {
  *  spanKind (name-based detection) is mapped into ampAttributes.kind so the
  *  SpanIcon renders an icon before full span details are fetched. */
 function traceSpanSummaryToSpan(s: TraceSpanSummary): Span {
+  const ampAttributes =
+    s.spanKind || s.error
+      ? {
+          kind: s.spanKind ?? "",
+          ...(s.error
+            ? { status: { error: true, message: s.statusMessage } }
+            : {}),
+        }
+      : undefined;
   return {
     spanId: s.spanId,
     parentSpanId: s.parentSpanId?.trim() || undefined,
@@ -61,7 +70,7 @@ function traceSpanSummaryToSpan(s: TraceSpanSummary): Span {
     startTime: s.startTime,
     endTime: s.endTime,
     durationInNanos: s.durationNs,
-    ampAttributes: s.spanKind ? { kind: s.spanKind } : undefined,
+    ampAttributes,
   };
 }
 

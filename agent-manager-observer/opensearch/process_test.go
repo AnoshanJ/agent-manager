@@ -1206,7 +1206,7 @@ func TestIsErrorStatus(t *testing.T) {
 func TestExtractSpanStatus(t *testing.T) {
 	t.Run("error.type attribute", func(t *testing.T) {
 		attrs := map[string]interface{}{"error.type": "RuntimeError"}
-		status := extractSpanStatus(attrs, "")
+		status := extractSpanStatus(attrs, "", "")
 		if !status.Error {
 			t.Error("expected error=true")
 		}
@@ -1217,7 +1217,7 @@ func TestExtractSpanStatus(t *testing.T) {
 
 	t.Run("gen_ai.tool.status error", func(t *testing.T) {
 		attrs := map[string]interface{}{"gen_ai.tool.status": "error"}
-		status := extractSpanStatus(attrs, "")
+		status := extractSpanStatus(attrs, "", "")
 		if !status.Error {
 			t.Error("expected error=true")
 		}
@@ -1228,7 +1228,7 @@ func TestExtractSpanStatus(t *testing.T) {
 
 	t.Run("http.status_code >= 400", func(t *testing.T) {
 		attrs := map[string]interface{}{"http.status_code": float64(500)}
-		status := extractSpanStatus(attrs, "")
+		status := extractSpanStatus(attrs, "", "")
 		if !status.Error {
 			t.Error("expected error=true")
 		}
@@ -1239,7 +1239,7 @@ func TestExtractSpanStatus(t *testing.T) {
 
 	t.Run("fallback to span status", func(t *testing.T) {
 		attrs := map[string]interface{}{"some.attr": "value"}
-		status := extractSpanStatus(attrs, "error")
+		status := extractSpanStatus(attrs, "error", "")
 		if !status.Error {
 			t.Error("expected error=true from span status")
 		}
@@ -1247,16 +1247,36 @@ func TestExtractSpanStatus(t *testing.T) {
 
 	t.Run("no error", func(t *testing.T) {
 		attrs := map[string]interface{}{"some.attr": "value"}
-		status := extractSpanStatus(attrs, "OK")
+		status := extractSpanStatus(attrs, "OK", "")
 		if status.Error {
 			t.Error("expected error=false")
 		}
 	})
 
 	t.Run("nil attributes with error status", func(t *testing.T) {
-		status := extractSpanStatus(nil, "error")
+		status := extractSpanStatus(nil, "error", "")
 		if !status.Error {
 			t.Error("expected error=true from span status")
+		}
+	})
+
+	t.Run("carries status message through (OpenChoreo 1.2.0+)", func(t *testing.T) {
+		status := extractSpanStatus(map[string]interface{}{"error.type": "RuntimeError"}, "error", "boom: connection refused")
+		if !status.Error {
+			t.Error("expected error=true")
+		}
+		if status.Message != "boom: connection refused" {
+			t.Errorf("expected message to be carried through, got %q", status.Message)
+		}
+	})
+
+	t.Run("message set even when no error", func(t *testing.T) {
+		status := extractSpanStatus(nil, "ok", "all good")
+		if status.Error {
+			t.Error("expected error=false")
+		}
+		if status.Message != "all good" {
+			t.Errorf("expected message %q, got %q", "all good", status.Message)
 		}
 	})
 }
