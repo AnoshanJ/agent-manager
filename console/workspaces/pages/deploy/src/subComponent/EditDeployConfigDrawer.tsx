@@ -176,9 +176,26 @@ export function EditDeployConfigDrawer({
   const { mutate: regenerateToken, isPending: isRegenerating } = useRegenerateTracingToken();
   const isPending = isDeploying || isUpdating || isUpdatingSettings;
 
+  // Only reached by regenerateToken below — useDeployAgent/useUpdateAgentConfigurations/
+  // useUpdateAgentDeploySettings already show the server's message (+ reason, when the backend
+  // sends one) via their own showError:true default, so wiring this in there too would double
+  // the snackbar. useRegenerateTracingToken suppresses its generic one (showError:false) because
+  // its success path is custom (an expiry-aware confirmation), so this covers its error path.
   const errorHandler = useCallback((error: unknown) => {
-    const body = (error as { body?: { message?: string } })?.body;
-    pushSnackBar({ message: body?.message ?? "Failed to apply configuration", type: "error" });
+    // The http write helpers throw an Error whose `.body` is the full parsed
+    // error JSON, so `reason` lives under `.body.reason`, not on the error itself.
+    const { message, body } = (error ?? {}) as {
+      message?: string;
+      body?: { reason?: string };
+    };
+    pushSnackBar({
+      message: message
+        ? body?.reason
+          ? `${message}: ${body.reason}`
+          : message
+        : "Failed to regenerate tracing token",
+      type: "error",
+    });
   }, [pushSnackBar]);
 
   const handleSave = useCallback(() => {
@@ -203,7 +220,7 @@ export function EditDeployConfigDrawer({
             params: { orgName, projName, agentName },
             body: { environmentName: environment, env: validEnv, files: validFiles },
           },
-          { onSuccess: () => onClose(), onError: errorHandler },
+          { onSuccess: () => onClose() },
         );
 
       // Combine CORS/Auth (security) and tracing into a single deploy-settings call. The version is
@@ -223,7 +240,7 @@ export function EditDeployConfigDrawer({
       if (showSecurity || showTracing) {
         updateDeploySettings(
           { params: { orgName, projName, agentName }, body: deploySettingsBody },
-          { onSuccess: applyConfigs, onError: errorHandler },
+          { onSuccess: applyConfigs },
         );
       } else {
         applyConfigs();
@@ -244,13 +261,13 @@ export function EditDeployConfigDrawer({
           ...(validFiles.length && { files: validFiles }),
         },
       },
-      { onSuccess: () => onClose(), onError: errorHandler },
+      { onSuccess: () => onClose() },
     );
   }, [
     mode, env, files, environment, imageId, orgName, projName, agentName,
     showSecurity, showTracing, tracingEnabled, instrumentationVersion, versionDirty,
     versionInCompatibleSet,
-    deployAgent, updateConfigs, updateDeploySettings, onClose, pushSnackBar, errorHandler,
+    deployAgent, updateConfigs, updateDeploySettings, onClose, pushSnackBar,
   ]);
 
   // Regenerate mints + stores the new key immediately (no pre-confirm). The key only takes effect
