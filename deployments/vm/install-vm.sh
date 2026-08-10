@@ -114,8 +114,9 @@ run_install() {
   # agent-manager-service's identical THUNDER_HOST_BASE_DOMAIN/TLS_ENABLED config
   # (must match on both sides or the reported and actually-deployed URLs diverge).
   # vm_host("thunder", ip) is "thunder.amp.<ip>.sslip.io"; stripping the "thunder."
-  # prefix gives env-Thunder's base domain, so "<org>-<env>.thunder.<base>" is a
-  # subdomain of it — exactly what the Caddy wildcard site added for it matches.
+  # prefix gives env-Thunder's base domain, so "<handle>.<base>" sits directly
+  # under it (no fixed "thunder." segment) — exactly what the Caddy wildcard
+  # site added for it matches.
   local thunder_host_full; thunder_host_full="$(vm_host thunder "$VM_IP")"
   export THUNDER_HOST_BASE_DOMAIN="${thunder_host_full#thunder.}"
   export TLS_ENABLED=true

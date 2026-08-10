@@ -58,10 +58,14 @@ cert_dns_names() {
   printf '%s\n' "$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" \
     "$AMP_HOST_OBSERVER" "$AMP_HOST_GATEWAY"
   [[ -n "${AMP_HOST_CP:-}" ]] && printf '%s\n' "$AMP_HOST_CP"
-  # Dynamic tiers (created after install): deployed agents <org>-<project>.<AGENTS_BASE>
-  # and env-Thunder <org>-<env>.<THUNDER_HOST>. A wildcard covers each without re-issuing.
+  # Dynamic tiers (created after install): deployed agents <org>-<project>.<AGENTS_BASE>,
+  # and env-Thunder handles sitting directly under the base domain (no "thunder."
+  # segment — see thunder-naming.sh's thunder_host). A wildcard covers each
+  # without re-issuing. ${AMP_HOST_THUNDER#thunder.} recovers the bare base
+  # domain from AMP_HOST_THUNDER="thunder.<base-domain>" without needing that
+  # variable separately in scope here.
   printf '*.%s\n' "$AMP_AGENTS_BASE"
-  printf '*.%s\n' "$AMP_HOST_THUNDER"
+  printf '*.%s\n' "${AMP_HOST_THUNDER#thunder.}"
 }
 
 # _dns01_solver_block — print the cert-manager `dns01:` solver body for DNS_PROVIDER,

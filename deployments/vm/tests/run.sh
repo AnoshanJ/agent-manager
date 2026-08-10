@@ -248,11 +248,12 @@ assert_eq "caddy console site" "console.amp.203.0.113.10.sslip.io {" "$(grep -F 
 assert_eq "caddy console upstream (via kgateway)" "	reverse_proxy 127.0.0.1:8080" \
   "$(grep -F -A8 'console.amp.203.0.113.10.sslip.io {' <<<"$cf" | grep -F 'reverse_proxy' | head -1)"
 # Four sites proxy to the CP kgateway (8080): console, api, the fixed
-# platform-Thunder host, and the env-Thunder wildcard (*.thunder.<domain>) —
-# kgateway itself discriminates by Host header via each backend's HTTPRoute.
+# platform-Thunder host, and the env-Thunder base-domain wildcard (*.<domain>,
+# no fixed "thunder." segment) — kgateway itself discriminates by Host header
+# via each backend's HTTPRoute.
 assert_eq "caddy cp-kgateway upstream count" "4" "$(grep -cF '127.0.0.1:8080' <<<"$cf")"
-assert_eq "caddy env-thunder wildcard site" "*.thunder.amp.203.0.113.10.sslip.io {" \
-  "$(grep -F '*.thunder.amp' <<<"$cf" | head -1)"
+assert_eq "caddy env-thunder wildcard site" "*.amp.203.0.113.10.sslip.io {" \
+  "$(grep -F '*.amp.203.0.113.10.sslip.io {' <<<"$cf" | head -1)"
 # gateway host routes through the kgateway data plane (19080), not the ClusterIP
 # runtime (22893) which is not node-published; scope the grep to the gateway block
 # since 19080 is shared with the agents site.

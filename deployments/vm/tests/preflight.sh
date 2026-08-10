@@ -36,7 +36,7 @@ sans="$(cert_dns_names)"
 assert_eq "cert SANs include console"          "yes" "$(grep -qxF 'console.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 assert_eq "cert SANs include cp (external gw)" "yes" "$(grep -qxF 'cp.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 assert_eq "cert SANs include agents wildcard"  "yes" "$(grep -qxF '*.agents.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
-assert_eq "cert SANs include env-Thunder wild" "yes" "$(grep -qxF '*.thunder.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
+assert_eq "cert SANs include env-Thunder wild" "yes" "$(grep -qxF '*.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 # CP omitted when external gateways are off.
 AMP_HOST_CP="" sans_nocp="$(AMP_HOST_CP="" cert_dns_names)"
 assert_eq "cert SANs omit cp when unset"       "no"  "$(grep -qxF 'cp.amp.mycompany.com' <<<"$sans_nocp" && echo yes || echo no)"

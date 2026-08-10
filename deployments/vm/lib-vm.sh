@@ -448,15 +448,21 @@ caddyfile() {
   _site "$AMP_HOST_THUNDER"  8080   # Thunder OAuth (OC kgateway, host-routed)
 
   # Env-Thunder instances: one per org/environment, created dynamically after
-  # initial install (not just at install time) — <org>-<env>.$AMP_HOST_THUNDER,
-  # wildcard-matched and proxied to the SAME kgateway listener as platform Thunder
-  # above (port 8080; kgateway itself discriminates by Host header via each
-  # env-Thunder's own HTTPRoute — see add-environment-thunder.sh's apply_httproute).
-  # A real wildcard cert can't be issued via TLS-ALPN-01, so — like the agents site
-  # below — this needs on-demand TLS (one concrete cert per hostname, issued the
-  # first time it's actually requested).
+  # initial install (not just at install time) — <handle>.<base-domain> (no fixed
+  # "thunder." segment — see thunder-naming.sh's thunder_host), wildcard-matched
+  # and proxied to the SAME kgateway listener as platform Thunder above (port
+  # 8080; kgateway itself discriminates by Host header via each env-Thunder's own
+  # HTTPRoute — see add-environment-thunder.sh's apply_httproute). This wildcard
+  # is broader than just env-Thunder hosts, but Caddy always matches the most
+  # specific site first, so the exact _site blocks above (console/api/thunder/
+  # observer/gateway/cp) still win for their own hostnames; only a handle that
+  # doesn't match any of those falls through to here — which
+  # reservedThunderHandles (environment_service.go) prevents a handle from ever
+  # being equal to in the first place. A real wildcard cert can't be issued via
+  # TLS-ALPN-01, so — like the agents site below — this needs on-demand TLS (one
+  # concrete cert per hostname, issued the first time it's actually requested).
   printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
-    "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_THUNDER" "$addr_suffix" "$agent_tls"
+    "$([[ "$scheme" == http ]] && printf 'http://')" "${AMP_HOST_THUNDER#thunder.}" "$addr_suffix" "$agent_tls"
 
   # Observer is ClusterIP behind the OC observability-plane kgateway
   # (11080), host-routed the same way (observability_helm_args sets the route
@@ -480,7 +486,7 @@ caddyfile() {
 
   # On-demand TLS ask endpoint exists only in letsencrypt mode (always-allow; Caddy
   # only triggers on-demand for SNI matching a wildcard site — both the *.agents
-  # wildcard below and the *.$AMP_HOST_THUNDER env-Thunder wildcard above).
+  # wildcard below and the env-Thunder base-domain wildcard above).
   [[ "$tls_mode" == letsencrypt ]] && printf 'http://127.0.0.1:9753 {\n\trespond 200\n}\n\n'
 
   # Deployed-agent endpoints: <org>-<project>.<AGENTS_BASE> (one host per org/project,

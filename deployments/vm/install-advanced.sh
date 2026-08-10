@@ -151,12 +151,18 @@ apply_advanced_tls() {
 # render_frontproxy_resources — emit the host-based routes (and the cross-namespace
 # ReferenceGrants they need) that make the consolidated :443 Gateway forward to each
 # plane's own gateway. Each plane keeps its native routes; the wildcards *.agents and
-# *.thunder cover the dynamic tiers (deployed agents, per-env Thunder) permanently, so
-# nothing has to be reparented after install.
+# *.<base-domain> (env-Thunder handles sit directly under the base domain, no fixed
+# "thunder." segment) cover the dynamic tiers (deployed agents, per-env Thunder)
+# permanently, so nothing has to be reparented after install. Gateway API always
+# matches an exact hostname before a wildcard, so this wildcard never shadows the
+# other exact hosts in cp_hosts below.
 render_frontproxy_resources() {
   # Control plane (console/api/thunder/cp) + env-Thunder wildcard -> CP gateway. Same
   # namespace as the consolidated Gateway, so no ReferenceGrant is needed here.
-  local -a cp_hosts=("$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" "*.${AMP_HOST_THUNDER}")
+  # ${AMP_HOST_THUNDER#thunder.} recovers the bare base domain from
+  # AMP_HOST_THUNDER="thunder.<base-domain>" without needing that variable
+  # separately in scope here.
+  local -a cp_hosts=("$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" "*.${AMP_HOST_THUNDER#thunder.}")
   [[ -n "${AMP_HOST_CP:-}" ]] && cp_hosts+=("$AMP_HOST_CP")
   render_frontproxy_route amp-frontproxy-controlplane "$CONSOLIDATED_GATEWAY" \
     "$CP_GW_NS" "$CP_GW_SVC" "$CP_GW_PORT" "${cp_hosts[@]}"
