@@ -61,6 +61,32 @@ func TestBuildMCPProxyURLPrefersProxyVhostOverride(t *testing.T) {
 		buildMCPProxyURL(gateway, models.MCPProxyConfig{Vhost: &empty}))
 }
 
+func TestBuildProxyURLDefaultsBareVhostToHTTPS(t *testing.T) {
+	// Gateways registered with a scheme-less vhost must still yield absolute URLs.
+	gateway := &models.Gateway{Vhost: "gw.example.com"}
+	contextPath := "/llm/proxy"
+	require.Equal(t, "https://gw.example.com/llm/proxy", buildProxyURL(gateway, &contextPath))
+	require.Equal(t, "https://gw.example.com", buildProxyURL(gateway, nil))
+}
+
+func TestBuildMCPProxyURLDefaultsBareGatewayVhostToHTTPS(t *testing.T) {
+	gateway := &models.Gateway{Vhost: "gw.example.com"}
+	ctxPath := "/github"
+	require.Equal(t, "https://gw.example.com/github/mcp", buildMCPProxyURL(gateway, models.MCPProxyConfig{Context: &ctxPath}))
+	require.Equal(t, "https://gw.example.com/mcp", buildMCPProxyURL(gateway, models.MCPProxyConfig{}))
+}
+
+func TestResourceIdentifierUnchangedByVhostScheme(t *testing.T) {
+	// The RS identifier (scheme-stripped proxy URL) must be identical whether the
+	// gateway registered a bare or an https:// vhost.
+	bare := &models.Gateway{Vhost: "gw.example.com"}
+	prefixed := &models.Gateway{Vhost: "https://gw.example.com"}
+	ctxPath := "/github"
+	cfg := models.MCPProxyConfig{Context: &ctxPath}
+	require.Equal(t, "gw.example.com/github/mcp", stripURLScheme(buildMCPProxyURL(bare, cfg)))
+	require.Equal(t, stripURLScheme(buildMCPProxyURL(prefixed, cfg)), stripURLScheme(buildMCPProxyURL(bare, cfg)))
+}
+
 func TestStripURLScheme(t *testing.T) {
 	require.Equal(t, "gw.example.com/github/mcp", stripURLScheme("https://gw.example.com/github/mcp"))
 	require.Equal(t, "gw.example.com/mcp", stripURLScheme("gw.example.com/mcp"))

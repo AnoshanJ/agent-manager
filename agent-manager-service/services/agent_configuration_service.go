@@ -245,14 +245,24 @@ func (s *agentConfigurationService) ensureExternalAgentForAPIKey(ctx context.Con
 	return nil
 }
 
+// ensureURLScheme returns the host as an absolute URL, defaulting scheme-less
+// hosts to https. Gateways may be registered with bare vhosts.
+func ensureURLScheme(host string) string {
+	if strings.Contains(host, "://") {
+		return host
+	}
+	return "https://" + host
+}
+
 // buildProxyURL constructs the proxy base URL from the gateway's public vhost and
 // an optional context path. Every agent — sandboxed included — gets the public
 // URL so the address always matches the identity resource identifier.
 func buildProxyURL(gateway *models.Gateway, contextPath *string) string {
+	base := ensureURLScheme(gateway.Vhost)
 	if contextPath != nil {
-		return fmt.Sprintf("%s%s", gateway.Vhost, *contextPath)
+		return fmt.Sprintf("%s%s", base, *contextPath)
 	}
-	return gateway.Vhost
+	return base
 }
 
 // buildLLMEnvVars constructs the two env vars (URL and API key) from the env config templates.
@@ -317,17 +327,14 @@ func buildEmptyMCPEnvVars(templates []EnvConfigTemplate) []client.EnvVar {
 
 // mcpProxyServingBase is the public base the gateway actually serves the proxy
 // on: the proxy's own vhost override when set (the deployment spec forwards it),
-// else the gateway's vhost. A bare-host override defaults to https.
+// else the gateway's vhost. Bare hosts default to https.
 func mcpProxyServingBase(gateway *models.Gateway, override *string) string {
 	if override != nil {
 		if host := strings.TrimSpace(*override); host != "" {
-			if strings.Contains(host, "://") {
-				return host
-			}
-			return "https://" + host
+			return ensureURLScheme(host)
 		}
 	}
-	return gateway.Vhost
+	return ensureURLScheme(gateway.Vhost)
 }
 
 // buildMCPProxyURL constructs the MCP proxy URL from the serving base and the
