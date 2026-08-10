@@ -30,7 +30,6 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
-  Autocomplete,
   Box,
   Button,
   Chip,
@@ -40,8 +39,6 @@ import {
   Form,
   FormControl,
   FormLabel,
-  MenuItem,
-  Select,
   Stack,
   TextField,
   Tooltip,
@@ -50,6 +47,7 @@ import {
 import { ChevronDown, HelpCircle } from "@wso2/oxygen-ui-icons-react";
 import { useSnackBar } from "@agent-management-platform/views";
 import {
+  EnvironmentGatewaySelectorView,
   ResilienceTimeoutFields,
   validateEndpointUrl,
 } from "@agent-management-platform/shared-component";
@@ -129,20 +127,17 @@ export function EndpointFormFields({
   // Mirrors Postman's per-header checkbox: unchecking excludes the header from the
   // fetch/save without losing the typed key/value.
   const [authEnabled, setAuthEnabled] = useState(true);
-  const [selectedEnvIds, setSelectedEnvIds] = useState<string[]>(
-    initialDraft?.environments ?? [],
-  );
-  // Gateway ids the endpoint is already deployed to, per environment — read once
-  // from initialDraft (GET only echoes gatewayId for a binding that's actually
-  // deployed), so this never changes for the life of the form and locks the select.
-  const deployedGatewayByEnv = useMemo(
-    () => initialDraft?.gatewayByEnv ?? {},
+  // Gateway UUIDs currently selected — the single source of truth handed to/from
+  // EnvironmentGatewaySelectorView. Environment assignment and the per-environment
+  // gateway map (below) are both derived from this.
+  const [gatewayIds, setGatewayIds] = useState<string[]>([]);
+  // Gateway ids the endpoint is already deployed to — read once from initialDraft
+  // (GET only echoes gatewayId for a binding that's actually deployed), so this
+  // never changes for the life of the form and locks those rows.
+  const lockedGatewayIds = useMemo(
+    () => Object.values(initialDraft?.gatewayByEnv ?? {}),
     [initialDraft],
   );
-  // User's in-form gateway pick per environment, for bindings not yet deployed.
-  const [selectedGatewayByEnv, setSelectedGatewayByEnv] = useState<
-    Record<string, string>
-  >({});
   const [fetchedInfo, setFetchedInfo] =
     useState<MCPServerInfoFetchResponse | null>(
       initialDraft?.fetchedInfo ?? null,
@@ -162,23 +157,27 @@ export function EndpointFormFields({
     string | null
   >(null);
 
-  // When exactly one environment is available, there's nothing to choose between —
-  // assign it automatically instead of showing a single-option selector.
-  useEffect(() => {
-    const onlyEnvId =
-      availableEnvironments.length === 1 ? availableEnvironments[0].id : null;
-    if (!onlyEnvId) return;
-    setSelectedEnvIds((prev) => (prev.length === 0 ? [onlyEnvId] : prev));
-  }, [availableEnvironments]);
-
   const { data: gatewaysData } = useListGateways({ orgName: orgId });
+  const gateways = useMemo(
+    () => gatewaysData?.gateways ?? [],
+    [gatewaysData],
+  );
+
+  const gatewayByUuid = useMemo(
+    () => new Map(gateways.map((gw) => [gw.uuid, gw])),
+    [gateways],
+  );
+  const envIdOfGateway = useCallback(
+    (uuid: string) => gatewayByUuid.get(uuid)?.environments?.[0]?.id,
+    [gatewayByUuid],
+  );
 
   // Egress-capable gateways (EGRESS or BOTH), grouped by the environment UUIDs
   // they're attached to. An environment with 0-1 candidates needs no picker: the
   // server infers the sole candidate, or there's genuinely nothing to deploy to.
   const egressGatewaysByEnv = useMemo(() => {
     const map: Record<string, GatewayResponse[]> = {};
-    (gatewaysData?.gateways ?? []).forEach((gateway) => {
+    gateways.forEach((gateway) => {
       if (gateway.gatewayType !== "EGRESS" && gateway.gatewayType !== "BOTH") {
         return;
       }
@@ -188,27 +187,56 @@ export function EndpointFormFields({
       });
     });
     return map;
-  }, [gatewaysData]);
+  }, [gateways]);
 
-  const environmentNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    availableEnvironments.forEach((env) => {
-      if (env.id) map[env.id] = env.displayName || env.name;
+  // initialDraft.gatewayByEnv reflects what was actually persisted. An environment
+  // with exactly one egress candidate may have been saved before that gateway was
+  // recorded explicitly — filling it in here keeps the load-time change comparison
+  // (below) honest about real edits rather than flagging a since-changed convention.
+  const normalizedInitialGatewayByEnv = useMemo(() => {
+    if (!initialDraft) return {};
+    const base: Record<string, string> = { ...(initialDraft.gatewayByEnv ?? {}) };
+    initialDraft.environments.forEach((envId) => {
+      if (base[envId]) return;
+      const candidates = egressGatewaysByEnv[envId] ?? [];
+      if (candidates.length === 1) base[envId] = candidates[0].uuid;
     });
-    return map;
-  }, [availableEnvironments]);
+    return base;
+  }, [initialDraft, egressGatewaysByEnv]);
 
-  // Per-environment gateway actually sent on save: the locked deployed gateway
-  // where one exists, otherwise the user's in-form pick. Environments left
-  // unset are simply absent, so the payload omits gatewayId for them.
+  // Seed the selector's value once gateways have loaded (needed to resolve the
+  // normalization above). Guarded to run once so a later gateway refetch never
+  // clobbers the user's in-progress picks.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !initialDraft || !gatewaysData) return;
+    seededRef.current = true;
+    setGatewayIds(Object.values(normalizedInitialGatewayByEnv));
+  }, [gatewaysData, initialDraft, normalizedInitialGatewayByEnv]);
+
+  const selectedEnvIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          gatewayIds
+            .map(envIdOfGateway)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    [gatewayIds, envIdOfGateway],
+  );
+
+  // Per-environment gateway actually sent on save, derived straight from the
+  // selector's value — it always resolves and emits the real gateway, including
+  // the unambiguous single-candidate case (the server accepts it explicitly too).
   const effectiveGatewayByEnv = useMemo(() => {
     const map: Record<string, string> = {};
-    selectedEnvIds.forEach((envId) => {
-      const value = deployedGatewayByEnv[envId] ?? selectedGatewayByEnv[envId];
-      if (value) map[envId] = value;
+    gatewayIds.forEach((uuid) => {
+      const envId = envIdOfGateway(uuid);
+      if (envId) map[envId] = uuid;
     });
     return map;
-  }, [selectedEnvIds, deployedGatewayByEnv, selectedGatewayByEnv]);
+  }, [gatewayIds, envIdOfGateway]);
 
   const trimmedUrl = url.trim();
   const isFetched = Boolean(fetchedInfo);
@@ -235,23 +263,20 @@ export function EndpointFormFields({
     resilienceTimeout.trim() !== (initialDraft.resilienceTimeout ?? "") ||
     resilienceIdleTimeout.trim() !== (initialDraft.resilienceIdleTimeout ?? "") ||
     !sameIdSet(selectedEnvIds, initialDraft.environments) ||
-    !sameGatewayMap(effectiveGatewayByEnv, initialDraft.gatewayByEnv ?? {}) ||
+    !sameGatewayMap(effectiveGatewayByEnv, normalizedInitialGatewayByEnv) ||
     capabilitiesChanged(fetchedInfo, initialDraft.fetchedInfo);
 
-  // An environment with 2+ egress candidates and no pick would be rejected by the
-  // server as ambiguous, so require a selection wherever the picker renders.
-  const hasGatewaySelection = selectedEnvIds.every((envId) => {
-    const candidates = egressGatewaysByEnv[envId] ?? [];
-    return (
-      candidates.length <= 1 ||
-      Boolean(deployedGatewayByEnv[envId] ?? selectedGatewayByEnv[envId])
-    );
-  });
+  // False while any checked ambiguous environment lacks a resolved gateway —
+  // reported by EnvironmentGatewaySelectorView itself.
+  const [isGatewaySelectionValid, setIsGatewaySelectionValid] = useState(true);
+  // True once the selector auto-resolved a single unambiguous environment —
+  // nothing to configure, so the whole section (including its title) hides.
+  const [isSingleGatewayChoice, setIsSingleGatewayChoice] = useState(false);
 
   const canSave =
     canAdd &&
     hasChanges &&
-    hasGatewaySelection &&
+    isGatewaySelectionValid &&
     !resilienceTimeoutError &&
     !resilienceIdleTimeoutError;
 
@@ -532,59 +557,32 @@ export function EndpointFormFields({
         idleTimeoutError={resilienceIdleTimeoutError}
       />
 
-      {availableEnvironments.length !== 1 && (
+      {isSingleGatewayChoice ? (
+        <EnvironmentGatewaySelectorView
+          environments={availableEnvironments}
+          gateways={gateways}
+          value={gatewayIds}
+          onChange={setGatewayIds}
+          lockedGatewayIds={lockedGatewayIds}
+          onValidityChange={setIsGatewaySelectionValid}
+          onSingleChoiceChange={setIsSingleGatewayChoice}
+        />
+      ) : (
         <FormControl fullWidth>
-          <FormLabel required={availableEnvironments.length > 1}>
-            Gateway
-          </FormLabel>
-          {availableEnvironments.length > 1 ? (
+          <Form.Subheader>Deployment Configuration</Form.Subheader>
+          {availableEnvironments.length > 0 ? (
             <>
-              <Autocomplete
-                multiple
-                options={availableEnvironments}
-                size="small"
-                value={availableEnvironments.filter(
-                  (env) => env.id != null && selectedEnvIds.includes(env.id),
-                )}
-                onChange={(_, selected) =>
-                  setSelectedEnvIds(
-                    selected
-                      .map((env) => env.id)
-                      .filter((id): id is string => Boolean(id)),
-                  )
-                }
-                getOptionLabel={(option) => option.displayName || option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderOption={(props, option) => {
-                  const { key, ...optionProps } = props;
-                  const gatewayNames = (
-                    (option.id ? egressGatewaysByEnv[option.id] : null) ?? []
-                  )
-                    .map((gw) => gw.displayName || gw.name)
-                    .join(", ");
-                  return (
-                    <Box
-                      component="li"
-                      key={key}
-                      {...optionProps}
-                      sx={{ display: "flex", alignItems: "baseline", gap: 1 }}
-                    >
-                      <Typography variant="body2">
-                        {gatewayNames || option.displayName || option.name}
-                      </Typography>
-                      {gatewayNames && (
-                        <Typography variant="caption" color="text.disabled">
-                          {option.displayName || option.name}
-                        </Typography>
-                      )}
-                    </Box>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField {...params} placeholder="Select gateway(s)" />
-                )}
-                sx={{ mt: 0.5 }}
-              />
+              <Box sx={{ mt: 0.5 }}>
+                <EnvironmentGatewaySelectorView
+                  environments={availableEnvironments}
+                  gateways={gateways}
+                  value={gatewayIds}
+                  onChange={setGatewayIds}
+                  lockedGatewayIds={lockedGatewayIds}
+                  onValidityChange={setIsGatewaySelectionValid}
+                  onSingleChoiceChange={setIsSingleGatewayChoice}
+                />
+              </Box>
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -594,60 +592,16 @@ export function EndpointFormFields({
               </Typography>
             </>
           ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 0.5 }}
+            >
               All environments are already assigned
             </Typography>
           )}
         </FormControl>
       )}
-
-      {selectedEnvIds.map((envId) => {
-        const candidates = egressGatewaysByEnv[envId] ?? [];
-        // 0 or 1 candidate needs no picker: the server infers the sole one (or
-        // there's nothing to deploy to yet — the ingress-only case).
-        if (candidates.length <= 1) return null;
-        const deployed = deployedGatewayByEnv[envId];
-        return (
-          <FormControl fullWidth key={envId}>
-            <FormLabel required>
-              Egress gateway — {environmentNameById[envId] ?? envId}
-            </FormLabel>
-            <Select
-              size="small"
-              value={deployed ?? selectedGatewayByEnv[envId] ?? ""}
-              disabled={Boolean(deployed)}
-              onChange={(e) =>
-                setSelectedGatewayByEnv({
-                  ...selectedGatewayByEnv,
-                  [envId]: e.target.value as string,
-                })
-              }
-            >
-              {candidates.map((gw) => (
-                <MenuItem key={gw.uuid} value={gw.uuid}>
-                  {gw.displayName || gw.name}
-                </MenuItem>
-              ))}
-            </Select>
-            {deployed ? (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ mt: 0.5 }}
-              >
-                Placement is fixed once deployed. Delete and recreate the
-                binding to change it.
-              </Typography>
-            ) : (
-              !selectedGatewayByEnv[envId] && (
-                <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
-                  Select an egress gateway for this environment.
-                </Typography>
-              )
-            )}
-          </FormControl>
-        );
-      })}
 
       <Collapse in={isFetching || isFetched} timeout="auto" unmountOnExit>
         <Stack spacing={2}>

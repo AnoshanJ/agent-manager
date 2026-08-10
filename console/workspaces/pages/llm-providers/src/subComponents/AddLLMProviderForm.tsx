@@ -190,6 +190,9 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
 
   const [guardrails, setGuardrails] = useState<GuardrailSelection[]>([]);
   const [isGatewaySelectionValid, setIsGatewaySelectionValid] = useState(true);
+  // True once the selector auto-resolved a single unambiguous environment —
+  // nothing to configure, so the whole section (including its title) hides.
+  const [isSingleGatewayChoice, setIsSingleGatewayChoice] = useState(false);
   const [endpointEditable, setEndpointEditable] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -638,23 +641,35 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
         </Collapse>
       )}
       <Collapse in={!!formData.templateId}>
-        <Form.Section>
-          <Form.Subheader>Deployment Configuration</Form.Subheader>
-          <Form.Stack spacing={2}>
-            {!isLoadingGateways && gateways.length === 0 && (
-              <Alert severity="warning">
-                No egress-capable gateway is configured for this organization.
-                Ask an admin to configure one before creating an LLM provider.
-              </Alert>
-            )}
-            <EnvironmentGatewaySelector
-              orgId={orgId}
-              value={formData.gatewayIds ?? []}
-              onChange={(ids) => handleFieldChange("gatewayIds", ids)}
-              onValidityChange={setIsGatewaySelectionValid}
-            />
-          </Form.Stack>
-        </Form.Section>
+        {isSingleGatewayChoice ? (
+          <EnvironmentGatewaySelector
+            orgId={orgId}
+            value={formData.gatewayIds ?? []}
+            onChange={(ids) => handleFieldChange("gatewayIds", ids)}
+            onValidityChange={setIsGatewaySelectionValid}
+            onSingleChoiceChange={setIsSingleGatewayChoice}
+          />
+        ) : (
+          <Form.Section>
+            <Form.Subheader>Deployment Configuration</Form.Subheader>
+            <Form.Stack spacing={2}>
+              {!isLoadingGateways && gateways.length === 0 && (
+                <Alert severity="warning">
+                  No egress-capable gateway is configured for this
+                  organization. Ask an admin to configure one before creating
+                  an LLM provider.
+                </Alert>
+              )}
+              <EnvironmentGatewaySelector
+                orgId={orgId}
+                value={formData.gatewayIds ?? []}
+                onChange={(ids) => handleFieldChange("gatewayIds", ids)}
+                onValidityChange={setIsGatewaySelectionValid}
+                onSingleChoiceChange={setIsSingleGatewayChoice}
+              />
+            </Form.Stack>
+          </Form.Section>
+        )}
       </Collapse>
       {errorMessage && (
         <Alert severity="error">
