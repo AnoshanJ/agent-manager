@@ -13491,6 +13491,9 @@ components:
         name:
           type: string
           description: Name of the organization
+        displayName:
+          type: string
+          description: Display name of the organization
         createdAt:
           type: string
           format: date-time
@@ -13498,6 +13501,7 @@ components:
       required:
         - name
         - createdAt
+        - displayName
 
     OrganizationListResponse:
       type: object

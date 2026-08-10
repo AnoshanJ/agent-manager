@@ -4509,6 +4509,9 @@ type OrganizationListItem struct {
 	// CreatedAt Timestamp when the organization was created
 	CreatedAt time.Time `json:"createdAt"`
 
+	// DisplayName Display name of the organization
+	DisplayName string `json:"displayName"`
+
 	// Name Name of the organization
 	Name string `json:"name"`
 }
