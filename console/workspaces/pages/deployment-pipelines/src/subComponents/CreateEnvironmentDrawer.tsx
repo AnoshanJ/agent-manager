@@ -102,6 +102,7 @@ const DEFAULT_FORM: CreateEnvironmentFormValues = {
   dnsPrefix: "",
   isProduction: false,
   isolationTier: "runc",
+  thunderHandle: "",
 };
 
 function deriveNameFromDisplayName(displayName: string): string {
@@ -113,12 +114,77 @@ function deriveNameFromDisplayName(displayName: string): string {
     .replace(/^-|-$/g, "");
 }
 
+// Common words/roles that make an otherwise-valid handle easy for an outsider to
+// guess even though it passes format/length validation (agent-manager-service's
+// own minThunderHandleLen catches SHORT handles; this catches LONG-but-obvious
+// ones a length rule can't). Deliberately a warning, not a rejection — the API
+// still accepts any of these, since "guessable" is a judgment call the user
+// should be able to override (e.g. an internal-only deployment where this
+// doesn't matter), not one the console should block on their behalf.
+const GUESSABLE_HANDLE_WORDS = [
+  "production",
+  "prod",
+  "development",
+  "dev",
+  "staging",
+  "stage",
+  "test",
+  "testing",
+  "default",
+  "admin",
+  "administrator",
+  "root",
+  "local",
+  "localhost",
+  "sandbox",
+  "demo",
+  "internal",
+  "company",
+  "organization",
+  "org",
+  "example",
+  "sample",
+  "uat",
+  "qa",
+  "beta",
+  "alpha",
+  "trial",
+];
+
+// guessableThunderHandleWarning returns a short, specific reason a handle is
+// easy to guess, or undefined when it looks reasonably random. Checked against
+// the environment's own name/display name too — a handle that just repeats the
+// environment it belongs to is guessable by anyone who already knows that name.
+function guessableThunderHandleWarning(
+  handle: string,
+  envName: string,
+  displayName: string,
+): string | undefined {
+  const lowered = handle.toLowerCase();
+
+  const derivedEnvName = deriveNameFromDisplayName(displayName) || envName;
+  if (derivedEnvName && lowered === derivedEnvName.toLowerCase()) {
+    return "This matches the environment's own name — easy to guess for anyone who knows it.";
+  }
+  if (GUESSABLE_HANDLE_WORDS.some((word) => lowered.includes(word))) {
+    return "This contains a common word — consider something more random.";
+  }
+  if (/^[0-9]+$/.test(lowered)) {
+    return "This is all digits — consider adding letters.";
+  }
+  if (new Set(lowered.replace(/-/g, "")).size <= 2) {
+    return "This has very little variation — consider something more random.";
+  }
+  return undefined;
+}
+
 function buildScript(
   name: string,
   displayName: string,
   isProduction: boolean,
   isolationTier: IsolationTier,
   token: string,
+  thunderHandle: string,
 ): string {
   // Cluster-internal addresses the gateway uses to reach Agent Manager. Sourced
   // from runtime config so the same drawer renders the right values for
@@ -150,10 +216,22 @@ function buildScript(
       : []),
     ...(internalCp ? [`    AGENT_MANAGER_INTERNAL_CP=${internalCp} \\`] : []),
     `    THUNDER_SCRIPT_URL=${getRawScriptUrl("add-environment-thunder.sh")} \\`,
+    // THUNDER_HANDLE replaces the guessable <org>-<env> segment of this
+    // environment's env-Thunder URL with an unguessable, user-chosen label —
+    // omitted entirely (not an empty string) when unset, so
+    // add-environment-thunder.sh's own "unset" default behavior applies.
+    ...(thunderHandle ? [`    THUNDER_HANDLE=${thunderHandle} \\`] : []),
     "    bash",
   ];
   return lines.join("\n");
 }
+
+// amp.localhost is the local-dev default base domain (config.ThunderHostBaseDomain /
+// THUNDER_HOST_BASE_DOMAIN) — the handle sits directly under it, with no fixed
+// subdomain segment in between. VM/production deployments override the base
+// domain deployment-wide, so this preview is illustrative of the pattern, not a
+// guaranteed exact match for every deployment.
+const THUNDER_HOST_PREVIEW_DOMAIN = "amp.localhost";
 
 export function CreateEnvironmentDrawer({
   open,
@@ -232,6 +310,22 @@ export function CreateEnvironmentDrawer({
     [validateField, setFieldError],
   );
 
+  // Deliberately NOT auto-derived from displayName/name (unlike handleNameChange
+  // above) — the whole point of thunderHandle is to be an unguessable value the
+  // user chooses themselves, not something predictable from the environment's
+  // own name. Lowercased as typed, matching the format the backend requires.
+  const handleThunderHandleChange = useCallback(
+    (value: string) => {
+      const lowered = value.toLowerCase();
+      setFormData((prev) => {
+        const next = { ...prev, thunderHandle: lowered };
+        setFieldError("thunderHandle", validateField("thunderHandle", lowered, next));
+        return next;
+      });
+    },
+    [validateField, setFieldError],
+  );
+
   const handleToggleToken = useCallback(async () => {
     if (showToken) {
       setShowToken(false);
@@ -256,6 +350,7 @@ export function CreateEnvironmentDrawer({
         formData.isProduction ?? false,
         formData.isolationTier ?? "runc",
         token,
+        formData.thunderHandle ?? "",
       );
       await navigator.clipboard.writeText(script);
       setCopied(true);
@@ -270,6 +365,7 @@ export function CreateEnvironmentDrawer({
     formData.displayName,
     formData.isProduction,
     formData.isolationTier,
+    formData.thunderHandle,
   ]);
 
   const displayScript = useMemo(
@@ -280,12 +376,14 @@ export function CreateEnvironmentDrawer({
         formData.isProduction ?? false,
         formData.isolationTier ?? "runc",
         showToken && resolvedToken ? resolvedToken : TOKEN_MASK,
+        formData.thunderHandle ?? "",
       ),
     [
       formData.name,
       formData.displayName,
       formData.isProduction,
       formData.isolationTier,
+      formData.thunderHandle,
       showToken,
       resolvedToken,
     ],
@@ -294,6 +392,19 @@ export function CreateEnvironmentDrawer({
   const selectedTier = ISOLATION_TIER_OPTIONS.find(
     (t) => t.value === (formData.isolationTier ?? "runc"),
   );
+
+  // Non-blocking: a guessable handle still passes validation and can still be
+  // submitted (see GUESSABLE_HANDLE_WORDS's doc comment for why this warns
+  // instead of rejecting). Skipped once there's a hard validation error so the
+  // two messages don't fight for the same line.
+  const thunderHandleWarning =
+    formData.thunderHandle && !errors.thunderHandle
+      ? guessableThunderHandleWarning(
+          formData.thunderHandle,
+          formData.name,
+          formData.displayName,
+        )
+      : undefined;
 
   return (
     <DrawerWrapper open={open} onClose={onClose}>
@@ -392,6 +503,42 @@ export function CreateEnvironmentDrawer({
               <Typography variant="caption" color="text.secondary">
                 Container runtime isolation for agents deployed to this
                 environment.
+              </Typography>
+            </FormControl>
+
+            <FormControl fullWidth error={Boolean(errors.thunderHandle)}>
+              <FormLabel>Identity Service Handle (optional)</FormLabel>
+              <TextField
+                size="small"
+                fullWidth
+                value={formData.thunderHandle ?? ""}
+                onChange={(e) => handleThunderHandleChange(e.target.value)}
+                placeholder="Leave blank to auto-generate"
+                error={Boolean(errors.thunderHandle)}
+              />
+              <Typography
+                variant="caption"
+                color={
+                  errors.thunderHandle
+                    ? "error"
+                    : thunderHandleWarning
+                      ? "warning.main"
+                      : "text.secondary"
+                }
+                sx={{ mt: 0.5 }}
+              >
+                {errors.thunderHandle ??
+                  thunderHandleWarning ??
+                  "Please provide a private, hard-to-guess label for this environment's identity service address — avoid your company or team name. Leave it blank and one will be generated for you automatically."}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 0.5, fontFamily: "monospace" }}
+              >
+                {`Preview: https://${
+                  formData.thunderHandle || "auto-generated"
+                }.${THUNDER_HOST_PREVIEW_DOMAIN}`}
               </Typography>
             </FormControl>
 
