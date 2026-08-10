@@ -117,6 +117,23 @@ var (
 	ErrEnvironmentAlreadyExists = errors.New("environment already exists")
 	ErrEnvironmentHasGateways   = errors.New("environment has associated gateways")
 	ErrEnvironmentInUse         = errors.New("environment is referenced by one or more deployment pipelines")
+	// ErrThunderHandleTaken is returned when a user-supplied env-Thunder URL handle
+	// is already registered to a different (org, env) pair. Maps to 409.
+	ErrThunderHandleTaken = errors.New("thunder url handle is already in use")
+	// ErrInvalidThunderHandle is returned when a user-supplied env-Thunder URL
+	// handle fails format validation. Maps to 400.
+	ErrInvalidThunderHandle = errors.New("invalid thunder url handle")
+	// ErrThunderHandleNotFound is returned when no env-Thunder URL handle has been
+	// registered for an environment. Maps to 404.
+	ErrThunderHandleNotFound = errors.New("thunder url handle not found")
+	// ErrEnvThunderURLAlreadyClaimed is returned by EnvThunderURLRepository.Insert
+	// when a DIFFERENT concurrent request already claimed the SAME (ouID, envName)
+	// first — i.e. the (ou_id, env_name) unique constraint was violated, not the
+	// thunder_handle one. Internal-only signal between the repository and
+	// EnvironmentService.SetThunderURL: the service reacts by reading back the
+	// row that won and adopting/rejecting it, exactly as it would for an
+	// already-existing row seen up front — this never reaches a controller.
+	ErrEnvThunderURLAlreadyClaimed = errors.New("env-thunder url already claimed by a concurrent request")
 
 	// ErrGatewayIngressCapExceeded is returned when assigning an ingress-capable gateway to
 	// an environment that already has one. Maps to 409.
