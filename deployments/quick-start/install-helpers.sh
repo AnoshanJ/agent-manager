@@ -454,6 +454,11 @@ install_gateway_extension() {
     local enc_secret_name="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
     local enc_secret_key="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"
 
+    if ! kubectl auth can-i get secrets -n "${gateway_namespace}" &>/dev/null; then
+        log_error "Missing 'get' permission on secrets in '${gateway_namespace}' — required to detect an existing gateway encryption key secret. Grant get (in addition to create) on secrets in this namespace to the identity running this installer."
+        return 1
+    fi
+
     local key_tmp
     key_tmp="$(mktemp)"
     if ! openssl rand 32 > "${key_tmp}"; then

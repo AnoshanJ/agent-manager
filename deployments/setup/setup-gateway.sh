@@ -101,6 +101,12 @@ kubectl label namespace "${GATEWAY_NAMESPACE}" "amp.wso2.com/api-platform-gatewa
 
 GATEWAY_ENCRYPTION_SECRET_NAME="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
 GATEWAY_ENCRYPTION_SECRET_KEY="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"
+
+if ! kubectl auth can-i get secrets -n "${GATEWAY_NAMESPACE}" &>/dev/null; then
+    echo "❌ Missing 'get' permission on secrets in '${GATEWAY_NAMESPACE}' — required to detect an existing gateway encryption key secret. Grant get (in addition to create) on secrets in this namespace to the identity running this script." >&2
+    exit 1
+fi
+
 key_tmp="$(mktemp)"
 trap 'rm -f "${key_tmp}"' EXIT INT TERM
 openssl rand 32 > "${key_tmp}"

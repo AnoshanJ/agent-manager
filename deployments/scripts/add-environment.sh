@@ -493,6 +493,12 @@ kubectl label namespace "${GATEWAY_NAMESPACE}" "amp.wso2.com/api-platform-gatewa
 # mounted from a Secret in the SAME namespace as the gateway release
 GATEWAY_ENCRYPTION_SECRET_NAME="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
 GATEWAY_ENCRYPTION_SECRET_KEY="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"
+
+if ! kubectl auth can-i get secrets -n "${GATEWAY_NAMESPACE}" &>/dev/null; then
+    echo "❌ Missing 'get' permission on secrets in '${GATEWAY_NAMESPACE}' — required to detect an existing gateway encryption key secret. Grant get (in addition to create) on secrets in this namespace to the identity running this script." >&2
+    exit 1
+fi
+
 key_tmp="$(mktemp)"
 # Remove the plaintext key on every exit path — openssl/kubectl failure (set -e)
 # or an interrupt — not only via the normal cleanup below.
