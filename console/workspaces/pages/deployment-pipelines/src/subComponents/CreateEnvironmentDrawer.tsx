@@ -56,8 +56,15 @@ import {
 
 const TOKEN_MASK = "•••••••••••••••";
 
-const GVISOR_ISOLATION_DOCS_URL = `${globalConfig.docsUrl ?? ""}/guides/isolation-tiers/gvisor/`;
-const KATA_ISOLATION_DOCS_URL = `${globalConfig.docsUrl ?? ""}/guides/isolation-tiers/kata/`;
+// docsUrl is optional configuration. Leave the guide links undefined when it is
+// unset rather than falling back to a relative path, which would resolve against
+// the console's own origin instead of the documentation site.
+const GVISOR_ISOLATION_DOCS_URL = globalConfig.docsUrl
+  ? `${globalConfig.docsUrl}/guides/isolation-tiers/gvisor/`
+  : undefined;
+const KATA_ISOLATION_DOCS_URL = globalConfig.docsUrl
+  ? `${globalConfig.docsUrl}/guides/isolation-tiers/kata/`
+  : undefined;
 
 // Per-tier copy for the picker and the pre-deploy node-requirement warning.
 // runc has no warning: it is the default and needs no extra cluster setup.
@@ -411,15 +418,19 @@ export function CreateEnvironmentDrawer({
           {selectedTier?.warning && (
             <Alert severity="warning">
               {selectedTier.warning}
-              <Typography
-                component="a"
-                href={selectedTier.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                sx={{ color: "primary.main" }}
-              >
-                {selectedTier.docsLabel}
-              </Typography>
+              {selectedTier.docsUrl ? (
+                <Typography
+                  component="a"
+                  href={selectedTier.docsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ color: "primary.main" }}
+                >
+                  {selectedTier.docsLabel}
+                </Typography>
+              ) : (
+                selectedTier.docsLabel
+              )}
               .
             </Alert>
           )}

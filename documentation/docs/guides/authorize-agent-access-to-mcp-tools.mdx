@@ -4,7 +4,7 @@ sidebar_position: 11
 
 # Authorize Agent Access to MCP Tools
 
-When you front an MCP server through the platform as an **identity-secured MCP proxy**, you decide which agents may invoke which tools. This tutorial walks through the full authorization workflow: you register the resource, define permissions over its tools, bundle those permissions into roles, and grant the roles to agents (or groups). The result is that two agents can hit the *same* proxy endpoint and get *different* capabilities.
+When you front an MCP server through the platform as an **identity-secured MCP proxy**, you decide which agents may invoke which tools. This guide walks through the full authorization workflow: you register the resource, define permissions over its tools, bundle those permissions into roles, and grant the roles to agents (or groups). The result is that two agents can hit the *same* proxy endpoint and get *different* capabilities.
 
 ## The model
 
@@ -39,7 +39,7 @@ The authorization mechanism is identical for every agent. The only difference is
 - An AI Gateway registered and active for the environment you are configuring (see [Register an AI Gateway](./register-ai-gateway.mdx)).
 - A reachable upstream MCP server URL.
 
-This tutorial uses the [`amctl api`](../reference/cli/api.mdx) command to call the control plane directly, which makes every step precise and copy-pasteable. The examples use the `default` organization, `default` project, and `default` environment — substitute your own.
+This guide uses the [`amctl api`](../reference/cli/api.mdx) command to call the control plane directly, which makes every step precise and copy-pasteable. The examples use the `default` organization, `default` project, and `default` environment — substitute your own.
 
 ---
 
@@ -77,7 +77,7 @@ amctl api /orgs/default/mcp-proxies -X POST --input - <<'JSON'
 JSON
 ```
 
-You can also register a proxy through the Console — see [Register an MCP Proxy](./register-mcp-proxy.mdx) — but the rest of this tutorial uses the API for the parts that define authorization.
+You can also register a proxy through the Console — see [Register an MCP Proxy](./register-mcp-proxy.mdx) — but the rest of this guide uses the API for the parts that define authorization.
 
 ---
 
