@@ -18,6 +18,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/gitprovider"
@@ -28,10 +29,12 @@ import (
 
 // RepositoryService defines the interface for repository operations
 type RepositoryService interface {
-	// ListBranches returns branches for a repository
-	ListBranches(ctx context.Context, req spec.ListBranchesRequest, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListBranchesResponse, error)
-	// ListCommits returns commits for a repository
-	ListCommits(ctx context.Context, req spec.ListCommitsRequest, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListCommitsResponse, error)
+	// ListBranches returns branches for a repository. ouID comes from the caller's
+	// token, never the request body — it scopes the secretRef lookup.
+	ListBranches(ctx context.Context, req spec.ListBranchesRequest, ouID string, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListBranchesResponse, error)
+	// ListCommits returns commits for a repository. ouID comes from the caller's
+	// token, never the request body — it scopes the secretRef lookup.
+	ListCommits(ctx context.Context, req spec.ListCommitsRequest, ouID string, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListCommitsResponse, error)
 	// GetLatestCommit returns the latest commit SHA for a given branch
 	GetLatestCommit(ctx context.Context, owner, repo, branch string) (string, error)
 }
@@ -73,15 +76,20 @@ func getGitProviderConfigWithCredentials(creds *GitCredentials) (gitprovider.Con
 }
 
 // ListBranches returns branches for a repository
-func (s *repositoryService) ListBranches(ctx context.Context, req spec.ListBranchesRequest, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListBranchesResponse, error) {
+func (s *repositoryService) ListBranches(ctx context.Context, req spec.ListBranchesRequest, ouID string, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListBranchesResponse, error) {
 	// Determine git provider configuration
 	providerConfig := getGitProviderConfig()
 
-	// If secretRef is provided, fetch git credentials from workflow plane OpenBao
-	if req.HasSecretRef() && req.HasOrgName() {
-		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, req.GetOrgName(), req.GetSecretRef())
+	// If secretRef is provided, fetch git credentials from workflow plane OpenBao.
+	// A secretRef without an org is a missing-tenant-identity condition, not a
+	// reason to fall back to the platform's default (public-repo) credentials.
+	if req.HasSecretRef() {
+		if ouID == "" {
+			return nil, fmt.Errorf("organization identity is required to resolve secretRef %q", req.GetSecretRef())
+		}
+		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, ouID, req.GetSecretRef())
 		if err != nil {
-			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", req.GetOrgName())
+			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", ouID)
 			return nil, err
 		}
 		providerConfig, err = getGitProviderConfigWithCredentials(creds)
@@ -133,15 +141,20 @@ func (s *repositoryService) ListBranches(ctx context.Context, req spec.ListBranc
 }
 
 // ListCommits returns commits for a repository
-func (s *repositoryService) ListCommits(ctx context.Context, req spec.ListCommitsRequest, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListCommitsResponse, error) {
+func (s *repositoryService) ListCommits(ctx context.Context, req spec.ListCommitsRequest, ouID string, providerType gitprovider.ProviderType, limit, offset int) (*spec.ListCommitsResponse, error) {
 	// Determine git provider configuration
 	providerConfig := getGitProviderConfig()
 
-	// If secretRef is provided, fetch git credentials from workflow plane OpenBao
-	if req.HasSecretRef() && req.HasOrgName() {
-		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, req.GetOrgName(), req.GetSecretRef())
+	// If secretRef is provided, fetch git credentials from workflow plane OpenBao.
+	// A secretRef without an org is a missing-tenant-identity condition, not a
+	// reason to fall back to the platform's default (public-repo) credentials.
+	if req.HasSecretRef() {
+		if ouID == "" {
+			return nil, fmt.Errorf("organization identity is required to resolve secretRef %q", req.GetSecretRef())
+		}
+		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, ouID, req.GetSecretRef())
 		if err != nil {
-			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", req.GetOrgName())
+			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", ouID)
 			return nil, err
 		}
 		providerConfig, err = getGitProviderConfigWithCredentials(creds)

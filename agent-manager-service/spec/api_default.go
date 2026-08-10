@@ -7145,6 +7145,7 @@ func (a *DefaultAPIService) ListProjectsExecute(r ApiListProjectsRequest) (*Proj
 type ApiListRepositoryBranchesRequest struct {
 	ctx                 context.Context
 	ApiService          *DefaultAPIService
+	orgName             string
 	listBranchesRequest *ListBranchesRequest
 	limit               *int32
 	offset              *int32
@@ -7178,12 +7179,14 @@ Returns a list of branches for the specified public repository.
 Currently supports GitHub repositories only.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param orgName Organization name/handle
 	@return ApiListRepositoryBranchesRequest
 */
-func (a *DefaultAPIService) ListRepositoryBranches(ctx context.Context) ApiListRepositoryBranchesRequest {
+func (a *DefaultAPIService) ListRepositoryBranches(ctx context.Context, orgName string) ApiListRepositoryBranchesRequest {
 	return ApiListRepositoryBranchesRequest{
 		ApiService: a,
 		ctx:        ctx,
+		orgName:    orgName,
 	}
 }
 
@@ -7203,11 +7206,18 @@ func (a *DefaultAPIService) ListRepositoryBranchesExecute(r ApiListRepositoryBra
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/repositories/branches"
+	localVarPath := localBasePath + "/orgs/{orgName}/repositories/branches"
+	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
+	if strlen(r.orgName) < 1 {
+		return localVarReturnValue, nil, reportError("orgName must have at least 1 elements")
+	}
+	if strlen(r.orgName) > 64 {
+		return localVarReturnValue, nil, reportError("orgName must have less than 64 elements")
+	}
 	if r.listBranchesRequest == nil {
 		return localVarReturnValue, nil, reportError("listBranchesRequest is required and must be specified")
 	}
@@ -7320,6 +7330,7 @@ func (a *DefaultAPIService) ListRepositoryBranchesExecute(r ApiListRepositoryBra
 type ApiListRepositoryCommitsRequest struct {
 	ctx                context.Context
 	ApiService         *DefaultAPIService
+	orgName            string
 	listCommitsRequest *ListCommitsRequest
 	limit              *int32
 	offset             *int32
@@ -7353,12 +7364,14 @@ Returns a list of commits for the specified public repository.
 Currently supports GitHub repositories only.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param orgName Organization name/handle
 	@return ApiListRepositoryCommitsRequest
 */
-func (a *DefaultAPIService) ListRepositoryCommits(ctx context.Context) ApiListRepositoryCommitsRequest {
+func (a *DefaultAPIService) ListRepositoryCommits(ctx context.Context, orgName string) ApiListRepositoryCommitsRequest {
 	return ApiListRepositoryCommitsRequest{
 		ApiService: a,
 		ctx:        ctx,
+		orgName:    orgName,
 	}
 }
 
@@ -7378,11 +7391,18 @@ func (a *DefaultAPIService) ListRepositoryCommitsExecute(r ApiListRepositoryComm
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/repositories/commits"
+	localVarPath := localBasePath + "/orgs/{orgName}/repositories/commits"
+	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
+	if strlen(r.orgName) < 1 {
+		return localVarReturnValue, nil, reportError("orgName must have at least 1 elements")
+	}
+	if strlen(r.orgName) > 64 {
+		return localVarReturnValue, nil, reportError("orgName must have less than 64 elements")
+	}
 	if r.listCommitsRequest == nil {
 		return localVarReturnValue, nil, reportError("listCommitsRequest is required and must be specified")
 	}

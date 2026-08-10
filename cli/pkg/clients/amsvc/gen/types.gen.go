@@ -3724,9 +3724,6 @@ type ListBranchesRequest struct {
 	// IncludeDefault Whether to include default branch information in the response
 	IncludeDefault *bool `json:"includeDefault,omitempty"`
 
-	// OrgName Organization name for resolving the secret reference
-	OrgName *string `json:"orgName,omitempty"`
-
 	// Owner Repository owner (organization or user)
 	Owner string `json:"owner"`
 
@@ -3759,9 +3756,6 @@ type ListCommitsRequest struct {
 
 	// Branch Branch name or SHA to list commits from (defaults to repository's default branch)
 	Branch *string `json:"branch,omitempty"`
-
-	// OrgName Organization name for resolving the secret reference
-	OrgName *string `json:"orgName,omitempty"`
 
 	// Owner Repository owner (organization or user)
 	Owner string `json:"owner"`
@@ -6061,14 +6055,14 @@ type CreateLLMProxyAPIKeyJSONRequestBody = CreateLLMAPIKeyRequest
 // RotateLLMProxyAPIKeyJSONRequestBody defines body for RotateLLMProxyAPIKey for application/json ContentType.
 type RotateLLMProxyAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
 
-// GetNameByDisplayNameJSONRequestBody defines body for GetNameByDisplayName for application/json ContentType.
-type GetNameByDisplayNameJSONRequestBody = ResourceNameRequest
-
 // ListRepositoryBranchesJSONRequestBody defines body for ListRepositoryBranches for application/json ContentType.
 type ListRepositoryBranchesJSONRequestBody = ListBranchesRequest
 
 // ListRepositoryCommitsJSONRequestBody defines body for ListRepositoryCommits for application/json ContentType.
 type ListRepositoryCommitsJSONRequestBody = ListCommitsRequest
+
+// GetNameByDisplayNameJSONRequestBody defines body for GetNameByDisplayName for application/json ContentType.
+type GetNameByDisplayNameJSONRequestBody = ResourceNameRequest
 
 // AsBuildpackBuild returns the union data inside the Build as a BuildpackBuild
 func (t Build) AsBuildpackBuild() (BuildpackBuild, error) {

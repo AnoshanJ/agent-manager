@@ -4813,7 +4813,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/branches:
+  /orgs/{orgName}/repositories/branches:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List branches for a repository
       description: |
@@ -4876,7 +4887,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/commits:
+  /orgs/{orgName}/repositories/commits:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List commits for a repository
       description: |
@@ -13669,9 +13691,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListBranchesResponse:
       type: object
@@ -13757,9 +13776,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListCommitsResponse:
       type: object
