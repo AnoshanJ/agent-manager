@@ -37,7 +37,7 @@ else
 fi
 
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.10.1"
+GATEWAY_OPERATOR_VERSION="0.11.0"
 # gateway-controller/gateway-runtime 1.1.x reject every RestApi/LlmProvider
 # deployment with a bare 404 despite correctly-configured basic auth (confirmed
 # via a live tcpdump of the operator's request — same 404 across 1.1.0 and
@@ -45,10 +45,10 @@ GATEWAY_OPERATOR_VERSION="0.10.1"
 # reaches Programmed=True). Chart *version* and container *image tag* are
 # pinned separately below — setting chartVersion alone still runs an older
 # default image, so GATEWAY_IMAGE_VERSION must also be threaded through.
-GATEWAY_CHART_VERSION="1.2.0-beta"
-GATEWAY_IMAGE_VERSION="1.2.0-beta"
+GATEWAY_CHART_VERSION="1.2.0"
+GATEWAY_IMAGE_VERSION="1.2.0"
 
-# The 1.2.0-beta gateway chart requires an encryption key to be mounted from a Kubernetes Secret
+# The gateway chart (1.2.0-beta+) requires an encryption key to be mounted from a Kubernetes Secret
 GATEWAY_ENCRYPTION_SECRET_NAME="gateway-encryption-keys"
 GATEWAY_ENCRYPTION_SECRET_KEY="default-aesgcm256-v1.bin"
 
@@ -895,7 +895,8 @@ else
     log_info "Installing openchoreo-control-plane..."
     log_info "This may take several minutes..."
     CP_INSTALL_OUTPUT=""
-    if ! CP_INSTALL_OUTPUT=$(helm install "openchoreo-control-plane" \
+    # instead of demanding clean state reconcile from a stale state or fresh install
+    if ! CP_INSTALL_OUTPUT=$(helm upgrade --install "openchoreo-control-plane" \
         "oci://ghcr.io/openchoreo/helm-charts/openchoreo-control-plane" \
         --namespace "openchoreo-control-plane" \
         --create-namespace \
