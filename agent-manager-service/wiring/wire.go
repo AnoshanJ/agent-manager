@@ -96,6 +96,8 @@ var serviceProviderSet = wire.NewSet(
 	// MCPProxyScopeService only needs the narrow redeploy surface; bind it to
 	// the concrete service so scope mutations can re-emit gateway policies.
 	wire.Bind(new(services.MCPProxyRedeployer), new(*services.MCPProxyService)),
+	// The agent-identity controller needs only the identifier-derivation surface.
+	wire.Bind(new(controllers.MCPResourceServerIdentifierResolver), new(*services.MCPProxyService)),
 	services.NewGatewayInternalAPIService,
 	services.NewMonitorScoresService,
 	services.NewCatalogService,

@@ -94,9 +94,11 @@ type IdentityClient interface {
 	// Permissions catalog
 	ListAMPPermissions(ctx context.Context) ([]ThunderPermission, string, error)
 	// EnsureProxyResourceServer makes sure the proxy's resource server exists
-	// (handle = identifier = proxyHandle, delimiter ":", type MCP) with every
-	// given action registered at the RS root, and returns the RS ID.
-	EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName string, actions []string) (string, error)
+	// (handle = proxyHandle, identifier = the proxy's protocol-stripped public
+	// invocation URI in this environment, delimiter ":", type MCP) with every
+	// given action registered at the RS root, and returns the RS ID. A drifted
+	// identifier is updated in place; the handle never changes.
+	EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName, identifier string, actions []string) (string, error)
 	// DeleteProxyResourceServerAction best-effort deletes one root action.
 	// Missing RS or action is not an error. Returns the RS ID ("" if RS absent).
 	DeleteProxyResourceServerAction(ctx context.Context, proxyHandle, action string) (string, error)
@@ -1018,31 +1020,49 @@ func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermis
 	return perms, ampRSID, nil
 }
 
-// findResourceServerID paginates through resource servers and returns the ID of
-// the one whose identifier matches, or "" if none match.
-func (c *thunderClient) findResourceServerID(ctx context.Context, token, identifier string) (string, error) {
+// findResourceServer paginates through resource servers and returns the first one
+// match accepts, or nil if none match.
+func (c *thunderClient) findResourceServer(ctx context.Context, token string, match func(*ThunderResourceServer) bool) (*ThunderResourceServer, error) {
 	const rsPageSize = 20
 	rsOffset := 0
 	for {
 		rsURL := fmt.Sprintf("%s/resource-servers?offset=%d&limit=%d", c.baseURL, rsOffset, rsPageSize)
 		rsBody, err := c.doRequest(ctx, http.MethodGet, rsURL, token, nil)
 		if err != nil {
-			return "", fmt.Errorf("thunder list resource servers: %w", err)
+			return nil, fmt.Errorf("thunder list resource servers: %w", err)
 		}
 		var page thunderResourceServerList
 		if err := json.Unmarshal(rsBody, &page); err != nil {
-			return "", fmt.Errorf("thunder list resource servers decode: %w", err)
+			return nil, fmt.Errorf("thunder list resource servers decode: %w", err)
 		}
-		for _, rs := range page.ResourceServers {
-			if rs.Identifier == identifier {
-				return rs.ID, nil
+		for i := range page.ResourceServers {
+			if match(&page.ResourceServers[i]) {
+				return &page.ResourceServers[i], nil
 			}
 		}
 		rsOffset += len(page.ResourceServers)
 		if rsOffset >= page.Total || len(page.ResourceServers) == 0 {
-			return "", nil
+			return nil, nil //nolint:nilnil // absent resource server is not an error
 		}
 	}
+}
+
+// findResourceServerID returns the ID of the RS whose identifier matches, or "".
+// Still used for the platform AMP resource server lookup (rbac.ResourceServer).
+func (c *thunderClient) findResourceServerID(ctx context.Context, token, identifier string) (string, error) {
+	rs, err := c.findResourceServer(ctx, token, func(rs *ThunderResourceServer) bool { return rs.Identifier == identifier })
+	if err != nil || rs == nil {
+		return "", err
+	}
+	return rs.ID, nil
+}
+
+// findProxyResourceServer locates a proxy's RS by its stable handle. Falls back
+// to identifier match for rows created before identifiers became URIs.
+func (c *thunderClient) findProxyResourceServer(ctx context.Context, token, proxyHandle string) (*ThunderResourceServer, error) {
+	return c.findResourceServer(ctx, token, func(rs *ThunderResourceServer) bool {
+		return rs.Handle == proxyHandle || rs.Identifier == proxyHandle
+	})
 }
 
 // --- Per-proxy resource servers ---
@@ -1063,12 +1083,16 @@ const (
 )
 
 // EnsureProxyResourceServer makes sure the resource server for a proxy exists
-// (identifier = handle = proxyHandle, delimiter ":", type MCP) and that every
-// given action is registered as a root action, then returns the resource server
-// ID. Idempotent; called lazily before role writes.
-func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName string, actions []string) (string, error) {
+// (handle = proxyHandle, identifier = the proxy's protocol-stripped public
+// invocation URI, delimiter ":", type MCP) and that every given action is
+// registered as a root action, then returns the resource server ID. A drifted
+// identifier is rewritten in place. Idempotent; called lazily before role writes.
+func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName, identifier string, actions []string) (string, error) {
 	if len(proxyHandle) > thunderHandleMaxLen {
 		return "", fmt.Errorf("proxy handle %q exceeds the Thunder handle limit of %d characters", proxyHandle, thunderHandleMaxLen)
+	}
+	if len(identifier) > thunderHandleMaxLen {
+		return "", fmt.Errorf("resource identifier %q exceeds the Thunder limit of %d characters", identifier, thunderHandleMaxLen)
 	}
 	for _, action := range actions {
 		if len(action) > thunderHandleMaxLen {
@@ -1087,9 +1111,18 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 	c.ensureResourceServerMu.Lock()
 	defer c.ensureResourceServerMu.Unlock()
 
-	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	rs, err := c.findProxyResourceServer(ctx, token, proxyHandle)
 	if err != nil {
 		return "", err
+	}
+	rsID := ""
+	if rs != nil {
+		rsID = rs.ID
+		if rs.Identifier != identifier {
+			if err := c.updateProxyResourceServerIdentifier(ctx, token, rs, proxyHandle, identifier); err != nil {
+				return "", err
+			}
+		}
 	}
 	if rsID == "" {
 		ouID, err := c.getDefaultOUID(ctx, token)
@@ -1099,7 +1132,7 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 		body, err := c.doRequest(ctx, http.MethodPost, c.baseURL+"/resource-servers", token,
 			map[string]string{
 				"name":       displayName,
-				"identifier": proxyHandle,
+				"identifier": identifier,
 				"handle":     proxyHandle,
 				"ouId":       ouID,
 				"delimiter":  proxyResourceServerDelimiter,
@@ -1134,6 +1167,32 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 	return rsID, nil
 }
 
+// updateProxyResourceServerIdentifier rewrites a drifted identifier in place via
+// PUT /resource-servers/{id}; the body mirrors the create payload.
+func (c *thunderClient) updateProxyResourceServerIdentifier(ctx context.Context, token string, rs *ThunderResourceServer, proxyHandle, identifier string) error {
+	ouID, err := c.getDefaultOUID(ctx, token)
+	if err != nil {
+		return fmt.Errorf("thunder update proxy resource server (default ou): %w", err)
+	}
+	name := rs.Name
+	if name == "" {
+		name = proxyHandle
+	}
+	_, err = c.doRequest(ctx, http.MethodPut, c.baseURL+"/resource-servers/"+rs.ID, token,
+		map[string]string{
+			"name":       name,
+			"identifier": identifier,
+			"handle":     proxyHandle,
+			"ouId":       ouID,
+			"delimiter":  proxyResourceServerDelimiter,
+			"type":       proxyResourceServerType,
+		})
+	if err != nil {
+		return fmt.Errorf("thunder update proxy resource server identifier: %w", err)
+	}
+	return nil
+}
+
 // DeleteProxyResourceServerAction best-effort deletes a single root action from
 // the proxy's resource server. A missing resource server or missing action is
 // not an error. Returns the resource server ID ("" if the RS is absent).
@@ -1142,13 +1201,14 @@ func (c *thunderClient) DeleteProxyResourceServerAction(ctx context.Context, pro
 	if err != nil {
 		return "", err
 	}
-	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	rs, err := c.findProxyResourceServer(ctx, token, proxyHandle)
 	if err != nil {
 		return "", err
 	}
-	if rsID == "" {
+	if rs == nil {
 		return "", nil
 	}
+	rsID := rs.ID
 	actions, err := c.listProxyRootActions(ctx, token, rsID)
 	if err != nil {
 		return rsID, err
@@ -1172,13 +1232,14 @@ func (c *thunderClient) DeleteProxyResourceServer(ctx context.Context, proxyHand
 	if err != nil {
 		return err
 	}
-	rsID, err := c.findResourceServerID(ctx, token, proxyHandle)
+	rs, err := c.findProxyResourceServer(ctx, token, proxyHandle)
 	if err != nil {
 		return err
 	}
-	if rsID == "" {
+	if rs == nil {
 		return nil
 	}
+	rsID := rs.ID
 	actions, err := c.listProxyRootActions(ctx, token, rsID)
 	if err != nil {
 		return err
