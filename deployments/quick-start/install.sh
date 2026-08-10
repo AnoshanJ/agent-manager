@@ -1714,11 +1714,15 @@ if [[ "${SHOW_LOCALHOST_URLS:-true}" == "true" ]]; then
 fi
 
 # Print the default environment's Thunder ID console + admin credentials — the
-# release/namespace/host follow the fixed ENV_NAME=default ORG_NAME=default naming
-# convention (see thunder_release_name/thunder_namespace/thunder_host in
-# deployments/scripts/thunder-naming.sh). The password lives only in a K8s Secret (never written
-# to disk by add-environment-thunder.sh), so it's fetched fresh here rather than
-# re-printed from that script's own (long since scrolled-past) console output.
+# release/namespace follow the fixed ENV_NAME=default ORG_NAME=default naming
+# convention (see thunder_release_name/thunder_namespace in
+# deployments/scripts/thunder-naming.sh), but the external URL does NOT — it is
+# built ONLY from DEFAULT_ENV_THUNDER_HANDLE (populated by install_default_env_thunder,
+# see install-helpers.sh), the registered handle learned via GET, since there is
+# no pattern computable from org/env alone. The password lives only in a K8s
+# Secret (never written to disk by add-environment-thunder.sh), so it's fetched
+# fresh here rather than re-printed from that script's own (long since
+# scrolled-past) console output.
 if [[ "${ENV_THUNDER_PROVISIONED}" == "true" ]]; then
   # Dynamically derive the coordinates using the shared naming helper.
   # Avoids hardcoded literals which would break if custom org/env names are used
@@ -1730,9 +1734,9 @@ if [[ "${ENV_THUNDER_PROVISIONED}" == "true" ]]; then
 
   ENV_THUNDER_ADMIN_PASSWORD="$(kubectl get secret "${default_release}-admin-credentials" \
     -n "${default_ns}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-  if [[ -n "${ENV_THUNDER_ADMIN_PASSWORD}" ]]; then
+  if [[ -n "${ENV_THUNDER_ADMIN_PASSWORD}" && -n "${DEFAULT_ENV_THUNDER_HANDLE:-}" ]]; then
     log_step "Default Environment Thunder ID Console"
-    log_info "URL:      http://${default_org}-${default_env}.thunder.amp.localhost:8080/console"
+    log_info "URL:      $(thunder_issuer "${DEFAULT_ENV_THUNDER_HANDLE}")/console"
     log_info "Username: admin"
     log_info "Password: ${ENV_THUNDER_ADMIN_PASSWORD}"
   fi

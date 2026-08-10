@@ -290,7 +290,25 @@ install_default_env_thunder() {
         bash "${script_path}"
     local status=$?
     [[ -n "${tmp_script}" ]] && rm -f "${tmp_script}"
-    return $status
+    if [[ $status -ne 0 ]]; then
+        return $status
+    fi
+
+    # Learn the handle add-environment-thunder.sh's register_thunder_url actually
+    # stored (always server-generated here, since THUNDER_HANDLE is never set
+    # above) via GET — this process has no other way to know it, and there's no
+    # pattern to compute from org/env instead. Every later consumer of the
+    # default environment's Thunder address (the gateway wiring below, and
+    # install.sh's completion banner) reads this SAME global instead of
+    # re-deriving anything, so they can't drift out of sync with each other.
+    if ! DEFAULT_ENV_THUNDER_HANDLE="$(AMP_API_URL="${AMP_API_URL:-http://api.amp.localhost:8080/api/v1}" \
+        IDP_TOKEN_URL="${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token}" \
+        get_thunder_url_handle default default)"; then
+        echo "Provisioned the default environment's Thunder instance, but could not learn its"
+        echo "registered URL handle — cannot safely wire the gateway/print its console URL."
+        return 1
+    fi
+    return 0
 }
 
 # Install AMP Thunder Extension
@@ -470,9 +488,9 @@ install_gateway_extension() {
     local thunder_args=()
     local thunder_release
     thunder_release="$(thunder_release_name default default)"
-    if helm status "${thunder_release}" --namespace "${thunder_release}" &>/dev/null; then
+    if helm status "${thunder_release}" --namespace "${thunder_release}" &>/dev/null && [[ -n "${DEFAULT_ENV_THUNDER_HANDLE:-}" ]]; then
         local thunder_issuer_url thunder_jwks
-        thunder_issuer_url="$(thunder_issuer default default)"
+        thunder_issuer_url="$(thunder_issuer "${DEFAULT_ENV_THUNDER_HANDLE}")"
         thunder_jwks="http://${thunder_release}-service.${thunder_release}.svc.cluster.local:8090/oauth2/jwks"
         thunder_args=(
             --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[0].name=agent-manager-service"
@@ -489,6 +507,9 @@ install_gateway_extension() {
             --set "bootstrap.identityProviders[0].jwksUri=${thunder_jwks}"
             --set "bootstrap.identityProviders[0].skipTlsVerify=${idp_skip_tls_verify}"
         )
+    elif helm status "${thunder_release}" --namespace "${thunder_release}" &>/dev/null; then
+        log_warning "Default environment Thunder release exists, but its registered URL handle is unknown"
+        log_warning "— leaving the gateway on its default ThunderKeyManager instead of guessing an address."
     fi
 
     # Install Helm chart. apiGateway.namespace drives where the chart renders
@@ -553,3 +574,17 @@ install_gateway_extension() {
 # it here too instead of hardcoding a checkout-only relative path.
 # ---------------------------------------------------------------------------
 source "${DEPLOYMENTS_DIR}/scripts/thunder-naming.sh"
+
+# Load the shared AMS auth helpers (get_ams_token/get_thunder_url_handle) — see
+# deployments/scripts/ams-auth.sh. Same local-only sourcing rationale as above:
+# install.sh always has this file on disk (repo checkout or packaged image), so
+# no network-fetch fallback is needed. get_thunder_url_handle is the single
+# implementation every script uses to learn an already-provisioned env-Thunder's
+# registered handle — see install_default_env_thunder above and DEFAULT_ENV_THUNDER_HANDLE.
+source "${DEPLOYMENTS_DIR}/scripts/ams-auth.sh"
+
+# Populated by install_default_env_thunder once it succeeds — the resolved handle
+# (caller-supplied or server-generated) that register_thunder_url actually stored
+# for the default environment. Every later consumer (the gateway wiring above, and
+# install.sh's completion banner) reads this SAME global so they can't drift.
+DEFAULT_ENV_THUNDER_HANDLE=""
