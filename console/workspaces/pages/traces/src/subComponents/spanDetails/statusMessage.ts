@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2025, WSO2 LLC. (https://www.wso2.com).
+ * Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
  *
  * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
@@ -159,4 +159,30 @@ export function extractActionReason(message: string): string | undefined {
     return undefined;
   }
   return deepFindString(obj, "actionReason");
+}
+
+// Structured view of a status message, used by the Status tab. 
+export interface StatusMessageDetails {
+  action?: string;
+  actionReason?: string;
+  direction?: string;
+  interveningGuardrail?: string;
+  type?: string;
+  parsed?: Record<string, unknown>;
+  raw: string;
+}
+
+export function getStatusMessageDetails(message: string): StatusMessageDetails {
+  const parsed = parseEmbeddedObject(message);
+  const pick = (key: string) =>
+    parsed ? deepFindString(parsed, key) : undefined;
+  return {
+    action: pick("action"),
+    actionReason: pick("actionReason"),
+    direction: pick("direction"),
+    interveningGuardrail: pick("interveningGuardrail"),
+    type: pick("type"),
+    parsed,
+    raw: message,
+  };
 }
