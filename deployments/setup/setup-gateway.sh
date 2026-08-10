@@ -29,6 +29,8 @@ esac
 
 # shellcheck source=../scripts/thunder-naming.sh
 source "${SCRIPT_DIR}/../scripts/thunder-naming.sh"
+# shellcheck source=../scripts/ams-auth.sh
+source "${SCRIPT_DIR}/../scripts/ams-auth.sh"
 
 echo "=== Installing API Platform Gateway ==="
 
@@ -71,20 +73,32 @@ HELM_ARGS=(
     -f "${SCRIPT_DIR}/../helm-charts/wso2-amp-api-platform-gateway-extension/values-dev.yaml"
 )
 if helm status "${THUNDER_RELEASE}" --namespace "${THUNDER_RELEASE}" > /dev/null 2>&1; then
-    echo "✅ Env-Thunder instance found (Helm release: ${THUNDER_RELEASE}) — wiring gateway to it"
-    THUNDER_ISSUER="$(thunder_issuer "${ORG_NAME}" "${ENV_NAME}")"
-    THUNDER_INTERNAL_JWKS="http://${THUNDER_RELEASE}-service.${THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
-    HELM_ARGS+=(
-        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager"
-        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${THUNDER_ISSUER}"
-        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${THUNDER_INTERNAL_JWKS}"
-        --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
-        # Name must match keymanagers[].name, which is always "ThunderKeyManager" (set above).
-        --set "bootstrap.identityProviders[0].name=ThunderKeyManager"
-        --set "bootstrap.identityProviders[0].issuer=${THUNDER_ISSUER}"
-        --set "bootstrap.identityProviders[0].jwksUri=${THUNDER_INTERNAL_JWKS}"
-        --set "bootstrap.identityProviders[0].skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
-    )
+    # Learn the registered handle via GET — there's no pattern to compute
+    # locally from org/env, so guessing one would wire the gateway to a
+    # hostname Thunder never actually issues tokens for. See
+    # deployments/scripts/ams-auth.sh's get_thunder_url_handle (the single
+    # implementation every provisioning/wiring script uses for this lookup).
+    THUNDER_URL_HANDLE="$(get_thunder_url_handle "${ORG_NAME}" "${ENV_NAME}")" || THUNDER_URL_HANDLE=""
+    if [ -z "${THUNDER_URL_HANDLE}" ]; then
+        echo "⚠️  Env-Thunder instance found (Helm release: ${THUNDER_RELEASE}), but its registered URL"
+        echo "   handle could not be learned — gateway will use values-dev.yaml's platform Thunder default"
+        echo "   instead of guessing an address. Re-run once agent-manager-service is reachable to fix wiring."
+    else
+        echo "✅ Env-Thunder instance found (Helm release: ${THUNDER_RELEASE}) — wiring gateway to it"
+        THUNDER_ISSUER="$(thunder_issuer "${THUNDER_URL_HANDLE}")"
+        THUNDER_INTERNAL_JWKS="http://${THUNDER_RELEASE}-service.${THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
+        HELM_ARGS+=(
+            --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager"
+            --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].issuer=${THUNDER_ISSUER}"
+            --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.uri=${THUNDER_INTERNAL_JWKS}"
+            --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].jwks.remote.skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
+            # Name must match keymanagers[].name, which is always "ThunderKeyManager" (set above).
+            --set "bootstrap.identityProviders[0].name=ThunderKeyManager"
+            --set "bootstrap.identityProviders[0].issuer=${THUNDER_ISSUER}"
+            --set "bootstrap.identityProviders[0].jwksUri=${THUNDER_INTERNAL_JWKS}"
+            --set "bootstrap.identityProviders[0].skipTlsVerify=${IDP_SKIP_TLS_VERIFY}"
+        )
+    fi
 else
     echo "ℹ️  No env-Thunder instance found for '${ENV_NAME}' — gateway will use values-dev.yaml's platform Thunder default"
 fi
