@@ -449,7 +449,7 @@ install_gateway_extension() {
         return 1
     fi
 
-    # gateway-controller 1.2.0-beta mounts an AES-256 at-rest encryption key from
+    # gateway-controller (1.2.0-beta+) mounts an AES-256 at-rest encryption key from
     # a Secret in the SAME namespace as the gateway release.
     local enc_secret_name="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
     local enc_secret_key="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"

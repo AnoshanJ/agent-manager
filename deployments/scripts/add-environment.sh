@@ -489,8 +489,8 @@ echo "🌐 Installing API Platform Gateway for '${ENV_NAME}'..."
 kubectl create namespace "${GATEWAY_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
 kubectl label namespace "${GATEWAY_NAMESPACE}" "amp.wso2.com/api-platform-gateway=true" --overwrite > /dev/null
 
-# gateway-controller 1.2.0-beta requires an AES-256 at-rest encryption key,
-# mounted from a Secret in the SAME namespace as the gateway release 
+# gateway-controller (1.2.0-beta+) requires an AES-256 at-rest encryption key,
+# mounted from a Secret in the SAME namespace as the gateway release
 GATEWAY_ENCRYPTION_SECRET_NAME="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
 GATEWAY_ENCRYPTION_SECRET_KEY="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"
 key_tmp="$(mktemp)"
