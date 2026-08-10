@@ -56,10 +56,8 @@ import {
 
 const TOKEN_MASK = "•••••••••••••••";
 
-const GVISOR_ISOLATION_DOCS_URL =
-  "https://wso2.github.io/agent-manager/docs/latest/guides/isolation-tiers/gvisor";
-const KATA_ISOLATION_DOCS_URL =
-  "https://wso2.github.io/agent-manager/docs/latest/guides/isolation-tiers/kata";
+const GVISOR_ISOLATION_DOCS_URL = `${globalConfig.docsUrl ?? ""}/guides/isolation-tiers/gvisor/`;
+const KATA_ISOLATION_DOCS_URL = `${globalConfig.docsUrl ?? ""}/guides/isolation-tiers/kata/`;
 
 // Per-tier copy for the picker and the pre-deploy node-requirement warning.
 // runc has no warning: it is the default and needs no extra cluster setup.
