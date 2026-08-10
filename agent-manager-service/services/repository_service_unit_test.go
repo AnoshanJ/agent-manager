@@ -156,6 +156,17 @@ func TestRepositoryService_ListBranches(t *testing.T) {
 		assert.NotErrorIs(t, err, gitprovider.ErrNotFound)
 	})
 
+	t.Run("secretRef without an org identity is rejected, not silently downgraded", func(t *testing.T) {
+		// Stub func left nil: a missing org must fail before any credential fetch,
+		// rather than falling back to the platform's default (public-repo) config.
+		svc := newRepoService(&gitCredsStub{})
+
+		_, err := svc.ListBranches(context.Background(), branchReq("git-secret"), "", gitprovider.ProviderGitHub, 10, 0)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "organization identity is required")
+	})
+
 	t.Run("unsupported provider type fails locally without network", func(t *testing.T) {
 		// No secretRef/ouID => credential branch is skipped (stub func left nil
 		// to assert it is never called). NewProvider rejects the unknown type
@@ -206,6 +217,15 @@ func TestRepositoryService_ListCommits(t *testing.T) {
 
 		assert.ErrorIs(t, err, utils.ErrGitSecretInvalidType)
 		assert.NotErrorIs(t, err, gitprovider.ErrNotFound)
+	})
+
+	t.Run("secretRef without an org identity is rejected, not silently downgraded", func(t *testing.T) {
+		svc := newRepoService(&gitCredsStub{})
+
+		_, err := svc.ListCommits(context.Background(), commitReq("git-secret"), "", gitprovider.ProviderGitHub, 10, 0)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "organization identity is required")
 	})
 
 	t.Run("unsupported provider type fails locally without network", func(t *testing.T) {

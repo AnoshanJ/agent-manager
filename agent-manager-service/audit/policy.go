@@ -308,8 +308,8 @@ var actionOverrides = map[string]Action{
 	// only by an audience check — so there is nothing to derive from.
 	"POST /publisher/monitors/{monitorId}/runs/{runId}/scores": "monitor-score:publish",
 
-	"POST /repositories/branches":                        "repository:list-branches",
-	"POST /repositories/commits":                         "repository:list-commits",
+	"POST /orgs/{orgName}/repositories/branches":         "repository:list-branches",
+	"POST /orgs/{orgName}/repositories/commits":          "repository:list-commits",
 	"POST /orgs/{orgName}/mcp-proxies/fetch-server-info": "mcp-server:fetch-server-info",
 
 	// Sensitive reads.

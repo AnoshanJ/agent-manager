@@ -18,6 +18,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/gitprovider"
@@ -79,8 +80,13 @@ func (s *repositoryService) ListBranches(ctx context.Context, req spec.ListBranc
 	// Determine git provider configuration
 	providerConfig := getGitProviderConfig()
 
-	// If secretRef is provided, fetch git credentials from workflow plane OpenBao
-	if req.HasSecretRef() && ouID != "" {
+	// If secretRef is provided, fetch git credentials from workflow plane OpenBao.
+	// A secretRef without an org is a missing-tenant-identity condition, not a
+	// reason to fall back to the platform's default (public-repo) credentials.
+	if req.HasSecretRef() {
+		if ouID == "" {
+			return nil, fmt.Errorf("organization identity is required to resolve secretRef %q", req.GetSecretRef())
+		}
 		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, ouID, req.GetSecretRef())
 		if err != nil {
 			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", ouID)
@@ -139,8 +145,13 @@ func (s *repositoryService) ListCommits(ctx context.Context, req spec.ListCommit
 	// Determine git provider configuration
 	providerConfig := getGitProviderConfig()
 
-	// If secretRef is provided, fetch git credentials from workflow plane OpenBao
-	if req.HasSecretRef() && ouID != "" {
+	// If secretRef is provided, fetch git credentials from workflow plane OpenBao.
+	// A secretRef without an org is a missing-tenant-identity condition, not a
+	// reason to fall back to the platform's default (public-repo) credentials.
+	if req.HasSecretRef() {
+		if ouID == "" {
+			return nil, fmt.Errorf("organization identity is required to resolve secretRef %q", req.GetSecretRef())
+		}
 		creds, err := s.gitCredentialsService.GetGitCredentials(ctx, ouID, req.GetSecretRef())
 		if err != nil {
 			s.logger.Error("failed to get git credentials", "error", err, "secretRef", req.GetSecretRef(), "ouID", ouID)

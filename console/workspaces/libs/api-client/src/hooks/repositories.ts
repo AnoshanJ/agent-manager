@@ -36,7 +36,16 @@ export function useListBranches(
 ) {
   const { getToken } = useAuthHooks();
   return useApiQuery<ListBranchesResponse>({
-    queryKey: ["branches", orgName, body.owner, body.repository, body.secretRef, query],
+    queryKey: [
+      "branches",
+      {
+        orgName,
+        owner: body.owner,
+        repository: body.repository,
+        secretRef: body.secretRef,
+      },
+      query,
+    ],
     queryFn: () => listBranches(orgName, body, query, getToken),
     enabled: enabled && !!orgName && !!body.owner && !!body.repository,
   });
@@ -50,7 +59,17 @@ export function useListCommits(
 ) {
   const { getToken } = useAuthHooks();
   return useApiQuery<ListCommitsResponse>({
-    queryKey: ["commits", orgName, body.owner, body.repo, body.branch, body.secretRef, query],
+    queryKey: [
+      "commits",
+      {
+        orgName,
+        owner: body.owner,
+        repo: body.repo,
+        branch: body.branch,
+        secretRef: body.secretRef,
+      },
+      query,
+    ],
     queryFn: () => listCommits(orgName, body, query, getToken),
     enabled: enabled && !!orgName && !!body.owner && !!body.repo,
   });
