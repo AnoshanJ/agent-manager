@@ -227,6 +227,31 @@ func TestEnsureProxyResourceServer_ReconcilesDriftedIdentifier(t *testing.T) {
 	assert.Equal(t, "MCP", updateBody["type"])
 }
 
+func TestFindProxyResourceServer_IdentifierFallbackOnlyMatchesHandleLessRows(t *testing.T) {
+	// A foreign RS whose identifier happens to equal the proxy handle must not be
+	// matched (ensure would rewrite it, delete would remove it); only a legacy
+	// handle-less row may match by identifier.
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/resource-servers", r.URL.Path)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceServers": []any{
+				map[string]string{"id": "rs-foreign", "handle": "billing-api", "identifier": "gh-proxy"},
+				map[string]string{"id": "rs-legacy", "identifier": "gh-proxy"},
+			},
+			"total": 2,
+		})
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret").(*thunderClient)
+
+	rs, err := client.findProxyResourceServer(context.Background(), "test-system-token", "gh-proxy")
+
+	require.NoError(t, err)
+	require.NotNil(t, rs)
+	assert.Equal(t, "rs-legacy", rs.ID, "identifier fallback must skip rows that carry a different handle")
+}
+
 func TestEnsureProxyResourceServer_RejectsOverlongInputs(t *testing.T) {
 	srv := newTestThunderServer(t, func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("no Thunder calls expected for over-long input, got %s %s", r.Method, r.URL.Path)

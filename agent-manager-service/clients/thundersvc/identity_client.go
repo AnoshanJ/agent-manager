@@ -1058,10 +1058,11 @@ func (c *thunderClient) findResourceServerID(ctx context.Context, token, identif
 }
 
 // findProxyResourceServer locates a proxy's RS by its stable handle. Falls back
-// to identifier match for rows created before identifiers became URIs.
+// to identifier match only for handle-less legacy rows, so a foreign RS whose
+// identifier happens to equal the proxy handle is never picked up.
 func (c *thunderClient) findProxyResourceServer(ctx context.Context, token, proxyHandle string) (*ThunderResourceServer, error) {
 	return c.findResourceServer(ctx, token, func(rs *ThunderResourceServer) bool {
-		return rs.Handle == proxyHandle || rs.Identifier == proxyHandle
+		return rs.Handle == proxyHandle || (rs.Handle == "" && rs.Identifier == proxyHandle)
 	})
 }
 
