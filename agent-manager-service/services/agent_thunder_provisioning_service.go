@@ -455,9 +455,13 @@ func reconcileWorkloadInjection(ctx context.Context, injector AgentIdentityInjec
 func DBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
 	return func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
 		envThunderRepo := repositories.NewEnvThunderSystemClientRepo(db)
+		envThunderURLRepo := repositories.NewEnvThunderURLRepo(db)
 		return NewAgentThunderProvisioningService(
 			repositories.NewAgentThunderClientRepo(db),
-			thundersvc.NewEnvThunderResolver(NewEnvThunderSecretReader(envThunderRepo, encryptionKey)),
+			thundersvc.NewEnvThunderResolver(
+				NewEnvThunderSecretReader(envThunderRepo, encryptionKey),
+				NewEnvThunderURLReader(envThunderURLRepo, envThunderRepo),
+			),
 			secretMgmtClient,
 			ocClient,
 			nil, // workload injector — see doc comment above

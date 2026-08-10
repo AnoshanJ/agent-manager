@@ -61,7 +61,7 @@ type Config struct {
 	ServerPublicURL          string
 
 	// ThunderHostBaseDomain is the domain suffix env-Thunder's developer-facing
-	// hostnames are built from: "<org>-<env>.thunder.<ThunderHostBaseDomain>".
+	// hostnames are built from: "<handle>.<ThunderHostBaseDomain>".
 	// Default "amp.localhost" matches local dev (k3d + the *.amp.localhost wildcard
 	// cert). VM/production deployments set this to their own base domain (e.g. a
 	// sslip.io address) — see deployments/vm/lib-vm.sh, which sets the identical
