@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/rbac"
@@ -1083,6 +1084,14 @@ const (
 	thunderHandleMaxLen = 100
 )
 
+// ensureProxyResourceServerMu returns the mutex serializing check-then-create
+// calls for one proxy handle. Entries are never removed; the map only grows by
+// the small set of proxy handles a client touches.
+func (c *thunderClient) ensureProxyResourceServerMu(proxyHandle string) *sync.Mutex {
+	mu, _ := c.ensureResourceServerMus.LoadOrStore(proxyHandle, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
 // EnsureProxyResourceServer makes sure the resource server for a proxy exists
 // (handle = proxyHandle, identifier = the proxy's protocol-stripped public
 // invocation URI, delimiter ":", type MCP) and that every given action is
@@ -1107,10 +1116,11 @@ func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHand
 	}
 
 	// Avoids a TOCTOU race where concurrent callers both create a duplicate
-	// resource server or action; safe to scope per-client since clients are
-	// cached per org/env.
-	c.ensureResourceServerMu.Lock()
-	defer c.ensureResourceServerMu.Unlock()
+	// resource server or action; keyed per handle so unrelated proxies don't
+	// serialize behind each other's Thunder round-trips.
+	mu := c.ensureProxyResourceServerMu(proxyHandle)
+	mu.Lock()
+	defer mu.Unlock()
 
 	rs, err := c.findProxyResourceServer(ctx, token, proxyHandle)
 	if err != nil {

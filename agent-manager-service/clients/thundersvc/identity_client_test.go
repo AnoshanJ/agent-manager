@@ -24,7 +24,10 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,6 +228,118 @@ func TestEnsureProxyResourceServer_ReconcilesDriftedIdentifier(t *testing.T) {
 	assert.Equal(t, "gh-proxy", updateBody["handle"], "handle must never change — permissions derive from it")
 	assert.Equal(t, ":", updateBody["delimiter"])
 	assert.Equal(t, "MCP", updateBody["type"])
+}
+
+func TestEnsureProxyResourceServer_DistinctProxiesDoNotSerialize(t *testing.T) {
+	// proxy-a's ensure is held mid-flight at the list call; proxy-b's ensure must
+	// still complete — only same-handle ensures may serialize.
+	firstListArrived := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	var listCalls atomic.Int32
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			if listCalls.Add(1) == 1 {
+				close(firstListArrived)
+				<-releaseFirst
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "total": 0})
+		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-" + body["handle"]})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/actions"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/actions"):
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "act-1"})
+		default:
+			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	defer release()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-a", "Proxy A", "gw.example.com/a/mcp", []string{"read"})
+		firstErr <- err
+	}()
+	<-firstListArrived
+
+	secondErr := make(chan error, 1)
+	go func() {
+		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-b", "Proxy B", "gw.example.com/b/mcp", []string{"read"})
+		secondErr <- err
+	}()
+	select {
+	case err := <-secondErr:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ensure for proxy-b blocked behind proxy-a's in-flight ensure")
+	}
+
+	release()
+	require.NoError(t, <-firstErr)
+}
+
+func TestEnsureProxyResourceServer_ConcurrentSameHandleCreatesOnce(t *testing.T) {
+	// The per-handle TOCTOU guard: concurrent ensures for one proxy must yield a
+	// single RS create; late callers find the row the first caller created.
+	var mu sync.Mutex
+	created := 0
+	exists := false
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			mu.Lock()
+			servers := []any{}
+			if exists {
+				servers = append(servers, map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "gw.example.com/github/mcp"})
+			}
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": servers, "total": len(servers)})
+		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
+			mu.Lock()
+			created++
+			exists = true
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1"})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"actions":      []any{map[string]string{"id": "act-1", "handle": "read"}},
+				"totalResults": 1,
+			})
+		default:
+			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	rsIDs := make([]string, 4)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rsIDs[i], errs[i] = client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read"})
+		}()
+	}
+	wg.Wait()
+
+	for i := range errs {
+		require.NoError(t, errs[i])
+		assert.Equal(t, "rs-1", rsIDs[i])
+	}
+	assert.Equal(t, 1, created, "concurrent same-handle ensures must create exactly one resource server")
 }
 
 func TestFindProxyResourceServer_IdentifierFallbackOnlyMatchesHandleLessRows(t *testing.T) {
