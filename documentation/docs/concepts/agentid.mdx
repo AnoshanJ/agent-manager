@@ -60,7 +60,7 @@ credential directly into the running workload. As soon as the agent's identity f
 provisioning, its `client_id`, `client_secret`, token endpoint, and scopes are injected into the
 pod as environment variables, backed by a Kubernetes secret. There is no manual retrieval step,
 though your agent's own code does need a small amount of logic to use those environment
-variables. See [Use AgentID in a Platform-Hosted Agent](../tutorials/use-agentid-in-platform-hosted-agents.mdx)
+variables. See [Use AgentID in a Platform-Hosted Agent](../guides/use-agentid-in-platform-hosted-agents.mdx)
 for the environment variables involved and the code your agent needs to mint and use a token.
 
 ### Externally-Hosted Agents
@@ -69,7 +69,7 @@ For an agent that runs outside the platform, Agent Manager has no workload to in
 credentials into. Instead, the agent's operator generates the credential from the agent's page
 in the console: the `client_id` and a freshly minted `client_secret` are shown once, ready to
 copy into the agent's own configuration. See
-[Retrieve AgentID Credentials for an Externally-Hosted Agent](../tutorials/retrieve-agentid-for-externally-hosted-agents.mdx)
+[Retrieve AgentID Credentials for an Externally-Hosted Agent](../guides/retrieve-agentid-for-externally-hosted-agents.mdx)
 for the retrieval flow.
 
 ## Provisioning and Retry
@@ -121,13 +121,13 @@ has no way to instantly invalidate a token it has already handed out.
 
 ## What's Next
 
-- [Access an environment's ThunderID console](../administration/environment-management.mdx#access-the-environment-thunderid-console)
-- [Use AgentID in a Platform-Hosted Agent](../tutorials/use-agentid-in-platform-hosted-agents.mdx)
-- [Retrieve AgentID Credentials for an Externally-Hosted Agent](../tutorials/retrieve-agentid-for-externally-hosted-agents.mdx)
+- [Access an environment's ThunderID console](../guides/environment-management.mdx#access-the-environment-thunderid-console)
+- [Use AgentID in a Platform-Hosted Agent](../guides/use-agentid-in-platform-hosted-agents.mdx)
+- [Retrieve AgentID Credentials for an Externally-Hosted Agent](../guides/retrieve-agentid-for-externally-hosted-agents.mdx)
 
 :::note
 AgentID's per-environment ThunderID instances are separate from the
-[identity providers you configure on a gateway](../administration/configure-identity-providers-at-the-gateway.mdx)
+[identity providers you configure on a gateway](../guides/configure-identity-providers-at-the-gateway.mdx)
 to secure an agent's own inbound endpoint. Those protect calls coming into an agent. AgentID is
 about the identity an agent presents when it calls out to the gateway.
 :::

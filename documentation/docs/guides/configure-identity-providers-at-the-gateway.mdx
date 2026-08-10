@@ -5,7 +5,7 @@ sidebar_position: 7
 # Configure Identity Providers at the Gateway
 
 Identity providers are the token issuers your gateway trusts. When an agent endpoint is secured
-with [JWT authentication](../tutorials/secure-agents-with-jwt-authentication.mdx), the gateway validates
+with [JWT authentication](./secure-agents-with-jwt-authentication.mdx), the gateway validates
 incoming tokens against the identity providers configured on it. Each agent then chooses which of those
 providers it accepts.
 
@@ -101,4 +101,4 @@ deploy successfully while the gateway rejects every token at runtime.
 - Agents reference an identity provider by its **name**, not its issuer URL.
 - A provider name is unique within a gateway.
 - After adding a provider, secure an agent with it by following
-  [Secure Agents with JWT Authentication](../tutorials/secure-agents-with-jwt-authentication.mdx).
+  [Secure Agents with JWT Authentication](./secure-agents-with-jwt-authentication.mdx).

@@ -9,11 +9,11 @@ import AmpInstallation from './_partials/_amp-installation.mdx';
 Install the Agent Manager on a local Kubernetes cluster using [k3d](https://k3d.io/) — a lightweight tool that runs Kubernetes inside Docker.
 
 :::tip Just want it running?
-The [Quick Start Guide](./quick-start.mdx) installs everything in a single command using a dev container. Use this page when you want to understand the full setup or need to customize it.
+The [Quick Start Guide](../get-started/quick-start.mdx) installs everything in a single command using a dev container. Use this page when you want to understand the full setup or need to customize it.
 :::
 
 :::info Stronger agent isolation tiers
-Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers — **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM) — but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](../administration/isolation-tiers/gvisor.mdx) and [Kata Containers](../administration/isolation-tiers/kata.mdx) setup guides.
+Agents run sandboxed under the standard **runc** runtime by default. Agent Manager also supports stronger per-environment isolation tiers — **gVisor** (userspace kernel) and **Kata Containers** (per-agent VM) — but they have hardware/OS requirements and need a dedicated node. For more information, see the [gVisor](./isolation-tiers/gvisor.mdx) and [Kata Containers](./isolation-tiers/kata.mdx) setup guides.
 :::
 
 ## What You Will Get

@@ -12,7 +12,7 @@ The Console's create-agent form, and the API that validates a chosen version on 
 
 Two layers, merged at server startup:
 
-1. **Bundled baseline.** Compiled into the `agent-manager-service` binary from `.github/release-config.json`. This is what every install gets out of the box with no extra configuration. The list is also visible in the [version mapping table](../components/amp-instrumentation.mdx#amp-instrumentation-version-mapping).
+1. **Bundled baseline.** Compiled into the `agent-manager-service` binary from `.github/release-config.json`. This is what every install gets out of the box with no extra configuration. The list is also visible in the [version mapping table](./amp-instrumentation.mdx#amp-instrumentation-version-mapping).
 2. **Operator extension.** A YAML list under `agentManagerService.config.otel.additionalInstrumentationVersions` in the Helm chart. Empty by default. Each entry describes one extra version the operator has vetted.
 
 The effective set is the union, deduplicated by `version`. When an extension entry uses a version that already appears in the baseline, the extension entry wins. (That is the mechanism for redirecting `imageRepository` when an installation mirrors images internally.)
@@ -30,7 +30,7 @@ You need four pieces of information before editing anything:
 - The registry path you'll pull from.
 - (Implicit) The exact image tags AMP will assemble at deploy time.
 
-For 1 and 2, the canonical mapping lives in the [version mapping table](../components/amp-instrumentation.mdx#amp-instrumentation-version-mapping) on the user-facing instrumentation page, or directly in the `python-instrumentation-provider` array of [`.github/release-config.json`](https://github.com/wso2/agent-manager/blob/main/.github/release-config.json) on the AMP repo. For 3, use the public `ghcr.io/wso2/amp-python-instrumentation-provider` path if your cluster reaches the public internet, otherwise your internal mirror. For 4, AMP constructs the tag itself as `<imageRepository>:<version>-python<X.Y>`.
+For 1 and 2, the canonical mapping lives in the [version mapping table](./amp-instrumentation.mdx#amp-instrumentation-version-mapping) on the user-facing instrumentation page, or directly in the `python-instrumentation-provider` array of [`.github/release-config.json`](https://github.com/wso2/agent-manager/blob/main/.github/release-config.json) on the AMP repo. For 3, use the public `ghcr.io/wso2/amp-python-instrumentation-provider` path if your cluster reaches the public internet, otherwise your internal mirror. For 4, AMP constructs the tag itself as `<imageRepository>:<version>-python<X.Y>`.
 
 ### 2. (Internal registry only) Mirror the images
 
