@@ -711,7 +711,7 @@ When verifying, note the two client families use different token-endpoint auth m
 :::
 
 :::note Scaling Thunder
-`thunder.deployment.replicaCount` can only exceed 1 when Thunder runs on external PostgreSQL **and** a shared cache — the default in-memory cache would leave each replica with its own session state. Configure Redis via `thunder.configuration.cache` per the [Thunder caching guide](https://thunderid.dev/docs/next/deployment/production-guidelines/#configure-caching), then raise the replica count on this same install.
+`thunder.deployment.replicaCount` can only exceed 1 when Thunder runs on external PostgreSQL **and** a shared cache — the default in-memory cache would leave each replica with its own session state. Configure Redis via `thunder.configuration.cache` per the [Thunder caching guide](https://thunderid.dev/docs/v1.0.x/deployment/production-guidelines/#configure-caching), then raise the replica count on this same install.
 :::
 
 :::warning Changing these values later
@@ -1713,7 +1713,7 @@ The install steps carry the values; these are the reference pages behind them.
 
 | Dependency | Reference |
 |---|---|
-| Thunder identity | [Thunder production guidelines](https://thunderid.dev/docs/next/deployment/production-guidelines/) — database, TLS, encryption keys, CORS, [caching](https://thunderid.dev/docs/next/deployment/production-guidelines/#configure-caching) |
+| Thunder identity | [Thunder production guidelines](https://thunderid.dev/docs/v1.0.x/deployment/production-guidelines/) — database, TLS, encryption keys, CORS, [caching](https://thunderid.dev/docs/v1.0.x/deployment/production-guidelines/#configure-caching) |
 | Secret management | [OpenChoreo secret management](https://openchoreo.dev/docs/platform-engineer-guide/secret-management/), [OpenBao auto-unseal](https://openbao.org/docs/concepts/seal/) |
 | Observability storage | [OpenChoreo observability and alerting](https://openchoreo.dev/docs/platform-engineer-guide/observability-alerting/) |
 | Container registry | [OpenChoreo registry configuration](https://openchoreo.dev/docs/platform-engineer-guide/container-registry-configuration/#registry-providers) |
