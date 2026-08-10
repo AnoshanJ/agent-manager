@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -76,6 +77,7 @@ type LLMProxyDeploymentSpec struct {
 	Context     string                     `yaml:"context,omitempty" json:"context,omitempty"`
 	VHost       string                     `yaml:"vhost,omitempty" json:"vhost,omitempty"`
 	Provider    LLMProxyDeploymentProvider `yaml:"provider" json:"provider"`
+	Resilience  *models.Resilience         `yaml:"resilience,omitempty" json:"resilience,omitempty"`
 	Policies    []models.LLMPolicy         `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Security    *models.SecurityConfig     `yaml:"security,omitempty" json:"security,omitempty"`
 }
@@ -127,6 +129,10 @@ func (s *LLMProxyDeploymentService) DeployLLMProxy(proxyID string, req *models.D
 	slog.Info("LLMProxyDeploymentService.DeployLLMProxy: getting proxy", "proxyID", proxyID, "ouID", ouID)
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			slog.Warn("LLMProxyDeploymentService.DeployLLMProxy: proxy not found", "proxyID", proxyID, "ouID", ouID)
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		slog.Error("LLMProxyDeploymentService.DeployLLMProxy: failed to get proxy", "proxyID", proxyID, "ouID", ouID, "error", err)
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
@@ -243,6 +249,10 @@ func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(proxyID, deployme
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: getting proxy", "proxyID", proxyID, "ouID", ouID)
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			slog.Warn("LLMProxyDeploymentService.UndeployLLMProxyDeployment: proxy not found", "proxyID", proxyID)
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		slog.Error("LLMProxyDeploymentService.UndeployLLMProxyDeployment: failed to get proxy", "proxyID", proxyID, "error", err)
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
@@ -317,6 +327,9 @@ func (s *LLMProxyDeploymentService) RestoreLLMProxyDeployment(proxyID, deploymen
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -391,6 +404,9 @@ func (s *LLMProxyDeploymentService) GetLLMProxyDeployments(proxyID, ouID string,
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -423,6 +439,9 @@ func (s *LLMProxyDeploymentService) GetLLMProxyDeployment(proxyID, deploymentID,
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrLLMProxyNotFound
+		}
 		return nil, fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -446,6 +465,9 @@ func (s *LLMProxyDeploymentService) DeleteLLMProxyDeployment(proxyID, deployment
 	// Get proxy
 	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return utils.ErrLLMProxyNotFound
+		}
 		return fmt.Errorf("failed to get proxy: %w", err)
 	}
 	if proxy == nil {
@@ -572,6 +594,7 @@ func (s *LLMProxyDeploymentService) generateLLMProxyDeploymentYAML(proxy *models
 			Context:     contextValue,
 			VHost:       vhostValue,
 			Provider:    providerRef,
+			Resilience:  proxy.Configuration.Resilience,
 			Policies:    policies,
 		},
 	}

@@ -38,10 +38,12 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerWrapper,
+  EnvFileUploadButton,
   EnvVariableEditor,
   FileMountEditor,
 } from "@agent-management-platform/views";
 import {
+  extractServerErrorMessage,
   useAgentBuildOptions,
   usePromoteAgent,
   useGetAgent,
@@ -178,6 +180,13 @@ export function PromoteAgentDrawer({
   // once per target rather than on every background refetch.
   const [filledForTarget, setFilledForTarget] = useState<string | null>(null);
 
+  // True once the target's config has loaded AND been seeded into formState.
+  // Gates Add/Upload so a user can't add/merge entries into the editor while
+  // it's still holding the previous target's (or blank) state, which the
+  // seed effect below would otherwise clobber once it fires.
+  const targetConfigReady =
+    targetConfigLoaded && filledForTarget === formState.targetEnvironment;
+
   // Pick a default target environment when the drawer opens, and clear state on close.
   useEffect(() => {
     if (!open) {
@@ -290,6 +299,34 @@ export function PromoteAgentDrawer({
     }));
   }, []);
 
+  // Same system-key exclusion as the prefill effect above: uploaded entries
+  // must not shadow platform-injected keys, which are never part of formState.env.
+  const targetSystemKeys = useMemo(
+    () =>
+      new Set(
+        (targetConfigs?.configurations?.env ?? [])
+          .filter((e) => e.isSystem)
+          .map((e) => e.key),
+      ),
+    [targetConfigs],
+  );
+
+  const handleEnvFileParsed = useCallback((entries: { key: string; value: string }[]) => {
+    setFormState((prev) => {
+      const nextEnv = [...prev.env];
+      for (const { key, value } of entries) {
+        if (targetSystemKeys.has(key)) continue;
+        const existingIndex = nextEnv.findIndex((e) => e.key === key);
+        if (existingIndex !== -1) {
+          nextEnv[existingIndex] = { ...nextEnv[existingIndex], key, value, secretRef: undefined };
+        } else {
+          nextEnv.push({ key, value, isSensitive: false });
+        }
+      }
+      return { ...prev, env: nextEnv };
+    });
+  }, [targetSystemKeys]);
+
   const handleAddFile = useCallback(() => {
     setFormState((prev) => ({
       ...prev,
@@ -378,8 +415,7 @@ export function PromoteAgentDrawer({
   );
 
   const errorMessage = useMemo(
-    () =>
-      error ? ((error as Error)?.message ?? "Failed to promote agent") : null,
+    () => (error ? (extractServerErrorMessage(error) ?? "Failed to promote agent") : null),
     [error],
   );
 
@@ -490,15 +526,21 @@ export function PromoteAgentDrawer({
                             <Typography variant="h6">
                               Environment Variables
                             </Typography>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<Plus size={14} />}
-                              onClick={handleAddEnv}
-                              disabled={isPending}
-                            >
-                              Add
-                            </Button>
+                            <Stack direction="row" gap={1}>
+                              <EnvFileUploadButton
+                                onParsed={handleEnvFileParsed}
+                                disabled={isPending || !targetConfigReady}
+                              />
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<Plus size={14} />}
+                                onClick={handleAddEnv}
+                                disabled={isPending || !targetConfigReady}
+                              >
+                                Add
+                              </Button>
+                            </Stack>
                           </Stack>
                           {formState.env.length === 0 ? (
                             <Typography variant="body2" color="text.secondary">

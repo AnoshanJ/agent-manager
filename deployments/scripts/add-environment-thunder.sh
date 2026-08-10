@@ -10,7 +10,7 @@ set -euo pipefail
 # wso2-amp-thunder-extension chart, including its full console/API/roles/groups
 # bootstrap), env-Thunder installs the upstream ThunderID release chart DIRECTLY
 # (oci://ghcr.io/thunder-id/helm-charts/thunderid — see
-# https://thunderid.dev/docs/next/guides/getting-started/get-thunderid/). This
+# https://thunderid.dev/docs/v1.0.x/getting-started/get-thunderid/). This
 # decouples env-Thunder's version from whatever version platform Thunder happens to
 # run (including platform Thunder being rolled back), and from the agent-manager
 # release cadence — no wso2-amp-thunder-extension release is required to pick up a

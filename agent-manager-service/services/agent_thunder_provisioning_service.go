@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
@@ -751,6 +752,23 @@ func (s *agentThunderProvisioningService) AttemptProvision(ctx context.Context, 
 		return
 	}
 
+	// A credential issued with no request behind it: the actor is this service,
+	// and the user who originally asked for the agent is carried as OnBehalfOf.
+	// That attribution is exactly what requested_by was captured for.
+	audit.Record(
+		ctx, audit.ActionSystemAgentIdentityProvisioned,
+		audit.Org(binding.OUID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, binding.AgentName, binding.AgentName),
+		audit.Project(binding.ProjectName),
+		audit.Environment(binding.EnvironmentName),
+		audit.Actor(audit.ActorSystem, systemActorAgentThunderReconciler, ""),
+		audit.SurfaceOpt(audit.SurfaceSystem),
+		audit.OnBehalfOf(binding.RequestedBy),
+		audit.Detail("agentName", binding.AgentName),
+		audit.Detail("environment", binding.EnvironmentName),
+		audit.Detail("clientId", clientID),
+	)
+
 	// Gateway Binding: push the credential into the live workload for internal
 	// agents that were already deployed before this attempt completed. Purely
 	// best-effort — the binding is COMPLETED either way, and the deploy flow
@@ -787,6 +805,21 @@ func (s *agentThunderProvisioningService) recordFailure(ctx context.Context, bin
 	}
 	if exhausted {
 		update.Status = models.AgentThunderStatusFailed
+		// The agent will not get an identity without operator action, so this
+		// is recorded rather than left as one more retry log line.
+		audit.Record(
+			ctx, audit.ActionSystemAgentIdentityExhausted,
+			audit.Org(binding.OUID),
+			audit.ResourceNamed(audit.ResourceAgentIdentity, binding.AgentName, binding.AgentName),
+			audit.Project(binding.ProjectName),
+			audit.Environment(binding.EnvironmentName),
+			audit.Actor(audit.ActorSystem, systemActorAgentThunderReconciler, ""),
+			audit.SurfaceOpt(audit.SurfaceSystem),
+			audit.OnBehalfOf(binding.RequestedBy),
+			audit.Detail("agentName", binding.AgentName),
+			audit.Detail("environment", binding.EnvironmentName),
+			audit.Detail("reason", "retries-exhausted"),
+		)
 	} else {
 		update.Status = models.AgentThunderStatusPending
 		next := time.Now().Add(provisionRetryDelay)
@@ -1117,3 +1150,7 @@ func (s *agentThunderProvisioningService) DeleteAllBindings(ctx context.Context,
 		}()
 	}
 }
+
+// systemActorAgentThunderReconciler identifies the AgentID provisioning
+// reconciler in audit records it produces on its own initiative.
+const systemActorAgentThunderReconciler = "system:agent-thunder-reconciler"

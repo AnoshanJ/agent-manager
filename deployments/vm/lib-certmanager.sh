@@ -50,7 +50,7 @@ validate_dns01_config() {
 }
 
 # cert_dns_names — print the SAN hostnames (one per line) the wildcard cert must cover:
-# every fixed service host + the deployed-agent wildcard + the env-Thunder wildcard. Reads
+# every fixed service host + the three dynamic-tier wildcards. Reads
 # AMP_HOST_*/AMP_AGENTS_BASE from the caller's scope (matches the lib-vm.sh cores). CP is
 # omitted when AMP_HOST_CP is empty (external gateways off).
 # shellcheck disable=SC2154,SC2153  # AMP_HOST_*/AMP_AGENTS_BASE come from the caller's scope by design.
@@ -58,10 +58,14 @@ cert_dns_names() {
   printf '%s\n' "$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" \
     "$AMP_HOST_OBSERVER" "$AMP_HOST_GATEWAY"
   [[ -n "${AMP_HOST_CP:-}" ]] && printf '%s\n' "$AMP_HOST_CP"
-  # Dynamic tiers (created after install): deployed agents <org>-<project>.<AGENTS_BASE>
-  # and env-Thunder <org>-<env>.<THUNDER_HOST>. A wildcard covers each without re-issuing.
+  # Dynamic tiers (created after install): deployed agents <org>-<project>.<AGENTS_BASE>,
+  # env-Thunder <org>-<env>.<THUNDER_HOST>, and the per-environment api-platform gateways
+  # <env>-<org>.<GATEWAY_HOST> that add-environment.sh installs. A wildcard covers each
+  # without re-issuing. The simple installer covers the same three tiers with Caddy
+  # on-demand certs; here one DNS-01 wildcard cert serves them up front.
   printf '*.%s\n' "$AMP_AGENTS_BASE"
   printf '*.%s\n' "$AMP_HOST_THUNDER"
+  printf '*.%s\n' "$AMP_HOST_GATEWAY"
 }
 
 # _dns01_solver_block — print the cert-manager `dns01:` solver body for DNS_PROVIDER,

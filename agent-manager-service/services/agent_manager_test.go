@@ -530,7 +530,7 @@ func TestDeployAgent_IdentityInjectionError_AbortsDeploy(t *testing.T) {
 	}
 	s := &agentManagerService{ocClient: ocClient, agentIdentityInjection: injector, logger: discardLogger()}
 
-	_, err := s.DeployAgent(context.Background(), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: "registry.example.com/my-agent:v1"})
+	_, err := s.DeployAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: "registry.example.com/my-agent:v1"})
 
 	require.Error(t, err, "a failure building AgentID env vars must abort the deploy, not proceed without credentials")
 	assert.False(t, deployCalled, "the OpenChoreo Deploy call must never happen once identity env vars failed to build")
@@ -704,7 +704,7 @@ func TestPromoteAgent_BlocksWhenTargetIdentityNotReady(t *testing.T) {
 	// when the target's AgentID binding hasn't finished provisioning yet.
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -730,7 +730,7 @@ func TestPromoteAgent_TargetIdentityReady_PromotesWithTargetOnlyCredentials(t *t
 		return nil
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -752,7 +752,7 @@ func TestPromoteAgent_TargetIdentityReady_PromotesWithTargetOnlyCredentials(t *t
 func TestPromoteAgent_IdentityBuildError_AbortsBeforePromoting(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, nil, errors.New("openchoreo unavailable"))
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -840,7 +840,7 @@ func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *te
 
 	// First attempt: target environment is brand new — kicks off provisioning
 	// (ProvisionForEnvironmentIfMissing), but the identity isn't ready yet.
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", req)
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not ready yet")
 	assert.False(t, promoteCalled, "must not promote while the target identity is still provisioning")
@@ -849,7 +849,7 @@ func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *te
 	targetReady = true
 
 	// Retry: the same promote call now succeeds with the target's own creds.
-	err = s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", req)
+	err = s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", req)
 	require.NoError(t, err)
 	assert.True(t, promoteCalled, "the retry must succeed once the target identity is ready")
 
@@ -919,7 +919,7 @@ func TestPromoteAgent_PollSucceedsWithinBudget_PromotesOnFirstCall(t *testing.T)
 		logger:                    discardLogger(),
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -943,7 +943,7 @@ func TestPromoteAgent_TargetCredentialRevoked_BlocksWithRegenerateMessage(t *tes
 		return &AgentThunderBindingState{Status: models.AgentThunderStatusCompleted, HasSecret: false}, nil
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -968,7 +968,7 @@ func TestPromoteAgent_TargetProvisioningFailed_BlocksWithReprovisionMessage(t *t
 		return &AgentThunderBindingState{Status: models.AgentThunderStatusFailed, LastError: "thunder unreachable"}, nil
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -1037,7 +1037,7 @@ func TestPromoteAgent_ProvisioningDisabled_SkipsIdentityCheckAndPromotes(t *test
 		// agentThunderProvisioning intentionally omitted (nil).
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -1106,7 +1106,7 @@ func TestPromoteAgent_ProvisioningDisabledButLowestEnvHasRealCredential_StillBlo
 		// disabled NOW, even though dev was provisioned earlier while it was on.
 	}
 
-	err := s.PromoteAgent(context.Background(), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -1487,7 +1487,7 @@ func TestDeployAgent_APIAgent_ResilienceTimeout(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, capturedDeployConfig := deployAPIAgentMocks(tc.existingConfig)
 
-			env, err := s.DeployAgent(context.Background(), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: "registry.example.com/my-agent:v1"})
+			env, err := s.DeployAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: "registry.example.com/my-agent:v1"})
 
 			require.NoError(t, err)
 			assert.Equal(t, "dev", env)

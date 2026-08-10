@@ -249,6 +249,16 @@ func loadEnvs() {
 	config.RBACEnabled = r.readOptionalBool("RBAC_ENABLED", false)
 	config.RootOUHandle = r.readOptionalString("ROOT_OU_HANDLE", "admin")
 
+	// Audit defaults to on. A deployment that wants no audit trail has to say
+	// so explicitly, rather than acquiring one by omission.
+	config.Audit = AuditConfig{
+		Enabled:         r.readOptionalBool("AUDIT_ENABLED", true),
+		BufferSize:      int(r.readOptionalInt64("AUDIT_BUFFER_SIZE", 4096)),
+		BatchSize:       int(r.readOptionalInt64("AUDIT_BATCH_SIZE", 200)),
+		FlushIntervalMs: int(r.readOptionalInt64("AUDIT_FLUSH_INTERVAL_MS", 1000)),
+	}
+	r.errors = append(r.errors, validateAuditConfig(config.Audit)...)
+
 	// Resource limits for agent resource configurations (operator-controlled ceilings)
 	config.PerAgentResourceLimits = ResourceLimitsConfig{
 		MaxReplicas: int(r.readOptionalInt64("RESOURCE_MAX_REPLICAS", 10)),
@@ -451,4 +461,36 @@ func validateResourceLimitsConfig(cfg *Config, r *configReader) {
 	if _, err := resource.ParseQuantity(cfg.PerAgentResourceLimits.MaxMemory); err != nil {
 		r.errors = append(r.errors, fmt.Errorf("RESOURCE_MAX_MEMORY %q is not a valid Kubernetes resource quantity: %w", cfg.PerAgentResourceLimits.MaxMemory, err))
 	}
+}
+
+// validateAuditConfig rejects malformed audit tuning at startup.
+//
+// The recorder silently substitutes a default for any non-positive value, so a
+// typo in a deployment would quietly change how much of the trail is buffered
+// and how long a record waits, with nothing to show it had happened.
+func validateAuditConfig(cfg AuditConfig) []error {
+	var errs []error
+
+	for _, field := range []struct {
+		name  string
+		value int
+	}{
+		{"AUDIT_BUFFER_SIZE", cfg.BufferSize},
+		{"AUDIT_BATCH_SIZE", cfg.BatchSize},
+		{"AUDIT_FLUSH_INTERVAL_MS", cfg.FlushIntervalMs},
+	} {
+		if field.value <= 0 {
+			errs = append(errs, fmt.Errorf("%s must be a positive integer, got %d", field.name, field.value))
+		}
+	}
+
+	// A batch larger than the buffer can never fill, so every flush would wait
+	// for the timer instead — the batching would silently stop working.
+	if cfg.BatchSize > 0 && cfg.BufferSize > 0 && cfg.BatchSize > cfg.BufferSize {
+		errs = append(errs, fmt.Errorf(
+			"AUDIT_BATCH_SIZE (%d) must not exceed AUDIT_BUFFER_SIZE (%d)",
+			cfg.BatchSize, cfg.BufferSize,
+		))
+	}
+	return errs
 }

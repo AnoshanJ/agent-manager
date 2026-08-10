@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
@@ -643,12 +644,28 @@ func (c *agentController) RegenerateTracingToken(w http.ResponseWriter, r *http.
 		expiresIn = *payload.ExpiresIn
 	}
 
+	// Rotating the tracing token invalidates the one the deployed agent is
+	// using, so it is credential material and is refused when unrecordable.
+	attempt, ok := beginAuditOrFail(
+		w, r, "RegenerateTracingToken", "Failed to regenerate tracing token", audit.ActionAgentTokenRegenerateTracing,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(payload.EnvironmentName),
+		audit.Detail("agentName", agentName),
+	)
+	if !ok {
+		return
+	}
+
 	result, err := c.agentService.RegenerateAgentTracingToken(ctx, ouID, projName, agentName, payload.EnvironmentName, expiresIn)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("RegenerateTracingToken: failed to regenerate tracing token", "error", err)
 		handleCommonErrors(w, err, "Failed to regenerate tracing token")
 		return
 	}
+	attempt.Complete(ctx, nil)
 
 	utils.WriteSuccessResponse(w, http.StatusOK, spec.TracingTokenRegenerateResponse{
 		EnvironmentName: result.EnvironmentName,
@@ -822,12 +839,31 @@ func (c *agentController) UpdateDeploymentState(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// The gating permission is agent:suspend, but this route also resumes and
+	// undeploys, so the record names the state actually requested.
+	stateAttempt, ok := beginAuditOrFail(
+		w, r, "UpdateDeploymentState", "Failed to update deployment state", audit.ActionAgentChangeDeploymentState,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(payload.Environment),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", payload.Environment),
+		audit.Detail("toState", string(payload.State)),
+	)
+	if !ok {
+		return
+	}
+
 	err := c.agentService.UpdateAgentDeploymentState(ctx, ouID, projName, agentName, payload.Environment, payload.State)
 	if err != nil {
+		stateAttempt.Complete(ctx, err)
 		log.Error("UpdateDeploymentState: failed to update deployment state", "error", err)
 		handleCommonErrors(w, err, "Failed to update deployment state")
 		return
 	}
+
+	stateAttempt.Complete(ctx, nil)
 
 	response := spec.UpdateDeploymentStateResponse{
 		Message:     "Deployment state transition request accepted",
@@ -1066,8 +1102,22 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 
 	log.Info("RegenerateAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
+	attempt, ok := beginAuditOrFail(
+		w, r, "RegenerateAgentIdentitySecret", "Failed to regenerate agent identity secret", audit.ActionAgentIdentityRegenerateSecret,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(envID),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", envID),
+	)
+	if !ok {
+		return
+	}
+
 	resp, err := c.agentService.RegenerateAgentIdentitySecret(ctx, ouID, projName, agentName, envID)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
 			log.Warn("RegenerateAgentIdentitySecret: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
@@ -1078,6 +1128,7 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 		return
 	}
 
+	attempt.Complete(ctx, nil)
 	log.Info("RegenerateAgentIdentitySecret: secret regenerated successfully", "orgName", orgName, "agentName", agentName, "envID", envID)
 	utils.WriteSuccessResponse(w, http.StatusOK, resp)
 }
@@ -1103,8 +1154,22 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 
 	log.Info("RevokeAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
+	attempt, ok := beginAuditOrFail(
+		w, r, "RevokeAgentIdentitySecret", "Failed to revoke agent identity secret", audit.ActionAgentIdentityRevokeSecret,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(envID),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", envID),
+	)
+	if !ok {
+		return
+	}
+
 	resp, err := c.agentService.RevokeAgentIdentitySecret(ctx, ouID, projName, agentName, envID)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
 			log.Warn("RevokeAgentIdentitySecret: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
@@ -1115,6 +1180,7 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 		return
 	}
 
+	attempt.Complete(ctx, nil)
 	log.Info("RevokeAgentIdentitySecret: secret revoked successfully", "orgName", orgName, "agentName", agentName, "envID", envID)
 	utils.WriteSuccessResponse(w, http.StatusOK, resp)
 }
@@ -1144,8 +1210,22 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 
 	log.Info("ProvisionAgentIdentity: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
+	attempt, ok := beginAuditOrFail(
+		w, r, "ProvisionAgentIdentity", "Failed to provision agent identity", audit.ActionAgentIdentityProvision,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(envID),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", envID),
+	)
+	if !ok {
+		return
+	}
+
 	view, alreadyExisted, err := c.agentService.ProvisionAgentIdentity(ctx, ouID, projName, agentName, envID)
 	if err != nil {
+		attempt.Complete(ctx, err)
 		log.Error("ProvisionAgentIdentity: failed to provision agent identity", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
 		handleCommonErrors(w, err, "Failed to provision agent identity")
 		return
@@ -1154,6 +1234,13 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	status := http.StatusAccepted
 	if alreadyExisted {
 		status = http.StatusOK
+	}
+	// A no-op provision (the binding already existed) issues no new credential,
+	// so it is recorded as a read-level notice rather than a credential change.
+	if alreadyExisted {
+		attempt.Complete(ctx, nil, audit.SeverityOpt(audit.SeverityNotice), audit.Detail("alreadyExisted", true))
+	} else {
+		attempt.Complete(ctx, nil)
 	}
 	log.Info("ProvisionAgentIdentity: completed", "orgName", orgName, "agentName", agentName, "envID", envID, "alreadyExisted", alreadyExisted)
 	utils.WriteSuccessResponse(w, status, view)

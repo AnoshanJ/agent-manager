@@ -80,12 +80,14 @@ export function BuildPanel({
     isLoading: isLoadingCommits,
     isError: isCommitsError,
   } = useListCommits(
+    orgName,
     {
       owner: repoInfo?.owner || "",
       repo: repoInfo?.repo || "",
       branch: selectedBranch || undefined,
-      // Include orgName and secretRef for private repo support
-      ...(secretRef ? { orgName: orgName, secretRef: secretRef } : {}),
+      // Include secretRef for private repo support; the org that scopes it comes
+      // from the URL/token, not the body.
+      ...(secretRef ? { secretRef: secretRef } : {}),
     },
     { limit: 50 },
     !!repoInfo && !!selectedBranch,

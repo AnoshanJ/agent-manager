@@ -862,20 +862,20 @@ type ClientInterface interface {
 
 	RotateLLMProxyAPIKey(ctx context.Context, orgName string, projName string, id string, keyName string, body RotateLLMProxyAPIKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListRepositoryBranchesWithBody request with any body
+	ListRepositoryBranchesWithBody(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListRepositoryBranches(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRepositoryCommitsWithBody request with any body
+	ListRepositoryCommitsWithBody(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListRepositoryCommits(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetNameByDisplayNameWithBody request with any body
 	GetNameByDisplayNameWithBody(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	GetNameByDisplayName(ctx context.Context, orgName string, body GetNameByDisplayNameJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListRepositoryBranchesWithBody request with any body
-	ListRepositoryBranchesWithBody(ctx context.Context, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	ListRepositoryBranches(ctx context.Context, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListRepositoryCommitsWithBody request with any body
-	ListRepositoryCommitsWithBody(ctx context.Context, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	ListRepositoryCommits(ctx context.Context, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetJWKS(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -4262,6 +4262,54 @@ func (c *Client) RotateLLMProxyAPIKey(ctx context.Context, orgName string, projN
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListRepositoryBranchesWithBody(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRepositoryBranchesRequestWithBody(c.Server, orgName, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListRepositoryBranches(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRepositoryBranchesRequest(c.Server, orgName, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListRepositoryCommitsWithBody(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRepositoryCommitsRequestWithBody(c.Server, orgName, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListRepositoryCommits(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRepositoryCommitsRequest(c.Server, orgName, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetNameByDisplayNameWithBody(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetNameByDisplayNameRequestWithBody(c.Server, orgName, contentType, body)
 	if err != nil {
@@ -4276,54 +4324,6 @@ func (c *Client) GetNameByDisplayNameWithBody(ctx context.Context, orgName strin
 
 func (c *Client) GetNameByDisplayName(ctx context.Context, orgName string, body GetNameByDisplayNameJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetNameByDisplayNameRequest(c.Server, orgName, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListRepositoryBranchesWithBody(ctx context.Context, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListRepositoryBranchesRequestWithBody(c.Server, params, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListRepositoryBranches(ctx context.Context, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListRepositoryBranchesRequest(c.Server, params, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListRepositoryCommitsWithBody(ctx context.Context, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListRepositoryCommitsRequestWithBody(c.Server, params, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListRepositoryCommits(ctx context.Context, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListRepositoryCommitsRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -16200,19 +16200,19 @@ func NewRotateLLMProxyAPIKeyRequestWithBody(server string, orgName string, projN
 	return req, nil
 }
 
-// NewGetNameByDisplayNameRequest calls the generic GetNameByDisplayName builder with application/json body
-func NewGetNameByDisplayNameRequest(server string, orgName string, body GetNameByDisplayNameJSONRequestBody) (*http.Request, error) {
+// NewListRepositoryBranchesRequest calls the generic ListRepositoryBranches builder with application/json body
+func NewListRepositoryBranchesRequest(server string, orgName string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewGetNameByDisplayNameRequestWithBody(server, orgName, "application/json", bodyReader)
+	return NewListRepositoryBranchesRequestWithBody(server, orgName, params, "application/json", bodyReader)
 }
 
-// NewGetNameByDisplayNameRequestWithBody generates requests for GetNameByDisplayName with any type of body
-func NewGetNameByDisplayNameRequestWithBody(server string, orgName string, contentType string, body io.Reader) (*http.Request, error) {
+// NewListRepositoryBranchesRequestWithBody generates requests for ListRepositoryBranches with any type of body
+func NewListRepositoryBranchesRequestWithBody(server string, orgName string, params *ListRepositoryBranchesParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -16227,47 +16227,7 @@ func NewGetNameByDisplayNameRequestWithBody(server string, orgName string, conte
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/orgs/%s/utils/generate-name", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewListRepositoryBranchesRequest calls the generic ListRepositoryBranches builder with application/json body
-func NewListRepositoryBranchesRequest(server string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewListRepositoryBranchesRequestWithBody(server, params, "application/json", bodyReader)
-}
-
-// NewListRepositoryBranchesRequestWithBody generates requests for ListRepositoryBranches with any type of body
-func NewListRepositoryBranchesRequestWithBody(server string, params *ListRepositoryBranchesParams, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/repositories/branches")
+	operationPath := fmt.Sprintf("/orgs/%s/repositories/branches", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -16326,26 +16286,33 @@ func NewListRepositoryBranchesRequestWithBody(server string, params *ListReposit
 }
 
 // NewListRepositoryCommitsRequest calls the generic ListRepositoryCommits builder with application/json body
-func NewListRepositoryCommitsRequest(server string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody) (*http.Request, error) {
+func NewListRepositoryCommitsRequest(server string, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewListRepositoryCommitsRequestWithBody(server, params, "application/json", bodyReader)
+	return NewListRepositoryCommitsRequestWithBody(server, orgName, params, "application/json", bodyReader)
 }
 
 // NewListRepositoryCommitsRequestWithBody generates requests for ListRepositoryCommits with any type of body
-func NewListRepositoryCommitsRequestWithBody(server string, params *ListRepositoryCommitsParams, contentType string, body io.Reader) (*http.Request, error) {
+func NewListRepositoryCommitsRequestWithBody(server string, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/repositories/commits")
+	operationPath := fmt.Sprintf("/orgs/%s/repositories/commits", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -16391,6 +16358,53 @@ func NewListRepositoryCommitsRequestWithBody(server string, params *ListReposito
 		}
 
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetNameByDisplayNameRequest calls the generic GetNameByDisplayName builder with application/json body
+func NewGetNameByDisplayNameRequest(server string, orgName string, body GetNameByDisplayNameJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewGetNameByDisplayNameRequestWithBody(server, orgName, "application/json", bodyReader)
+}
+
+// NewGetNameByDisplayNameRequestWithBody generates requests for GetNameByDisplayName with any type of body
+func NewGetNameByDisplayNameRequestWithBody(server string, orgName string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/utils/generate-name", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
@@ -17218,20 +17232,20 @@ type ClientWithResponsesInterface interface {
 
 	RotateLLMProxyAPIKeyWithResponse(ctx context.Context, orgName string, projName string, id string, keyName string, body RotateLLMProxyAPIKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*RotateLLMProxyAPIKeyResp, error)
 
+	// ListRepositoryBranchesWithBodyWithResponse request with any body
+	ListRepositoryBranchesWithBodyWithResponse(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error)
+
+	ListRepositoryBranchesWithResponse(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error)
+
+	// ListRepositoryCommitsWithBodyWithResponse request with any body
+	ListRepositoryCommitsWithBodyWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
+
+	ListRepositoryCommitsWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
+
 	// GetNameByDisplayNameWithBodyWithResponse request with any body
 	GetNameByDisplayNameWithBodyWithResponse(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetNameByDisplayNameResp, error)
 
 	GetNameByDisplayNameWithResponse(ctx context.Context, orgName string, body GetNameByDisplayNameJSONRequestBody, reqEditors ...RequestEditorFn) (*GetNameByDisplayNameResp, error)
-
-	// ListRepositoryBranchesWithBodyWithResponse request with any body
-	ListRepositoryBranchesWithBodyWithResponse(ctx context.Context, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error)
-
-	ListRepositoryBranchesWithResponse(ctx context.Context, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error)
-
-	// ListRepositoryCommitsWithBodyWithResponse request with any body
-	ListRepositoryCommitsWithBodyWithResponse(ctx context.Context, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
-
-	ListRepositoryCommitsWithResponse(ctx context.Context, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
 }
 
 type GetJWKSResp struct {
@@ -22414,30 +22428,6 @@ func (r RotateLLMProxyAPIKeyResp) StatusCode() int {
 	return 0
 }
 
-type GetNameByDisplayNameResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ResourceNameResponse
-	JSON404      *ErrorResponse
-	JSON500      *ErrorResponse
-}
-
-// Status returns HTTPResponse.Status
-func (r GetNameByDisplayNameResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetNameByDisplayNameResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListRepositoryBranchesResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -22484,6 +22474,30 @@ func (r ListRepositoryCommitsResp) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ListRepositoryCommitsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetNameByDisplayNameResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResourceNameResponse
+	JSON404      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetNameByDisplayNameResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetNameByDisplayNameResp) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -24954,6 +24968,40 @@ func (c *ClientWithResponses) RotateLLMProxyAPIKeyWithResponse(ctx context.Conte
 	return ParseRotateLLMProxyAPIKeyResp(rsp)
 }
 
+// ListRepositoryBranchesWithBodyWithResponse request with arbitrary body returning *ListRepositoryBranchesResp
+func (c *ClientWithResponses) ListRepositoryBranchesWithBodyWithResponse(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error) {
+	rsp, err := c.ListRepositoryBranchesWithBody(ctx, orgName, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRepositoryBranchesResp(rsp)
+}
+
+func (c *ClientWithResponses) ListRepositoryBranchesWithResponse(ctx context.Context, orgName string, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error) {
+	rsp, err := c.ListRepositoryBranches(ctx, orgName, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRepositoryBranchesResp(rsp)
+}
+
+// ListRepositoryCommitsWithBodyWithResponse request with arbitrary body returning *ListRepositoryCommitsResp
+func (c *ClientWithResponses) ListRepositoryCommitsWithBodyWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error) {
+	rsp, err := c.ListRepositoryCommitsWithBody(ctx, orgName, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRepositoryCommitsResp(rsp)
+}
+
+func (c *ClientWithResponses) ListRepositoryCommitsWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error) {
+	rsp, err := c.ListRepositoryCommits(ctx, orgName, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRepositoryCommitsResp(rsp)
+}
+
 // GetNameByDisplayNameWithBodyWithResponse request with arbitrary body returning *GetNameByDisplayNameResp
 func (c *ClientWithResponses) GetNameByDisplayNameWithBodyWithResponse(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetNameByDisplayNameResp, error) {
 	rsp, err := c.GetNameByDisplayNameWithBody(ctx, orgName, contentType, body, reqEditors...)
@@ -24969,40 +25017,6 @@ func (c *ClientWithResponses) GetNameByDisplayNameWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseGetNameByDisplayNameResp(rsp)
-}
-
-// ListRepositoryBranchesWithBodyWithResponse request with arbitrary body returning *ListRepositoryBranchesResp
-func (c *ClientWithResponses) ListRepositoryBranchesWithBodyWithResponse(ctx context.Context, params *ListRepositoryBranchesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error) {
-	rsp, err := c.ListRepositoryBranchesWithBody(ctx, params, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListRepositoryBranchesResp(rsp)
-}
-
-func (c *ClientWithResponses) ListRepositoryBranchesWithResponse(ctx context.Context, params *ListRepositoryBranchesParams, body ListRepositoryBranchesJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryBranchesResp, error) {
-	rsp, err := c.ListRepositoryBranches(ctx, params, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListRepositoryBranchesResp(rsp)
-}
-
-// ListRepositoryCommitsWithBodyWithResponse request with arbitrary body returning *ListRepositoryCommitsResp
-func (c *ClientWithResponses) ListRepositoryCommitsWithBodyWithResponse(ctx context.Context, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error) {
-	rsp, err := c.ListRepositoryCommitsWithBody(ctx, params, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListRepositoryCommitsResp(rsp)
-}
-
-func (c *ClientWithResponses) ListRepositoryCommitsWithResponse(ctx context.Context, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error) {
-	rsp, err := c.ListRepositoryCommits(ctx, params, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListRepositoryCommitsResp(rsp)
 }
 
 // ParseGetJWKSResp parses an HTTP response from a GetJWKSWithResponse call
@@ -34602,46 +34616,6 @@ func ParseRotateLLMProxyAPIKeyResp(rsp *http.Response) (*RotateLLMProxyAPIKeyRes
 	return response, nil
 }
 
-// ParseGetNameByDisplayNameResp parses an HTTP response from a GetNameByDisplayNameWithResponse call
-func ParseGetNameByDisplayNameResp(rsp *http.Response) (*GetNameByDisplayNameResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetNameByDisplayNameResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ResourceNameResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ErrorResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ErrorResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListRepositoryBranchesResp parses an HTTP response from a ListRepositoryBranchesWithResponse call
 func ParseListRepositoryBranchesResp(rsp *http.Response) (*ListRepositoryBranchesResp, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -34737,6 +34711,46 @@ func ParseListRepositoryCommitsResp(rsp *http.Response) (*ListRepositoryCommitsR
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetNameByDisplayNameResp parses an HTTP response from a GetNameByDisplayNameWithResponse call
+func ParseGetNameByDisplayNameResp(rsp *http.Response) (*GetNameByDisplayNameResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetNameByDisplayNameResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResourceNameResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse

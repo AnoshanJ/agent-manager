@@ -4813,7 +4813,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/branches:
+  /orgs/{orgName}/repositories/branches:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List branches for a repository
       description: |
@@ -4876,7 +4887,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/commits:
+  /orgs/{orgName}/repositories/commits:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List commits for a repository
       description: |
@@ -13669,9 +13691,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListBranchesResponse:
       type: object
@@ -13757,9 +13776,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListCommitsResponse:
       type: object
@@ -14838,6 +14854,8 @@ components:
           example: openai
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -14886,6 +14904,8 @@ components:
           description: Updated template identifier
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -15010,6 +15030,8 @@ components:
           description: Template identifier
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -15194,6 +15216,8 @@ components:
         provider:
           type: string
           description: Provider reference
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         policies:
           type: array
           items:
@@ -15404,6 +15428,8 @@ components:
           description: Human-readable endpoint name
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         policies:
           type: array
           items:
@@ -15669,6 +15695,27 @@ components:
           description: Reference to endpoint configuration
         auth:
           $ref: "#/components/schemas/UpstreamAuth"
+
+    Resilience:
+      type: object
+      description: >-
+        Route-level request/idle timeouts applied at the API level (no
+        per-operation override for LLM providers, LLM proxies, or MCP proxies).
+      properties:
+        timeout:
+          type: string
+          pattern: '^\d+(ms|s|m|h)$'
+          description: >-
+            Max duration for the whole request→upstream-response. "0s"
+            disables it; omit to use the gateway's default.
+          example: 15s
+        idleTimeout:
+          type: string
+          pattern: '^\d+(ms|s|m|h)$'
+          description: >-
+            Per-route stream idle timeout. "0s" disables it; omit to use the
+            gateway's default.
+          example: 20s
 
     UpstreamAuth:
       type: object
@@ -16609,6 +16656,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
 
     UpdateAgentModelConfigRequest:
       type: object
@@ -16769,6 +16818,8 @@ components:
           description: Provider-specific policy configurations
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         status:
           type: string
           description: Status of the proxy

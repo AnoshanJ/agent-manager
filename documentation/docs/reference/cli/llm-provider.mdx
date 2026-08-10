@@ -106,7 +106,7 @@ Tab completion on `--template` lists the live set — built-in handles plus any 
 - A provider inherits the template's upstream URL, auth scheme, and auth header. The upstream block is sent only when you supply `--upstream-url`, `--auth-type`, or `--auth-header`, or a credential — otherwise creation defers entirely to the template.
 - `--api-key` and `--api-key-stdin` are mutually exclusive.
 - An API key cannot be combined with `--auth-type none`.
-- A provider must be associated with at least one AI Gateway to be callable by agents. Pass `--gateways` at creation, or associate gateways later from the console (see [Register an LLM Service Provider](../../tutorials/register-llm-service-provider.mdx)).
+- A provider must be associated with at least one AI Gateway to be callable by agents. Pass `--gateways` at creation, or associate gateways later from the console (see [Register an LLM Service Provider](../../guides/register-llm-service-provider.mdx)).
 
 :::tip
 Reading the key from stdin keeps it out of your shell history and process list. `--api-key-stdin` accepts a piped value (`echo "$KEY" | …`) or a redirected file (`… < key.txt`).
@@ -168,5 +168,5 @@ amctl llm-provider delete prod-openai --yes
 ## See Also
 
 - [`amctl agent create`](./agent.mdx#amctl-agent-create) — attach a provider to an agent with `--llm-provider`
-- [Register an LLM Service Provider](../../tutorials/register-llm-service-provider.mdx) — console walkthrough and per-provider settings
-- [Configure LLM Providers for an Agent](../../tutorials/configure-agent-llm-configuration.mdx) — attaching providers to platform and external agents
+- [Register an LLM Service Provider](../../guides/register-llm-service-provider.mdx) — console walkthrough and per-provider settings
+- [Configure LLM Providers for an Agent](../../guides/configure-agent-llm-configuration.mdx) — attaching providers to platform and external agents

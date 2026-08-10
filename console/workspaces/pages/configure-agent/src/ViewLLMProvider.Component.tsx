@@ -26,6 +26,7 @@ import {
 import {
   CodeBlock,
   PolicyListSection,
+  ResilienceTimeoutFields,
   usePipelineEnvironmentsState,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
@@ -65,6 +66,13 @@ import { EmptyConfigCard } from "./Configure/subComponents/EmptyConfigCard";
 import { EnvironmentVariablesGuideDrawer } from "./Configure/subComponents/EnvironmentVariablesGuideDrawer";
 import { LLMProxyAPIKeysSection } from "./Configure/subComponents/LLMProxyAPIKeysSection";
 import { CONFIGURE_TAB_PARAM } from "./configureTabs";
+
+const DURATION_PATTERN = /^\d+(ms|s|m|h)$/;
+
+function validateResilienceDuration(value: string): string | null {
+  if (value.trim() === "" || DURATION_PATTERN.test(value.trim())) return null;
+  return "Enter a duration like 5s, 500ms, or 1m";
+}
 
 function generateDisplayName(key: string): string {
   switch (key) {
@@ -178,6 +186,12 @@ export const ViewLLMProviderComponent: React.FC = () => {
   const [selectedEnvIndex, setSelectedEnvIndex] = useState(0);
   const [guardrailsByEnv, setGuardrailsByEnv] = useState<
     Record<string, GuardrailSelection[]>
+  >({});
+  const [resilienceByEnv, setResilienceByEnv] = useState<
+    Record<string, { timeout: string; idleTimeout: string }>
+  >({});
+  const [resilienceErrorsByEnv, setResilienceErrorsByEnv] = useState<
+    Record<string, { timeout?: string | null; idleTimeout?: string | null }>
   >({});
   const [envVarNames, setEnvVarNames] = useState<Record<string, string>>({});
   const [snippetTab, setSnippetTab] = useState(0);
@@ -300,6 +314,16 @@ export const ViewLLMProviderComponent: React.FC = () => {
       nextByEnv[envName] = envGuardrails;
     }
     setGuardrailsByEnv(nextByEnv);
+
+    const nextResilienceByEnv: Record<string, { timeout: string; idleTimeout: string }> = {};
+    for (const [envName, m] of Object.entries(config.envMappings ?? {})) {
+      nextResilienceByEnv[envName] = {
+        timeout: m.configuration?.resilience?.timeout ?? "",
+        idleTimeout: m.configuration?.resilience?.idleTimeout ?? "",
+      };
+    }
+    setResilienceByEnv(nextResilienceByEnv);
+    setResilienceErrorsByEnv({});
   }, [config]);
 
   const selectedEnvName = useMemo(
@@ -379,8 +403,17 @@ export const ViewLLMProviderComponent: React.FC = () => {
       }
     }
 
+    // Check resilience overrides
+    for (const [envName, m] of Object.entries(config.envMappings ?? {})) {
+      const origTimeout = m.configuration?.resilience?.timeout ?? "";
+      const origIdleTimeout = m.configuration?.resilience?.idleTimeout ?? "";
+      const edited = resilienceByEnv[envName];
+      if ((edited?.timeout ?? "").trim() !== origTimeout) return true;
+      if ((edited?.idleTimeout ?? "").trim() !== origIdleTimeout) return true;
+    }
+
     return false;
-  }, [config, envVarNames, guardrailsByEnv, pendingProviderByEnv]);
+  }, [config, envVarNames, guardrailsByEnv, resilienceByEnv, pendingProviderByEnv]);
 
   const handleAddGuardrail = useCallback(
     (guardrail: GuardrailSelection) => {
@@ -431,8 +464,59 @@ export const ViewLLMProviderComponent: React.FC = () => {
     [selectedEnvName],
   );
 
+  const handleResilienceTimeoutChange = useCallback(
+    (value: string) => {
+      setResilienceByEnv((prev) => ({
+        ...prev,
+        [selectedEnvName]: { ...prev[selectedEnvName], timeout: value, idleTimeout: prev[selectedEnvName]?.idleTimeout ?? "" },
+      }));
+    },
+    [selectedEnvName],
+  );
+
+  const handleResilienceIdleTimeoutChange = useCallback(
+    (value: string) => {
+      setResilienceByEnv((prev) => ({
+        ...prev,
+        [selectedEnvName]: { ...prev[selectedEnvName], idleTimeout: value, timeout: prev[selectedEnvName]?.timeout ?? "" },
+      }));
+    },
+    [selectedEnvName],
+  );
+
+  const handleResilienceTimeoutBlur = useCallback(() => {
+    const value = resilienceByEnv[selectedEnvName]?.timeout ?? "";
+    setResilienceErrorsByEnv((prev) => ({
+      ...prev,
+      [selectedEnvName]: { ...prev[selectedEnvName], timeout: validateResilienceDuration(value) },
+    }));
+  }, [selectedEnvName, resilienceByEnv]);
+
+  const handleResilienceIdleTimeoutBlur = useCallback(() => {
+    const value = resilienceByEnv[selectedEnvName]?.idleTimeout ?? "";
+    const idleTimeout = validateResilienceDuration(value);
+    setResilienceErrorsByEnv((prev) => ({
+      ...prev,
+      [selectedEnvName]: { ...prev[selectedEnvName], idleTimeout },
+    }));
+  }, [selectedEnvName, resilienceByEnv]);
+
   const handleSave = useCallback(() => {
     if (!orgId || !projectId || !agentId || !configId || !config) return;
+
+    // Validate all environments' resilience fields before saving, not just the visible tab.
+    const nextResilienceErrors: typeof resilienceErrorsByEnv = {};
+    let hasResilienceError = false;
+    for (const [envName, r] of Object.entries(resilienceByEnv)) {
+      const timeoutError = validateResilienceDuration(r.timeout);
+      const idleTimeoutError = validateResilienceDuration(r.idleTimeout);
+      if (timeoutError || idleTimeoutError) hasResilienceError = true;
+      nextResilienceErrors[envName] = { timeout: timeoutError, idleTimeout: idleTimeoutError };
+    }
+    if (hasResilienceError) {
+      setResilienceErrorsByEnv(nextResilienceErrors);
+      return;
+    }
 
     const envMappings: Record<
       string,
@@ -448,6 +532,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
               params: Record<string, unknown>;
             }[];
           }[];
+          resilience?: { timeout?: string; idleTimeout?: string };
         };
       }
     > = {};
@@ -478,6 +563,23 @@ export const ViewLLMProviderComponent: React.FC = () => {
       // Skip environments that have neither an existing nor a newly picked provider.
       if (!resolvedProviderName) continue;
 
+      // Resolve resilience overrides: edited value if the env was touched this
+      // session, else preserve the originally stored override. Blank fields are
+      // omitted so the gateway's own default timeout applies.
+      const editedResilience = resilienceByEnv[envName];
+      const resolvedResilience = editedResilience !== undefined
+        ? {
+          timeout: editedResilience.timeout.trim() || undefined,
+          idleTimeout: editedResilience.idleTimeout.trim() || undefined,
+        }
+        : {
+          timeout: pConfig?.resilience?.timeout,
+          idleTimeout: pConfig?.resilience?.idleTimeout,
+        };
+      const resilience = resolvedResilience.timeout || resolvedResilience.idleTimeout
+        ? resolvedResilience
+        : undefined;
+
       const envGuardrails = guardrailsByEnv[envName];
       if (envGuardrails !== undefined) {
         // Environment was edited — build policies from edited guardrails
@@ -497,7 +599,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
             : undefined;
         envMappings[envName] = {
           providerName: resolvedProviderName,
-          configuration: { policies: envPolicies },
+          configuration: { policies: envPolicies, resilience },
         };
       } else {
         // Environment not loaded — preserve original policies intact
@@ -513,6 +615,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
                 params: pp.params ?? {},
               })),
             })),
+            resilience,
           },
         };
       }
@@ -549,6 +652,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
     configId,
     config,
     guardrailsByEnv,
+    resilienceByEnv,
     envVarNames,
     pendingProviderByEnv,
     providers,
@@ -998,6 +1102,19 @@ export const ViewLLMProviderComponent: React.FC = () => {
               onEdit={handleEditGuardrail}
               onRemove={handleRemoveGuardrail}
             />
+
+            <Stack spacing={1}>
+              <ResilienceTimeoutFields
+                requestTimeout={resilienceByEnv[selectedEnvName]?.timeout ?? ""}
+                onRequestTimeoutChange={handleResilienceTimeoutChange}
+                onRequestTimeoutBlur={handleResilienceTimeoutBlur}
+                requestTimeoutError={resilienceErrorsByEnv[selectedEnvName]?.timeout}
+                idleTimeout={resilienceByEnv[selectedEnvName]?.idleTimeout ?? ""}
+                onIdleTimeoutChange={handleResilienceIdleTimeoutChange}
+                onIdleTimeoutBlur={handleResilienceIdleTimeoutBlur}
+                idleTimeoutError={resilienceErrorsByEnv[selectedEnvName]?.idleTimeout}
+              />
+            </Stack>
 
             {isDirty && (
               <Stack direction="row" spacing={1} justifyContent="flex-end">

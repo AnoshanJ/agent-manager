@@ -325,9 +325,19 @@ install_evaluation_extension() {
     # order doesn't depend on a workflow having already run.
     kubectl create namespace workflows-default --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
+    # The eval pod runs untrusted evaluator code, so scope its API-server egress to the k3d node
+    # network rather than taking the chart's RFC1918 default, which also spans pod and service CIDRs.
+    local api_server_args=() node_cidr
+    node_cidr=$(docker network inspect "k3d-${CLUSTER_NAME}" \
+        --format '{{ (index .IPAM.Config 0).Subnet }}' 2>/dev/null || echo "")
+    if [[ -n "$node_cidr" ]]; then
+        api_server_args=(--set "networkPolicy.evaluationJob.apiServer.cidrs[0]=${node_cidr}")
+    fi
+
     # Install Helm chart
     if ! install_amp_helm_chart "${release_name}" "${chart_ref}" "${EVALUATION_NS}" "${TIMEOUT_AMP_INSTALL}" \
         --version "${chart_version}" \
+        ${api_server_args[@]+"${api_server_args[@]}"} \
         "${EVALUATION_HELM_ARGS[@]}"; then
         return 1
     fi
@@ -422,7 +432,9 @@ install_gateway_extension() {
     # its own "<org>-<env>" namespace, mirroring add-environment.sh.
     local gateway_namespace="default-default"
     local otel_restapi="${release_name}-otel-restapi"
-    local gateway_runtime_deployment="${release_name}-gateway-gateway-runtime"
+    # gateway-operator's own child Helm release inserts a "-gw-" infix between
+    # the APIGateway release name and each of its component names 
+    local gateway_runtime_deployment="${release_name}-gw-gateway-gateway-runtime"
 
     # Sandboxed agents can egress only to namespaces carrying this label. Create
     # and label the namespace before Helm so the policy is effective as soon as
@@ -437,10 +449,15 @@ install_gateway_extension() {
         return 1
     fi
 
-    # gateway-controller 1.2.0-beta mounts an AES-256 at-rest encryption key from
+    # gateway-controller (1.2.0-beta+) mounts an AES-256 at-rest encryption key from
     # a Secret in the SAME namespace as the gateway release.
     local enc_secret_name="${GATEWAY_ENCRYPTION_SECRET_NAME:-gateway-encryption-keys}"
     local enc_secret_key="${GATEWAY_ENCRYPTION_SECRET_KEY:-default-aesgcm256-v1.bin}"
+
+    if ! kubectl auth can-i get secrets -n "${gateway_namespace}" &>/dev/null; then
+        log_error "Missing 'get' permission on secrets in '${gateway_namespace}' — required to detect an existing gateway encryption key secret. Grant get (in addition to create) on secrets in this namespace to the identity running this installer."
+        return 1
+    fi
 
     local key_tmp
     key_tmp="$(mktemp)"
@@ -455,7 +472,7 @@ install_gateway_extension() {
     rm -f "${key_tmp}" # don't leave the plaintext key on disk
     if [ "${enc_create_rc}" -eq 0 ]; then
         log_success "Gateway encryption key secret created in '${gateway_namespace}'"
-    elif printf '%s\n' "${enc_create_out}" | grep -q "AlreadyExists"; then
+    elif kubectl get secret "${enc_secret_name}" -n "${gateway_namespace}" &>/dev/null; then
         log_info "Gateway encryption key secret '${enc_secret_name}' already exists in '${gateway_namespace}', leaving it untouched."
     else
         log_error "Failed to create gateway encryption key secret '${enc_secret_name}' in '${gateway_namespace}': ${enc_create_out}"

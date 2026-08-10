@@ -22,7 +22,7 @@ import { Alert, Button, ListingTable, Skeleton } from "@wso2/oxygen-ui";
 import { KeyRound, Rocket, ShieldOff } from "@wso2/oxygen-ui-icons-react";
 import {
   useCreateAgentAPIKey,
-  useGetAgent,
+  useGetAgentConfigurations,
   useListAgentDeployments,
   useListAgentAPIKeys,
   useRevokeAgentAPIKey,
@@ -38,11 +38,18 @@ import { absoluteRouteMap } from "@agent-management-platform/types";
 export const SecurityComponent: React.FC = () => {
   const { orgId, projectId, agentId, envId } = useParams();
 
-  const { data: agent, isLoading: isLoadingAgent } = useGetAgent({
-    orgName: orgId,
-    projName: projectId,
-    agentName: agentId,
-  });
+  // GetAgent returns only the lowest environment's config, so read per-env here.
+  const { data: envConfig, isLoading: isLoadingConfig } =
+    useGetAgentConfigurations(
+      {
+        orgName: orgId,
+        projName: projectId,
+        agentName: agentId,
+      },
+      {
+        environment: envId ?? "",
+      },
+    );
   const { data: deployments, isLoading: isLoadingDeployments } =
     useListAgentDeployments({
       orgName: orgId,
@@ -50,12 +57,12 @@ export const SecurityComponent: React.FC = () => {
       agentName: agentId,
     });
 
-  const securityEnabled = agent?.configurations?.enableApiKeySecurity ?? true;
-  const oauthEnabled = agent?.configurations?.enableOAuthSecurity ?? false;
+  const securityEnabled = envConfig?.enableApiKeySecurity ?? true;
+  const oauthEnabled = envConfig?.enableOAuthSecurity ?? false;
   const currentDeployment = envId ? deployments?.[envId] : undefined;
   const hasActiveDeployment = currentDeployment?.status === "active";
   const shouldLoadKeys =
-    !isLoadingAgent &&
+    !isLoadingConfig &&
     !isLoadingDeployments &&
     hasActiveDeployment &&
     securityEnabled &&
@@ -71,7 +78,7 @@ export const SecurityComponent: React.FC = () => {
     envId: shouldLoadKeys ? envId : undefined,
   });
   const isLoading =
-    isLoadingAgent || isLoadingDeployments || (shouldLoadKeys && isLoadingKeys);
+    isLoadingConfig || isLoadingDeployments || (shouldLoadKeys && isLoadingKeys);
 
   const { mutateAsync: createKey, isPending: isCreating } =
     useCreateAgentAPIKey();

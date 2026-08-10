@@ -93,9 +93,14 @@ validate_dns() {
   local -a candidates=("$@")
   DNS_ERRORS=()
   local host got ip ok e
+  # The two probe.* names stand in for the *.agents and *.<gateway> wildcards: they
+  # resolve only if the wildcard record exists. Checking $AMP_HOST_GATEWAY on its own
+  # is not enough — adding the deeper *.<gateway> wildcard turns that name into an
+  # empty non-terminal, so a broader *.<base> wildcard silently stops covering it
+  # (RFC 4592), exactly as it does for thunder.<base>.
   for host in "$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" \
               "$AMP_HOST_OBSERVER" "$AMP_HOST_GATEWAY" "${AMP_HOST_CP:-}" \
-              "probe.${AMP_AGENTS_BASE}"; do
+              "probe.${AMP_AGENTS_BASE}" "probe.${AMP_HOST_GATEWAY}"; do
     [[ -z "$host" ]] && continue
     got="$(_resolve_host "$host")"
     if [[ -z "$got" ]]; then

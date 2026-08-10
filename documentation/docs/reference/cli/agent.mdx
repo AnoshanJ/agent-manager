@@ -144,7 +144,7 @@ Pass the **handle** of a provider you created with [`amctl llm-provider create`]
 
 `--llm-url-env` and `--llm-api-key-env` only take effect alongside `--llm-provider`; setting either without it is rejected. The provider credential is never exposed to agent code directly — only these injected variables are available at runtime.
 
-The same binding can be expressed in a YAML manifest (`amctl agent create -f`) via the `modelConfig` block; run `amctl agent create --template` to print the scaffold. For the console-based workflow and the equivalent setup for external agents, see [Configure LLM Providers for an Agent](../../tutorials/configure-agent-llm-configuration.mdx).
+The same binding can be expressed in a YAML manifest (`amctl agent create -f`) via the `modelConfig` block; run `amctl agent create --template` to print the scaffold. For the console-based workflow and the equivalent setup for external agents, see [Configure LLM Providers for an Agent](../../guides/configure-agent-llm-configuration.mdx).
 
 ---
 

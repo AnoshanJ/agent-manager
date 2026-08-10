@@ -190,6 +190,10 @@ func (s *LLMProviderService) Create(ctx context.Context, ouID, createdBy string,
 		}
 	}
 
+	if err := provider.Configuration.Resilience.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, err)
+	}
+
 	// Encrypt upstream API key if provided
 	if provider.Configuration.Upstream != nil &&
 		provider.Configuration.Upstream.Main != nil &&
@@ -400,6 +404,10 @@ func (s *LLMProviderService) Update(ctx context.Context, providerID, ouID string
 		if err := updates.Configuration.Upstream.Main.Auth.Validate(); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := updates.Configuration.Resilience.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", utils.ErrInvalidInput, err)
 	}
 
 	// Encrypt upstream API key if a new value is provided
