@@ -216,7 +216,7 @@ agentManagerService:
     oauthAuthorizationServers: ""
 
     # Domain suffix env-Thunder developer-facing hostnames are built from:
-    # "<org>-<env>.thunder.<thunderHostBaseDomain>". Override on custom-domain /
+    # "<handle>.<thunderHostBaseDomain>". Override on custom-domain /
     # sslip.io installs so the reported identity-provider endpoints match the
     # actual env-Thunder hosts.
     thunderHostBaseDomain: "amp.localhost"
