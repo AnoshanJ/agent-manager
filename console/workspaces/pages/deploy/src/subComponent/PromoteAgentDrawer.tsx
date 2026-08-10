@@ -43,6 +43,7 @@ import {
   FileMountEditor,
 } from "@agent-management-platform/views";
 import {
+  extractServerErrorMessage,
   useAgentBuildOptions,
   usePromoteAgent,
   useGetAgent,
@@ -414,8 +415,7 @@ export function PromoteAgentDrawer({
   );
 
   const errorMessage = useMemo(
-    () =>
-      error ? ((error as Error)?.message ?? "Failed to promote agent") : null,
+    () => (error ? (extractServerErrorMessage(error) ?? "Failed to promote agent") : null),
     [error],
   );
 

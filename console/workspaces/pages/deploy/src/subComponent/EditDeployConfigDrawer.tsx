@@ -42,6 +42,7 @@ import {
 } from "@agent-management-platform/views";
 import { useConfirmationDialog } from "@agent-management-platform/shared-component";
 import {
+  extractServerErrorMessage,
   useAgentBuildOptions,
   useDeployAgent,
   useGetAgentConfigurations,
@@ -176,11 +177,6 @@ export function EditDeployConfigDrawer({
   const { mutate: regenerateToken, isPending: isRegenerating } = useRegenerateTracingToken();
   const isPending = isDeploying || isUpdating || isUpdatingSettings;
 
-  const errorHandler = useCallback((error: unknown) => {
-    const body = (error as { body?: { message?: string } })?.body;
-    pushSnackBar({ message: body?.message ?? "Failed to apply configuration", type: "error" });
-  }, [pushSnackBar]);
-
   const handleSave = useCallback(() => {
     const validEnv = env.filter((e) => e.key).map(({ key, value, isSensitive, secretRef }) => {
       // Preserve secretRef for secrets the user did not edit
@@ -203,7 +199,7 @@ export function EditDeployConfigDrawer({
             params: { orgName, projName, agentName },
             body: { environmentName: environment, env: validEnv, files: validFiles },
           },
-          { onSuccess: () => onClose(), onError: errorHandler },
+          { onSuccess: () => onClose() },
         );
 
       // Combine CORS/Auth (security) and tracing into a single deploy-settings call. The version is
@@ -223,7 +219,7 @@ export function EditDeployConfigDrawer({
       if (showSecurity || showTracing) {
         updateDeploySettings(
           { params: { orgName, projName, agentName }, body: deploySettingsBody },
-          { onSuccess: applyConfigs, onError: errorHandler },
+          { onSuccess: applyConfigs },
         );
       } else {
         applyConfigs();
@@ -244,13 +240,13 @@ export function EditDeployConfigDrawer({
           ...(validFiles.length && { files: validFiles }),
         },
       },
-      { onSuccess: () => onClose(), onError: errorHandler },
+      { onSuccess: () => onClose() },
     );
   }, [
     mode, env, files, environment, imageId, orgName, projName, agentName,
     showSecurity, showTracing, tracingEnabled, instrumentationVersion, versionDirty,
     versionInCompatibleSet,
-    deployAgent, updateConfigs, updateDeploySettings, onClose, pushSnackBar, errorHandler,
+    deployAgent, updateConfigs, updateDeploySettings, onClose, pushSnackBar,
   ]);
 
   // Regenerate mints + stores the new key immediately (no pre-confirm). The key only takes effect
@@ -276,12 +272,22 @@ export function EditDeployConfigDrawer({
             onConfirm: () => handleSave(),
           });
         },
-        onError: errorHandler,
+        // useDeployAgent/useUpdateAgentConfigurations/useUpdateAgentDeploySettings already
+        // show the server's message (+ reason, when the backend sends one) via their own
+        // showError:true default — useRegenerateTracingToken suppresses its generic one
+        // (showError:false) instead because its success path is custom (an expiry-aware
+        // confirmation), so it needs its own error snackbar here.
+        onError: (error: unknown) => {
+          pushSnackBar({
+            message: extractServerErrorMessage(error) ?? "Failed to regenerate tracing token",
+            type: "error",
+          });
+        },
       },
     );
   }, [
     regenerateToken, orgName, projName, agentName, environment, tokenExpiry,
-    addConfirmation, handleSave, errorHandler,
+    addConfirmation, handleSave, pushSnackBar,
   ]);
 
   // ── Env handlers ─────────────────────────────────────────────────────────

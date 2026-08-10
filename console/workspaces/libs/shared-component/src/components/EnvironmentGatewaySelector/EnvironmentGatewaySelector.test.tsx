@@ -88,6 +88,7 @@ const ControlledSelector: React.FC<{
   disabled?: boolean;
   onChangeSpy?: (ids: string[]) => void;
   onValidityChange?: (isValid: boolean) => void;
+  onSingleChoiceChange?: (isSingleChoice: boolean) => void;
 }> = ({
   environments,
   gateways,
@@ -96,6 +97,7 @@ const ControlledSelector: React.FC<{
   disabled,
   onChangeSpy,
   onValidityChange,
+  onSingleChoiceChange,
 }) => {
   const [value, setValue] = useState<string[]>(initialValue);
   return (
@@ -109,6 +111,7 @@ const ControlledSelector: React.FC<{
       }}
       lockedGatewayIds={lockedGatewayIds}
       onValidityChange={onValidityChange}
+      onSingleChoiceChange={onSingleChoiceChange}
       disabled={disabled}
     />
   );
@@ -132,33 +135,41 @@ const chooseOption = (selectName: string, optionName: string) => {
 };
 
 describe("EnvironmentGatewaySelectorView", () => {
-  it("emits the sole candidate without rendering a Select when a 1-candidate row is checked", () => {
+  it("auto-selects and renders nothing when there's only one environment with a single candidate gateway", () => {
     const onChangeSpy = vi.fn();
-    renderWithTheme(
+    const onSingleChoiceChange = vi.fn();
+    const { container } = renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[makeGateway("gw-1", "env-a")]}
         onChangeSpy={onChangeSpy}
+        onSingleChoiceChange={onSingleChoiceChange}
       />,
     );
-    expect(
-      screen.queryByRole("combobox", { hidden: true }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(getCheckbox("Alpha"));
+    expect(onSingleChoiceChange).toHaveBeenLastCalledWith(true);
     expect(onChangeSpy).toHaveBeenCalledWith(["gw-1"]);
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("contributes nothing while a 1-candidate row stays unchecked", () => {
+  it("does not auto-select or hide a 1-candidate row when it's one of several environments", () => {
     const onChangeSpy = vi.fn();
     renderWithTheme(
       <ControlledSelector
-        environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", "env-a")]}
+        environments={[
+          makeEnvironment("env-a", "Alpha"),
+          makeEnvironment("env-b", "Beta"),
+        ]}
+        gateways={[
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-b"),
+        ]}
         onChangeSpy={onChangeSpy}
       />,
     );
     expect(getCheckbox("Alpha")).not.toBeChecked();
     expect(onChangeSpy).not.toHaveBeenCalled();
+    fireEvent.click(getCheckbox("Alpha"));
+    expect(onChangeSpy).toHaveBeenCalledWith(["gw-1"]);
   });
 
   it("renders a Select for 2 candidates and reports invalid until one is chosen", () => {
@@ -176,6 +187,11 @@ describe("EnvironmentGatewaySelectorView", () => {
       />,
     );
     expect(onValidityChange).toHaveBeenLastCalledWith(true);
+    // The picker for an ambiguous row stays hidden until the row is checked —
+    // nothing to choose between until the user opts into this environment.
+    expect(
+      screen.queryByRole("combobox", { hidden: true }),
+    ).not.toBeInTheDocument();
     fireEvent.click(getCheckbox("Alpha"));
     expect(onChangeSpy).not.toHaveBeenCalled();
     expect(onValidityChange).toHaveBeenLastCalledWith(false);
@@ -221,8 +237,9 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(onChangeSpy).not.toHaveBeenCalled();
   });
 
-  it("renders a locked row checked with a disabled Select and a Deployed chip", () => {
-    renderWithTheme(
+  it("auto-hides a single locked environment — nothing left to decide", () => {
+    const onSingleChoiceChange = vi.fn();
+    const { container } = renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
@@ -231,32 +248,38 @@ describe("EnvironmentGatewaySelectorView", () => {
         ]}
         initialValue={["gw-1"]}
         lockedGatewayIds={["gw-1"]}
+        onSingleChoiceChange={onSingleChoiceChange}
       />,
     );
-    expect(getCheckbox("Alpha")).toBeChecked();
-    expect(
-      screen.getByRole("combobox", {
-        name: "Egress gateway for Alpha",
-        hidden: true,
-      }),
-    ).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Deployed")).toBeInTheDocument();
+    expect(onSingleChoiceChange).toHaveBeenLastCalledWith(true);
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("drops a locked gateway from the emission when its row is unchecked, and re-adds it on re-check", () => {
+  it("renders a locked row checked with the deployed gateway name and a Deployed chip, and drops it when unchecked, when it's one of several environments", () => {
     const onChangeSpy = vi.fn();
     renderWithTheme(
       <ControlledSelector
-        environments={[makeEnvironment("env-a", "Alpha")]}
+        environments={[
+          makeEnvironment("env-a", "Alpha"),
+          makeEnvironment("env-b", "Beta"),
+        ]}
         gateways={[
           makeGateway("gw-1", "env-a"),
           makeGateway("gw-2", "env-a"),
+          makeGateway("gw-3", "env-b"),
         ]}
         initialValue={["gw-1"]}
         lockedGatewayIds={["gw-1"]}
         onChangeSpy={onChangeSpy}
       />,
     );
+    expect(getCheckbox("Alpha")).toBeChecked();
+    expect(
+      screen.queryByRole("combobox", { hidden: true }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Gateway gw-1")).toBeInTheDocument();
+    expect(screen.getByText("Deployed")).toBeInTheDocument();
+
     fireEvent.click(getCheckbox("Alpha"));
     expect(onChangeSpy).toHaveBeenLastCalledWith([]);
     fireEvent.click(getCheckbox("Alpha"));
@@ -292,22 +315,52 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-3", "gw-2"]);
   });
 
-  it("renders an unmapped selected gateway as a removable locked row", () => {
+  it("renders an unmapped selected gateway as a removable locked row, and reports invalid while it remains", () => {
+    // Two environments, so removing the unmapped entry can't cascade into the
+    // unrelated single-choice auto-select feature — this test is only about
+    // the unmapped row itself.
     const onChangeSpy = vi.fn();
+    const onValidityChange = vi.fn();
     renderWithTheme(
       <ControlledSelector
-        environments={[makeEnvironment("env-a", "Alpha")]}
-        gateways={[makeGateway("gw-1", "env-a")]}
+        environments={[
+          makeEnvironment("env-a", "Alpha"),
+          makeEnvironment("env-b", "Beta"),
+        ]}
+        gateways={[
+          makeGateway("gw-1", "env-a"),
+          makeGateway("gw-2", "env-b"),
+        ]}
         initialValue={["ghost-gw"]}
         onChangeSpy={onChangeSpy}
+        onValidityChange={onValidityChange}
       />,
     );
     expect(screen.getByText("Unmapped")).toBeInTheDocument();
+    // A stale reference to a gateway that no longer resolves to any candidate
+    // is left over work, not a valid final state — even though every real row
+    // (here, none checked) is individually fine on its own.
+    expect(onValidityChange).toHaveBeenLastCalledWith(false);
     const ghostCheckbox = getCheckbox("ghost-gw");
     expect(ghostCheckbox).toBeChecked();
     fireEvent.click(ghostCheckbox);
     expect(onChangeSpy).toHaveBeenLastCalledWith([]);
     expect(screen.queryByText("Unmapped")).not.toBeInTheDocument();
+    expect(onValidityChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("keeps an unmapped selection visible instead of collapsing to the single-choice environment", () => {
+    // Only one real environment, but an orphaned reference is still selected —
+    // there's something to clean up here, so auto-hide must not kick in.
+    renderWithTheme(
+      <ControlledSelector
+        environments={[makeEnvironment("env-a", "Alpha")]}
+        gateways={[makeGateway("gw-1", "env-a")]}
+        initialValue={["ghost-gw"]}
+      />,
+    );
+    expect(screen.getByText("Unmapped")).toBeInTheDocument();
+    expect(getCheckbox("Alpha")).not.toBeChecked();
   });
 
   it("shows the selection footer only when there is more than one environment", () => {

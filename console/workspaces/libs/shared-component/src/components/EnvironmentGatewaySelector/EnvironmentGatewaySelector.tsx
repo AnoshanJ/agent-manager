@@ -46,6 +46,13 @@ export interface EnvironmentGatewaySelectorProps {
   lockedGatewayIds?: string[];
   /** false while any checked 2+-candidate environment lacks a resolved gateway. */
   onValidityChange?: (isValid: boolean) => void;
+  /**
+   * Fired with true when there's exactly one environment and it's unambiguous
+   * (a lock, or a single candidate gateway) — the component auto-selects it and
+   * renders nothing, since there's no real choice to present. Callers should
+   * hide their own wrapping title/caption for this selector when true.
+   */
+  onSingleChoiceChange?: (isSingleChoice: boolean) => void;
   disabled?: boolean;
 }
 
@@ -91,6 +98,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
   onChange,
   lockedGatewayIds = [],
   onValidityChange,
+  onSingleChoiceChange,
   disabled,
 }) => {
   const [pendingEnvIds, setPendingEnvIds] = useState<Set<string>>(new Set());
@@ -155,13 +163,31 @@ export const EnvironmentGatewaySelectorView: React.FC<
     return value.filter((uuid) => !candidateUuids.has(uuid));
   }, [rows, value]);
 
-  const isValid = rows.every(
-    (row) => !(row.checked && !row.lockedGateway && !row.resolvedGateway),
-  );
+  const isValid =
+    rows.every(
+      (row) => !(row.checked && !row.lockedGateway && !row.resolvedGateway),
+    ) && unmappedSelectedUuids.length === 0;
 
   useEffect(() => {
     onValidityChange?.(isValid);
   }, [isValid, onValidityChange]);
+
+  // The one case where there's truly nothing to choose: a single environment
+  // whose gateway is already fixed (locked) or has only one candidate, and no
+  // orphaned selection left over to clean up. Any other shape (2+ environments,
+  // one with an ambiguous gateway, or a stale reference to surface) is a real
+  // choice and still needs to render.
+  const singleRow = rows.length === 1 ? rows[0] : undefined;
+  const isSingleChoice = Boolean(
+    !isLoading &&
+      singleRow &&
+      unmappedSelectedUuids.length === 0 &&
+      (singleRow.lockedGateway || singleRow.candidates.length === 1),
+  );
+
+  useEffect(() => {
+    onSingleChoiceChange?.(isSingleChoice);
+  }, [isSingleChoice, onSingleChoiceChange]);
 
   const setPending = (envId: string, pending: boolean) => {
     setPendingEnvIds((prev) => {
@@ -188,6 +214,14 @@ export const EnvironmentGatewaySelectorView: React.FC<
     });
     onChange([...next, gateway.uuid]);
   };
+
+  // Nothing for the user to decide, so commit the sole answer on their behalf
+  // instead of requiring a checkbox click for a choice that isn't really one.
+  useEffect(() => {
+    if (!isSingleChoice || !singleRow || singleRow.checked) return;
+    emitAdd(singleRow.lockedGateway ?? singleRow.candidates[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSingleChoice, singleRow]);
 
   const handleToggle = (row: EnvironmentRow) => {
     if (row.lockedGateway) {
@@ -221,9 +255,21 @@ export const EnvironmentGatewaySelectorView: React.FC<
     );
   }
 
+  // Auto-selected above; nothing left to present.
+  if (isSingleChoice) return null;
+
   const selectedCount = rows.filter((row) =>
     row.candidates.some((candidate) => valueSet.has(candidate.uuid)),
   ).length;
+
+  // The gateway name shown inline next to the environment label — only when
+  // there's exactly one possible answer (a lock, or a single candidate), so
+  // it reads as a fact rather than a choice still to be made.
+  const inlineGatewayLabel = (row: EnvironmentRow): string | undefined => {
+    if (row.lockedGateway) return gatewayLabel(row.lockedGateway);
+    if (row.candidates.length === 1) return gatewayLabel(row.candidates[0]);
+    return undefined;
+  };
 
   const renderRowContent = (row: EnvironmentRow) => {
     if (row.candidates.length === 0) {
@@ -234,37 +280,21 @@ export const EnvironmentGatewaySelectorView: React.FC<
       );
     }
     if (row.lockedGateway) {
+      // The gateway is already deployed and can't change here, so it's shown
+      // as plain text inline above rather than a disabled (never-editable) select.
       return (
-        <>
-          <FormControl fullWidth>
-            <Select
-              size="small"
-              value={row.lockedGateway.uuid}
-              disabled
-              SelectDisplayProps={{
-                "aria-label": `Egress gateway for ${row.label}`,
-              }}
-            >
-              {row.candidates.map((candidate) => (
-                <MenuItem key={candidate.uuid} value={candidate.uuid}>
-                  {gatewayLabel(candidate)}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-            {DEPLOYED_CAPTION}
-          </Typography>
-        </>
-      );
-    }
-    if (row.candidates.length === 1) {
-      return (
-        <Typography variant="body2" color="text.secondary">
-          {gatewayLabel(row.candidates[0])}
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+          {DEPLOYED_CAPTION}
         </Typography>
       );
     }
+    if (row.candidates.length === 1) {
+      // Unambiguous — shown inline next to the environment name instead.
+      return null;
+    }
+    // 2+ candidates: which gateway to use is a real choice, so only surface
+    // the picker once the user has actually opted into this environment.
+    if (!row.checked) return null;
     return (
       <>
         <FormControl fullWidth>
@@ -273,6 +303,12 @@ export const EnvironmentGatewaySelectorView: React.FC<
             value={row.resolvedGateway?.uuid ?? ""}
             disabled={disabled}
             onChange={(event) => handleSelect(row, event.target.value)}
+            displayEmpty
+            renderValue={(selected) =>
+              selected
+                ? gatewayLabel(gatewayByUuid.get(selected as string)!)
+                : "Select a gateway"
+            }
             SelectDisplayProps={{
               "aria-label": `Egress gateway for ${row.label}`,
             }}
@@ -284,7 +320,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
             ))}
           </Select>
         </FormControl>
-        {row.checked && !row.resolvedGateway && (
+        {!row.resolvedGateway && (
           <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
             {AMBIGUOUS_CAPTION}
           </Typography>
@@ -293,32 +329,35 @@ export const EnvironmentGatewaySelectorView: React.FC<
     );
   };
 
+  // Width of the checkbox + its gap to the label, so content indented below
+  // the checkbox+label line lines up under the label rather than the box.
+  const CHECKBOX_INDENT = 4.5;
+
   return (
     <Stack spacing={1.5}>
-      {rows.map((row) => (
-        <Stack
-          key={row.envId}
-          direction="row"
-          spacing={1}
-          alignItems="flex-start"
-          sx={row.candidates.length === 0 ? { opacity: 0.5 } : undefined}
-        >
-          <Checkbox
-            size="small"
-            checked={row.checked}
-            disabled={disabled || row.candidates.length === 0}
-            onChange={() => handleToggle(row)}
-            inputProps={{ "aria-label": row.label }}
-            sx={{ p: 0.5 }}
-          />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
-              sx={{ mb: 0.5 }}
-            >
+      {rows.map((row) => {
+        const belowContent = renderRowContent(row);
+        return (
+          <Stack
+            key={row.envId}
+            spacing={0.5}
+            sx={row.candidates.length === 0 ? { opacity: 0.5 } : undefined}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Checkbox
+                size="small"
+                checked={row.checked}
+                disabled={disabled || row.candidates.length === 0}
+                onChange={() => handleToggle(row)}
+                inputProps={{ "aria-label": row.label }}
+                sx={{ p: 0.5 }}
+              />
               <Typography variant="body2">{row.label}</Typography>
+              {inlineGatewayLabel(row) && (
+                <Typography variant="caption" color="text.disabled">
+                  {inlineGatewayLabel(row)}
+                </Typography>
+              )}
               {row.lockedGateway && (
                 <Chip
                   label="Deployed"
@@ -328,10 +367,12 @@ export const EnvironmentGatewaySelectorView: React.FC<
                 />
               )}
             </Stack>
-            {renderRowContent(row)}
-          </Box>
-        </Stack>
-      ))}
+            {belowContent && (
+              <Box sx={{ pl: CHECKBOX_INDENT }}>{belowContent}</Box>
+            )}
+          </Stack>
+        );
+      })}
       {unmappedSelectedUuids.map((uuid) => {
         const gateway = gatewayByUuid.get(uuid);
         const label = gateway ? gatewayLabel(gateway) : uuid;

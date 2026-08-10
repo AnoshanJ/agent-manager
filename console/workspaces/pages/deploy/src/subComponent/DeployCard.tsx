@@ -601,6 +601,7 @@ export function DeployCard(props: DeployCardProps) {
 
           <Collapse in={[
             DeploymentStatus.ACTIVE, DeploymentStatus.ERROR, DeploymentStatus.FAILED,
+            DeploymentStatus.DEPLOYING,
           ].includes(currentDeployment?.status as DeploymentStatus)}>
             <Stack gap={2}>
               <Card variant="outlined" sx={{ padding: 1.4, pt: 0.5 }}>
