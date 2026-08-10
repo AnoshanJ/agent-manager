@@ -30,6 +30,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Box,
   Button,
   Chip,
@@ -48,6 +49,7 @@ import { ChevronDown, HelpCircle } from "@wso2/oxygen-ui-icons-react";
 import { useSnackBar } from "@agent-management-platform/views";
 import {
   EnvironmentGatewaySelectorView,
+  getErrorMessage,
   ResilienceTimeoutFields,
   validateEndpointUrl,
 } from "@agent-management-platform/shared-component";
@@ -157,7 +159,11 @@ export function EndpointFormFields({
     string | null
   >(null);
 
-  const { data: gatewaysData } = useListGateways({ orgName: orgId });
+  const {
+    data: gatewaysData,
+    isLoading: isLoadingGateways,
+    error: gatewaysFetchError,
+  } = useListGateways({ orgName: orgId });
   const gateways = useMemo(
     () => gatewaysData?.gateways ?? [],
     [gatewaysData],
@@ -570,7 +576,11 @@ export function EndpointFormFields({
       ) : (
         <FormControl fullWidth>
           <Form.Subheader>Deployment Configuration</Form.Subheader>
-          {availableEnvironments.length > 0 ? (
+          {!isLoadingGateways && gatewaysFetchError ? (
+            <Alert severity="error" sx={{ mt: 0.5 }}>
+              {getErrorMessage(gatewaysFetchError)}
+            </Alert>
+          ) : availableEnvironments.length > 0 ? (
             <>
               <Box sx={{ mt: 0.5 }}>
                 <EnvironmentGatewaySelectorView

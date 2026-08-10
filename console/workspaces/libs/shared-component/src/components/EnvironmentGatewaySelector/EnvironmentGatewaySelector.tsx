@@ -163,9 +163,10 @@ export const EnvironmentGatewaySelectorView: React.FC<
     return value.filter((uuid) => !candidateUuids.has(uuid));
   }, [rows, value]);
 
-  const isValid = rows.every(
-    (row) => !(row.checked && !row.lockedGateway && !row.resolvedGateway),
-  );
+  const isValid =
+    rows.every(
+      (row) => !(row.checked && !row.lockedGateway && !row.resolvedGateway),
+    ) && unmappedSelectedUuids.length === 0;
 
   useEffect(() => {
     onValidityChange?.(isValid);

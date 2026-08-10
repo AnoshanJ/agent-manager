@@ -52,13 +52,13 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     orgId, projectId, agentId, envId,
   });
 
-  const { roles, groups, isLoading } = useAgentRolesAndGroups({
+  const { roles, groups, isLoading, isError: isRolesGroupsError } = useAgentRolesAndGroups({
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
 
   // Same lookup the agent-id page uses: the Thunder Agent ID is a field on the
   // per-env identity-agents list, matched by agent + project name.
-  const { data: identityAgentsData } = useListAgentIdentityAgents({
+  const { data: identityAgentsData, isError: isAgentsError } = useListAgentIdentityAgents({
     orgName: orgId, envName: envId,
   });
   const thunderAgentId = useMemo(
@@ -119,6 +119,10 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
                 </IconButton>
               </Tooltip>
             </Box>
+          ) : isAgentsError ? (
+            <Typography variant="body2" color="error">
+              Unable to load Agent ID. Try again later.
+            </Typography>
           ) : provisioned ? (
             <Typography variant="body2" color="text.disabled">
               Provisioning identity…
@@ -131,6 +135,10 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
           <Box mt={0.5}>
             {isLoading ? (
               <Skeleton variant="text" width={180} height={16} />
+            ) : isRolesGroupsError ? (
+              <Typography variant="caption" color="error">
+                Unable to load roles/groups. Try again later.
+              </Typography>
             ) : hasTags ? (
               <>
                 {roles.length > 0 && (

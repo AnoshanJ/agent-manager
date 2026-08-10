@@ -39,6 +39,7 @@ import {
 import { useValidatedForm } from "../hooks/useValidatedForm";
 import {
   EnvironmentGatewaySelector,
+  getErrorMessage,
   PolicyListSection,
   ResilienceTimeoutFields,
   type PolicySelection as GuardrailSelection,
@@ -167,10 +168,11 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
 
   // limit: 500 — without it the server's default page size silently truncates
   // the list and the zero-egress warning could fire against a partial view.
-  const { data: gatewaysData, isLoading: isLoadingGateways } = useListGateways(
-    { orgName: orgId },
-    { limit: 500 },
-  );
+  const {
+    data: gatewaysData,
+    isLoading: isLoadingGateways,
+    error: gatewaysFetchError,
+  } = useListGateways({ orgName: orgId }, { limit: 500 });
 
   // Egress-capable only: ingress gateways are not legal LLM placement targets and the
   // server rejects them. No status filter — the server's candidate set is not
@@ -653,13 +655,20 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
           <Form.Section>
             <Form.Subheader>Deployment Configuration</Form.Subheader>
             <Form.Stack spacing={2}>
-              {!isLoadingGateways && gateways.length === 0 && (
-                <Alert severity="warning">
-                  No egress-capable gateway is configured for this
-                  organization. Ask an admin to configure one before creating
-                  an LLM provider.
+              {!isLoadingGateways && Boolean(gatewaysFetchError) && (
+                <Alert severity="error">
+                  {getErrorMessage(gatewaysFetchError)}
                 </Alert>
               )}
+              {!isLoadingGateways &&
+                !gatewaysFetchError &&
+                gateways.length === 0 && (
+                  <Alert severity="warning">
+                    No egress-capable gateway is configured for this
+                    organization. Ask an admin to configure one before
+                    creating an LLM provider.
+                  </Alert>
+                )}
               <EnvironmentGatewaySelector
                 orgId={orgId}
                 value={formData.gatewayIds ?? []}

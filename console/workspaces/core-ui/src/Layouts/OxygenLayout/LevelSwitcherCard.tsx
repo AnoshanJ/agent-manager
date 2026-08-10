@@ -88,6 +88,8 @@ export function LevelSwitcherCard({
           onClick={onOpenMenu}
           size="small"
           aria-label={chevronLabel}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           sx={{
             "& .chevron-icon": {
               transform: menuOpen ? "rotate(90deg)" : "rotate(0deg)",
@@ -150,6 +152,8 @@ export function LevelSwitcherCard({
       <IconButton
         size="small"
         aria-label={chevronLabel}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
         onClick={onOpenMenu}
         sx={{
           position: "absolute",

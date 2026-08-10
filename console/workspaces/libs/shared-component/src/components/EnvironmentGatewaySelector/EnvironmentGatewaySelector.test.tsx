@@ -315,11 +315,12 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(onChangeSpy).toHaveBeenLastCalledWith(["gw-3", "gw-2"]);
   });
 
-  it("renders an unmapped selected gateway as a removable locked row", () => {
+  it("renders an unmapped selected gateway as a removable locked row, and reports invalid while it remains", () => {
     // Two environments, so removing the unmapped entry can't cascade into the
     // unrelated single-choice auto-select feature — this test is only about
     // the unmapped row itself.
     const onChangeSpy = vi.fn();
+    const onValidityChange = vi.fn();
     renderWithTheme(
       <ControlledSelector
         environments={[
@@ -332,14 +333,20 @@ describe("EnvironmentGatewaySelectorView", () => {
         ]}
         initialValue={["ghost-gw"]}
         onChangeSpy={onChangeSpy}
+        onValidityChange={onValidityChange}
       />,
     );
     expect(screen.getByText("Unmapped")).toBeInTheDocument();
+    // A stale reference to a gateway that no longer resolves to any candidate
+    // is left over work, not a valid final state — even though every real row
+    // (here, none checked) is individually fine on its own.
+    expect(onValidityChange).toHaveBeenLastCalledWith(false);
     const ghostCheckbox = getCheckbox("ghost-gw");
     expect(ghostCheckbox).toBeChecked();
     fireEvent.click(ghostCheckbox);
     expect(onChangeSpy).toHaveBeenLastCalledWith([]);
     expect(screen.queryByText("Unmapped")).not.toBeInTheDocument();
+    expect(onValidityChange).toHaveBeenLastCalledWith(true);
   });
 
   it("keeps an unmapped selection visible instead of collapsing to the single-choice environment", () => {
