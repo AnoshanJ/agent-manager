@@ -43,6 +43,7 @@ import {
   FileMountEditor,
 } from "@agent-management-platform/views";
 import {
+  extractServerErrorMessage,
   useAgentBuildOptions,
   usePromoteAgent,
   useGetAgent,
@@ -413,14 +414,10 @@ export function PromoteAgentDrawer({
     ],
   );
 
-  const errorMessage = useMemo(() => {
-    if (!error) return null;
-    // The http write helpers throw an Error whose `.body` is the full parsed
-    // error JSON, so `reason` lives under `.body.reason`, not on the error itself.
-    const { message, body } = error as { message?: string; body?: { reason?: string } };
-    if (!message) return "Failed to promote agent";
-    return body?.reason ? `${message}: ${body.reason}` : message;
-  }, [error]);
+  const errorMessage = useMemo(
+    () => (error ? (extractServerErrorMessage(error) ?? "Failed to promote agent") : null),
+    [error],
+  );
 
   return (
     <DrawerWrapper open={open} onClose={onClose}>

@@ -33,7 +33,6 @@ interface EnvironmentSectionsContentProps {
     envId: string;
     configurations?: Configurations;
     external?: boolean;
-    isolationTier?: string;
     deploymentStatus?: DeploymentStatus;
 }
 
@@ -46,11 +45,11 @@ interface EnvironmentSectionsContentProps {
  * since both are compact per-environment identity/interface summaries.
  */
 export function EnvironmentSectionsContent({
-    orgId, projectId, agentId, envId, configurations, external, isolationTier, deploymentStatus,
+    orgId, projectId, agentId, envId, configurations, external, deploymentStatus,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
-            <Divider sx={{ my: 1.5 }} />
+            <Divider sx={{ my: 1.5, mt: 0 }} />
             <EnvCapabilitiesSection
                 orgId={orgId}
                 projectId={projectId}
@@ -58,7 +57,6 @@ export function EnvironmentSectionsContent({
                 envId={envId}
                 configurations={configurations}
                 external={external}
-                isolationTier={isolationTier}
                 deploymentStatus={deploymentStatus}
             />
             <Grid container spacing={2} sx={{ mb: 1.5 }}>

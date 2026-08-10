@@ -42,6 +42,7 @@ import {
 } from "@agent-management-platform/views";
 import { useConfirmationDialog } from "@agent-management-platform/shared-component";
 import {
+  extractServerErrorMessage,
   useAgentBuildOptions,
   useDeployAgent,
   useGetAgentConfigurations,
@@ -176,28 +177,6 @@ export function EditDeployConfigDrawer({
   const { mutate: regenerateToken, isPending: isRegenerating } = useRegenerateTracingToken();
   const isPending = isDeploying || isUpdating || isUpdatingSettings;
 
-  // Only reached by regenerateToken below — useDeployAgent/useUpdateAgentConfigurations/
-  // useUpdateAgentDeploySettings already show the server's message (+ reason, when the backend
-  // sends one) via their own showError:true default, so wiring this in there too would double
-  // the snackbar. useRegenerateTracingToken suppresses its generic one (showError:false) because
-  // its success path is custom (an expiry-aware confirmation), so this covers its error path.
-  const errorHandler = useCallback((error: unknown) => {
-    // The http write helpers throw an Error whose `.body` is the full parsed
-    // error JSON, so `reason` lives under `.body.reason`, not on the error itself.
-    const { message, body } = (error ?? {}) as {
-      message?: string;
-      body?: { reason?: string };
-    };
-    pushSnackBar({
-      message: message
-        ? body?.reason
-          ? `${message}: ${body.reason}`
-          : message
-        : "Failed to regenerate tracing token",
-      type: "error",
-    });
-  }, [pushSnackBar]);
-
   const handleSave = useCallback(() => {
     const validEnv = env.filter((e) => e.key).map(({ key, value, isSensitive, secretRef }) => {
       // Preserve secretRef for secrets the user did not edit
@@ -293,12 +272,22 @@ export function EditDeployConfigDrawer({
             onConfirm: () => handleSave(),
           });
         },
-        onError: errorHandler,
+        // useDeployAgent/useUpdateAgentConfigurations/useUpdateAgentDeploySettings already
+        // show the server's message (+ reason, when the backend sends one) via their own
+        // showError:true default — useRegenerateTracingToken suppresses its generic one
+        // (showError:false) instead because its success path is custom (an expiry-aware
+        // confirmation), so it needs its own error snackbar here.
+        onError: (error: unknown) => {
+          pushSnackBar({
+            message: extractServerErrorMessage(error) ?? "Failed to regenerate tracing token",
+            type: "error",
+          });
+        },
       },
     );
   }, [
     regenerateToken, orgName, projName, agentName, environment, tokenExpiry,
-    addConfirmation, handleSave, errorHandler,
+    addConfirmation, handleSave, pushSnackBar,
   ]);
 
   // ── Env handlers ─────────────────────────────────────────────────────────

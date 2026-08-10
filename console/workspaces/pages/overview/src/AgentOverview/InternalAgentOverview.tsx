@@ -152,7 +152,6 @@ export const InternalAgentOverview = () => {
                                 agentId={agentId}
                                 envId={selectedEnvironment.name}
                                 configurations={agent?.configurations}
-                                isolationTier={selectedEnvironment.isolationTier}
                                 deploymentStatus={selectedEnvironmentStatus}
                             />
                         }

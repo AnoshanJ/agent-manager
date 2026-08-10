@@ -110,7 +110,7 @@ function getActionSuccessMessage(action: MutationActionConfig): string {
  * Returns undefined for synthetic transport messages so the caller can fall back
  * to a friendly generic message instead of leaking "HTTP error! status: 500".
  */
-function extractServerErrorMessage(error: unknown): string | undefined {
+export function extractServerErrorMessage(error: unknown): string | undefined {
   if (!error || typeof error !== "object") {
     return undefined;
   }
