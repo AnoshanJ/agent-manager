@@ -89,7 +89,8 @@ func (c *monitorScoresPublisherController) PublishScores(w http.ResponseWriter, 
 	// for a run. The actor is the machine client from the token audience, not a
 	// user.
 	publishErr := c.scoresService.PublishScores(monitorID, runID, &req)
-	audit.Record(r.Context(), audit.ActionMonitorScorePublish,
+	audit.Record(
+		r.Context(), audit.ActionMonitorScorePublish,
 		audit.ResourceNamed("monitor-run", runID.String(), runID.String()),
 		audit.SurfaceOpt(audit.SurfacePublisher),
 		audit.Actor(audit.ActorService, publisherAudience(r.Context()), ""),

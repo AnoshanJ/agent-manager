@@ -66,7 +66,8 @@ func beginConfigAPIKeyAudit(
 	action audit.Action,
 	ownerType, ouID, projName, agentName, envName, configID, keyName string,
 ) (*audit.Attempt, bool) {
-	return beginAuditOrFail(w, r, operation, failureMessage, action,
+	return beginAuditOrFail(
+		w, r, operation, failureMessage, action,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAPIKey, configID, keyName),
 		audit.Project(projName),

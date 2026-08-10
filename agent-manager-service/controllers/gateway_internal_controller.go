@@ -452,7 +452,8 @@ func (c *gatewayInternalController) PushGatewayManifest(w http.ResponseWriter, r
 	// gateway is a machine client that retries, so refusing the push when the
 	// trail is unavailable would leave the mirror stale for no gain.
 	err := c.gatewayService.SaveGatewayPolicyManifest(gatewayID, manifest)
-	audit.Record(r.Context(), audit.ActionGatewayPushManifest,
+	audit.Record(
+		r.Context(), audit.ActionGatewayPushManifest,
 		audit.Org(identity.OUID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.SurfaceOpt(audit.SurfaceInternal),

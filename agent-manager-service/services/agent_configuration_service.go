@@ -3417,7 +3417,8 @@ func (s *agentConfigurationService) recordConfigUpdate(ctx context.Context, conf
 	// A real audit record. This previously wrote only an slog line labelled as
 	// an audit log: it carried no actor, no outcome and no durability, so it
 	// could not answer who changed the configuration.
-	audit.Record(ctx, audit.ActionAgentConfigUpdate,
+	audit.Record(
+		ctx, audit.ActionAgentConfigUpdate,
 		audit.Org(ouID),
 		audit.ResourceNamed("agent-config", configUUID.String(), configName),
 		audit.Project(projectName),
@@ -3702,7 +3703,8 @@ func (s *agentConfigurationService) deleteLLMConfig(ctx context.Context, existin
 		return err
 	}
 
-	audit.Record(ctx, audit.ActionAgentConfigDelete,
+	audit.Record(
+		ctx, audit.ActionAgentConfigDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed("agent-config", configUUID.String(), existingConfig.Name),
 		audit.Project(projectName),

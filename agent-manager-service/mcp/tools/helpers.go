@@ -192,7 +192,8 @@ func withToolAudit[T any](
 		if audited {
 			// A handler that already emitted its own semantic record marks the
 			// request scope, so this does not double-record; see audit.Record.
-			audit.Record(ctx, action,
+			audit.Record(
+				ctx, action,
 				audit.SurfaceOpt(audit.SurfaceMCP),
 				audit.Detail("tool", toolName),
 				audit.Result(err),

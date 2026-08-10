@@ -154,7 +154,8 @@ func (c *gatewayController) UpsertGatewayIdentityProvider(w http.ResponseWriter,
 	// fetch validates TLS — an issuer on its own does not say who can actually
 	// mint an accepted token.
 	ctx := r.Context()
-	attempt, ok := beginAuditOrFail(w, r, "UpsertGatewayIdentityProvider", "Failed to upsert identity provider", audit.ActionGatewaySetIdentityProvider,
+	attempt, ok := beginAuditOrFail(
+		w, r, "UpsertGatewayIdentityProvider", "Failed to upsert identity provider", audit.ActionGatewaySetIdentityProvider,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
 		audit.Detail("identityProviderName", name),
@@ -192,7 +193,8 @@ func (c *gatewayController) DeleteGatewayIdentityProvider(w http.ResponseWriter,
 	name := strings.TrimSpace(r.PathValue("name"))
 
 	ctx := r.Context()
-	attempt, ok := beginAuditOrFail(w, r, "DeleteGatewayIdentityProvider", "Failed to delete identity provider", audit.ActionGatewayRemoveIdentityProvider,
+	attempt, ok := beginAuditOrFail(
+		w, r, "DeleteGatewayIdentityProvider", "Failed to delete identity provider", audit.ActionGatewayRemoveIdentityProvider,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayID, gatewayID),
 		audit.Detail("identityProviderName", name),

@@ -235,7 +235,8 @@ func (s *infraResourceManager) DeleteProject(ctx context.Context, ouID string, p
 	s.logger.Debug("No associated agents found, proceeding with deletion", "projectName", projectName)
 
 	// Delete project from OpenChoreo
-	deleteAttempt, auditErr := audit.Begin(ctx, audit.ActionProjectDelete,
+	deleteAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionProjectDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed("project", projectName, projectName),
 		audit.Project(projectName),

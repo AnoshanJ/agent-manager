@@ -646,7 +646,8 @@ func (c *agentController) RegenerateTracingToken(w http.ResponseWriter, r *http.
 
 	// Rotating the tracing token invalidates the one the deployed agent is
 	// using, so it is credential material and is refused when unrecordable.
-	attempt, ok := beginAuditOrFail(w, r, "RegenerateTracingToken", "Failed to regenerate tracing token", audit.ActionAgentTokenRegenerateTracing,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RegenerateTracingToken", "Failed to regenerate tracing token", audit.ActionAgentTokenRegenerateTracing,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
 		audit.Project(projName),
@@ -840,7 +841,8 @@ func (c *agentController) UpdateDeploymentState(w http.ResponseWriter, r *http.R
 
 	// The gating permission is agent:suspend, but this route also resumes and
 	// undeploys, so the record names the state actually requested.
-	stateAttempt, ok := beginAuditOrFail(w, r, "UpdateDeploymentState", "Failed to update deployment state", audit.ActionAgentChangeDeploymentState,
+	stateAttempt, ok := beginAuditOrFail(
+		w, r, "UpdateDeploymentState", "Failed to update deployment state", audit.ActionAgentChangeDeploymentState,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
 		audit.Project(projName),
@@ -1100,7 +1102,8 @@ func (c *agentController) RegenerateAgentIdentitySecret(w http.ResponseWriter, r
 
 	log.Info("RegenerateAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	attempt, ok := beginAuditOrFail(w, r, "RegenerateAgentIdentitySecret", "Failed to regenerate agent identity secret", audit.ActionAgentIdentityRegenerateSecret,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RegenerateAgentIdentitySecret", "Failed to regenerate agent identity secret", audit.ActionAgentIdentityRegenerateSecret,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
 		audit.Project(projName),
@@ -1151,7 +1154,8 @@ func (c *agentController) RevokeAgentIdentitySecret(w http.ResponseWriter, r *ht
 
 	log.Info("RevokeAgentIdentitySecret: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	attempt, ok := beginAuditOrFail(w, r, "RevokeAgentIdentitySecret", "Failed to revoke agent identity secret", audit.ActionAgentIdentityRevokeSecret,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RevokeAgentIdentitySecret", "Failed to revoke agent identity secret", audit.ActionAgentIdentityRevokeSecret,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
 		audit.Project(projName),
@@ -1206,7 +1210,8 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 
 	log.Info("ProvisionAgentIdentity: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
 
-	attempt, ok := beginAuditOrFail(w, r, "ProvisionAgentIdentity", "Failed to provision agent identity", audit.ActionAgentIdentityProvision,
+	attempt, ok := beginAuditOrFail(
+		w, r, "ProvisionAgentIdentity", "Failed to provision agent identity", audit.ActionAgentIdentityProvision,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
 		audit.Project(projName),

@@ -145,7 +145,8 @@ func TestPrivilegeChangeRecordsWhatChanged(t *testing.T) {
 	ctx := WithRecorder(context.Background(), rec)
 
 	granted := []string{"amp:agent:deploy-production", "amp:audit-event:read"}
-	Record(ctx, ActionRoleGrantPermission,
+	Record(
+		ctx, ActionRoleGrantPermission,
 		ResourceNamed(ResourceRole, "role-77", "SRE"),
 		Detail("roleName", "SRE"),
 		Detail("permissions", granted),
@@ -183,7 +184,8 @@ func TestUserCreateRecordsAttributeKeysNotValues(t *testing.T) {
 	keys, count, sensitive := AttributeKeySummary(map[string]string{
 		"username": "carol", "password": "hunter2", "apiToken": "sk-live-xyz",
 	})
-	Record(ctx, ActionUserCreate,
+	Record(
+		ctx, ActionUserCreate,
 		ResourceNamed(ResourceUser, "carol", "carol"),
 		Detail("username", "carol"),
 		Detail("attributeKeys", keys),
@@ -221,7 +223,8 @@ func TestDeployRecordsTargetEnvironment(t *testing.T) {
 	rec := NewRecorder(sink, quietLogger(), Config{BatchSize: 1})
 	ctx := WithRecorder(context.Background(), rec)
 
-	Record(ctx, ActionAgentDeploy,
+	Record(
+		ctx, ActionAgentDeploy,
 		ResourceNamed(ResourceAgent, "agent-1", "checkout-agent"),
 		Environment("production"),
 		Detail("agentName", "checkout-agent"),

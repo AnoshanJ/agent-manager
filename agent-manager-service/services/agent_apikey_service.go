@@ -362,7 +362,8 @@ func (s *AgentAPIKeyService) IssueTestAPIKey(
 	// Recorded after the fact rather than fail-closed: a console test key is
 	// short-lived and scoped to the requesting user, so refusing the Try-It
 	// flow when the trail is unavailable would cost more than it protects.
-	audit.Record(ctx, audit.ActionAPIKeyIssueTest,
+	audit.Record(
+		ctx, audit.ActionAPIKeyIssueTest,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAPIKey, artifactUUID, keyName),
 		audit.Project(projectName),

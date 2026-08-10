@@ -206,7 +206,8 @@ func (c *gatewayController) RegisterGateway(w http.ResponseWriter, r *http.Reque
 		properties,
 		req.EnvironmentIds,
 	)
-	audit.Record(ctx, audit.ActionGatewayCreate,
+	audit.Record(
+		ctx, audit.ActionGatewayCreate,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGateway, gatewayResponseID(gateway), req.Name),
 		audit.Detail("gatewayName", req.Name),
@@ -353,7 +354,8 @@ func (c *gatewayController) UpdateGateway(w http.ResponseWriter, r *http.Request
 	var properties *map[string]interface{}
 	var description *string // Description not in spec
 	gateway, err := c.gatewayService.UpdateGateway(gatewayID, ouID, description, req.DisplayName, req.IsCritical, properties, req.RuntimeUrl)
-	audit.Record(ctx, audit.ActionGatewayUpdate,
+	audit.Record(
+		ctx, audit.ActionGatewayUpdate,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.Result(err),
@@ -377,7 +379,8 @@ func (c *gatewayController) DeleteGateway(w http.ResponseWriter, r *http.Request
 	ouID := middleware.OUIDFromRequest(r)
 	gatewayID := strings.TrimSpace(r.PathValue("gatewayID"))
 
-	attempt, ok := beginAuditOrFail(w, r, "DeleteGateway", "Failed to delete gateway", audit.ActionGatewayDelete,
+	attempt, ok := beginAuditOrFail(
+		w, r, "DeleteGateway", "Failed to delete gateway", audit.ActionGatewayDelete,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 	)
@@ -419,7 +422,8 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 
 	// Assign via service
 	assignErr := c.gatewayService.AssignGatewayToEnvironment(gatewayID, resolvedEnvID)
-	audit.Record(ctx, audit.ActionGatewayAssignEnvironment,
+	audit.Record(
+		ctx, audit.ActionGatewayAssignEnvironment,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.Environment(resolvedEnvID),
@@ -458,7 +462,8 @@ func (c *gatewayController) RemoveGatewayFromEnvironment(w http.ResponseWriter, 
 
 	// Remove via service
 	removeErr := c.gatewayService.RemoveGatewayFromEnvironment(gatewayID, resolvedEnvID)
-	audit.Record(ctx, audit.ActionGatewayUnassignEnvironment,
+	audit.Record(
+		ctx, audit.ActionGatewayUnassignEnvironment,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.Environment(resolvedEnvID),
@@ -589,7 +594,8 @@ func (c *gatewayController) RotateGatewayToken(w http.ResponseWriter, r *http.Re
 	// context; the audit trail needs the caller identity that only the request
 	// context carries. A rotated gateway token is live credential material, so
 	// the operation is refused when it cannot be recorded.
-	attempt, ok := beginAuditOrFail(w, r, "RotateGatewayToken", "Failed to rotate gateway token", audit.ActionGatewayTokenRotate,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RotateGatewayToken", "Failed to rotate gateway token", audit.ActionGatewayTokenRotate,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 	)
@@ -628,7 +634,8 @@ func (c *gatewayController) RevokeGatewayToken(w http.ResponseWriter, r *http.Re
 
 	log.Info("RevokeGatewayToken: starting", "ouID", ouID, "gatewayID", gatewayID, "tokenID", tokenID)
 
-	attempt, ok := beginAuditOrFail(w, r, "RevokeGatewayToken", "Failed to revoke token", audit.ActionGatewayTokenRevoke,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RevokeGatewayToken", "Failed to revoke token", audit.ActionGatewayTokenRevoke,
 		audit.Org(ouID),
 		audit.Resource(audit.ResourceGateway, gatewayID),
 		audit.Detail("tokenId", tokenID),
