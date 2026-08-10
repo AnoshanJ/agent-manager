@@ -128,7 +128,7 @@ The command's terminal output ends with the console details for the new instance
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Thunder ID Console - production
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  URL:      http://default-production.thunder.amp.localhost:8080/console
+  URL:      http://x7f2q9kzab.amp.localhost:8080/console
   Username: admin
   Password: <a freshly generated password>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -139,7 +139,7 @@ created, and is not displayed again.
 
 | Field | Where it comes from |
 |---|---|
-| **URL** | `http://<org>-<env>.thunder.<base domain>:8080/console` for a local installation, or an `https://` address on a VM or cluster with TLS enabled. |
+| **URL** | `http://<handle>.<base domain>:8080/console` for a local installation, or an `https://` address on a VM or cluster with TLS enabled. `<handle>` is the unguessable handle registered for this environment (user-chosen or server-generated). |
 | **Username** | Always `admin`, scoped to this environment's ThunderID instance only. |
 | **Password** | Randomly generated the first time the environment is provisioned, then reused on every re-run of the same command. |
 

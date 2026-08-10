@@ -102,7 +102,7 @@ Pick a base domain you control (a delegated subdomain like `amp.yourdomain.com` 
 |---|---|---|
 | `console.<base>` | Agent Manager Console | control-plane gateway LB |
 | `api-amp.<base>` | Agent Manager API (browser, `amctl`, MCP) | control-plane gateway LB |
-| `thunder.<base>` | Thunder OAuth login (+ per-environment `<org>-<env>.thunder.<base>`) | control-plane gateway LB |
+| `thunder.<base>` | Thunder OAuth login (+ per-environment `<handle>.<base>`, one unguessable host per environment) | control-plane gateway LB |
 | `cp.<base>` | Gateway control plane (external AI gateways, optional) | control-plane gateway LB |
 | `traces.<base>` | Agent Manager Observer | observability-plane gateway LB |
 | `*.agents.<base>` | Deployed-agent invocation endpoints (wildcard) | data-plane gateway LB |
@@ -752,7 +752,6 @@ spec:
   dnsNames:
     - "*.${BASE_DOMAIN}"
     - "${BASE_DOMAIN}"
-    - "*.thunder.${BASE_DOMAIN}"
   privateKey:
     rotationPolicy: Always
 EOF
@@ -761,9 +760,7 @@ kubectl wait --for=condition=Ready certificate/cp-gateway-tls \
   -n openchoreo-control-plane --timeout=300s
 ```
 
-:::note Why the third name
-A DNS wildcard matches exactly one label, so `*.${BASE_DOMAIN}` does **not** cover the per-environment Thunder hostnames that [Phase 2](#provision-thunder-identity-provider-for-the-default-environment) provisions at `<org>-<env>.thunder.${BASE_DOMAIN}`. Without `*.thunder.${BASE_DOMAIN}` the gateway serves a certificate that cannot validate for those names: routing succeeds, but every TLS-verifying client fails.
-:::
+The per-environment Thunder hostnames [Phase 2](#provision-thunder-identity-provider-for-the-default-environment) provisions (`<handle>.${BASE_DOMAIN}`) sit directly under `BASE_DOMAIN` with no fixed subdomain segment in between, so `*.${BASE_DOMAIN}` already covers them — no extra `dnsNames` entry is needed for them.
 
 Install the Control Plane with hostnames, TLS, and Thunder OIDC. The OpenChoreo API is deliberately **not** published on the gateway (`openchoreoApi.http.enabled=false`): Agent Manager and the observer call it over cluster DNS, so exposing it would only widen the platform's attack surface.
 
@@ -1322,11 +1319,10 @@ done
 | Record | Type | Points to |
 |---|---|---|
 | `console`, `api-amp`, `thunder`, `cp` `.${BASE_DOMAIN}` (or `*.${BASE_DOMAIN}`) | A / CNAME | control-plane gateway address |
-| `*.thunder.${BASE_DOMAIN}` | A / CNAME | control-plane gateway address |
 | `traces.${BASE_DOMAIN}` | A / CNAME | observability-plane gateway address |
 | `*.agents.${BASE_DOMAIN}` and `agents.${BASE_DOMAIN}` | A / CNAME | data-plane gateway address |
 
-The `*.thunder.${BASE_DOMAIN}` record covers the per-environment Thunder instances provisioned in Phase 2. A bare `*.${BASE_DOMAIN}` wildcard does not reach them — and note that once `*.thunder.${BASE_DOMAIN}` exists, [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592) makes `thunder.${BASE_DOMAIN}` an empty non-terminal that the broader wildcard stops covering, so keep an explicit `thunder` record in that layout.
+`*.${BASE_DOMAIN}` also covers the per-environment Thunder instances provisioned in Phase 2 — their hostnames (`<handle>.${BASE_DOMAIN}`) sit directly under `BASE_DOMAIN` with no fixed subdomain segment in between, so no separate record is needed for them.
 
 Use A records for IPs (GKE, AKS) and CNAME records for hostnames (EKS). Verify resolution before continuing:
 
@@ -1490,9 +1486,11 @@ Safe to re-run: the system-client secret and admin password are reused, never ro
 
 The gateway extension was installed before this Environment's Thunder existed, so it has no way to validate the tokens that Thunder issues. Wire it now that the issuer is known — this registers Thunder both as a gateway key manager (JWT validation for deployed agents) and as an identity provider visible in the console:
 
+There is no `<org>-<env>` pattern to compute the issuer from — `add-environment-thunder.sh` always registers an unguessable handle (printed as `Issuer:` in its own summary output above), so use that value here:
+
 ```bash
 export ENV_THUNDER_RELEASE="amp-thunder-default-default"
-export ENV_THUNDER_ISSUER="https://default-default.thunder.${BASE_DOMAIN}"
+export ENV_THUNDER_ISSUER="<the Issuer URL printed by add-environment-thunder.sh above>"
 export ENV_THUNDER_JWKS="http://${ENV_THUNDER_RELEASE}-service.${ENV_THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
 
 helm upgrade api-platform-default-default \
