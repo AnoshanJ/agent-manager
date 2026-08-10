@@ -61,6 +61,7 @@ var clientProviderSet = wire.NewSet(
 	// endpoints. AgentID provisioning itself is injected via
 	// app.Options.AgentThunderProvisioning, built with its own reader — see app.Run.
 	ProvideEnvThunderSecretReader,
+	ProvideEnvThunderURLReader,
 	ProvideEnvThunderResolver,
 )
 
@@ -150,6 +151,7 @@ var testClientProviderSet = wire.NewSet(
 	ProvideOrgResolver,
 	thundersvc.NewProber,
 	ProvideEnvThunderSecretReader,
+	ProvideEnvThunderURLReader,
 	ProvideEnvThunderResolver,
 )
 
@@ -336,6 +338,7 @@ var repositoryProviderSet = wire.NewSet(
 	ProvideAIApplicationRepository,
 	ProvideAgentThunderClientRepository,
 	ProvideEnvThunderSystemClientRepository,
+	ProvideEnvThunderURLRepository,
 	repositories.NewMCPProxyScopeRepository,
 )
 
@@ -485,16 +488,30 @@ func ProvideEnvThunderSystemClientRepository(db *gorm.DB) repositories.EnvThunde
 	return repositories.NewEnvThunderSystemClientRepo(db)
 }
 
+// ProvideEnvThunderURLRepository provides the repository for per-environment
+// env-Thunder URL handles.
+func ProvideEnvThunderURLRepository(db *gorm.DB) repositories.EnvThunderURLRepository {
+	return repositories.NewEnvThunderURLRepo(db)
+}
+
 // ProvideEnvThunderSecretReader decrypts the env-Thunder system-client
 // credential from AMS's own Postgres — no key-vault read-back.
 func ProvideEnvThunderSecretReader(repo repositories.EnvThunderSystemClientRepository, encryptionKey []byte) thundersvc.ReadSystemClientFunc {
 	return services.NewEnvThunderSecretReader(repo, encryptionKey)
 }
 
+// ProvideEnvThunderURLReader looks up an env-Thunder's registered URL handle
+// from AMS's own Postgres — grandfathering it from the legacy <org>-<env>
+// pattern (via systemClientRepo) when a pre-existing environment has none yet.
+func ProvideEnvThunderURLReader(repo repositories.EnvThunderURLRepository, systemClientRepo repositories.EnvThunderSystemClientRepository) thundersvc.ReadThunderHandleFunc {
+	return services.NewEnvThunderURLReader(repo, systemClientRepo)
+}
+
 // ProvideEnvThunderResolver maps (org, environment) to an authenticated
-// ThunderClient, reading the system-client credential via the injected reader.
-func ProvideEnvThunderResolver(readSystemClient thundersvc.ReadSystemClientFunc) thundersvc.EnvThunderResolver {
-	return thundersvc.NewEnvThunderResolver(readSystemClient)
+// ThunderClient, reading the system-client credential and URL handle via the
+// injected readers.
+func ProvideEnvThunderResolver(readSystemClient thundersvc.ReadSystemClientFunc, readThunderHandle thundersvc.ReadThunderHandleFunc) thundersvc.EnvThunderResolver {
+	return thundersvc.NewEnvThunderResolver(readSystemClient, readThunderHandle)
 }
 
 // ProvideAgentIdentityInjectionService creates the Gateway Binding service that
