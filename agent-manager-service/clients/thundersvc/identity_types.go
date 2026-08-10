@@ -197,6 +197,7 @@ type RoleAssignmentsRequest struct {
 type ThunderResourceServer struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
+	Handle     string            `json:"handle"`
 	Identifier string            `json:"identifier"`
 	Resources  []ThunderResource `json:"resources,omitempty"`
 }

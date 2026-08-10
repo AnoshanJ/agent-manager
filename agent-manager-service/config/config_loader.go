@@ -489,7 +489,8 @@ func validateAuditConfig(cfg AuditConfig) []error {
 	if cfg.BatchSize > 0 && cfg.BufferSize > 0 && cfg.BatchSize > cfg.BufferSize {
 		errs = append(errs, fmt.Errorf(
 			"AUDIT_BATCH_SIZE (%d) must not exceed AUDIT_BUFFER_SIZE (%d)",
-			cfg.BatchSize, cfg.BufferSize))
+			cfg.BatchSize, cfg.BufferSize,
+		))
 	}
 	return errs
 }

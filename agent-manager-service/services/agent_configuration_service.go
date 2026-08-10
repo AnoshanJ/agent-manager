@@ -245,34 +245,24 @@ func (s *agentConfigurationService) ensureExternalAgentForAPIKey(ctx context.Con
 	return nil
 }
 
-// buildProxyURL constructs the proxy base URL from a gateway and an optional context path.
-// Internal (platform-hosted, sandboxed) agents get the gateway's stored in-cluster runtime
-// address, which cluster DNS resolves and the sandbox NetworkPolicy egress allows; external
-// agents get the vhost, which a sandboxed pod cannot route to.
-func buildProxyURL(gateway *models.Gateway, contextPath *string, isInternal bool) string {
-	base := internalBaseOrVhost(gateway, isInternal)
+// ensureURLScheme returns the host as an absolute URL, defaulting scheme-less
+// hosts to https. Gateways may be registered with bare vhosts.
+func ensureURLScheme(host string) string {
+	if strings.Contains(host, "://") {
+		return host
+	}
+	return "https://" + host
+}
+
+// buildProxyURL constructs the proxy base URL from the gateway's public vhost and
+// an optional context path. Every agent — sandboxed included — gets the public
+// URL so the address always matches the identity resource identifier.
+func buildProxyURL(gateway *models.Gateway, contextPath *string) string {
+	base := ensureURLScheme(gateway.Vhost)
 	if contextPath != nil {
 		return fmt.Sprintf("%s%s", base, *contextPath)
 	}
 	return base
-}
-
-// internalBaseOrVhost picks the stored runtime address for internal consumers and the vhost
-// otherwise. An internal consumer with no stored address logs at ERROR: falling back to the
-// vhost is correct for external agents but an unreachable address for a sandboxed pod, and
-// naming that condition is what replaces the deleted name-based derivation as a diagnostic.
-func internalBaseOrVhost(gateway *models.Gateway, isInternal bool) string {
-	if !isInternal {
-		return gateway.Vhost
-	}
-	if runtimeURL := strings.TrimSpace(gateway.RuntimeURL); runtimeURL != "" {
-		return runtimeURL
-	}
-	slog.Error("gateway has no registered runtimeUrl; falling back to the externally-reachable "+
-		"vhost, which sandboxed agents cannot route to. Upgrade the gateway extension chart so "+
-		"registration supplies runtimeUrl",
-		"gatewayName", gateway.Name, "gatewayID", gateway.UUID, "vhost", gateway.Vhost)
-	return gateway.Vhost
 }
 
 // buildLLMEnvVars constructs the two env vars (URL and API key) from the env config templates.
@@ -335,17 +325,38 @@ func buildEmptyMCPEnvVars(templates []EnvConfigTemplate) []client.EnvVar {
 	return envVars
 }
 
-// buildMCPProxyURL constructs the MCP proxy URL from a gateway and the proxy's optional
-// context path, appending the "/mcp" route. Same internal/external split as buildProxyURL.
-func buildMCPProxyURL(gateway *models.Gateway, contextPath *string, isInternal bool) string {
-	base := strings.TrimRight(strings.TrimSpace(internalBaseOrVhost(gateway, isInternal)), "/")
-	path := "/mcp"
-	if contextPath != nil {
-		if trimmedContextPath := strings.TrimSpace(*contextPath); trimmedContextPath != "" {
-			path = strings.TrimRight(trimmedContextPath, "/") + "/mcp"
+// mcpProxyServingBase is the fully normalized public base the gateway actually
+// serves the proxy on: the proxy's own vhost override when set (the deployment
+// spec forwards it), else the gateway's vhost. Bare hosts default to https and
+// any trailing slash is dropped.
+func mcpProxyServingBase(gateway *models.Gateway, override *string) string {
+	base := gateway.Vhost
+	if override != nil {
+		if host := strings.TrimSpace(*override); host != "" {
+			base = host
 		}
 	}
-	return base + path
+	return strings.TrimRight(ensureURLScheme(strings.TrimSpace(base)), "/")
+}
+
+// buildMCPProxyURL constructs the MCP proxy URL from the serving base and the
+// proxy's optional context path, appending the "/mcp" route.
+func buildMCPProxyURL(gateway *models.Gateway, cfg models.MCPProxyConfig) string {
+	path := "/mcp"
+	if cfg.Context != nil {
+		if trimmed := strings.TrimSpace(*cfg.Context); trimmed != "" {
+			path = strings.TrimRight(trimmed, "/") + "/mcp"
+		}
+	}
+	return mcpProxyServingBase(gateway, cfg.Vhost) + path
+}
+
+// stripURLScheme drops the leading scheme, yielding the resource-identifier form.
+func stripURLScheme(u string) string {
+	if i := strings.Index(u, "://"); i >= 0 {
+		return u[i+3:]
+	}
+	return u
 }
 
 // mcpProxyAPIKeySecurityEnabled reports whether the source MCP proxy requires API
@@ -1122,7 +1133,7 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 		if proxy != nil {
 			proxyContext = proxy.Configuration.Context
 		}
-		proxyURL := buildProxyURL(gateway, proxyContext, !isExternalAgent)
+		proxyURL := buildProxyURL(gateway, proxyContext)
 
 		// Capture credentials for external agents.
 		if isExternalAgent {
@@ -1451,7 +1462,7 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 			return nil, fmt.Errorf("failed to create MCP environment variables for %s: %w", envName, err)
 		}
 
-		proxyURL := buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, !isExternalAgent)
+		proxyURL := buildMCPProxyURL(gateway, deployedProxy.Configuration)
 		if isExternalAgent {
 			apiKey := ""
 			if proxyAPIKey != nil {
@@ -1796,7 +1807,7 @@ func (s *agentConfigurationService) processEnvProviderChange(
 	// Internal-agent only: inject env vars into Component/ReleaseBinding.
 	// SecretReference is already created/updated by secretClient.CreateSecret above.
 	if !isExternalAgent {
-		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context, true)
+		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		if uvErr := s.ocClient.UpdateComponentEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envVarsToInject); uvErr != nil {
 			s.logger.Error("failed to update Component CR env vars in Scenario A — Component CR in inconsistent state", "env", envName, "err", uvErr)
@@ -2052,7 +2063,7 @@ func (s *agentConfigurationService) processNewEnv(
 	// last-write-wins clobbering across multiple environments (HIGH-3).
 	if !isExternalAgent {
 		// Reuse the gateway already resolved for deployment (resolveGatewayForProvider)
-		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context, true)
+		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
 
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		// Inject per-env URL into the ReleaseBinding for this specific environment.
@@ -2606,7 +2617,7 @@ func (s *agentConfigurationService) updateMCPConfigEnvironmentVariableNames(
 			s.logger.Warn("failed to load MCP SecretReference for env var rename", "environment", envName, "err", refErr)
 			continue
 		}
-		envVarsToInject := buildMCPEnvVars(newTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, true), secretRefName)
+		envVarsToInject := buildMCPEnvVars(newTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration), secretRefName)
 		if err := s.ocClient.ReplaceReleaseBindingEnvVars(ctx, ouID, projectName, agentName, envName, changedOldKeys, envVarsToInject); err != nil {
 			s.logger.Warn("failed to replace MCP env vars in ReleaseBinding", "environment", envName, "err", err)
 		}
@@ -2716,7 +2727,7 @@ func (s *agentConfigurationService) injectMCPMappingEnvVars(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	envVarsToInject := buildMCPEnvVars(envTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, true), secretRefName)
+	envVarsToInject := buildMCPEnvVars(envTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration), secretRefName)
 	if err := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); err != nil {
 		return err
 	}
@@ -3132,7 +3143,7 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 								s.logger.Warn("Phase 1b: failed to load MCP SecretReference for re-injection", "environment", envName, "err", refErr)
 								continue
 							}
-							envVarsToInject := buildMCPEnvVars(newEnvConfigTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, true), secretRefName)
+							envVarsToInject := buildMCPEnvVars(newEnvConfigTemplates, buildMCPProxyURL(gateway, deployedProxy.Configuration), secretRefName)
 							s.logger.Info("Phase 1b: atomically replacing MCP env vars in ReleaseBinding",
 								"environment", envName, "keysToRemove", changedOldKeys, "envVarsToAdd", len(envVarsToInject))
 							if rbErr := s.ocClient.ReplaceReleaseBindingEnvVars(ctx, ouID, projectName, agentName, envName, changedOldKeys, envVarsToInject); rbErr != nil {
@@ -3161,7 +3172,7 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 								s.logger.Warn("Phase 1b: failed to resolve gateway for re-injection", "environment", envName, "err", gwErr)
 								continue
 							}
-							proxyURL := buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context, true)
+							proxyURL := buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context)
 							// Use persisted SecretReference from DB rather than deriving from mutable config name.
 							envVars1b, varErr1b := s.envVariableRepo.ListByConfigAndEnv(ctx, existingConfig.UUID, mapping.EnvironmentUUID)
 							secretRefName := ""
@@ -3417,7 +3428,8 @@ func (s *agentConfigurationService) recordConfigUpdate(ctx context.Context, conf
 	// A real audit record. This previously wrote only an slog line labelled as
 	// an audit log: it carried no actor, no outcome and no durability, so it
 	// could not answer who changed the configuration.
-	audit.Record(ctx, audit.ActionAgentConfigUpdate,
+	audit.Record(
+		ctx, audit.ActionAgentConfigUpdate,
 		audit.Org(ouID),
 		audit.ResourceNamed("agent-config", configUUID.String(), configName),
 		audit.Project(projectName),
@@ -3702,7 +3714,8 @@ func (s *agentConfigurationService) deleteLLMConfig(ctx context.Context, existin
 		return err
 	}
 
-	audit.Record(ctx, audit.ActionAgentConfigDelete,
+	audit.Record(
+		ctx, audit.ActionAgentConfigDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed("agent-config", configUUID.String(), existingConfig.Name),
 		audit.Project(projectName),
@@ -5042,7 +5055,7 @@ func (s *agentConfigurationService) buildConfigResponse(ctx context.Context, con
 				deployedProxy := buildAgentMCPConfigProxy(config, &mapping, mapping.MCPProxy, envName, config.OUID,
 					mcpMappingProxyName(config.ProjectName, config.AgentID, config.Name, envName))
 				// User-facing invoke URL in the config response: externally-reachable vhost.
-				url := buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, false)
+				url := buildMCPProxyURL(gateway, deployedProxy.Configuration)
 				proxyInfo.URL = &url
 			}
 		}
@@ -5197,7 +5210,7 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 				deployedProxy := buildAgentMCPConfigProxy(reloadedConfig, &mapping, mapping.MCPProxy, envName, config.OUID,
 					mcpMappingProxyName(config.ProjectName, config.AgentID, config.Name, envName))
 				// External agent's invoke URL: externally-reachable vhost.
-				url := buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, false)
+				url := buildMCPProxyURL(gateway, deployedProxy.Configuration)
 				proxyInfo.URL = &url
 			} else {
 				s.logger.Warn(
@@ -5416,7 +5429,7 @@ func (s *agentConfigurationService) systemManagedLLMURL(
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve gateway for LLM proxy in %s: %w", environmentName, err)
 	}
-	return buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context, true), nil
+	return buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context), nil
 }
 
 func (s *agentConfigurationService) systemManagedMCPURL(
@@ -5444,7 +5457,7 @@ func (s *agentConfigurationService) systemManagedMCPURL(
 		}
 		handle := mcpMappingProxyName(config.ProjectName, config.AgentID, config.Name, environmentName)
 		deployedProxy := buildAgentMCPConfigProxy(config, mapping, mapping.MCPProxy, environmentName, ouID, handle)
-		return buildMCPProxyURL(gateway, deployedProxy.Configuration.Context, true), nil
+		return buildMCPProxyURL(gateway, deployedProxy.Configuration), nil
 	}
 	return "", nil
 }

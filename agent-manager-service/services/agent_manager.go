@@ -2403,7 +2403,8 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 
 	// Deletion is irreversible and cascades into configs, identities and
 	// monitors, so it is refused when it cannot be recorded.
-	deleteAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentDelete,
+	deleteAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
 		audit.Project(projectName),
@@ -2581,7 +2582,8 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, proje
 	// Builds are frequent and produce no credential, so this is recorded after
 	// the fact rather than refusing the build when the trail is unavailable.
 	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId)
-	audit.Record(ctx, audit.ActionAgentBuild,
+	audit.Record(
+		ctx, audit.ActionAgentBuild,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
 		audit.Project(projectName),
@@ -2913,7 +2915,8 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// the pipeline's lowest environment actually is, so the record has to carry
 	// the real target and whether it is production. Without that the trail
 	// cannot distinguish a sandbox push from a production one.
-	deployAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentDeploy,
+	deployAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentDeploy,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
 		audit.Project(projectName),
@@ -3919,7 +3922,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// to OpenChoreo just to enrich a record would put a network call on the
 	// promotion path. The environment name identifies the target, and the org's
 	// environment list resolves whether it is production.
-	promoteAttempt, auditErr := audit.Begin(ctx, audit.ActionAgentPromote,
+	promoteAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentPromote,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
 		audit.Project(projectName),

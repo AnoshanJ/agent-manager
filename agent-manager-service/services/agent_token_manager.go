@@ -361,7 +361,8 @@ func (s *agentTokenManagerService) GenerateToken(ctx context.Context, req Genera
 	// no credential in circulation, which makes this genuinely fail-closed
 	// rather than merely best-effort. The signed token is never passed to the
 	// recorder; the jti identifies it.
-	if err := audit.RecordSync(ctx, audit.ActionAgentTokenMint,
+	if err := audit.RecordSync(
+		ctx, audit.ActionAgentTokenMint,
 		audit.Org(req.OrgId),
 		audit.ResourceNamed(audit.ResourceAgent, component.UUID, req.AgentName),
 		audit.Project(req.ProjectName),

@@ -42,7 +42,8 @@ func recordGatewayAuthFailure(r *http.Request, reason, gatewayID string) {
 		return
 	}
 
-	audit.RecordAncillary(r.Context(), audit.ActionAuthnFailure,
+	audit.RecordAncillary(
+		r.Context(), audit.ActionAuthnFailure,
 		audit.SurfaceOpt(audit.SurfaceInternal),
 		audit.Actor(audit.ActorGateway, gatewayID, ""),
 		audit.AuthMethod("api-key"),

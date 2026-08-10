@@ -338,7 +338,8 @@ func (s *monitorManagerService) CreateMonitor(ctx context.Context, ouID string, 
 		}
 	}
 
-	audit.Record(ctx, audit.ActionMonitorCreate,
+	audit.Record(
+		ctx, audit.ActionMonitorCreate,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), req.Name),
 		audit.Project(req.ProjectName),
@@ -711,7 +712,8 @@ func (s *monitorManagerService) UpdateMonitor(ctx context.Context, ouID, project
 
 	s.logger.Info("Monitor updated successfully", "name", monitorName)
 
-	audit.Record(ctx, audit.ActionMonitorUpdate,
+	audit.Record(
+		ctx, audit.ActionMonitorUpdate,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), monitorName),
 		audit.Project(projectName),
@@ -787,7 +789,8 @@ func (s *monitorManagerService) DeleteMonitor(ctx context.Context, ouID, project
 		}
 	}
 
-	audit.Record(ctx, audit.ActionMonitorDelete,
+	audit.Record(
+		ctx, audit.ActionMonitorDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), monitorName),
 		audit.Project(projectName),
@@ -861,7 +864,8 @@ func (s *monitorManagerService) StopMonitor(ctx context.Context, ouID, projectNa
 	latestRun := s.getLatestRun(monitor.ID)
 	status := s.getMonitorStatus(monitor.ID, monitor.Type, monitor.NextRunTime)
 
-	audit.Record(ctx, audit.ActionMonitorStop,
+	audit.Record(
+		ctx, audit.ActionMonitorStop,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), monitorName),
 		audit.Project(projectName),
@@ -916,7 +920,8 @@ func (s *monitorManagerService) StartMonitor(ctx context.Context, ouID, projectN
 	latestRun := s.getLatestRun(monitor.ID)
 	status := s.getMonitorStatus(monitor.ID, monitor.Type, monitor.NextRunTime)
 
-	audit.Record(ctx, audit.ActionMonitorStart,
+	audit.Record(
+		ctx, audit.ActionMonitorStart,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), monitorName),
 		audit.Project(projectName),
@@ -1048,7 +1053,8 @@ func (s *monitorManagerService) RerunMonitor(ctx context.Context, ouID, projectN
 		return nil, err
 	}
 
-	audit.Record(ctx, audit.ActionMonitorRerun,
+	audit.Record(
+		ctx, audit.ActionMonitorRerun,
 		audit.Org(ouID),
 		audit.ResourceNamed("monitor", monitor.ID.String(), monitorName),
 		audit.Project(projectName),

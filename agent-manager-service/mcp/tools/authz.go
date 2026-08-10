@@ -178,7 +178,8 @@ func sessionOrgMatchesRequest(ctx context.Context, info *auth.TokenInfo) bool {
 // the request path so that MCP denials and REST denials answer the same query.
 func recordToolDeny(ctx context.Context, toolName, reason string, opts ...audit.Option) {
 	all := make([]audit.Option, 0, len(opts)+4)
-	all = append(all,
+	all = append(
+		all,
 		audit.SurfaceOpt(audit.SurfaceMCP),
 		audit.OutcomeOpt(audit.OutcomeDeny),
 		audit.Detail("reason", reason),

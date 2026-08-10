@@ -198,7 +198,8 @@ func (s *monitorSchedulerService) triggerMonitor(ctx context.Context, monitor *m
 		// A scheduled run that never started. Recorded with a system actor
 		// because no user asked for this one — successful runs are not
 		// recorded, since their scores are the record.
-		audit.Record(ctx, audit.ActionMonitorRunFail,
+		audit.Record(
+			ctx, audit.ActionMonitorRunFail,
 			audit.Org(monitor.OUID),
 			audit.ResourceNamed("monitor", monitor.ID.String(), monitor.Name),
 			audit.Actor(audit.ActorSystem, systemActorMonitorScheduler, ""),

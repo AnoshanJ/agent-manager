@@ -755,7 +755,8 @@ func (s *agentThunderProvisioningService) AttemptProvision(ctx context.Context, 
 	// A credential issued with no request behind it: the actor is this service,
 	// and the user who originally asked for the agent is carried as OnBehalfOf.
 	// That attribution is exactly what requested_by was captured for.
-	audit.Record(ctx, audit.ActionSystemAgentIdentityProvisioned,
+	audit.Record(
+		ctx, audit.ActionSystemAgentIdentityProvisioned,
 		audit.Org(binding.OUID),
 		audit.ResourceNamed(audit.ResourceAgentIdentity, binding.AgentName, binding.AgentName),
 		audit.Project(binding.ProjectName),
@@ -806,7 +807,8 @@ func (s *agentThunderProvisioningService) recordFailure(ctx context.Context, bin
 		update.Status = models.AgentThunderStatusFailed
 		// The agent will not get an identity without operator action, so this
 		// is recorded rather than left as one more retry log line.
-		audit.Record(ctx, audit.ActionSystemAgentIdentityExhausted,
+		audit.Record(
+			ctx, audit.ActionSystemAgentIdentityExhausted,
 			audit.Org(binding.OUID),
 			audit.ResourceNamed(audit.ResourceAgentIdentity, binding.AgentName, binding.AgentName),
 			audit.Project(binding.ProjectName),

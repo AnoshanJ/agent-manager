@@ -198,7 +198,8 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 	// its key names and shape are recorded — never a value. See
 	// audit.AttributeKeySummary.
 	attrKeys, attrCount, hasSensitive := audit.AttributeKeySummary(body.Attributes)
-	attempt, ok := beginAuditOrFail(w, r, "CreateUser", "Failed to create user", audit.ActionUserCreate,
+	attempt, ok := beginAuditOrFail(
+		w, r, "CreateUser", "Failed to create user", audit.ActionUserCreate,
 		audit.Org(ouID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, body.Attributes["username"], body.Attributes["username"]),
 		audit.Detail("username", body.Attributes["username"]),
@@ -301,7 +302,8 @@ func (c *identityController) DeleteUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	attempt, ok := beginAuditOrFail(w, r, "DeleteUser", "Failed to delete user", audit.ActionUserDelete,
+	attempt, ok := beginAuditOrFail(
+		w, r, "DeleteUser", "Failed to delete user", audit.ActionUserDelete,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, userID, userIdentifier(user)),
 		audit.Detail("username", userIdentifier(user)),
@@ -428,7 +430,8 @@ func (c *identityController) InviteUser(w http.ResponseWriter, r *http.Request) 
 	// The invite link grants org access to whoever holds it, so an invite is a
 	// membership change and is refused when it cannot be recorded. The link
 	// itself is never recorded.
-	attempt, ok := beginAuditOrFail(w, r, "InviteUser", "Failed to invite user", audit.ActionUserInvite,
+	attempt, ok := beginAuditOrFail(
+		w, r, "InviteUser", "Failed to invite user", audit.ActionUserInvite,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, body.Email, body.Email),
 		audit.Detail("email", body.Email),
@@ -710,7 +713,8 @@ func (c *identityController) AddGroupMembers(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	attempt, ok := beginAuditOrFail(w, r, "AddGroupMembers", "Failed to add group members", audit.ActionGroupAddMember,
+	attempt, ok := beginAuditOrFail(
+		w, r, "AddGroupMembers", "Failed to add group members", audit.ActionGroupAddMember,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
 		audit.Detail("groupName", group.Name),
@@ -773,7 +777,8 @@ func (c *identityController) RemoveGroupMembers(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	attempt, ok := beginAuditOrFail(w, r, "RemoveGroupMembers", "Failed to remove group members", audit.ActionGroupRemoveMember,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RemoveGroupMembers", "Failed to remove group members", audit.ActionGroupRemoveMember,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceGroup, groupID, group.Name),
 		audit.Detail("groupName", group.Name),
@@ -1166,7 +1171,8 @@ func (c *identityController) AddRolePermissions(w http.ResponseWriter, r *http.R
 	// The granted scopes are recorded in full. This is the privilege-escalation
 	// path, and a record naming only the role cannot answer "who granted what
 	// to whom" — which is the question this event exists for.
-	attempt, ok := beginAuditOrFail(w, r, "AddRolePermissions", "Failed to add role permissions", audit.ActionRoleGrantPermission,
+	attempt, ok := beginAuditOrFail(
+		w, r, "AddRolePermissions", "Failed to add role permissions", audit.ActionRoleGrantPermission,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1220,7 +1226,8 @@ func (c *identityController) RemoveRolePermissions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	attempt, ok := beginAuditOrFail(w, r, "RemoveRolePermissions", "Failed to remove role permissions", audit.ActionRoleRevokePermission,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RemoveRolePermissions", "Failed to remove role permissions", audit.ActionRoleRevokePermission,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1275,7 +1282,8 @@ func (c *identityController) AddRoleAssignees(w http.ResponseWriter, r *http.Req
 	}
 
 	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
-	attempt, ok := beginAuditOrFail(w, r, "AddRoleAssignees", "Failed to add role assignees", audit.ActionRoleAssign,
+	attempt, ok := beginAuditOrFail(
+		w, r, "AddRoleAssignees", "Failed to add role assignees", audit.ActionRoleAssign,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),
@@ -1330,7 +1338,8 @@ func (c *identityController) RemoveRoleAssignees(w http.ResponseWriter, r *http.
 	}
 
 	assigneeIDs, assigneeTypes := assignmentSummary(req.Assignments)
-	attempt, ok := beginAuditOrFail(w, r, "RemoveRoleAssignees", "Failed to remove role assignees", audit.ActionRoleUnassign,
+	attempt, ok := beginAuditOrFail(
+		w, r, "RemoveRoleAssignees", "Failed to remove role assignees", audit.ActionRoleUnassign,
 		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceRole, roleID, role.Name),
 		audit.Detail("roleName", role.Name),

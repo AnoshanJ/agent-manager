@@ -76,7 +76,8 @@ func (s *GitSecretService) Create(ctx context.Context, ouID string, req *spec.Cr
 	// the operation if that fails: a credential written with no trace of who
 	// wrote it is worse than a failed request. Only the name, type and username
 	// are recorded — the password never leaves this function.
-	attempt, err := audit.Begin(ctx, audit.ActionGitSecretCreate,
+	attempt, err := audit.Begin(
+		ctx, audit.ActionGitSecretCreate,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGitSecret, req.Name, req.Name),
 		audit.Detail("secretType", string(secretType)),
@@ -150,7 +151,8 @@ func (s *GitSecretService) Delete(ctx context.Context, ouID, secretName string) 
 		return utils.ErrInvalidInput
 	}
 
-	attempt, err := audit.Begin(ctx, audit.ActionGitSecretDelete,
+	attempt, err := audit.Begin(
+		ctx, audit.ActionGitSecretDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceGitSecret, secretName, secretName),
 	)
