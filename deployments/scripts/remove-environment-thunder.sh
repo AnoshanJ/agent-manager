@@ -183,6 +183,35 @@ main() {
     echo "   Harmless to skip — continuing."
   fi
 
+  # --- Step 4: Best-effort cleanup of the registered thunder url handle ---
+  # Never fatal, for the same reason as Step 3. Freeing the handle lets a future
+  # environment (or a retry of this same one, with a different THUNDER_HANDLE)
+  # claim it — see add-environment-thunder.sh's register_thunder_url. Always
+  # attempted even if THUNDER_HANDLE was never set for this environment: deleting
+  # a non-existent handle is a no-op on the server side.
+  echo ""
+  echo "🗑️  Removing thunder url handle from agent-manager-service (best-effort)..."
+  if access_token="$(get_ams_token 3)"; then
+    local url_http_code
+    url_http_code="$(curl -s -o /dev/null -w "%{http_code}" \
+      --max-time 30 --retry 3 --retry-delay 5 \
+      -X DELETE "${amp_api_url}/orgs/${org}/environments/${ENV_NAME}/thunder-url" \
+      -H "Authorization: Bearer ${access_token}" 2>/dev/null)"
+    url_http_code="${url_http_code:-000}"
+    case "$url_http_code" in
+      200|204)
+        echo "✅ Removed thunder url handle from agent-manager-service"
+        ;;
+      *)
+        echo "⚠️  Could not remove the thunder url handle from agent-manager-service (HTTP ${url_http_code})."
+        echo "   Harmless to skip — continuing."
+        ;;
+    esac
+  else
+    echo "⚠️  Could not obtain a token to clean up the thunder url handle in agent-manager-service."
+    echo "   Harmless to skip — continuing."
+  fi
+
   echo ""
   echo "=== Thunder ID for '${ENV_NAME}' removed ==="
   echo ""

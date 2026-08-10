@@ -40,6 +40,15 @@ set -euo pipefail
 #   - THUNDER_CHART: override the chart ref (default: oci://ghcr.io/thunder-id/helm-charts/thunderid —
 #     the upstream ThunderID release chart, pulled directly, NOT the agent-manager chart)
 #   - CHART_VERSION: pin the chart version (default: 0.45.0; OCI charts only)
+#   - THUNDER_HANDLE (default: unset) — an unguessable label that becomes this
+#     environment's externally-reachable hostname segment:
+#     "<handle>.<THUNDER_HOST_BASE_DOMAIN>". If unset,
+#     agent-manager-service generates a 10-character one for you (see
+#     register_thunder_url below) — there is no org/env-derived fallback.
+#     Registered with AMS BEFORE any cluster mutation, so a handle already
+#     taken by a DIFFERENT environment fails fast (exit 1) instead of leaving
+#     an orphaned Helm release. Re-running with the same ENV_NAME reuses the
+#     same stored handle.
 #   - SYSTEM_CLIENT_SECRET (default: generated; reused if one already exists)
 #   - THUNDER_ADMIN_PASSWORD (default: generated 10-char password w/ letters, digits,
 #     and symbols; reused if one already exists) — native ThunderID superadmin password
@@ -75,10 +84,10 @@ set -euo pipefail
 #   Non-local-dev deployments (e.g. a VM — see deployments/vm/lib-vm.sh, which sets
 #   all three of these together, deployment-wide, whenever it provisions env-Thunder):
 #   - THUNDER_HOST_BASE_DOMAIN (default: amp.localhost) — the domain suffix env-Thunder's
-#     hostnames are built from ("<org>-<env>.thunder.<this>"). MUST be set to the
+#     hostnames are built from ("<handle>.<this>"). MUST be set to the
 #     identical value in agent-manager-service's own config (same env var name) on
-#     any given deployment — see clients/thundersvc/naming.go's ThunderHost, which
-#     independently computes the same value and has no way to learn about a
+#     any given deployment — see clients/thundersvc/naming.go's ThunderIssuerURL,
+#     which independently computes the same value and has no way to learn about a
 #     one-off override here.
 #   - TLS_ENABLED (default: false) — when true, the issuer/publicUrl become
 #     https://<host> with no explicit port (a VM's Caddy terminates TLS on the
@@ -271,6 +280,89 @@ store_via_ams() {
   echo "⚠️  Could not store the system-client secret in agent-manager-service (HTTP ${http_code})."
   echo "   Check that AMP_API_URL (${amp_api_url}) is reachable and the token has the"
   echo "   org:manage-service-account permission, then re-run add-environment-thunder.sh."
+  return 1
+}
+
+# register_thunder_url ORG ENV [HANDLE] -> prints the RESOLVED handle to stdout
+# (the one that ended up stored — either HANDLE itself, or, when HANDLE is
+# empty, a 10-character handle agent-manager-service generated on our behalf),
+# or returns 1 on failure.
+#
+# ALWAYS called, even with an empty HANDLE — every environment needs a
+# registered handle before a host can be computed at all (see thunder_host in
+# thunder-naming.sh; there's no pattern to fall back to). This runs
+# BEFORE anything is deployed, so a taken/invalid HANDLE fails fast instead of
+# leaving an orphaned Helm release or a colliding HTTPRoute. Idempotent for the
+# SAME (org, env) (PUT upserts, re-run reuses the same stored handle); a 409
+# only happens when HANDLE is caller-supplied and a DIFFERENT environment
+# already owns it — that is fatal, not a skip, since two environments must
+# never share an external hostname.
+register_thunder_url() {
+  local org="$1" env_name="$2" handle="${3:-}"
+  local amp_api_url="${AMP_API_URL:-http://localhost:9000/api/v1}"
+
+  local access_token
+  if ! access_token="$(get_ams_token)"; then
+    echo "⚠️  Could not obtain an access token to call agent-manager-service." >&2
+    echo "   Set AGENT_MANAGER_TOKEN, or check IDP_TOKEN_URL/IDP_CLIENT_ID/IDP_CLIENT_SECRET" >&2
+    echo "   and that platform Thunder is reachable." >&2
+    return 1
+  fi
+
+  # An empty body (no "handle" key) tells agent-manager-service to generate one —
+  # sending {"handle":""} would instead be rejected as an invalid empty handle.
+  local body
+  if [ -n "$handle" ]; then
+    body="$(printf '{"handle":"%s"}' "$(json_escape "$handle")")"
+  else
+    body='{}'
+  fi
+
+  local response http_code resp_body
+  response="$(curl -s -w '\n%{http_code}' \
+    --max-time 30 --retry 5 --retry-delay 5 \
+    -X PUT "${amp_api_url}/orgs/${org}/environments/${env_name}/thunder-url" \
+    -H "Authorization: Bearer ${access_token}" \
+    -H "Content-Type: application/json" \
+    -d "${body}" 2>/dev/null)"
+  http_code="$(printf '%s' "$response" | tail -n1)"
+  http_code="${http_code:-000}"
+  resp_body="$(printf '%s' "$response" | sed '$d')"
+
+  if [ "$http_code" = "200" ]; then
+    local resolved
+    resolved="$(printf '%s' "$resp_body" | grep -o '"handle":"[^"]*"' | cut -d'"' -f4)"
+    if [ -z "$resolved" ]; then
+      echo "⚠️  agent-manager-service returned 200 but no handle in the response body: ${resp_body}" >&2
+      return 1
+    fi
+    if [ -n "$handle" ]; then
+      echo "🔐 Registered thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
+    else
+      echo "🔐 Generated and registered thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
+    fi
+    printf '%s' "$resolved"
+    return 0
+  fi
+
+  case "$http_code" in
+    409)
+      echo "❌ Thunder url handle '${handle}' is already taken." >&2
+      echo "   Either a different environment already owns it, or THIS environment already has a" >&2
+      echo "   DIFFERENT handle registered (Thunder's issuer is immutable once minted, so it's never" >&2
+      echo "   silently changed) — remove it first with remove-environment-thunder.sh if you really" >&2
+      echo "   want to switch, or choose a different THUNDER_HANDLE and re-run." >&2
+      ;;
+    400)
+      echo "❌ Thunder url handle '${handle}' was rejected as invalid by agent-manager-service." >&2
+      echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), <=63 chars." >&2
+      ;;
+    *)
+      echo "⚠️  Could not register the thunder url handle in agent-manager-service (HTTP ${http_code})." >&2
+      echo "   Check that AMP_API_URL (${amp_api_url}) is reachable and the token has the" >&2
+      echo "   org:manage-service-account permission, then re-run add-environment-thunder.sh." >&2
+      ;;
+  esac
   return 1
 }
 
@@ -548,18 +640,39 @@ main() {
     exit 1
   fi
 
-  # Namespace/host are ALWAYS computed from (org, env) — never overridable. Every
-  # other consumer of this env-Thunder (the gateway's ThunderKeyManager wiring in
-  # add-environment.sh, and agent-manager-service's naming.go, which the future
-  # EnvThunderResolver resolves per-agent OAuth clients against) recomputes these
-  # same coordinates purely from (org, env), with no way to learn about an override.
-  # An override here would silently strand those callers pointed at an address
-  # where nothing lives, or make the resolver miss a Thunder that IS provisioned.
+  # THUNDER_HANDLE, when set, is the caller's chosen unguessable label for this
+  # environment's externally-reachable host/issuer — see thunder_host's doc
+  # comment and agent-manager-service/models/env_thunder_url.go. When unset,
+  # agent-manager-service generates a 10-character one for us. Either way,
+  # every environment must have a registered handle before a host can be
+  # computed — there's no pattern to fall back to — so register_thunder_url is
+  # always called, before any cluster mutation, so a taken/invalid handle fails
+  # fast. Release name and namespace are UNAFFECTED (see below) — they never
+  # honored THUNDER_HANDLE, since they're internal-only.
+  local requested_handle="${THUNDER_HANDLE:-}"
+  if [ -n "$requested_handle" ] && ! validate_name "$requested_handle"; then
+    echo "❌ Invalid THUNDER_HANDLE '${requested_handle}'"
+    echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), <=63 chars."
+    exit 1
+  fi
+  local handle
+  if ! handle="$(register_thunder_url "$org" "$ENV_NAME" "$requested_handle")"; then
+    exit 1
+  fi
+
+  # Release name/namespace stay ALWAYS computed from (org, env) — they're
+  # internal-only (Helm release name, K8s namespace), never externally
+  # network-reachable, so not part of the guessable-URL attack surface the
+  # handle closes. host/issuer, by contrast, ARE externally reachable and are
+  # built ONLY from the registered handle now. Every consumer that resolves
+  # host/issuer at runtime (agent-manager-service's ListThunderInstances/
+  # EnvThunderResolver) reads this SAME registered handle back from its own DB —
+  # see naming.go's ThunderExternalTokenURL doc comment.
   local release ns host issuer chart secret_name thunder_port
   release="$(thunder_release_name "$org" "$ENV_NAME")"
   ns="$(thunder_namespace "$org" "$ENV_NAME")"
-  host="$(thunder_host "$org" "$ENV_NAME")"
-  issuer="$(thunder_issuer "$org" "$ENV_NAME")"
+  host="$(thunder_host "$handle")"
+  issuer="$(thunder_issuer "$handle")"
   chart="${THUNDER_CHART:-oci://ghcr.io/thunder-id/helm-charts/thunderid}"
   secret_name="${release}-system-client"
   thunder_port=8090
