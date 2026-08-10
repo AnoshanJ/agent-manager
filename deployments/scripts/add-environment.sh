@@ -194,6 +194,28 @@ else
   unset _naming_lib_url _naming_lib_tmp
 fi
 
+# Load the shared AMS auth helpers (get_ams_token/get_thunder_url_handle) — see
+# deployments/scripts/ams-auth.sh. Same prefer-local-sibling, fallback-to-curl-fetch
+# pattern as the thunder-naming.sh load above. get_thunder_url_handle is the single
+# implementation every script uses to learn an ALREADY-provisioned env-Thunder's
+# registered handle — see Step 2b below.
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/ams-auth.sh" ]; then
+  # shellcheck source=ams-auth.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/ams-auth.sh"
+else
+  _ams_auth_lib_url="${AMS_AUTH_LIB_URL:-${SCRIPT_BASE_URL}/ams-auth.sh}"
+  _ams_auth_lib_tmp="$(mktemp)"
+  if ! curl -fsSL "${_ams_auth_lib_url}" -o "${_ams_auth_lib_tmp}"; then
+    echo "❌ Failed to fetch AMS auth helpers from ${_ams_auth_lib_url}" >&2
+    rm -f "${_ams_auth_lib_tmp}"
+    exit 1
+  fi
+  # shellcheck source=/dev/null
+  source "${_ams_auth_lib_tmp}"
+  rm -f "${_ams_auth_lib_tmp}"
+  unset _ams_auth_lib_url _ams_auth_lib_tmp
+fi
+
 echo "=== Adding Environment: ${DISPLAY_NAME} (${ENV_NAME}) ==="
 echo ""
 
@@ -326,8 +348,15 @@ if [ "${PROVISION_THUNDER:-true}" = "true" ]; then
       # fetches thunder-naming.sh from the same git ref as this one — see thunder-naming.sh.
       # AMP_API_URL/AGENT_MANAGER_TOKEN forward this call's already-verified AMS
       # reachability + bearer token to the chained script's store_via_ams.
+      # THUNDER_HANDLE, when set, forwards the user-chosen unguessable URL handle
+      # (see thunder-naming.sh's thunder_host) to register_thunder_url. Empty is
+      # fine too — add-environment-thunder.sh always registers a handle now, generating
+      # one itself when THUNDER_HANDLE is unset (see register_thunder_url). Step 2b
+      # below learns whichever handle actually got stored, since this process has no
+      # other way to find out.
       if ENV_NAME="${ENV_NAME}" DISPLAY_NAME="${DISPLAY_NAME}" ORG_NAME="${ORG_NAME}" \
           DATAPLANE_REF="${DATAPLANE_REF}" THUNDER_CHART="${THUNDER_CHART:-}" \
+          THUNDER_HANDLE="${THUNDER_HANDLE:-}" \
           CHART_VERSION="${THUNDER_CHART_VERSION:-}" SCRIPT_BASE_URL="${SCRIPT_BASE_URL}" \
           AMP_API_URL="${AGENT_MANAGER_API_URL}" AGENT_MANAGER_TOKEN="${AGENT_MANAGER_TOKEN}" \
           bash "$script_tmp"; then
@@ -357,6 +386,27 @@ else
     echo ""
     echo "ℹ️  PROVISION_THUNDER=false — skipping per-env Thunder; gateway will use its default"
     echo "    ThunderKeyManager (shared platform Thunder) instead of a per-env address."
+fi
+
+# --- Step 2b: Learn this environment's registered Thunder URL handle ---
+# add-environment-thunder.sh (above) registers a handle with agent-manager-service
+# BEFORE installing Thunder — either THUNDER_HANDLE as forwarded, or (when unset) a
+# 10-character one agent-manager-service generated on its own. Either way, THIS
+# script (a separate process) has no way to know which one actually got stored, and
+# there's no pattern to compute from org/env instead — so it must ask
+# agent-manager-service directly via GET before wiring the gateway's ThunderKeyManager
+# in Step 3, or an auto-generated handle would leave the gateway trusting an issuer no
+# real token ever presents.
+THUNDER_URL_HANDLE=""
+if [ "$THUNDER_PROVISIONED" = "true" ]; then
+    if ! THUNDER_URL_HANDLE="$(AGENT_MANAGER_TOKEN="${AGENT_MANAGER_TOKEN}" AMP_API_URL="${AGENT_MANAGER_API_URL}" \
+        get_thunder_url_handle "${ORG_NAME}" "${ENV_NAME}")"; then
+        echo "⚠️  Could not learn the registered Thunder URL handle."
+        echo "    The env-Thunder instance is running, but the gateway cannot be wired to it"
+        echo "    without its handle — falling back to the shared platform Thunder instead."
+        echo "    Re-run this script (idempotent) once agent-manager-service is reachable to fix wiring."
+        THUNDER_PROVISIONED=false
+    fi
 fi
 
 # --- Step 3: Helm install the gateway ---
@@ -429,8 +479,15 @@ if [ "$THUNDER_PROVISIONED" = "true" ]; then
     #   issuer        = Thunder's publicUrl / jwt.issuer (what it stamps into the JWT iss claim)
     #   internal_jwks = Thunder's K8s service DNS — avoids routing through the ingress
     #                   Service name follows the chart template: {{ .Release.Name }}-service
+    # THUNDER_URL_HANDLE (learned via GET in Step 2b above, since this script can't
+    # otherwise know whether add-environment-thunder.sh used THUNDER_HANDLE as given
+    # or generated its own) drives the issuer — the ACTUAL issuer the deployed
+    # Thunder stamps into every JWT is handle-based, with no pattern computable
+    # from org/env instead. Getting this wrong would make the gateway trust an
+    # issuer no real token ever presents, rejecting every agent request. Release
+    # name is unaffected — it never honored the handle.
     THUNDER_RELEASE="$(thunder_release_name "${ORG_NAME}" "${ENV_NAME}")"
-    THUNDER_ISSUER="$(thunder_issuer "${ORG_NAME}" "${ENV_NAME}")"
+    THUNDER_ISSUER="$(thunder_issuer "${THUNDER_URL_HANDLE}")"
     THUNDER_INTERNAL_JWKS="http://${THUNDER_RELEASE}-service.${THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
     HELM_ARGS+=(
         --set "apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers[1].name=ThunderKeyManager"
