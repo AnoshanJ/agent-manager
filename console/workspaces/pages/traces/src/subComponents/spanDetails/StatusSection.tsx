@@ -17,7 +17,7 @@
  */
 
 import { SpanStatus } from "@agent-management-platform/types";
-import { Card, CardContent, Chip, Divider, Stack, Typography } from "@wso2/oxygen-ui";
+import { Card, CardContent, Divider, Stack, Typography } from "@wso2/oxygen-ui";
 import { getStatusMessageDetails } from "./statusMessage";
 
 interface StatusSectionProps {
