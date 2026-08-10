@@ -1969,6 +1969,175 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /orgs/{orgName}/environments/{envID}/thunder-url:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+      - name: envID
+        in: path
+        required: true
+        description: Environment name
+        schema:
+          type: string
+
+    get:
+      tags:
+        - Environments
+      summary: Get an environment's env-Thunder URL handle
+      description: |
+        Returns the handle currently registered for this environment. Used by
+        add-environment.sh, after Thunder provisioning succeeds, to learn the
+        ACTUAL handle a chained add-environment-thunder.sh run assigned
+        (auto-generated ones aren't known to the caller upfront) — so the
+        gateway's ThunderKeyManager can be wired to trust the real issuer.
+      operationId: getEnvironmentThunderUrl
+      responses:
+        "200":
+          description: The registered handle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThunderUrlResponse"
+        "401":
+          description: Unauthorized - invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No handle has been registered for this environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      tags:
+        - Environments
+      summary: Register an environment's env-Thunder URL handle
+      description: |
+        Bootstrap-only endpoint used by add-environment-thunder.sh before it
+        provisions an environment's dedicated Thunder instance. Registers an
+        unguessable handle that replaces the predictable "<org>-<env>" segment
+        of that environment's externally-reachable env-Thunder hostname
+        (issuer/token/JWKS URLs) — without this, every such URL is 100%
+        derivable from (org, env) alone. org/env is NEVER used as a fallback:
+        every environment gets a handle, one way or another.
+
+        The request body's handle is OPTIONAL. Omit it (or send an empty
+        string) to have the server generate one automatically — a 10-character
+        random value. The response always reports the handle that ended up
+        stored, since a caller that left it blank needs to learn what was
+        actually assigned.
+
+        The handle is globally unique across ALL orgs/environments (every
+        env-Thunder instance's HTTPRoute attaches to the same shared Gateway,
+        so hostname routing is cluster-wide, not per-org). If a caller-supplied
+        handle collides with a different environment's, this returns 409. A
+        collision on a GENERATED handle is retried internally with a fresh
+        value and never surfaces as a 409.
+
+        Idempotent for the SAME environment: re-registering updates the
+        handle in place. Keyed by OU ID, always taken from the caller's own
+        token (never client-supplied), not orgName — same rationale as
+        thunder-system-client.
+      operationId: setEnvironmentThunderUrl
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThunderUrlRequest"
+      responses:
+        "200":
+          description: Handle stored successfully — response reports the handle that ended up stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThunderUrlResponse"
+        "400":
+          description: Bad request - invalid handle format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized - invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Conflict - handle already registered to a different environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Environments
+      summary: Remove an environment's env-Thunder URL handle
+      description: |
+        Removes the registered handle for an environment, freeing it for
+        reuse. Called by remove-environment-thunder.sh when an environment's
+        Thunder instance is torn down. Deleting a non-existent handle
+        succeeds (idempotent). Looked up by OU ID, always taken from the
+        caller's own token (never client-supplied), not orgName.
+      operationId: deleteEnvironmentThunderUrl
+      responses:
+        "204":
+          description: Handle deleted (or already absent)
+        "401":
+          description: Unauthorized - invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ============================================
   # AI GATEWAY ENDPOINTS
   # ============================================
@@ -13997,6 +14166,40 @@ components:
           type: string
           description: OAuth2 client secret (stored encrypted at rest).
           minLength: 1
+
+    ThunderUrlRequest:
+      type: object
+      description: |
+        An unguessable handle to register for an environment's env-Thunder
+        URL, replacing the predictable "<org>-<env>" pattern. Optional — omit
+        it (or send an empty string) to have the server generate one.
+      properties:
+        handle:
+          type: string
+          description: |
+            DNS-label-safe handle (lowercase alphanumeric with hyphens, no
+            leading/trailing hyphen) that replaces "<org>-<env>" in
+            "<handle>.<baseDomain>". Must be globally unique across
+            all orgs/environments, and at least 10 characters (matching what
+            the server itself generates — anything shorter is trivially
+            guessable). Omit to auto-generate a 10-character handle.
+          pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+          minLength: 10
+          maxLength: 63
+          example: x7f2q9kzab
+
+    ThunderUrlResponse:
+      type: object
+      description: |
+        The env-Thunder URL handle registered for an environment — either the
+        caller-supplied value, or the value the server generated when the
+        caller left it blank.
+      required:
+        - handle
+      properties:
+        handle:
+          type: string
+          example: x7f2q9kz
 
     GatewaySpec:
       type: object

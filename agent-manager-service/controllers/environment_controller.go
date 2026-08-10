@@ -41,6 +41,9 @@ type EnvironmentController interface {
 	ListThunderInstances(w http.ResponseWriter, r *http.Request)
 	SetThunderSystemClient(w http.ResponseWriter, r *http.Request)
 	DeleteThunderSystemClient(w http.ResponseWriter, r *http.Request)
+	SetThunderURL(w http.ResponseWriter, r *http.Request)
+	GetThunderURL(w http.ResponseWriter, r *http.Request)
+	DeleteThunderURL(w http.ResponseWriter, r *http.Request)
 }
 
 type environmentController struct {
@@ -443,6 +446,93 @@ func (c *environmentController) DeleteThunderSystemClient(w http.ResponseWriter,
 			return
 		}
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete system-client credential")
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusNoContent, "")
+}
+
+// SetThunderURL registers an environment's env-Thunder URL handle (bootstrap-only;
+// called by add-environment-thunder.sh before it provisions the Thunder instance).
+func (c *environmentController) SetThunderURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	ouID := middleware.OUIDFromRequest(r)
+	envName := r.PathValue("envID")
+
+	// The request body itself is optional (an empty PUT means "generate one for
+	// me"), so a missing/empty body is not a decode error — only malformed JSON is.
+	var req spec.ThunderUrlRequest
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Error("SetThunderURL: failed to decode request", "error", err)
+			utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+	}
+	var handle string
+	if req.Handle != nil {
+		handle = *req.Handle
+	}
+
+	resolved, err := c.environmentService.SetThunderURL(ctx, ouID, envName, handle)
+	if err != nil {
+		log.Error("SetThunderURL: failed to store handle", "ouID", ouID, "envName", envName, "error", err)
+		switch {
+		case errors.Is(err, utils.ErrThunderHandleTaken):
+			utils.WriteErrorResponse(w, http.StatusConflict, "Thunder URL handle is already in use")
+		case errors.Is(err, utils.ErrInvalidThunderHandle), errors.Is(err, utils.ErrInvalidInput):
+			utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid input")
+		default:
+			utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to store thunder url handle")
+		}
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusOK, spec.ThunderUrlResponse{Handle: resolved})
+}
+
+// GetThunderURL returns an environment's registered env-Thunder URL handle.
+// Used by add-environment.sh, after Thunder provisioning succeeds, to learn the
+// actual handle (possibly server-generated) for wiring the gateway's ThunderKeyManager.
+func (c *environmentController) GetThunderURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	ouID := middleware.OUIDFromRequest(r)
+	envName := r.PathValue("envID")
+
+	handle, err := c.environmentService.GetThunderURL(ctx, ouID, envName)
+	if err != nil {
+		if errors.Is(err, utils.ErrThunderHandleNotFound) {
+			utils.WriteErrorResponse(w, http.StatusNotFound, "No thunder url handle registered for this environment")
+			return
+		}
+		log.Error("GetThunderURL: failed to read handle", "ouID", ouID, "envName", envName, "error", err)
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to read thunder url handle")
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusOK, spec.ThunderUrlResponse{Handle: handle})
+}
+
+// DeleteThunderURL removes an environment's env-Thunder URL handle (idempotent;
+// called by remove-environment-thunder.sh), freeing it for reuse.
+func (c *environmentController) DeleteThunderURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	ouID := middleware.OUIDFromRequest(r)
+	envName := r.PathValue("envID")
+
+	if err := c.environmentService.DeleteThunderURL(ctx, ouID, envName); err != nil {
+		log.Error("DeleteThunderURL: failed to delete handle", "ouID", ouID, "envName", envName, "error", err)
+		if errors.Is(err, utils.ErrInvalidInput) {
+			utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid input")
+			return
+		}
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete thunder url handle")
 		return
 	}
 
