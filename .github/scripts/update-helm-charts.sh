@@ -29,9 +29,16 @@ else
 fi
 
 # A release must not ship a console pinned to documentation that was never
-# published, so fail early rather than emitting links that 404.
+# published, so fail early rather than emitting links that 404. The manifest is
+# tracked and this script runs from the repository root, so its absence means
+# something is wrong with the checkout and must not silently skip the check.
+# Candidates and nightlies never reach here, since DOCS_VERSION is empty.
 VERSIONS_FILE="./documentation/versions.json"
-if [ -n "$DOCS_VERSION" ] && [ -f "$VERSIONS_FILE" ]; then
+if [ -n "$DOCS_VERSION" ]; then
+  if [ ! -f "$VERSIONS_FILE" ]; then
+    echo "Error: documentation manifest $VERSIONS_FILE is missing, so $DOCS_VERSION cannot be verified."
+    exit 1
+  fi
   if ! grep -q "\"$DOCS_VERSION\"" "$VERSIONS_FILE"; then
     echo "Error: documentation version $DOCS_VERSION is not present in $VERSIONS_FILE."
     echo "Run the Documentation Release workflow for $DOCS_VERSION before releasing $TARGET_VERSION."
