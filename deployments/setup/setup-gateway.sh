@@ -110,7 +110,7 @@ rm -f "${key_tmp}" # normal cleanup: don't leave the plaintext key on disk
 trap - EXIT INT TERM
 if [ "${enc_create_rc}" -eq 0 ]; then
     echo "✅ Gateway encryption key secret created in '${GATEWAY_NAMESPACE}'"
-elif printf '%s\n' "${enc_create_out}" | grep -q "AlreadyExists"; then
+elif kubectl get secret "${GATEWAY_ENCRYPTION_SECRET_NAME}" -n "${GATEWAY_NAMESPACE}" &>/dev/null; then
     echo "⏭️  Gateway encryption key secret '${GATEWAY_ENCRYPTION_SECRET_NAME}' already exists in '${GATEWAY_NAMESPACE}', leaving it untouched."
 else
     echo "❌ Failed to create gateway encryption key secret '${GATEWAY_ENCRYPTION_SECRET_NAME}' in '${GATEWAY_NAMESPACE}': ${enc_create_out}" >&2

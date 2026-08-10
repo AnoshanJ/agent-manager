@@ -895,7 +895,8 @@ else
     log_info "Installing openchoreo-control-plane..."
     log_info "This may take several minutes..."
     CP_INSTALL_OUTPUT=""
-    if ! CP_INSTALL_OUTPUT=$(helm install "openchoreo-control-plane" \
+    # instead of demanding clean state reconcile from a stale state or fresh install
+    if ! CP_INSTALL_OUTPUT=$(helm upgrade --install "openchoreo-control-plane" \
         "oci://ghcr.io/openchoreo/helm-charts/openchoreo-control-plane" \
         --namespace "openchoreo-control-plane" \
         --create-namespace \

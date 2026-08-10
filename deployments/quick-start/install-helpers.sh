@@ -432,7 +432,9 @@ install_gateway_extension() {
     # its own "<org>-<env>" namespace, mirroring add-environment.sh.
     local gateway_namespace="default-default"
     local otel_restapi="${release_name}-otel-restapi"
-    local gateway_runtime_deployment="${release_name}-gateway-gateway-runtime"
+    # gateway-operator's own child Helm release inserts a "-gw-" infix between
+    # the APIGateway release name and each of its component names 
+    local gateway_runtime_deployment="${release_name}-gw-gateway-gateway-runtime"
 
     # Sandboxed agents can egress only to namespaces carrying this label. Create
     # and label the namespace before Helm so the policy is effective as soon as
@@ -465,7 +467,7 @@ install_gateway_extension() {
     rm -f "${key_tmp}" # don't leave the plaintext key on disk
     if [ "${enc_create_rc}" -eq 0 ]; then
         log_success "Gateway encryption key secret created in '${gateway_namespace}'"
-    elif printf '%s\n' "${enc_create_out}" | grep -q "AlreadyExists"; then
+    elif kubectl get secret "${enc_secret_name}" -n "${gateway_namespace}" &>/dev/null; then
         log_info "Gateway encryption key secret '${enc_secret_name}' already exists in '${gateway_namespace}', leaving it untouched."
     else
         log_error "Failed to create gateway encryption key secret '${enc_secret_name}' in '${gateway_namespace}': ${enc_create_out}"
