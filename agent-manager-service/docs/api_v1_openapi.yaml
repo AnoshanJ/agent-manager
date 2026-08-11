@@ -17659,10 +17659,6 @@ components:
         - attributes
         - type
       properties:
-        ouId:
-          type: string
-          description: Organization unit ID (optional; resolved from org context when omitted)
-          example: "ou-456"
         type:
           type: string
           description: User type
@@ -17744,10 +17740,6 @@ components:
           description: Group name
           minLength: 1
           example: "developers"
-        ouId:
-          type: string
-          description: Organization unit ID
-          example: "ou-456"
         description:
           type: string
           description: Group description
@@ -17838,10 +17830,6 @@ components:
           description: Role name
           minLength: 1
           example: "developer"
-        ouId:
-          type: string
-          description: Organization unit ID
-          example: "ou-456"
         description:
           type: string
           description: Role description
