@@ -12,7 +12,7 @@ Organizations aren't something Agent Manager owns or invents, they're managed by
 
 **[Projects](./project.mdx)** are the containers your agents live in. Every agent belongs to exactly one project, and a project is also what a **[Deployment Pipeline](./deployment-pipeline.mdx)** attaches to — so the promotion path an agent follows is decided at the project level rather than per agent. An organization typically holds several projects, one per application or team.
 
-**[LLM Service Providers](./llm-service-provider.mdx)** and **[MCP Proxies](./agent-tools.mdx)** are defined at the organization level rather than inside a project, so any agent in any project can reference them.
+**[LLM Service Providers](./llm-service-provider.mdx)** and **[MCP Proxies](./mcp-proxy.mdx)** are defined at the organization level rather than inside a project, so any agent in any project can reference them.
 
 **[Environments](./environment.mdx)** and **[Gateways](./gateway.mdx)** are organization-level, with each environment having its own gateway. Identity providers are attached to those gateways, and determine which token issuers each environment trusts.
 
@@ -24,8 +24,6 @@ Access control in Agent Manager is defined at the organization level and nowhere
 ### One Permission Model, Every Entry Point
 
 Every action in the organization is authorized against an OAuth 2.0 scope named `amp:<resource>:<action>`( ex:- `amp:project:read`, `amp:agent:build`, `amp:gateway:create`).Scopes are issued as claims on an access token by the platform's identity provider. The same scope gates the same capability whether you reach the platform through the Console, the REST API, or the MCP servers. The full catalog is in the [Authorization reference](../reference/authorization.mdx).
-
-.
 
 :::note
 This platform identity provider is not the same thing as the per-environment identity providers described in [Environment](./environment.mdx). This one authenticates **people and service accounts against the control plane** — who may create, build, deploy, and promote. The per-environment providers are attached to gateways and govern runtime traffic which token issuers an environment trusts on calls reaching a running agent or proxy endpoint.

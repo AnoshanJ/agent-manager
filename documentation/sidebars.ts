@@ -41,7 +41,7 @@ const sidebars: SidebarsConfig = {
         'concepts/deployment-pipeline',         
         'concepts/agent-sandboxing',                
         'concepts/llm-service-provider',
-        'concepts/agent-tools',            
+        'concepts/mcp-proxy',            
       ],
     },
     {
