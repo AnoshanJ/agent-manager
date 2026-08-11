@@ -1101,7 +1101,7 @@ func canonicalMCPResourceIdentifier(raw string) (string, error) {
 		return "", fmt.Errorf("resource identifier %q has no scheme; RFC 8707 requires an absolute URI", raw)
 	case u.Scheme != "http" && u.Scheme != "https":
 		return "", fmt.Errorf("resource identifier %q must use scheme http or https, got %q", raw, u.Scheme)
-	case u.Host == "":
+	case u.Host == "" || u.Hostname() == "":
 		return "", fmt.Errorf("resource identifier %q has no host", raw)
 	case u.User != nil:
 		return "", fmt.Errorf("resource identifier %q must not carry userinfo", raw)

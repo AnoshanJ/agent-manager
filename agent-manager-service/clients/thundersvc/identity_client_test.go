@@ -122,6 +122,8 @@ func TestCanonicalMCPResourceIdentifier(t *testing.T) {
 		{name: "trailing slash dropped", raw: "https://gw.example.com/x/mcp/", want: "https://gw.example.com/x/mcp"},
 		{name: "scheme-less rejected", raw: "gw.example.com/x/mcp", wantErr: "scheme"},
 		{name: "non-http scheme rejected", raw: "ftp://gw.example.com/x/mcp", wantErr: "http"},
+		{name: "port-only authority rejected", raw: "https://:443/mcp", wantErr: "host"},
+		{name: "port-only authority with non-default port rejected", raw: "https://:8443/mcp", wantErr: "host"},
 		{name: "userinfo rejected", raw: "https://u:p@gw.example.com/x/mcp", wantErr: "userinfo"},
 		{name: "query rejected", raw: "https://gw.example.com/x/mcp?a=1", wantErr: "query"},
 		{name: "fragment rejected", raw: "https://gw.example.com/x/mcp#f", wantErr: "fragment"},
