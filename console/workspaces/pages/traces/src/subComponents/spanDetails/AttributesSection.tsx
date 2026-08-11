@@ -30,7 +30,7 @@ import {
   ChevronDown,
   Search,
 } from "@wso2/oxygen-ui-icons-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 
 interface AttributesSectionProps {
   attributes?: Record<string, unknown>;
@@ -153,6 +153,11 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
   const editorRef = useRef<EditorInstance | null>(null);
   const matchesRef = useRef<Array<{ range: MatchRange }>>([]);
 
+  const attributesText = useMemo(
+    () => (attributes ? safeStringifyAttributes(attributes) : ""),
+    [attributes],
+  );
+
   const handleEditorWillMount = (monaco: Monaco) => {
     defineCustomThemes(monaco);
   };
@@ -160,6 +165,16 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
   const handleEditorMount = (editor: EditorInstance) => {
     editorRef.current = editor;
   };
+
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, []);
 
   const navigateToMatch = (index: number) => {
     if (!editorRef.current || matchesRef.current.length === 0) return;
@@ -220,7 +235,10 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
 
   const handleSearchChange = (value: string) => {
     setSearchText(value);
-    performSearch(value);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => performSearch(value), 200);
   };
 
   const handleNext = () => {
@@ -312,7 +330,7 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
         theme={
           colorSchemeMode === "dark" ? CUSTOM_DARK_THEME : CUSTOM_LIGHT_THEME
         }
-        value={safeStringifyAttributes(attributes)}
+        value={attributesText}
         language="json"
         beforeMount={handleEditorWillMount}
         onMount={handleEditorMount}

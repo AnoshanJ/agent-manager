@@ -34,7 +34,7 @@ import {
   TraceSpanSummary,
 } from "@agent-management-platform/types";
 import { Workflow } from "@wso2/oxygen-ui-icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SpanDetailsPanel } from "./SpanDetailsPanel";
 import { SpanDetailsPanelSkeleton } from "./spanDetails/SpanDetailsPanelSkeleton";
 
@@ -104,6 +104,11 @@ export function TraceDetails({
   );
 
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+
+  const handleOpenAttributesClick = useCallback(
+    (span: Span) => setSelectedSpanId(span.spanId),
+    [],
+  );
 
   const spanKey = useMemo(
     () => traceDetails?.spans?.map((s) => s.spanId).join(',') ?? '',
@@ -221,7 +226,7 @@ export function TraceDetails({
         <Box sx={{ width: "45%" }} pr={1} overflow="auto">
           {traceId && (
             <TraceExplorer
-              onOpenAttributesClick={(span) => setSelectedSpanId(span.spanId)}
+              onOpenAttributesClick={handleOpenAttributesClick}
               selectedSpan={displaySelectedSpan}
               spans={spansForExplorer}
             />
