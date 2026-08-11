@@ -27,10 +27,21 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Concepts',
       collapsed: false,
-      items: [
+      items: [                     
+        'concepts/organization',                  
+        'concepts/environment', 
+        'concepts/project',
+        'concepts/agent-lifecycle',    
+        'concepts/internal-and-external-agent',
+        'concepts/agent-kind-and-catalog',   
         'concepts/observability',
         'concepts/evaluation',
-        'concepts/agentid',
+        'concepts/agentid',             
+        'concepts/gateway',         
+        'concepts/deployment-pipeline',         
+        'concepts/agent-sandboxing',                
+        'concepts/llm-service-provider',
+        'concepts/agent-tools',            
       ],
     },
     {
