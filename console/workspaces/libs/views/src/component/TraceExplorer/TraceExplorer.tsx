@@ -197,24 +197,26 @@ interface SpanRowProps {
   spanMap: Map<string, RenderSpan>;
   onOpenAttributesClick: (span: Span) => void;
   selectedSpanId: string | null;
-  expandAllByDefault: boolean;
+  expandedKeys: Set<string>;
+  onToggleExpanded: (key: string) => void;
   isLastChild?: boolean;
   isRoot?: boolean;
 }
 
-// Each row owns its own expand/collapse state so toggling one span only
-// re-renders that span's subtree, not the whole tree.
+// Expand/collapse state is lifted to TraceExplorer (rather than kept as local
+// state here) so it survives a Collapse's unmountOnExit remounting this row
+// when an ancestor is collapsed and re-expanded.
 const SpanRow = memo(function SpanRow({
   node,
   spanMap,
   onOpenAttributesClick,
   selectedSpanId,
-  expandAllByDefault,
+  expandedKeys,
+  onToggleExpanded,
   isLastChild,
   isRoot,
 }: SpanRowProps) {
-  const [expanded, setExpanded] = useState(!!isRoot || expandAllByDefault);
-  const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
+  const expanded = expandedKeys.has(node.key);
   const isSelected = selectedSpanId === node.key;
   const childCount = node.childrenKeys?.length ?? 0;
   const hasChildren = childCount > 0;
@@ -288,7 +290,7 @@ const SpanRow = memo(function SpanRow({
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                toggleExpanded();
+                onToggleExpanded(node.key);
               }}
               size="small"
               color="primary"
@@ -392,7 +394,8 @@ const SpanRow = memo(function SpanRow({
                     spanMap={spanMap}
                     onOpenAttributesClick={onOpenAttributesClick}
                     selectedSpanId={selectedSpanId}
-                    expandAllByDefault={expandAllByDefault}
+                    expandedKeys={expandedKeys}
+                    onToggleExpanded={onToggleExpanded}
                     isLastChild={index === childCount - 1}
                     isRoot={false}
                   />
@@ -409,9 +412,29 @@ const SpanRow = memo(function SpanRow({
 export function TraceExplorer(props: TraceExplorerProps) {
   const { spans, onOpenAttributesClick, selectedSpan } = props;
   const selectedSpanId = selectedSpan?.spanId ?? null;
-  const expandAllByDefault = spans.length <= EXPAND_ALL_THRESHOLD;
 
   const renderingSpans = useMemo(() => populateRenderSpans(spans), [spans]);
+
+  // Expanded keys live for the lifetime of this TraceExplorer instance (reset
+  // only when it's given a different trace's spans, i.e. remounted), so
+  // collapsing/re-expanding an ancestor doesn't discard descendants' choices.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() =>
+    spans.length <= EXPAND_ALL_THRESHOLD
+      ? new Set(spans.map((span) => span.spanId))
+      : new Set(renderingSpans.rootSpans)
+  );
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <Stack direction="column" spacing={2}>
@@ -430,7 +453,8 @@ export function TraceExplorer(props: TraceExplorerProps) {
               spanMap={renderingSpans.spanMap}
               onOpenAttributesClick={onOpenAttributesClick}
               selectedSpanId={selectedSpanId}
-              expandAllByDefault={expandAllByDefault}
+              expandedKeys={expandedKeys}
+              onToggleExpanded={toggleExpanded}
               isLastChild={index === renderingSpans.rootSpans.length - 1}
               isRoot
             />

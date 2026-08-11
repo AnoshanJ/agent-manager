@@ -168,13 +168,21 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Reset search state whenever the viewed span's attributes change so a
+  // query (or its stale matches/pending debounce) from the previous span
+  // doesn't carry over.
   useEffect(() => {
+    setSearchText("");
+    matchesRef.current = [];
+    setTotalMatches(0);
+    setCurrentMatchIndex(0);
     return () => {
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = null;
       }
     };
-  }, []);
+  }, [attributes]);
 
   const navigateToMatch = (index: number) => {
     if (!editorRef.current || matchesRef.current.length === 0) return;
@@ -241,13 +249,25 @@ export function AttributesSection({ attributes }: AttributesSectionProps) {
     searchDebounceRef.current = setTimeout(() => performSearch(value), 200);
   };
 
+  // If a search is still debounced, run it now instead of navigating against
+  // stale (or empty) matches from before the latest keystroke.
+  const flushPendingSearch = () => {
+    if (!searchDebounceRef.current) return false;
+    clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = null;
+    performSearch(searchText);
+    return true;
+  };
+
   const handleNext = () => {
+    if (flushPendingSearch()) return;
     if (matchesRef.current.length === 0) return;
     const nextIndex = currentMatchIndex % matchesRef.current.length;
     navigateToMatch(nextIndex);
   };
 
   const handlePrevious = () => {
+    if (flushPendingSearch()) return;
     if (matchesRef.current.length === 0) return;
     const prevIndex =
       currentMatchIndex <= 1
