@@ -351,14 +351,6 @@ func buildMCPProxyURL(gateway *models.Gateway, cfg models.MCPProxyConfig) string
 	return mcpProxyServingBase(gateway, cfg.Vhost) + path
 }
 
-// stripURLScheme drops the leading scheme, yielding the resource-identifier form.
-func stripURLScheme(u string) string {
-	if i := strings.Index(u, "://"); i >= 0 {
-		return u[i+3:]
-	}
-	return u
-}
-
 // mcpProxyAPIKeySecurityEnabled reports whether the source MCP proxy requires API
 // key security for the given environment. When it returns false, agent mappings
 // derived from the proxy are deployed without minting a gateway key, binding an app

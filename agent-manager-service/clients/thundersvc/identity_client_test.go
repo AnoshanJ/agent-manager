@@ -106,6 +106,41 @@ func TestListGroupMemberEntries_ReturnsTypedEntries(t *testing.T) {
 	assert.Equal(t, GroupMember{ID: "u1", Type: "user"}, members[1])
 }
 
+func TestCanonicalMCPResourceIdentifier(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr string
+	}{
+		{name: "already canonical", raw: "https://gw.example.com/github/mcp", want: "https://gw.example.com/github/mcp"},
+		{name: "scheme and host lowercased", raw: "HTTPS://GW.Example.com/x/mcp", want: "https://gw.example.com/x/mcp"},
+		{name: "path case preserved", raw: "https://gw.example.com/GitHub/mcp", want: "https://gw.example.com/GitHub/mcp"},
+		{name: "default https port dropped", raw: "https://gw.example.com:443/x/mcp", want: "https://gw.example.com/x/mcp"},
+		{name: "default http port dropped", raw: "http://gw.example.com:80/x/mcp", want: "http://gw.example.com/x/mcp"},
+		{name: "non-default port kept", raw: "https://gw.example.com:8443/x/mcp", want: "https://gw.example.com:8443/x/mcp"},
+		{name: "trailing slash dropped", raw: "https://gw.example.com/x/mcp/", want: "https://gw.example.com/x/mcp"},
+		{name: "scheme-less rejected", raw: "gw.example.com/x/mcp", wantErr: "scheme"},
+		{name: "non-http scheme rejected", raw: "ftp://gw.example.com/x/mcp", wantErr: "http"},
+		{name: "userinfo rejected", raw: "https://u:p@gw.example.com/x/mcp", wantErr: "userinfo"},
+		{name: "query rejected", raw: "https://gw.example.com/x/mcp?a=1", wantErr: "query"},
+		{name: "fragment rejected", raw: "https://gw.example.com/x/mcp#f", wantErr: "fragment"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canonicalMCPResourceIdentifier(tc.raw)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				assert.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.T) {
 	rsCreated, actCreated := 0, 0
 	var createRSBody map[string]string
@@ -119,7 +154,7 @@ func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
 			rsCreated++
 			_ = json.NewDecoder(r.Body).Decode(&createRSBody)
-			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "gw.example.com/github/mcp"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "https://gw.example.com/github/mcp"})
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
 			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers/rs-1/actions":
@@ -134,13 +169,13 @@ func TestEnsureProxyResourceServer_CreatesRSWithHandleAndRootActions(t *testing.
 	})
 	defer srv.Close()
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
-	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read", "write"})
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "https://gw.example.com/github/mcp", []string{"read", "write"})
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
 	assert.Equal(t, 1, rsCreated)
 	assert.Equal(t, 2, actCreated)
 	assert.Equal(t, "gh-proxy", createRSBody["handle"], "RS handle must be the proxy handle — it prefixes derived permissions")
-	assert.Equal(t, "gw.example.com/github/mcp", createRSBody["identifier"], "identifier must be the env invocation URI, not the handle")
+	assert.Equal(t, "https://gw.example.com/github/mcp", createRSBody["identifier"], "identifier must be the env invocation URI, not the handle")
 	assert.Equal(t, ":", createRSBody["delimiter"])
 	assert.Equal(t, "MCP", createRSBody["type"])
 	assert.Equal(t, "ou-1", createRSBody["ouId"])
@@ -154,7 +189,7 @@ func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resourceServers": []any{map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "gw.example.com/github/mcp"}},
+				"resourceServers": []any{map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "https://gw.example.com/github/mcp"}},
 				"total":           1,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
@@ -178,7 +213,7 @@ func TestEnsureProxyResourceServer_IdempotentSkipsExistingActions(t *testing.T) 
 	})
 	defer srv.Close()
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
-	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read", "write"})
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "https://gw.example.com/github/mcp", []string{"read", "write"})
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
 	require.Len(t, createActionBodies, 1, "only the missing action must be created")
@@ -216,11 +251,11 @@ func TestEnsureProxyResourceServer_ReconcilesDriftedIdentifier(t *testing.T) {
 	})
 	defer srv.Close()
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
-	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read"})
+	rsID, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "https://gw.example.com/github/mcp", []string{"read"})
 	assert.NoError(t, err)
 	assert.Equal(t, "rs-1", rsID)
 	assert.Equal(t, 1, rsUpdated)
-	assert.Equal(t, "gw.example.com/github/mcp", updateBody["identifier"])
+	assert.Equal(t, "https://gw.example.com/github/mcp", updateBody["identifier"])
 	assert.Equal(t, "gh-proxy", updateBody["handle"], "handle must never change — permissions derive from it")
 	assert.Equal(t, ":", updateBody["delimiter"])
 	assert.Equal(t, "MCP", updateBody["type"])
@@ -262,14 +297,14 @@ func TestEnsureProxyResourceServer_DistinctProxiesDoNotSerialize(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-a", "Proxy A", "gw.example.com/a/mcp", []string{"read"})
+		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-a", "Proxy A", "https://gw.example.com/a/mcp", []string{"read"})
 		firstErr <- err
 	}()
 	<-firstListArrived
 
 	secondErr := make(chan error, 1)
 	go func() {
-		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-b", "Proxy B", "gw.example.com/b/mcp", []string{"read"})
+		_, err := client.EnsureProxyResourceServer(context.Background(), "proxy-b", "Proxy B", "https://gw.example.com/b/mcp", []string{"read"})
 		secondErr <- err
 	}()
 	select {
@@ -295,7 +330,7 @@ func TestEnsureProxyResourceServer_ConcurrentSameHandleCreatesOnce(t *testing.T)
 			mu.Lock()
 			servers := []any{}
 			if exists {
-				servers = append(servers, map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "gw.example.com/github/mcp"})
+				servers = append(servers, map[string]string{"id": "rs-1", "handle": "gh-proxy", "identifier": "https://gw.example.com/github/mcp"})
 			}
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": servers, "total": len(servers)})
@@ -326,7 +361,7 @@ func TestEnsureProxyResourceServer_ConcurrentSameHandleCreatesOnce(t *testing.T)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rsIDs[i], errs[i] = client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read"})
+			rsIDs[i], errs[i] = client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "https://gw.example.com/github/mcp", []string{"read"})
 		}()
 	}
 	wg.Wait()
@@ -370,13 +405,99 @@ func TestEnsureProxyResourceServer_RejectsOverlongInputs(t *testing.T) {
 	defer srv.Close()
 	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
 
-	_, err := client.EnsureProxyResourceServer(context.Background(), strings.Repeat("h", 101), "Too Long", "gw.example.com/x/mcp", []string{"read"})
+	_, err := client.EnsureProxyResourceServer(context.Background(), strings.Repeat("h", 101), "Too Long", "https://gw.example.com/x/mcp", []string{"read"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "100", "over-long handle error should state the 100-character Thunder limit")
 
-	_, err = client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/x/mcp", []string{strings.Repeat("a", 101)})
+	_, err = client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "https://gw.example.com/x/mcp", []string{strings.Repeat("a", 101)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "100", "over-long action error should state the 100-character Thunder limit")
+}
+
+func TestEnsureProxyResourceServer_RejectsNonCanonicalIdentifierBeforeAnyCall(t *testing.T) {
+	srv := newTestThunderServer(t, func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("no Thunder calls expected for a non-canonical identifier, got %s %s", r.Method, r.URL.Path)
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+
+	_, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "gw.example.com/github/mcp", []string{"read"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scheme", "a scheme-less identifier must be rejected as non-absolute")
+}
+
+func TestEnsureProxyResourceServer_CanonicalizesIdentifierOnCreate(t *testing.T) {
+	// The uppercase host and default port are normalized at the Thunder boundary,
+	// so the identifier Thunder mints aud claims from is RFC 8707 canonical.
+	var createRSBody map[string]string
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "total": 0})
+		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
+			_ = json.NewDecoder(r.Body).Decode(&createRSBody)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1"})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+
+	_, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", "HTTPS://GW.Example.com:443/github/mcp/", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://gw.example.com/github/mcp", createRSBody["identifier"])
+}
+
+func TestEnsureProxyResourceServer_IdentifierLimitIsTheIdentifierColumn(t *testing.T) {
+	// The identifier column is VARCHAR(2048); it was previously capped at the
+	// 100-character handle limit, rejecting legitimate long URIs.
+	longIdentifier := "https://gw.example.com/" + strings.Repeat("a", 123) + "/mcp"
+	require.Len(t, longIdentifier, 150)
+
+	var createRSBody map[string]string
+	srv := newTestThunderServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceServers": []any{}, "total": 0})
+		case r.Method == http.MethodGet && r.URL.Path == "/organization-units/tree/default":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "ou-1"})
+		case r.Method == http.MethodPost && r.URL.Path == "/resource-servers":
+			_ = json.NewDecoder(r.Body).Decode(&createRSBody)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "rs-1"})
+		case r.Method == http.MethodGet && r.URL.Path == "/resource-servers/rs-1/actions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"actions": []any{}, "totalResults": 0})
+		default:
+			t.Fatalf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+
+	_, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", longIdentifier, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, longIdentifier, createRSBody["identifier"])
+}
+
+func TestEnsureProxyResourceServer_RejectsIdentifierOverColumnLimit(t *testing.T) {
+	srv := newTestThunderServer(t, func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("no Thunder calls expected for an over-long identifier, got %s %s", r.Method, r.URL.Path)
+	})
+	defer srv.Close()
+	client := NewIdentityClient(srv.URL, "sys-client", "sys-secret")
+	overLimit := "https://gw.example.com/" + strings.Repeat("a", 2048)
+
+	_, err := client.EnsureProxyResourceServer(context.Background(), "gh-proxy", "GitHub Proxy", overLimit, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2048", "over-long identifier error should state the 2048-character limit")
 }
 
 // The list fixture carries only a legacy identifier match (no handle key) to lock

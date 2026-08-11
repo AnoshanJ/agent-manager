@@ -38,8 +38,8 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
 
-// stubRSIdentifierResolver returns "<handle>.uri" so tests can assert the derived
-// identifier reaches the RS ensure call.
+// stubRSIdentifierResolver returns the absolute per-proxy invocation URI so tests
+// can assert the derived identifier reaches the RS ensure call.
 type stubRSIdentifierResolver struct{ err error }
 
 func (s stubRSIdentifierResolver) EnvironmentUUIDByName(_ context.Context, _, _ string) (uuid.UUID, error) {
@@ -50,7 +50,7 @@ func (s stubRSIdentifierResolver) MCPResourceServerIdentifier(_ context.Context,
 	if s.err != nil {
 		return "", s.err
 	}
-	return proxy.Handle + ".uri", nil
+	return "https://gw.example.com/" + proxy.Handle + "/mcp", nil
 }
 
 // TestAgentIdentityCreateRole_EnsuresPerProxyRSBeforePermissionWrite proves each
@@ -64,7 +64,7 @@ func TestAgentIdentityCreateRole_EnsuresPerProxyRSBeforePermissionWrite(t *testi
 		GetDefaultOUIDFunc: func(_ context.Context) (string, error) { return "ou-env", nil },
 		EnsureProxyResourceServerFunc: func(_ context.Context, handle, _, identifier string, _ []string) (string, error) {
 			calls = append(calls, "ensure:"+handle)
-			assert.Equal(t, handle+".uri", identifier, "the resolver-derived identifier must reach the RS ensure")
+			assert.Equal(t, "https://gw.example.com/"+handle+"/mcp", identifier, "the resolver-derived identifier must reach the RS ensure")
 			return "rs-" + handle, nil
 		},
 		CreateRoleFunc: func(_ context.Context, req thundersvc.CreateRoleRequest) (*thundersvc.ThunderRole, error) {
@@ -265,7 +265,7 @@ func TestAgentIdentityUpdateRole_ReconcilesAcrossResourceServers(t *testing.T) {
 			return &thundersvc.ThunderRole{ID: roleID, Name: req.Name}, nil
 		},
 		EnsureProxyResourceServerFunc: func(_ context.Context, handle, _, identifier string, _ []string) (string, error) {
-			assert.Equal(t, handle+".uri", identifier, "the resolver-derived identifier must reach the RS ensure")
+			assert.Equal(t, "https://gw.example.com/"+handle+"/mcp", identifier, "the resolver-derived identifier must reach the RS ensure")
 			switch handle {
 			case "gh-proxy":
 				return "rs-gh", nil

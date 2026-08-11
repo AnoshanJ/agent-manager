@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
@@ -95,10 +97,11 @@ type IdentityClient interface {
 	// Permissions catalog
 	ListAMPPermissions(ctx context.Context) ([]ThunderPermission, string, error)
 	// EnsureProxyResourceServer makes sure the proxy's resource server exists
-	// (handle = proxyHandle, identifier = the proxy's protocol-stripped public
-	// invocation URI in this environment, delimiter ":", type MCP) with every
-	// given action registered at the RS root, and returns the RS ID. A drifted
-	// identifier is updated in place; the handle never changes.
+	// (handle = proxyHandle, identifier = the proxy's absolute public invocation
+	// URI in this environment, delimiter ":", type MCP) with every given action
+	// registered at the RS root, and returns the RS ID. The identifier must be an
+	// RFC 8707 absolute URI; it is canonicalized and non-canonical input is
+	// rejected. A drifted identifier is updated in place; the handle never changes.
 	EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName, identifier string, actions []string) (string, error)
 	// DeleteProxyResourceServerAction best-effort deletes one root action.
 	// Missing RS or action is not an error. Returns the RS ID ("" if RS absent).
@@ -1082,7 +1085,46 @@ const (
 	// handles). Over-long inputs are rejected with a clear error instead of letting
 	// Thunder reject the handle with an opaque 400.
 	thunderHandleMaxLen = 100
+	// thunderIdentifierMaxLen is Thunder's cap on the RS identifier column, which
+	// holds a URI and is far wider than a handle.
+	thunderIdentifierMaxLen = 2048
 )
+
+// canonicalMCPResourceIdentifier returns raw in RFC 8707 canonical form, or an error if it cannot be one.
+func canonicalMCPResourceIdentifier(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("resource identifier %q is not a valid URI: %w", raw, err)
+	}
+	switch {
+	case u.Scheme == "":
+		return "", fmt.Errorf("resource identifier %q has no scheme; RFC 8707 requires an absolute URI", raw)
+	case u.Scheme != "http" && u.Scheme != "https":
+		return "", fmt.Errorf("resource identifier %q must use scheme http or https, got %q", raw, u.Scheme)
+	case u.Host == "":
+		return "", fmt.Errorf("resource identifier %q has no host", raw)
+	case u.User != nil:
+		return "", fmt.Errorf("resource identifier %q must not carry userinfo", raw)
+	case u.RawQuery != "" || u.ForceQuery:
+		return "", fmt.Errorf("resource identifier %q must not carry a query", raw)
+	case u.Fragment != "":
+		return "", fmt.Errorf("resource identifier %q must not carry a fragment", raw)
+	}
+	// url.Parse lowercases the scheme but not the host; the path stays as-is, being case-sensitive.
+	host := strings.ToLower(u.Host)
+	if port := u.Port(); port == defaultPortForScheme(u.Scheme) {
+		host = strings.TrimSuffix(host, ":"+port)
+	}
+	return u.Scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/"), nil
+}
+
+// defaultPortForScheme is the port an http(s) URI omits in canonical form.
+func defaultPortForScheme(scheme string) string {
+	if scheme == "https" {
+		return "443"
+	}
+	return "80"
+}
 
 // ensureProxyResourceServerMu returns the mutex serializing check-then-create
 // calls for one proxy handle. Entries are never removed; the map only grows by
@@ -1093,16 +1135,21 @@ func (c *thunderClient) ensureProxyResourceServerMu(proxyHandle string) *sync.Mu
 }
 
 // EnsureProxyResourceServer makes sure the resource server for a proxy exists
-// (handle = proxyHandle, identifier = the proxy's protocol-stripped public
-// invocation URI, delimiter ":", type MCP) and that every given action is
-// registered as a root action, then returns the resource server ID. A drifted
+// (handle = proxyHandle, identifier = the proxy's public invocation URI,
+// delimiter ":", type MCP) and that every given action is registered as a root
+// action, then returns the resource server ID. The identifier is canonicalized
+// here, so both create and drift-update write an RFC 8707 absolute URI. A drifted
 // identifier is rewritten in place. Idempotent; called lazily before role writes.
 func (c *thunderClient) EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName, identifier string, actions []string) (string, error) {
+	identifier, err := canonicalMCPResourceIdentifier(identifier)
+	if err != nil {
+		return "", err
+	}
 	if len(proxyHandle) > thunderHandleMaxLen {
 		return "", fmt.Errorf("proxy handle %q exceeds the Thunder handle limit of %d characters", proxyHandle, thunderHandleMaxLen)
 	}
-	if len(identifier) > thunderHandleMaxLen {
-		return "", fmt.Errorf("resource identifier %q exceeds the Thunder limit of %d characters", identifier, thunderHandleMaxLen)
+	if len(identifier) > thunderIdentifierMaxLen {
+		return "", fmt.Errorf("resource identifier %q exceeds the Thunder limit of %d characters", identifier, thunderIdentifierMaxLen)
 	}
 	for _, action := range actions {
 		if len(action) > thunderHandleMaxLen {
