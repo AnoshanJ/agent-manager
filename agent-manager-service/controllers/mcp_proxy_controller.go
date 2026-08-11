@@ -41,13 +41,22 @@ type MCPProxyController interface {
 }
 
 type mcpProxyController struct {
-	mcpProxyService *services.MCPProxyService
+	mcpProxyService    *services.MCPProxyService
+	agentConfigService services.AgentConfigurationService
 }
 
 // NewMCPProxyController creates a new MCP proxy controller.
-func NewMCPProxyController(mcpProxyService *services.MCPProxyService) MCPProxyController {
+//
+// agentConfigService is orchestrated here rather than from inside MCPProxyService because
+// the agent configuration service already depends on the MCP proxy service; calling back
+// the other way would close a dependency cycle.
+func NewMCPProxyController(
+	mcpProxyService *services.MCPProxyService,
+	agentConfigService services.AgentConfigurationService,
+) MCPProxyController {
 	return &mcpProxyController{
-		mcpProxyService: mcpProxyService,
+		mcpProxyService:    mcpProxyService,
+		agentConfigService: agentConfigService,
 	}
 }
 
@@ -195,8 +204,23 @@ func (c *mcpProxyController) UpdateMCPProxy(w http.ResponseWriter, r *http.Reque
 	}
 
 	// The org-level MCP proxy is deployed directly to the gateway; agents reference it via a
-	// DB mapping and read its endpoint at their own deploy time, so a proxy update requires
-	// no changes to already-deployed agents.
+	// DB mapping and read its endpoint at their own deploy time, so an update to an endpoint
+	// an agent is already bound to requires no changes to that agent.
+	//
+	// Binding an endpoint to a NEW environment does, though: agents already promoted into
+	// that environment were left with their MCP env vars injected but empty, because no
+	// binding could be created for them at the time. Reconcile them now — this is the only
+	// event that can resolve that state. Best-effort; a failure leaves the proxy updated and
+	// is retried on the next update.
+	//
+	// Run inline rather than detached so the caller reads back a bound agent immediately.
+	// The expensive part (minting keys, patching bindings) only runs when an agent actually
+	// needs backfilling, which happens at most once per agent and environment; the steady
+	// state is a handful of indexed reads.
+	if err := c.agentConfigService.ReconcileMCPBindingsForProxy(ctx, ouID, proxyID); err != nil {
+		log.Warn("UpdateMCPProxy: failed to reconcile agent MCP bindings", "ouID", ouID, "proxyID", proxyID, "error", err)
+	}
+
 	log.Info("UpdateMCPProxy: completed", "ouID", ouID, "proxyID", proxyID)
 	utils.WriteSuccessResponse(w, http.StatusOK, resp)
 }
