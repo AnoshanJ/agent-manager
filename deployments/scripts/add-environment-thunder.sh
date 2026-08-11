@@ -176,6 +176,16 @@ platform_thunder_ca_cert() {
   operator_ca="$(kubectl get configmap amp-platform-ca -n openchoreo-control-plane \
     -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true)"
   if [ -n "$operator_ca" ]; then
+    # Any non-empty value would otherwise be accepted and folded into the trust bundle,
+    # so a truncated or non-PEM ConfigMap would reproduce the exact silent failure this
+    # lookup exists to prevent. The Mozilla bundle download applies the same check.
+    if ! printf '%s' "$operator_ca" | grep -q "BEGIN CERTIFICATE"; then
+      echo "❌ ConfigMap amp-platform-ca exists but ca.crt is not a PEM certificate." >&2
+      echo "   Replace it with the CA that signed platform Thunder's certificate:" >&2
+      echo "     kubectl create configmap amp-platform-ca -n openchoreo-control-plane \\" >&2
+      echo "       --from-file=ca.crt=<ca.pem> --dry-run=client -o yaml | kubectl apply -f -" >&2
+      return 1
+    fi
     echo "🔐 Using the operator-supplied platform CA (ConfigMap amp-platform-ca)" >&2
     printf '%s' "$operator_ca"
     return 0

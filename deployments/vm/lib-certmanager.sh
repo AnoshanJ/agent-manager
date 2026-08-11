@@ -220,7 +220,15 @@ EOF
 # multi-line and any indentation slip silently corrupts the key. `openssl base64 -A`
 # (not `base64 -w0`, which is GNU-only) keeps this portable across macOS and Linux.
 render_byoc_tls_secret() {
-  local name="$1" cert="$2" key="$3"
+  local name="$1" cert="$2" key="$3" crt_b64 key_b64
+  # Encode before the heredoc, not inside it. Command substitution in a heredoc swallows
+  # the exit status, so a file that moved or lost its permissions after the pre-flight
+  # would expand to an empty value here and still return 0 — the caller would then see
+  # only kubectl's decoding complaint, which never names the file at fault.
+  crt_b64="$(openssl base64 -A -in "$cert")" && [[ -n "$crt_b64" ]] \
+    || die "render_byoc_tls_secret: could not read/encode the certificate: ${cert}"
+  key_b64="$(openssl base64 -A -in "$key")" && [[ -n "$key_b64" ]] \
+    || die "render_byoc_tls_secret: could not read/encode the private key: ${key}"
   cat <<EOF
 apiVersion: v1
 kind: Secret
@@ -229,8 +237,8 @@ metadata:
   namespace: ${GATEWAY_NS}
 type: kubernetes.io/tls
 data:
-  tls.crt: $(openssl base64 -A -in "$cert")
-  tls.key: $(openssl base64 -A -in "$key")
+  tls.crt: ${crt_b64}
+  tls.key: ${key_b64}
 EOF
 }
 
@@ -247,8 +255,20 @@ EOF
 #
 # A CA certificate is public by definition (it is sent in the TLS handshake), so a
 # ConfigMap is the right kind — no Secret needed.
+#
+# YAML infers a block scalar's indentation from its first non-empty line, so the sed
+# below strips any leading whitespace before applying exactly four spaces. Otherwise a CA
+# file opening with an indented line — the human-readable preamble `openssl x509 -text`
+# emits, for instance — would set a deeper inferred indent, and every subsequent line
+# would either gain leading spaces inside the value or end the block early. The ConfigMap
+# still applies either way; the damage only appears later as a trust failure.
+#
+# An explicit indentation indicator (`|4`) looks like the tidier fix but is not: the
+# indicator counts from the parent node's indentation, not from column zero, so here it
+# would demand six spaces and fail to parse at all.
 render_platform_ca_configmap() {
   local ca="$1"
+  [[ -s "$ca" ]] || die "render_platform_ca_configmap: CA file is missing or empty: ${ca}"
   cat <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -257,7 +277,7 @@ metadata:
   namespace: ${GATEWAY_NS}
 data:
   ca.crt: |
-$(sed 's/^/    /' "$ca")
+$(sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e 's/^/    /' "$ca")
 EOF
 }
 

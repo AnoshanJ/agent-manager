@@ -702,7 +702,11 @@ cp "${byoc_dir}/cert.pem" "${byoc_dir}/ca.pem"
 printf 'TLS_CA_FILE=%s/ca.pem\n' "$byoc_dir" >> "${byoc_dir}/config.env"
 ca_out="$(bash "$ADV" --config "${byoc_dir}/config.env" --dry-run 2>&1)"
 assert_eq "byoc with TLS_CA_FILE renders CA cm"    "yes" "$(has "$ca_out" 'name: amp-platform-ca')"
-assert_eq "CA cm lands in the gateway namespace"   "yes" "$(has "$ca_out" 'namespace: openchoreo-control-plane')"
+# Scope the namespace check to the ConfigMap: the Gateway and the front-proxy routes in
+# the same dry-run output also sit in openchoreo-control-plane, so an unscoped grep would
+# pass even if the CA landed somewhere else entirely.
+assert_eq "CA cm lands in the gateway namespace"   "yes" \
+  "$(grep -A1 'name: amp-platform-ca' <<<"$ca_out" | grep -q 'namespace: openchoreo-control-plane' && echo yes || echo no)"
 assert_eq "byoc with TLS_CA_FILE still hides key"  "no"  "$(has "$ca_out" 'PRIVATE KEY')"
 
 # A cert missing one dynamic-tier wildcard must be rejected before any cluster work,

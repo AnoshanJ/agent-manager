@@ -90,12 +90,20 @@ validate_byoc_config() {
   fi
 }
 
-# cert_sans <cert_file> — print the DNS SANs in a certificate, one per line. Parses only
-# the `DNS:` entries, so the "X509v3 Subject Alternative Name:" header line and any
-# non-DNS SAN types (IP:, email:) are dropped rather than treated as hostnames.
+# cert_sans <cert_file> — print the DNS SANs in a certificate, one per line, lowercased.
+# Parses only the `DNS:` entries, so the "X509v3 Subject Alternative Name:" header line
+# and any non-DNS SAN types (IP:, email:) are dropped rather than treated as hostnames.
+#
+# DNS names are case-insensitive (RFC 4343), and both this list and the required names it
+# is matched against are compared literally, so both sides are lowercased: a cert carrying
+# "DNS:Console.example.com", or a config written as DOMAIN_BASE=Example.com, would
+# otherwise be reported as a missing SAN. (The `DNS:` prefix itself is openssl's own
+# output, not user data, so matching it literally is safe — and keeps this portable to
+# BSD sed, which has no case-insensitive substitution flag.)
 cert_sans() {
   openssl x509 -noout -ext subjectAltName -in "$1" 2>/dev/null \
-    | tr ',' '\n' | sed -n 's/^[[:space:]]*DNS:[[:space:]]*//p' | sed 's/[[:space:]]//g'
+    | tr ',' '\n' | sed -n 's/^[[:space:]]*DNS:[[:space:]]*//p' | sed 's/[[:space:]]//g' \
+    | tr '[:upper:]' '[:lower:]'
 }
 
 # validate_cert <cert_file> <key_file> — verify a BYOC cert is usable and covers every
@@ -113,12 +121,26 @@ validate_cert() {
   [[ -r "$key" ]]  || CERT_ERRORS+=("key file not readable: $key")
   if (( ${#CERT_ERRORS[@]} )); then return 1; fi
 
-  # 1. Cert and key are a pair — compare public keys. Works for RSA and EC keys
-  #    (the older `openssl rsa -modulus` only handles RSA and errors on EC).
+  # 1. Both files actually parse, THEN that they are a pair. Compare the public keys
+  #    themselves rather than digests of them: piping a failed openssl into `openssl md5`
+  #    yields the digest of empty input, which is non-empty and identical on both sides —
+  #    so an unparseable cert AND key would silently "match". Comparing public keys (not
+  #    moduli) also keeps this working for EC keys, which `openssl rsa -modulus` rejects.
   local cpub kpub
-  cpub="$(openssl x509 -noout -pubkey -in "$cert" 2>/dev/null | openssl md5)"
-  kpub="$(openssl pkey -pubout -in "$key" 2>/dev/null | openssl md5)"
-  [[ -n "$cpub" && "$cpub" == "$kpub" ]] || CERT_ERRORS+=("cert and key do not match (public key mismatch)")
+  cpub="$(openssl x509 -noout -pubkey -in "$cert" 2>/dev/null)"
+  kpub="$(openssl pkey -pubout -in "$key" 2>/dev/null)"
+  [[ -n "$cpub" ]] || CERT_ERRORS+=("cert is not a readable X.509 certificate: $cert")
+  # An encrypted private key lands here too: openssl cannot read it unattended, which is
+  # worth naming, because "cert and key do not match" would send the operator hunting for
+  # the wrong problem entirely.
+  [[ -n "$kpub" ]] || CERT_ERRORS+=("key is not a readable unencrypted private key (decrypt it first): $key")
+  if [[ -n "$cpub" && -n "$kpub" && "$cpub" != "$kpub" ]]; then
+    CERT_ERRORS+=("cert and key do not match (public key mismatch)")
+  fi
+
+  # Everything below reads the certificate, so it can only mislead if the cert did not
+  # parse — "cert is expired" for a file that is not a certificate, say.
+  if [[ -z "$cpub" ]]; then return 1; fi
 
   # 2. Expiry: hard-fail if already expired; soft-note if < 30 days remain. There is no
   #    auto-renewal in byoc mode, so a short-dated cert is worth flagging up front.
@@ -128,7 +150,8 @@ validate_cert() {
     printf '[preflight] NOTE: cert expires in under 30 days, and byoc certs are NOT auto-renewed\n' >&2
   fi
 
-  # 3. SAN coverage for every name in cert_dns_names().
+  # 3. SAN coverage for every name in cert_dns_names(). Both sides are lowercased, since
+  #    DNS names are case-insensitive but these comparisons are literal.
   local sans want
   sans="$(cert_sans "$cert")"
   _san_covers() {  # _san_covers <hostname>
@@ -146,6 +169,7 @@ validate_cert() {
   }
   while IFS= read -r want; do
     [[ -z "$want" ]] && continue
+    want="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
     if [[ "$want" == \*.* ]]; then
       # A wildcard requirement needs a literal wildcard SAN. A broader wildcard one
       # level up does NOT satisfy it: *.<base> matches only a single extra label, so

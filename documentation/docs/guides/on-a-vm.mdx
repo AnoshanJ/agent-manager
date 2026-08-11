@@ -349,7 +349,8 @@ If you installed with a private-CA certificate but no `TLS_CA_FILE`, environment
 
 ```bash
 kubectl create configmap amp-platform-ca -n openchoreo-control-plane \
-  --from-file=ca.crt=/opt/amp/certs/ca.pem
+  --from-file=ca.crt=/opt/amp/certs/ca.pem \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 :::
 
@@ -563,7 +564,7 @@ Then point every service hostname at the tunnel in your workstation's `/etc/host
 If agent invocation fails with a DNS error while the console works, this is almost always why. A local DNS resolver that supports wildcards (dnsmasq, or a private DNS zone) avoids the per-agent edits.
 :::
 
-TLS still validates normally through the tunnel: the certificate is publicly trusted and the `Host` header is preserved, so the browser sees the real hostname and the gateway routes on it.
+TLS still validates normally through the tunnel, because the `Host` header and SNI are preserved: the browser sees the real hostname and the gateway routes on it, regardless of which address the tunnel connected to. With `dns01` the certificate is publicly trusted, so nothing else is needed. With `byoc` the browser trusts it only if it already trusts the issuing CA — for an internal PKI that means importing your CA (see [Certificates from a private CA](#adv-byoc)).
 
 </TabItem>
 </Tabs>
@@ -639,10 +640,15 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
 - **Certificate rejected before install (`byoc`).** The pre-flight found that the certificate and key don't match, the certificate has expired, or its SANs don't cover a required name. The message names the specific problem. The most common one is a missing `*.agents`, `*.thunder`, or `*.gateway` wildcard: a `*.<DOMAIN_BASE>` wildcard does not reach those tiers (see [Bring your own certificate](#adv-byoc)). Reissue with the full SAN list.
 - **Certificate never becomes Ready (`dns01`).** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit. Re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
 - **Untrusted-certificate warnings everywhere (`byoc` with a private CA).** Expected on any client that doesn't hold your CA. Import the CA into the client's trust store. If browsers also report the chain as incomplete, `TLS_CERT_FILE` is probably leaf-only — rebuild it as the full chain and rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
-- **Login to an agent environment fails while the console works (`byoc` with a private CA).** Per-environment Thunder cannot validate the chain when it fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`. Set `TLS_CA_FILE` (see [Certificates from a private CA](#adv-byoc)). Environments created before the CA was configured need to be recreated.
+- **Login to an agent environment fails while the console works (`byoc` with a private CA).** That environment's Thunder cannot validate the chain when it fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`. Environment creation reports success regardless, so this only ever surfaces at login. Check whether the CA is published in the cluster:
+
+  ```bash
+  kubectl get configmap amp-platform-ca -n openchoreo-control-plane
+  ```
+
+  If it is **missing**, the install ran without `TLS_CA_FILE`. Create it from your CA using the command under [Certificates from a private CA](#adv-byoc), then re-add the affected environments. If it is **present**, only environments created before it existed are affected; re-add those. Setting `TLS_CA_FILE` at install time covers both cases from the start.
 - **Everything stops working at once (`byoc`).** Check whether the certificate expired — `byoc` certificates are never auto-renewed. `echo | openssl s_client -connect console.<DOMAIN_BASE>:443 -servername console.<DOMAIN_BASE> 2>/dev/null | openssl x509 -noout -dates`, then rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
 - **Cert issued but a host is unreachable.** Confirm the service host's A record points at the VM (public or private IP) and that clients can reach `:443` on it. Issuance does not need this, but client access does.
-- **Login to a newly created environment fails (`byoc` with a private CA).** That environment's Thunder could not validate platform Thunder's JWKS URL. Confirm the CA is published in-cluster with `kubectl get configmap amp-platform-ca -n openchoreo-control-plane`; if it is missing, create it and re-add the environment (see [Certificates from a private CA](#adv-byoc)). Environment creation reports success either way, so this only surfaces at login.
 - **Login fails but every other host works.** `thunder.<DOMAIN_BASE>` is probably not resolving because the deeper `*.thunder` wildcard shadows it. Check with `dig +short thunder.<DOMAIN_BASE> A` and add the explicit A record (see **DNS records** under [How clients reach the VM](#adv-reachability)).
 - **A host returns a connection failure rather than an HTTP status.** The front-proxy route for that plane is not bound. List them with `kubectl get httproute -n openchoreo-control-plane` and check that each `amp-frontproxy-*` route reports `Accepted=True` and `ResolvedRefs=True`; a failed `ResolvedRefs` on the observability or data-plane route usually means its ReferenceGrant is missing. Note that a gateway-level `404` is a *healthy* response from an unrouted path: it proves TLS terminated and the request reached the gateway.
 - **Deployed agent unreachable while the console works.** On a public VM, confirm the `*.agents.<DOMAIN_BASE>` A record exists; on a private VM, add the agent's exact hostname to `/etc/hosts` (see the **Private network** tab under [How clients reach the VM](#adv-reachability)), since `/etc/hosts` cannot match wildcards.
