@@ -108,6 +108,11 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 				},
 			}, nil
 		},
+		// Project creation, deploy and promote all provision the cell namespace
+		// for the environment they touch before anything is released into it.
+		EnsureProjectReleaseBindingFunc: func(ctx context.Context, namespaceName, projectName, environmentName string) error {
+			return nil
+		},
 		GetComponentFunc: func(ctx context.Context, namespaceName, projectName, componentName string) (*models.AgentResponse, error) {
 			if strings.Contains(componentName, "nonexistent-agent") {
 				return nil, utils.ErrAgentNotFound

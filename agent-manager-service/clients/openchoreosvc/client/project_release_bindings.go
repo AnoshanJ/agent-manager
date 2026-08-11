@@ -85,13 +85,15 @@ func (c *openChoreoClient) EnsureProjectReleaseBinding(ctx context.Context, ouID
 		// Already exists — confirm it is ours before treating it as success.
 		return c.verifyProjectReleaseBindingOwner(ctx, namespaceName, bindingName, projectName, environmentName)
 	default:
-		return handleErrorResponse(resp.StatusCode(), ErrorResponses{
+		// Named so a caller can tell this apart from the lookup below, which
+		// maps the same set of statuses.
+		return fmt.Errorf("failed to create project release binding %q: %w", bindingName, handleErrorResponse(resp.StatusCode(), ErrorResponses{
 			JSON400: resp.JSON400,
 			JSON401: resp.JSON401,
 			JSON403: resp.JSON403,
 			JSON409: resp.JSON409,
 			JSON500: resp.JSON500,
-		})
+		}))
 	}
 }
 
@@ -106,12 +108,12 @@ func (c *openChoreoClient) verifyProjectReleaseBindingOwner(ctx context.Context,
 		return fmt.Errorf("failed to get existing project release binding %q: %w", bindingName, err)
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return handleErrorResponse(resp.StatusCode(), ErrorResponses{
+		return fmt.Errorf("failed to get existing project release binding %q: %w", bindingName, handleErrorResponse(resp.StatusCode(), ErrorResponses{
 			JSON401: resp.JSON401,
 			JSON403: resp.JSON403,
 			JSON404: resp.JSON404,
 			JSON500: resp.JSON500,
-		})
+		}))
 	}
 	if resp.JSON200 == nil || resp.JSON200.Spec == nil {
 		return fmt.Errorf("empty response from get project release binding %q", bindingName)

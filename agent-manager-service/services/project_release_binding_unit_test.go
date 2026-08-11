@@ -27,6 +27,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -181,6 +182,82 @@ func TestPipelineEnvironments(t *testing.T) {
 			assert.Equal(t, tc.want, pipelineEnvironments(tc.pipeline))
 		})
 	}
+}
+
+// recordingProvisioningStub records whether the promote path reached the first
+// write to the target environment.
+type recordingProvisioningStub struct {
+	*stubAgentThunderProvisioning
+	provisionCalled *bool
+}
+
+func (s *recordingProvisioningStub) ProvisionForEnvironmentIfMissing(_ context.Context, _, _, _, _ string, _ models.AgentProvisioningType, _ string) (bool, error) {
+	*s.provisionCalled = true
+	return false, nil
+}
+
+func TestPromoteAgent_BindingFailureAbortsBeforeAnyTargetWrite(t *testing.T) {
+	boom := errors.New("openchoreo unavailable")
+	promoteCalled := false
+	provisionCalled := false
+	configUpserted := false
+
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{Name: name}, nil
+		},
+		GetComponentFunc: func(_ context.Context, _, _, _ string) (*models.AgentResponse, error) {
+			return &models.AgentResponse{
+				Provisioning: models.Provisioning{Type: string(utils.InternalAgent)},
+				Type:         models.AgentType{Type: "agent-chat"},
+			}, nil
+		},
+		GetProjectDeploymentPipelineFunc: func(context.Context, string, string) (*models.DeploymentPipelineResponse, error) {
+			return &models.DeploymentPipelineResponse{PromotionPaths: []models.PromotionPath{
+				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
+			}}, nil
+		},
+		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(context.Context, string, string, string) error {
+			return boom
+		},
+		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
+			promoteCalled = true
+			return nil
+		},
+	}
+	// Nil funcs on purpose: reaching the source/target system-managed key reads
+	// would mean the binding check ran too late to be a real guard.
+	agentConfigSvc := &stubAgentConfigurationServiceForPromote{}
+	provisioning := &recordingProvisioningStub{
+		stubAgentThunderProvisioning: &stubAgentThunderProvisioning{},
+		provisionCalled:              &provisionCalled,
+	}
+	agentConfigRepo := &repomocks.AgentConfigRepositoryMock{
+		UpsertFunc: func(context.Context, *models.AgentConfig) error {
+			configUpserted = true
+			return nil
+		},
+	}
+	s := &agentManagerService{
+		ocClient:                  ocClient,
+		agentConfigurationService: agentConfigSvc,
+		agentThunderProvisioning:  provisioning,
+		agentConfigRepo:           agentConfigRepo,
+		logger:                    discardLogger(),
+	}
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.ErrorIs(t, err, boom)
+	assert.False(t, promoteCalled, "the promote must not run without a namespace to release into")
+	assert.False(t, provisionCalled,
+		"a promotion that cannot get a namespace must not leave an AgentID binding behind in the target environment")
+	assert.False(t, configUpserted,
+		"a promotion that cannot get a namespace must not persist agent config for the target environment")
 }
 
 func TestDeployAgent_BindingFailureAbortsDeploy(t *testing.T) {

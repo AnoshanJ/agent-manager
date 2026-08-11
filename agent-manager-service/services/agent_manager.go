@@ -3629,6 +3629,23 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		return fmt.Errorf("%w for agent %s in environment %s", utils.ErrDeploymentInProgress, agentName, req.TargetEnvironment)
 	}
 
+	// The target environment's cell namespace is owned by a ProjectReleaseBinding.
+	// A project promoted into an environment for the first time — or into one
+	// added after the project was created — has no binding there yet, and the
+	// promoted release binding would fail to apply with `namespaces "dp-..." not
+	// found`.
+	//
+	// This runs before the first write to the target environment (AgentID
+	// provisioning, the API key, the persisted agent config), so a promotion
+	// that cannot get a namespace leaves no half-provisioned target behind. It
+	// runs after the read-only guards above so a promotion they already reject
+	// does not create a binding for an environment nothing was promoted into.
+	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
+		s.logger.Error("Failed to ensure project release binding before promote",
+			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)
+		return fmt.Errorf("failed to prepare environment %q for promotion: %w", req.TargetEnvironment, err)
+	}
+
 	// System-managed env vars (LLM provider URL/key, MCP, etc.) live per-environment in
 	// agent_env_config_variables_mapping. Promotion must enforce this invariant: if the
 	// SOURCE environment has any system-managed vars, the TARGET environment must also
@@ -3919,17 +3936,6 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			s.logger.Error("Failed to persist agent config for target environment", "agentName", agentName, "environment", req.TargetEnvironment, "error", upsertErr)
 			return fmt.Errorf("failed to persist agent config for target environment %q: %w", req.TargetEnvironment, upsertErr)
 		}
-	}
-
-	// The target environment's cell namespace is owned by a ProjectReleaseBinding.
-	// A project promoted into an environment for the first time — or into one
-	// added after the project was created — has no binding there yet, and the
-	// promoted release binding would fail to apply with `namespaces "dp-..." not
-	// found`.
-	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
-		s.logger.Error("Failed to ensure project release binding before promote",
-			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)
-		return fmt.Errorf("failed to prepare environment %q for promotion: %w", req.TargetEnvironment, err)
 	}
 
 	// Promote via OC client. The target environment's AgentID is already
