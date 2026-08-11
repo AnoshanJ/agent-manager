@@ -161,6 +161,16 @@ func TestInfraResourceManager_CreateProject(t *testing.T) {
 				captured = req
 				return nil
 			},
+			// Reached only on the success path, where the created project's cell
+			// namespaces are provisioned per environment.
+			GetProjectDeploymentPipelineFunc: func(context.Context, string, string) (*models.DeploymentPipelineResponse, error) {
+				return &models.DeploymentPipelineResponse{PromotionPaths: []models.PromotionPath{
+					{SourceEnvironmentRef: "default"},
+				}}, nil
+			},
+			EnsureProjectReleaseBindingFunc: func(context.Context, string, string, string) error {
+				return nil
+			},
 		}
 		got, err := newInfraManager(oc).CreateProject(context.Background(), org, payload)
 

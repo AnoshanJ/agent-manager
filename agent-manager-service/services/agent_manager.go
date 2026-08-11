@@ -2628,6 +2628,17 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("no environment found in deployment pipeline")
 	}
 
+	// The cell namespace for (project, environment) is owned by a
+	// ProjectReleaseBinding. Without one the release binding this deploy creates
+	// fails to apply with `namespaces "dp-..." not found`. Ensure it here rather
+	// than only at project creation, so projects created before this existed and
+	// environments added after the project was created are both covered.
+	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, lowestEnv); err != nil {
+		s.logger.Error("Failed to ensure project release binding before deploy",
+			"ouID", ouID, "projectName", projectName, "environment", lowestEnv, "error", err)
+		return "", fmt.Errorf("failed to prepare environment %q for deployment: %w", lowestEnv, err)
+	}
+
 	// Convert to deploy request with user-provided env vars
 	deployReq := client.DeployRequest{
 		ImageID:     req.ImageId,
@@ -3908,6 +3919,17 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			s.logger.Error("Failed to persist agent config for target environment", "agentName", agentName, "environment", req.TargetEnvironment, "error", upsertErr)
 			return fmt.Errorf("failed to persist agent config for target environment %q: %w", req.TargetEnvironment, upsertErr)
 		}
+	}
+
+	// The target environment's cell namespace is owned by a ProjectReleaseBinding.
+	// A project promoted into an environment for the first time — or into one
+	// added after the project was created — has no binding there yet, and the
+	// promoted release binding would fail to apply with `namespaces "dp-..." not
+	// found`.
+	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
+		s.logger.Error("Failed to ensure project release binding before promote",
+			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)
+		return fmt.Errorf("failed to prepare environment %q for promotion: %w", req.TargetEnvironment, err)
 	}
 
 	// Promote via OC client. The target environment's AgentID is already
