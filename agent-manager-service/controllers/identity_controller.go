@@ -181,14 +181,11 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ouID := resolvedOrg.OUID
-	if body.OuId != nil && *body.OuId != "" {
-		ouID = *body.OuId
-	}
-
-	// Convert spec.CreateUserRequest to thundersvc.CreateUserRequest
+	// Convert spec.CreateUserRequest to thundersvc.CreateUserRequest. The OU comes
+	// from the token-resolved org only; a body-supplied one would let a caller
+	// create users in another tenant's OU.
 	req := thundersvc.CreateUserRequest{
-		OuID:       ouID,
+		OuID:       resolvedOrg.OUID,
 		Type:       body.Type,
 		Attributes: body.Attributes,
 		Password:   password,
@@ -200,7 +197,7 @@ func (c *identityController) CreateUser(w http.ResponseWriter, r *http.Request) 
 	attrKeys, attrCount, hasSensitive := audit.AttributeKeySummary(body.Attributes)
 	attempt, ok := beginAuditOrFail(
 		w, r, "CreateUser", "Failed to create user", audit.ActionUserCreate,
-		audit.Org(ouID), audit.OrgHandle(resolvedOrg.OuHandle),
+		audit.Org(resolvedOrg.OUID), audit.OrgHandle(resolvedOrg.OuHandle),
 		audit.ResourceNamed(audit.ResourceUser, body.Attributes["username"], body.Attributes["username"]),
 		audit.Detail("username", body.Attributes["username"]),
 		audit.Detail("userType", body.Type),
@@ -548,19 +545,16 @@ func (c *identityController) CreateGroup(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ouID := resolvedOrg.OUID
-	if body.OuId != nil && *body.OuId != "" {
-		ouID = *body.OuId
-	}
-
 	description := ""
 	if body.Description != nil {
 		description = *body.Description
 	}
 
+	// The OU comes from the token-resolved org only; a body-supplied one would let
+	// a caller create groups in another tenant's OU.
 	req := thundersvc.CreateGroupRequest{
 		Name:        body.Name,
-		OuID:        ouID,
+		OuID:        resolvedOrg.OUID,
 		Description: description,
 	}
 
@@ -975,19 +969,16 @@ func (c *identityController) CreateRole(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ouID := resolvedOrg.OUID
-	if body.OuId != nil && *body.OuId != "" {
-		ouID = *body.OuId
-	}
-
 	description := ""
 	if body.Description != nil {
 		description = *body.Description
 	}
 
+	// The OU comes from the token-resolved org only; a body-supplied one would let
+	// a caller create roles in another tenant's OU.
 	req := thundersvc.CreateRoleRequest{
 		Name:        body.Name,
-		OuID:        ouID,
+		OuID:        resolvedOrg.OUID,
 		Description: description,
 	}
 
