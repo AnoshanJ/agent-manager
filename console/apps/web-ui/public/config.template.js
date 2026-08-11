@@ -59,7 +59,7 @@ window.__RUNTIME_CONFIG__ = {
     enableProfileManagement: '$FEATURE_FLAG_ENABLE_PROFILE_MANAGEMENT' === 'true',
     enableUserManagement: '$FEATURE_FLAG_ENABLE_USER_MANAGEMENT' === 'true',
   },
-  docsUrl: 'https://wso2.github.io/agent-manager/docs/latest',
+  docsUrl: '$DOCS_URL',
   footerLinks: {
     privacyPolicyUrl: 'https://wso2.com/agent-platform/agent-manager/',
     termsOfUseUrl: 'https://wso2.com/agent-platform/agent-manager/',

@@ -2300,9 +2300,6 @@ type CreateGroupRequest struct {
 
 	// Name Group name
 	Name string `json:"name"`
-
-	// OuId Organization unit ID
-	OuId *string `json:"ouId,omitempty"`
 }
 
 // CreateLLMAPIKeyRequest defines model for CreateLLMAPIKeyRequest.
@@ -2477,18 +2474,12 @@ type CreateRoleRequest struct {
 
 	// Name Role name
 	Name string `json:"name"`
-
-	// OuId Organization unit ID
-	OuId *string `json:"ouId,omitempty"`
 }
 
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
 	// Attributes User attributes map (include password when creating credentials)
 	Attributes map[string]string `json:"attributes"`
-
-	// OuId Organization unit ID (optional; resolved from org context when omitted)
-	OuId *string `json:"ouId,omitempty"`
 
 	// Type User type
 	Type string `json:"type"`

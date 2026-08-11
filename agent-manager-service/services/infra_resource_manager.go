@@ -124,6 +124,12 @@ func (s *infraResourceManager) CreateProject(ctx context.Context, ouID string, p
 	}
 	s.logger.Info("Project created successfully", "ouID", ouID, "projectName", payload.Name)
 
+	// Provision the cell namespace for every environment the project can reach.
+	// Best effort: the project itself exists and is usable, and the deploy and
+	// promote paths ensure the binding for the environment they target, so a
+	// failure here is recoverable rather than a reason to fail the request.
+	s.ensureProjectReleaseBindings(ctx, ouID, payload.Name)
+
 	return &models.ProjectResponse{
 		Name:               payload.Name,
 		OrgName:            ouID,
@@ -132,6 +138,58 @@ func (s *infraResourceManager) CreateProject(ctx context.Context, ouID string, p
 		CreatedAt:          time.Now(),
 		DeploymentPipeline: payload.DeploymentPipeline,
 	}, nil
+}
+
+// ensureProjectReleaseBindings creates a ProjectReleaseBinding for the project in
+// every environment of its deployment pipeline, so the cell namespace exists
+// before anything is deployed there. Failures are logged, not returned — see the
+// call site for why.
+func (s *infraResourceManager) ensureProjectReleaseBindings(ctx context.Context, ouID, projectName string) {
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
+	if err != nil {
+		s.logger.Error("Failed to resolve deployment pipeline for project release bindings",
+			"ouID", ouID, "projectName", projectName, "error", err)
+		return
+	}
+
+	for _, envName := range pipelineEnvironments(pipeline) {
+		if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, envName); err != nil {
+			s.logger.Error("Failed to ensure project release binding",
+				"ouID", ouID, "projectName", projectName, "environment", envName, "error", err)
+			continue
+		}
+		s.logger.Debug("Ensured project release binding",
+			"ouID", ouID, "projectName", projectName, "environment", envName)
+	}
+}
+
+// pipelineEnvironments returns every environment named by a pipeline's promotion
+// paths — sources and targets alike — in a stable order and without duplicates.
+func pipelineEnvironments(pipeline *models.DeploymentPipelineResponse) []string {
+	if pipeline == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	envNames := make([]string, 0, len(pipeline.PromotionPaths))
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		envNames = append(envNames, name)
+	}
+
+	for _, path := range pipeline.PromotionPaths {
+		add(path.SourceEnvironmentRef)
+		for _, target := range path.TargetEnvironmentRefs {
+			add(target.Name)
+		}
+	}
+	return envNames
 }
 
 func (s *infraResourceManager) UpdateProject(ctx context.Context, ouID string, projectName string, payload spec.UpdateProjectRequest) (*models.ProjectResponse, error) {
