@@ -518,6 +518,7 @@ func TestDeployAgent_IdentityInjectionError_AbortsDeploy(t *testing.T) {
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		DeployFunc: func(context.Context, string, string, string, client.DeployRequest) error {
 			deployCalled = true
 			return nil
@@ -631,7 +632,8 @@ func promoteAgentTestFixture(t *testing.T, tgtIdentityEnvVars []client.EnvVar, t
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
 			promoteCalled = true
 			return nil
@@ -788,7 +790,8 @@ func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *te
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, envOverrides []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
 			promoteCalled = true
 			capturedOverrides = envOverrides
@@ -886,7 +889,8 @@ func TestPromoteAgent_PollSucceedsWithinBudget_PromotesOnFirstCall(t *testing.T)
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
 			promoteCalled = true
 			return nil
@@ -1010,7 +1014,8 @@ func TestPromoteAgent_ProvisioningDisabled_SkipsIdentityCheckAndPromotes(t *test
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
 			promoteCalled = true
 			return nil
@@ -1073,7 +1078,8 @@ func TestPromoteAgent_ProvisioningDisabledButLowestEnvHasRealCredential_StillBlo
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
 			promoteCalled = true
 			return nil
@@ -1433,6 +1439,7 @@ func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerServi
 			capturedDeployConfig = req
 			return nil
 		},
+		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		DeployFunc: func(context.Context, string, string, string, client.DeployRequest) error {
 			return nil
 		},
