@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# lib-certmanager.sh — render the cert-manager resources that replace the old lego +
-# Caddy TLS path for the advanced (DNS-01) VM install. Sourcing only defines functions
-# (no side effects); the render_* functions write YAML to stdout, so the caller pipes
-# them to `kubectl apply`. cert-manager (installed as a cluster prerequisite) then does
-# the ACME DNS-01 challenge, issues a wildcard cert into a Secret, and auto-renews it —
-# kgateway terminates TLS on :443 with that Secret. No lego container, no systemd timer.
+# lib-certmanager.sh — render the TLS + gateway resources for the advanced VM install,
+# which replaced the old lego + Caddy path. Sourcing only defines functions (no side
+# effects); the render_* functions write YAML to stdout, so the caller pipes them to
+# `kubectl apply`. No lego container, no systemd timer.
+#
+# Both TLS modes converge on one seam: a kubernetes.io/tls Secret in GATEWAY_NS that
+# the consolidated :443 Gateway references by name, with kgateway terminating TLS.
+#   dns01 — cert-manager (a cluster prerequisite) does the ACME DNS-01 challenge,
+#           issues a wildcard cert into that Secret, and auto-renews it.
+#   byoc  — render_byoc_tls_secret writes the operator's cert/key into that Secret
+#           directly; no cert-manager objects are created and nothing auto-renews.
+# Everything downstream of the Secret (Gateway, front-proxy routes, ReferenceGrants) is
+# identical in both modes.
 #
 # The caller defines log()/die(); fallbacks are provided so this file is usable standalone.
 command -v log >/dev/null 2>&1 || log() { printf '\033[0;34m[certmgr]\033[0m %s\n' "$*"; }
@@ -199,6 +206,58 @@ EOF
     name: ${issuer}
     kind: ClusterIssuer
     group: cert-manager.io
+EOF
+}
+
+# render_byoc_tls_secret <secret_name> <cert_file> <key_file> — print the
+# kubernetes.io/tls Secret holding an operator-supplied certificate chain and private
+# key, in GATEWAY_NS so the consolidated :443 Gateway's certificateRefs resolves
+# same-namespace. This is the byoc counterpart to render_wildcard_certificate: it
+# produces the very same Secret the DNS-01 path has cert-manager issue, so nothing
+# downstream (Gateway, routes, grants) can tell the two modes apart.
+#
+# Uses `data:` with base64 rather than `stringData:` with a block scalar: PEM is
+# multi-line and any indentation slip silently corrupts the key. `openssl base64 -A`
+# (not `base64 -w0`, which is GNU-only) keeps this portable across macOS and Linux.
+render_byoc_tls_secret() {
+  local name="$1" cert="$2" key="$3"
+  cat <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${name}
+  namespace: ${GATEWAY_NS}
+type: kubernetes.io/tls
+data:
+  tls.crt: $(openssl base64 -A -in "$cert")
+  tls.key: $(openssl base64 -A -in "$key")
+EOF
+}
+
+# render_platform_ca_configmap <ca_file> — print the ConfigMap holding the operator's
+# CA certificate, so components created AFTER the install can find it.
+#
+# Environments are added long after install-advanced.sh exits, and each one provisions
+# its own env-Thunder that must validate platform Thunder's HTTPS JWKS URL. On a byoc
+# install that URL is served with the operator's certificate, so the in-cluster
+# self-signed root add-environment-thunder.sh otherwise falls back to is the wrong CA —
+# it mounts a bundle that cannot verify the chain, exits 0, and the failure only shows
+# up later as a broken login into that environment. Persisting the CA here is what makes
+# `TLS_CA_FILE` apply to every future environment rather than only the default one.
+#
+# A CA certificate is public by definition (it is sent in the TLS handshake), so a
+# ConfigMap is the right kind — no Secret needed.
+render_platform_ca_configmap() {
+  local ca="$1"
+  cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amp-platform-ca
+  namespace: ${GATEWAY_NS}
+data:
+  ca.crt: |
+$(sed 's/^/    /' "$ca")
 EOF
 }
 

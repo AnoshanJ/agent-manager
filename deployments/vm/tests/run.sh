@@ -643,7 +643,10 @@ assert_eq "init has DOMAIN_BASE"   "yes" "$(has "$init_out" 'DOMAIN_BASE=')"
 assert_eq "init has ACME_EMAIL"    "yes" "$(has "$init_out" 'ACME_EMAIL=')"
 assert_eq "init has DNS_PROVIDER"  "yes" "$(has "$init_out" 'DNS_PROVIDER=')"
 assert_eq "init mentions ACME_SERVER" "yes" "$(has "$init_out" 'ACME_SERVER=')"
-assert_eq "init has no TLS_MODE (single DNS-01 path)" "no" "$(has "$init_out" 'TLS_MODE=')"
+assert_eq "init has TLS_MODE"      "yes" "$(has "$init_out" 'TLS_MODE=dns01')"
+assert_eq "init mentions TLS_CERT_FILE" "yes" "$(has "$init_out" 'TLS_CERT_FILE=')"
+assert_eq "init mentions TLS_KEY_FILE"  "yes" "$(has "$init_out" 'TLS_KEY_FILE=')"
+assert_eq "init mentions TLS_CA_FILE"   "yes" "$(has "$init_out" 'TLS_CA_FILE=')"
 # The emitted template must be valid shell (sourceable without error).
 tmp_init="$(mktemp)"; printf '%s\n' "$init_out" > "$tmp_init"
 if bash -n "$tmp_init"; then assert_eq "init template is valid shell" "0" "0"; else assert_eq "init template is valid shell" "0" "1"; fi
@@ -665,6 +668,56 @@ assert_eq "dry-run renders consolidated gateway" "yes" "$(has "$dry_out" 'kind: 
 assert_eq "dry-run renders amp helm arg" "yes" "$(has "$dry_out" 'serverPublicURL=https://api.amp.mycompany.com')"
 assert_eq "dry-run does NOT start install" "no" "$(has "$dry_out" 'Running base installer')"
 rm -f "$tmp_cfg"
+
+# --- --dry-run in byoc mode: TLS Secret instead of the cert-manager objects ---
+# A config with no ACME_EMAIL and no DNS_PROVIDER must be accepted, and the private key
+# must never reach stdout (dry-run output lands in terminal scrollback and CI logs).
+byoc_dir="$(mktemp -d)"
+byoc_d=amp.mycompany.com
+openssl req -x509 -newkey rsa:2048 -nodes -days 90 \
+  -keyout "${byoc_dir}/key.pem" -out "${byoc_dir}/cert.pem" -subj "/CN=${byoc_d}" \
+  -addext "subjectAltName=DNS:console.${byoc_d},DNS:api.${byoc_d},DNS:thunder.${byoc_d},DNS:observer.${byoc_d},DNS:gateway.${byoc_d},DNS:cp.${byoc_d},DNS:*.agents.${byoc_d},DNS:*.thunder.${byoc_d},DNS:*.gateway.${byoc_d}" \
+  >/dev/null 2>&1
+cat > "${byoc_dir}/config.env" <<CFG
+AMP_VERSION=0.15.0
+DOMAIN_BASE=${byoc_d}
+TLS_MODE=byoc
+TLS_CERT_FILE=${byoc_dir}/cert.pem
+TLS_KEY_FILE=${byoc_dir}/key.pem
+CFG
+byoc_out="$(bash "$ADV" --config "${byoc_dir}/config.env" --dry-run 2>&1)"
+assert_eq "byoc dry-run renders a TLS Secret"      "yes" "$(has "$byoc_out" 'type: kubernetes.io/tls')"
+assert_eq "byoc dry-run renders the gateway"       "yes" "$(has "$byoc_out" 'kind: Gateway')"
+assert_eq "byoc dry-run renders frontproxy routes" "yes" "$(has "$byoc_out" 'amp-frontproxy-dataplane')"
+assert_eq "byoc dry-run has no ClusterIssuer"      "no"  "$(has "$byoc_out" 'kind: ClusterIssuer')"
+assert_eq "byoc dry-run has no Certificate"        "no"  "$(has "$byoc_out" 'kind: Certificate')"
+assert_eq "byoc dry-run never prints the key"      "no"  "$(has "$byoc_out" 'PRIVATE KEY')"
+assert_eq "byoc dry-run never prints the cert"     "no"  "$(has "$byoc_out" 'BEGIN CERTIFICATE')"
+# No TLS_CA_FILE in this config, so no CA ConfigMap should be rendered.
+assert_eq "byoc without TLS_CA_FILE: no CA cm"     "no"  "$(has "$byoc_out" 'name: amp-platform-ca')"
+
+# With TLS_CA_FILE the installer must persist the CA, so environments created later
+# can trust the listener instead of falling back to the wrong in-cluster root.
+cp "${byoc_dir}/cert.pem" "${byoc_dir}/ca.pem"
+printf 'TLS_CA_FILE=%s/ca.pem\n' "$byoc_dir" >> "${byoc_dir}/config.env"
+ca_out="$(bash "$ADV" --config "${byoc_dir}/config.env" --dry-run 2>&1)"
+assert_eq "byoc with TLS_CA_FILE renders CA cm"    "yes" "$(has "$ca_out" 'name: amp-platform-ca')"
+assert_eq "CA cm lands in the gateway namespace"   "yes" "$(has "$ca_out" 'namespace: openchoreo-control-plane')"
+assert_eq "byoc with TLS_CA_FILE still hides key"  "no"  "$(has "$ca_out" 'PRIVATE KEY')"
+
+# A cert missing one dynamic-tier wildcard must be rejected before any cluster work,
+# naming the SAN. *.<DOMAIN_BASE> covers the service hosts but NOT the deeper tiers.
+openssl req -x509 -newkey rsa:2048 -nodes -days 90 \
+  -keyout "${byoc_dir}/bad-key.pem" -out "${byoc_dir}/bad-cert.pem" -subj "/CN=${byoc_d}" \
+  -addext "subjectAltName=DNS:*.${byoc_d},DNS:*.agents.${byoc_d},DNS:*.thunder.${byoc_d}" \
+  >/dev/null 2>&1
+sed -e "s#${byoc_dir}/cert.pem#${byoc_dir}/bad-cert.pem#" -e "s#${byoc_dir}/key.pem#${byoc_dir}/bad-key.pem#" \
+  "${byoc_dir}/config.env" > "${byoc_dir}/bad.env"
+bad_out="$(bash "$ADV" --config "${byoc_dir}/bad.env" --dry-run 2>&1)"; bad_rc=$?
+assert_eq "byoc bad-SAN cert exits non-zero"  "1"   "$bad_rc"
+assert_eq "byoc bad-SAN names the missing SAN" "yes" "$(has "$bad_out" "missing the wildcard SAN: *.gateway.${byoc_d}")"
+assert_eq "byoc bad-SAN stops before install" "no"  "$(has "$bad_out" 'DRY RUN — derived hosts')"
+rm -rf "$byoc_dir"
 
 # --- inotify_bump_target: bump to floor only when below it (or unreadable) ---
 assert_eq "inotify below floor bumps"         "512"    "$(inotify_bump_target 128 512)"
