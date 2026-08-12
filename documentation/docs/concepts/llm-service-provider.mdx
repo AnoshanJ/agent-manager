@@ -19,7 +19,7 @@ An LLM Service Provider is the indirection that fixes all of those at once. The 
 
 ## How Gateways Expose a Provider
 
-A provider is defined once at the organization level, but it isn't reachable until it's deployed to a [Gateway](./gateway.mdx). The platform deploys one gateway artifact per [environment](./environment.mdx) the provider is configured for, onto whichever gateway is active in that environment. This is the same define-once/deploy-per-environment pattern the rest of the platform follows: one provider record, several running exposures of it.
+A provider is defined once at the organization level, but it isn't reachable until it's deployed to a [Gateway](./gateway.mdx). The platform deploys one gateway artifact per [environment](./environment.mdx) the provider is configured for, onto an egress gateway active in that environment. This is the same define-once/deploy-per-environment pattern the rest of the platform follows: one provider record, several running exposures of it.
 
 Each provider takes a **context path** that is unique within the organization, and the invoke URL agents call is that path on the gateway host. Several providers can share a gateway as long as their context paths differ.
 

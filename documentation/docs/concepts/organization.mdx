@@ -14,7 +14,7 @@ Organizations aren't something Agent Manager owns or invents, they're managed by
 
 **[LLM Service Providers](./llm-service-provider.mdx)** and **[MCP Proxies](./mcp-proxy.mdx)** are defined at the organization level rather than inside a project, so any agent in any project can reference them.
 
-**[Environments](./environment.mdx)** and **[Gateways](./gateway.mdx)** are organization-level, with each environment having its own gateway. Identity providers are attached to those gateways, and determine which token issuers each environment trusts.
+**[Environments](./environment.mdx)** and **[Gateways](./gateway.mdx)** are organization-level. An environment has at most one ingress gateway for inbound calls to its agents, and may have several egress gateways hosting outbound LLM and MCP traffic. Identity providers are attached to those gateways, and determine which token issuers each environment trusts.
 
 
 ## Access Control
@@ -23,7 +23,7 @@ Access control in Agent Manager is defined at the organization level and nowhere
 
 ### One Permission Model, Every Entry Point
 
-Every action in the organization is authorized against an OAuth 2.0 scope named `amp:<resource>:<action>`( ex:- `amp:project:read`, `amp:agent:build`, `amp:gateway:create`).Scopes are issued as claims on an access token by the platform's identity provider. The same scope gates the same capability whether you reach the platform through the Console, the REST API, or the MCP servers. The full catalog is in the [Authorization reference](../reference/authorization.mdx).
+Every action in the organization is authorized against an OAuth 2.0 scope named `amp:<resource>:<action>`(ex:- `amp:project:read`, `amp:agent:build`, `amp:gateway:create`).Scopes are issued as claims on an access token by the platform's identity provider. The same scope gates the same capability whether you reach the platform through the Console, the REST API, or the MCP servers. The full catalog is in the [Authorization reference](../reference/authorization.mdx).
 
 :::note
 This platform identity provider is not the same thing as the per-environment identity providers described in [Environment](./environment.mdx). This one authenticates **people and service accounts against the control plane** — who may create, build, deploy, and promote. The per-environment providers are attached to gateways and govern runtime traffic which token issuers an environment trusts on calls reaching a running agent or proxy endpoint.

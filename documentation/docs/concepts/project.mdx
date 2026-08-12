@@ -18,9 +18,9 @@ OpenChoreo itself does not have a native concept of an "agent." In OpenChoreo's 
 
 Because of this model, whether an agent becomes an OpenChoreo Component at all depends on where it runs.
 
-When you create a [Platform-Hosted Agent](./internal-and-external-agent.mdx) , it initially exists only as a record inside the Agent Manager database. It is transformed into an OpenChoreo Component (specifically of type `agent-api`) inside the project's namespace only when you trigger its first build and deployment.
+When you create a [Platform-Hosted Agent](./internal-and-external-agent.mdx), it initially exists only as a record inside the Agent Manager database. It is transformed into an OpenChoreo Component (specifically of type `agent-api`) inside the project's namespace only when you trigger its first build and deployment.
 
-Since Agent Manager neither builds nor deploys these workloads of an [Externally-Hosted Agent](./internal-and-external-agent.mdx), it never become OpenChoreo Component. Registering an external agent creates only an Agent Manager record for governance, tracking, and observability.
+Since Agent Manager neither builds nor deploys the workload of an [Externally-Hosted Agent](./internal-and-external-agent.mdx), it never becomes an OpenChoreo Component. Registering an external agent creates only an Agent Manager record for governance, tracking, and observability.
 
 ## What a Project Holds
 
