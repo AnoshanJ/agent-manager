@@ -16,11 +16,11 @@ Proxying an MCP server through the platform lets you:
 
 ## How the proxy is deployed
 
-An MCP proxy is multi-environment. You attach one or more endpoints to it, and each endpoint serves one or more environments. The proxy deploys one gateway artifact per configured environment to that environment's active  Gateway, you do not pick a gateway manually.
+An MCP proxy is multi-environment. You attach one or more endpoints to it, and each endpoint serves one or more environments. The proxy deploys one gateway artifact per configured environment, onto an egress [Gateway](./gateway.mdx) in that environment. When the environment has exactly one egress gateway the platform infers it and you pick nothing; when it has more than one, the target gateway must be specified as the endpoint is deployed — see [How the Egress Gateway Is Selected](./gateway.mdx#how-the-egress-gateway-is-selected).
 
 - Environments with an endpoint get a deployed artifact on their gateway.
 - Environments without an endpoint are simply left unconfigured (no artifact, and agents referencing the proxy there receive empty connection values).
-- If an environment has no active AI Gateway yet, that environment is skipped and deployed on the next proxy update once a gateway becomes available.
+- If an environment has no egress gateway mapped to it yet, that environment is skipped and deployed on the next proxy update once one is available.
 
 ### Where configuration lives
 
