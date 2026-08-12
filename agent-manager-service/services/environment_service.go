@@ -583,21 +583,15 @@ var thunderHandlePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 const maxThunderHandleLen = 63
 
 // minThunderHandleLen matches generatedThunderHandleLen — a caller-supplied
-// handle shorter than what AMS itself would generate is trivially brute-forceable
-// (e.g. a single character has only 36 possible values) and defeats the whole
-// point of the feature, so it's a hard floor, not just UI advice. Genuinely
-// guessable-but-long values ("productionenvironment") aren't something a format
-// rule can catch — the console warns (non-blocking) against a common-word
-// blocklist instead; see CreateEnvironmentDrawer.tsx's GUESSABLE_HANDLE_WORDS.
+// handle shorter than what AMS itself would generate is too easy to guess and
+// defeats the point of the feature, so it's a hard floor, not just UI advice.
 const minThunderHandleLen = generatedThunderHandleLen
 
-// reservedThunderHandles blocks labels that would be confusing or misleading as
-// a standalone hostname segment, as defense in depth beyond the format/length
-// checks. Kept short and deliberately not the console's full blocklist
-// (CreateEnvironmentDrawer.tsx's GUESSABLE_HANDLE_WORDS) — the API only
-// hard-rejects names that are actively wrong/misleading as a hostname
-// component; "guessable but not wrong" is a judgment call left to the
-// non-blocking UI warning instead.
+// reservedThunderHandles blocks labels that identify a real platform component,
+// namespace, or Kubernetes-reserved name — allowing a handle to equal one risks
+// hijacking or confusion once that component sits at the same hostname level
+// (<handle>.<baseDomain>). Mirrored on the console side by
+// CreateEnvironmentDrawer.tsx's RESTRICTED_THUNDER_HANDLES; keep both in sync.
 //
 // Every entry here must be >= minThunderHandleLen characters, or it can never
 // actually be submitted as a handle and the check is dead code (the platform's
@@ -605,7 +599,17 @@ const minThunderHandleLen = generatedThunderHandleLen
 // are all short enough that this length floor alone already keeps a handle
 // from ever colliding with one of them; they don't need their own entries).
 var reservedThunderHandles = map[string]bool{
-	"kubernetes": true,
+	"kubernetes":      true,
+	"kube-system":     true,
+	"kube-public":     true,
+	"kube-node-lease": true,
+	"openchoreo":      true,
+	"opensearch":      true,
+	"prometheus":      true,
+	"otel-collector":  true,
+	"fluent-bit":      true,
+	"agent-manager":   true,
+	"observability":   true,
 }
 
 // validateThunderHandle checks handle's format. It does not check uniqueness —
@@ -633,26 +637,17 @@ func validateThunderHandle(handle string) error {
 // is exactly 10 characters.
 const generatedThunderHandleLen = 10
 
-// thunderHandleAlphabet is the full lowercase-alphanumeric set (36 symbols) —
-// wider than hex (16 symbols) for the same 10-character length, raising a
-// generated handle's guess-space from 16^10 (40 bits) to 36^10 (~52 bits) without
-// changing its length. Every symbol is already valid against thunderHandlePattern,
-// so no post-generation validation is needed.
+// thunderHandleAlphabet is lowercase alphanumeric — every symbol is already
+// valid against thunderHandlePattern, so no post-generation validation is needed.
 const thunderHandleAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-// maxGenerateThunderHandleAttempts bounds the collision-retry loop in SetThunderURL.
-// A collision is astronomically unlikely (36^10 ≈ 3.66 quadrillion possible
-// values), so this only guards against a pathological run of bad luck — not a
-// realistic operating condition.
+// maxGenerateThunderHandleAttempts bounds the collision-retry loop in
+// SetThunderURL. A collision is extremely unlikely; this just guards against
+// a pathological run of bad luck.
 const maxGenerateThunderHandleAttempts = 5
 
 // generateThunderHandle returns a random, generatedThunderHandleLen-character
-// handle drawn from thunderHandleAlphabet. Uses rand.Read + modulo rather than
-// rejection sampling: 256 % 36 == 4 introduces a small bias toward the
-// alphabet's first 4 symbols, but the resulting guess-space is still ~52 bits
-// (36^10, see thunderHandleAlphabet's doc comment) — this is an
-// unguessable-URL-segment generator, not a cryptographic key, so that bias
-// isn't worth the extra complexity of unbiased sampling to close.
+// handle drawn from thunderHandleAlphabet.
 func generateThunderHandle() (string, error) {
 	buf := make([]byte, generatedThunderHandleLen)
 	if _, err := rand.Read(buf); err != nil {
@@ -666,33 +661,19 @@ func generateThunderHandle() (string, error) {
 }
 
 // SetThunderURL registers handle for (ouID, envName) and returns the handle
-// that actually ended up stored.
+// that actually ended up stored. If handle is empty, one is generated.
 //
-// If handle is empty, one is generated (see generateThunderHandle) — every
-// environment gets a handle at provisioning time, whether the caller supplied
-// one or not. There is no fallback to a pattern derived from org/env; a
-// missing handle means "not provisioned" everywhere else in this codebase
-// (ListThunderInstances, EnvThunderResolver), not "compute one on demand".
+// Idempotent, and never changes an already-registered handle: Thunder's issuer
+// is immutable once minted, so a blank-handle call reuses the existing one,
+// and an explicit different handle is rejected (utils.ErrThunderHandleTaken,
+// 409) — callers that want to change it must call DeleteThunderURL first.
 //
-// Idempotent, and never changes an already-registered handle: Thunder's
-// issuer is immutable once minted (baked into the running instance's
-// Helm-installed publicUrl/jwt.issuer and its HTTPRoute hostname). A
-// blank-handle call against an environment that already has one reuses that
-// SAME handle rather than generating a new one; an explicit different handle
-// against an already-registered environment is rejected (utils.ErrThunderHandleTaken,
-// 409) rather than applied — a caller that genuinely wants to change it must
-// call DeleteThunderURL first. The "already registered" check goes through
-// ResolveThunderHandle, so an environment grandfathered in from before this
-// feature existed is honored here too, not just on reads.
-//
-// Safe under concurrent first-time provisioning: the up-front
-// ResolveThunderHandle read is only a fast path for the common case — it does
-// not by itself stop two concurrent callers from both seeing no row (a TOCTOU
-// window). The actual guarantee comes from claimThunderHandle's use of
-// EnvThunderURLRepository.Insert, an insert-only write: whichever request's
-// INSERT commits first in Postgres wins, and the loser discovers that via the
-// database's own unique-constraint check — not a separate read-then-write
-// step — and adopts the winner's value instead of overwriting it.
+// Safe under concurrent first-time provisioning: the up-front read is only a
+// fast path, not the race guard. The actual guarantee comes from
+// claimThunderHandle's use of EnvThunderURLRepository.Insert (insert-only, not
+// an upsert) — whichever request's INSERT commits first wins, and the loser
+// discovers that via the DB's own unique-constraint check rather than a
+// separate read-then-write step.
 func (s *environmentService) SetThunderURL(ctx context.Context, ouID, envName, handle string) (string, error) {
 	if ouID == "" {
 		return "", fmt.Errorf("%w: ouID is required", utils.ErrInvalidInput)
@@ -726,11 +707,8 @@ func (s *environmentService) SetThunderURL(ctx context.Context, ouID, envName, h
 			return resolved, nil
 		}
 		if errors.Is(err, utils.ErrThunderHandleTaken) {
-			// The GENERATED value itself coincidentally collided with a
-			// DIFFERENT environment's handle — not a race for THIS
-			// environment (claimThunderHandle already resolves that case
-			// internally without returning an error to a blank-handle
-			// caller). Try a fresh value.
+			// The generated value collided with a different environment's
+			// handle — try a fresh one.
 			s.logger.Debug("generated thunder url handle collided, retrying", "ouID", ouID, "envName", envName, "attempt", attempt)
 			continue
 		}
@@ -753,17 +731,11 @@ func (s *environmentService) reuseOrRejectThunderHandle(existing, requested, ouI
 		utils.ErrThunderHandleTaken, ouID, envName, existing)
 }
 
-// claimThunderHandle attempts to insert-claim handle for (ouID, envName) via
-// EnvThunderURLRepository.Insert (see its doc comment for why this must be
-// insert-only, never an upsert). If a concurrent request already won the
-// SAME (ouID, envName) race first, it reads back the winning row:
-//   - generated == true (the auto-generate path never asked for a SPECIFIC
-//     value) always adopts the winner's handle — there's nothing to reject it
-//     against.
-//   - generated == false (an explicit caller-supplied handle) applies the
-//     SAME reuse-or-reject rule a pre-existing row would get, so the outcome
-//     never depends on which side of the race a given caller happened to land
-//     on.
+// claimThunderHandle attempts to insert-claim handle for (ouID, envName). If a
+// concurrent request already won the same (ouID, envName) race first, it
+// reads back the winning row: a generated handle always adopts the winner's
+// value, while an explicit caller-supplied handle applies the same
+// reuse-or-reject rule a pre-existing row would get.
 func (s *environmentService) claimThunderHandle(ctx context.Context, ouID, envName, handle string, generated bool) (string, error) {
 	rec := &models.EnvThunderURL{OUID: ouID, EnvName: envName, ThunderHandle: handle}
 	err := s.envThunderURLRepo.Insert(ctx, rec)
