@@ -111,8 +111,8 @@ install_base_packages() {
   log "Missing base packages: ${missing[*]}"
   have apt-get || die "Base packages ${missing[*]} are missing and this runner has no apt-get. Install them with the VM's package manager and re-run."
   need_root "${missing[*]}" "apt-get update && apt-get install -y ca-certificates ${missing[*]}"
-  ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get update -qq
-  ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates "${missing[@]}"
+  ${SUDO} env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  ${SUDO} env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates "${missing[@]}"
   ok "Installed base packages: ${missing[*]}"
 }
 
@@ -147,8 +147,15 @@ install_docker() {
     [ -n "${SUDO}" ] || die "Docker is installed but not reachable as $(id -un), and there is no passwordless sudo to fix it. Run once on the VM: usermod -aG docker $(id -un) && systemctl restart docker, then restart the runner service."
     ${SUDO} usermod -aG docker "$(id -un)" || true
     have setfacl && ${SUDO} setfacl -m "u:$(id -un):rw" /var/run/docker.sock 2>/dev/null || true
+    # World-writing the socket is a last resort and no longer automatic. The
+    # mode outlives the job — it persists until the daemon restarts — and it
+    # hands every local user root-equivalent access through Docker, which is
+    # too much to trade for one green run without someone deciding to. The
+    # usermod above is the durable fix; it just needs the runner service
+    # restarted to take effect.
     if ! docker info >/dev/null 2>&1; then
-      warn "Falling back to chmod 0666 on /var/run/docker.sock. Acceptable on a dedicated CI VM, but it grants every local user root-equivalent access through Docker."
+      [ "${ALLOW_DOCKER_SOCKET_CHMOD:-false}" = "true" ] || die "Docker is installed but not reachable as $(id -un). $(id -un) was added to the docker group, but a group change does not apply to the already-running runner process, and setfacl could not grant access either. Restart the runner service on the VM to pick up the group, or set allow-docker-socket-chmod: 'true' on this action to relax the socket mode instead."
+      warn "Relaxing /var/run/docker.sock to 0666 because allow-docker-socket-chmod is set. This grants every local user root-equivalent access through Docker until the daemon restarts."
       ${SUDO} chmod 0666 /var/run/docker.sock || true
     fi
   fi
@@ -162,7 +169,7 @@ install_docker() {
   if ! docker buildx version >/dev/null 2>&1; then
     log "docker buildx plugin missing — installing docker-buildx-plugin"
     if have apt-get && [ -n "${SUDO}" ]; then
-      ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-buildx-plugin || true
+      ${SUDO} env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-buildx-plugin || true
     fi
     docker buildx version >/dev/null 2>&1 || die "docker buildx is unavailable and could not be installed. Install the docker-buildx-plugin package on the runner VM."
   fi

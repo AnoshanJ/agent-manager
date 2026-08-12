@@ -25,6 +25,15 @@ inputs:
       step needs root to run them.
     required: false
     default: ''
+  allow-docker-socket-chmod:
+    description: >
+      Permit relaxing /var/run/docker.sock to 0666 as a last resort when the
+      runner user cannot otherwise reach the daemon. Off by default: the mode
+      persists until the daemon restarts and grants every local user
+      root-equivalent access through Docker. The supported fix is to restart
+      the runner service so it picks up its docker group membership.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -34,4 +43,5 @@ runs:
       env:
         TOOLS: ${{ inputs.tools }}
         TOOL_BIN_DIR: ${{ inputs.bin-dir }}
+        ALLOW_DOCKER_SOCKET_CHMOD: ${{ inputs.allow-docker-socket-chmod }}
       run: bash "${GITHUB_ACTION_PATH}/install-tools.sh"

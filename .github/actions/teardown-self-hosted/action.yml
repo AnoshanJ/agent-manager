@@ -32,6 +32,15 @@ inputs:
       runner itself is containerised) is always preserved.
     required: false
     default: ''
+  self-container-id:
+    description: >
+      Container ID or name of the runner itself, when it is containerised
+      against the same Docker daemon. Normally detected automatically by
+      resolving the candidate IDs in /proc/self/mountinfo and /proc/self/cgroup
+      against the daemon; set this to skip the detection when the runner's ID
+      is known up front.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -42,4 +51,5 @@ runs:
         PRUNE_IMAGES: ${{ inputs.prune-images }}
         REGISTRY: ${{ inputs.registry }}
         KEEP_CONTAINERS: ${{ inputs.keep-containers }}
+        SELF_CID: ${{ inputs.self-container-id }}
       run: bash "${GITHUB_ACTION_PATH}/teardown.sh"

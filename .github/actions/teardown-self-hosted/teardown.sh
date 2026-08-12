@@ -69,21 +69,47 @@ echo "::group::Teardown — containers, volumes, networks"
 # --- containers ------------------------------------------------------------
 # Force-remove everything left over. The one container that must survive is
 # this job's own, in the case where the runner itself is containerised against
-# the same daemon — identify it from the 64-hex container id that appears in
-# our mountinfo (absent when the runner is an ordinary host process, in which
-# case nothing is excluded).
-self_cid="$(grep -o -m1 -E '[0-9a-f]{64}' /proc/self/mountinfo 2>/dev/null | head -1)"
-if [ -n "${self_cid}" ]; then
-  log "Runner appears containerised (${self_cid:0:12}); it is excluded from the sweep"
+# the same daemon: removing that one kills the job mid-teardown.
+#
+# Finding our own id is the delicate part. /proc/self/mountinfo does carry it,
+# in the bind mounts Docker sets up for /etc/hosts and friends — but it also
+# carries 64-hex *storage layer* ids from the overlay2 root mount, and which
+# kind appears first depends on the storage driver. Taking the first match
+# happens to be right on some hosts and silently wrong on others, and "silently
+# wrong" here means force-removing the runner.
+#
+# So collect every candidate and let the daemon adjudicate: a real container id
+# resolves through `docker inspect`, an overlay layer id does not. SELF_CID
+# short-circuits all of it when the caller already knows the answer.
+protected=""
+if [ -n "${SELF_CID:-}" ]; then
+  protected="$(docker inspect --type=container --format '{{.Id}}' "${SELF_CID}" 2>/dev/null)"
+  [ -n "${protected}" ] || warn "SELF_CID='${SELF_CID}' does not resolve to a container on this daemon; ignoring it."
+fi
+if [ -z "${protected}" ]; then
+  for candidate in $( { grep -oE '[0-9a-f]{64}' /proc/self/mountinfo; grep -oE '[0-9a-f]{64}' /proc/self/cgroup; } 2>/dev/null | sort -u); do
+    resolved="$(docker inspect --type=container --format '{{.Id}}' "${candidate}" 2>/dev/null)"
+    [ -n "${resolved}" ] && protected="${protected} ${resolved}"
+  done
+fi
+if [ -n "${protected}" ]; then
+  for p in ${protected}; do
+    log "Runner is containerised in ${p:0:12}; excluded from the sweep"
+  done
+else
+  log "Runner is not containerised against this daemon; sweeping every container"
 fi
 
 leftover="$(docker ps -aq --no-trunc 2>/dev/null)"
 if [ -n "${leftover}" ]; then
   for cid in ${leftover}; do
-    [ -n "${self_cid}" ] && [ "${cid}" = "${self_cid}" ] && continue
+    case " ${protected} " in
+      *" ${cid} "*) continue ;;
+    esac
     if [ -n "${KEEP_CONTAINERS}" ]; then
       name="$(docker inspect -f '{{.Name}}' "${cid}" 2>/dev/null | sed 's|^/||')"
-      if echo "${name}" | grep -qE "${KEEP_CONTAINERS}"; then
+      # -- so a keep pattern beginning with a hyphen is a pattern, not a flag.
+      if echo "${name}" | grep -qE -- "${KEEP_CONTAINERS}"; then
         log "Keeping container ${name} (matches keep-containers)"
         continue
       fi
@@ -131,6 +157,17 @@ echo "::group::Teardown — credentials and workspace"
 if [ -n "${REGISTRY}" ]; then
   docker logout "${REGISTRY}" >/dev/null 2>&1 && log "docker logout ${REGISTRY}" || true
   have helm && helm registry logout "${REGISTRY}" >/dev/null 2>&1 && log "helm registry logout ${REGISTRY}" || true
+fi
+
+# --- persisted git credential ----------------------------------------------
+# actions/checkout writes an authorization header into .git/config unless
+# persist-credentials is off. Its post-step removes it on a clean finish, but a
+# cancelled or timed-out job never reaches that — and on this VM the workspace
+# is still there tomorrow. The jobs that push tags need the credential during
+# the run, so scrub it here instead of disabling it for them.
+if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -d "${GITHUB_WORKSPACE}/.git" ] && have git; then
+  git -C "${GITHUB_WORKSPACE}" config --unset-all 'http.https://github.com/.extraheader' 2>/dev/null \
+    && log "Cleared a persisted git credential from the workspace" || true
 fi
 
 # --- workspace leftovers ---------------------------------------------------

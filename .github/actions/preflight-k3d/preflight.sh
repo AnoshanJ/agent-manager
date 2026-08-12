@@ -33,6 +33,29 @@ die()  { echo "::error::$*"; exit 1; }
 failed=0
 
 # ---------------------------------------------------------------------------
+# Tools this script needs
+#
+# Checked up front, because both checks below infer their verdict from an
+# absence — the probe from a failed curl, the port scan from empty output. A
+# missing tool would silently become "Docker-in-Docker detected" or "all ports
+# free", which is worse than no check at all: this script exists to stop the
+# job with an accurate diagnosis, and a confident wrong one sends whoever reads
+# it after the wrong problem.
+# ---------------------------------------------------------------------------
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+have curl || die "curl is missing, so the published-port probe below cannot run. Add curl to the runner (the setup-self-hosted-tools action installs it)."
+have docker || die "docker is missing; run the setup-self-hosted-tools action with tools: docker before this preflight."
+
+# Either tool can answer "is this port bound"; lsof additionally names the
+# process holding it, which is the useful half of the message.
+PORT_TOOL=""
+have ss && PORT_TOOL="ss"
+have lsof && PORT_TOOL="lsof"
+[ -n "${PORT_TOOL}" ] || die "Neither lsof nor ss is available, so the host-port check cannot distinguish 'free' from 'unknown'. Add lsof to the runner (the setup-self-hosted-tools action installs it)."
+
+# ---------------------------------------------------------------------------
 # Host capacity
 #
 # Reported, and warned on, rather than enforced: the nightly e2e suite already
@@ -132,13 +155,18 @@ echo "::endgroup::"
 # ---------------------------------------------------------------------------
 
 echo "::group::Required host ports"
+log "using ${PORT_TOOL} to inspect listening sockets"
 busy=""
 for p in ${REQUIRED_PORTS}; do
-  if holder="$(lsof -nP -iTCP:"${p}" -sTCP:LISTEN 2>/dev/null | tail -n +2)" && [ -n "${holder}" ]; then
-    busy="${busy} ${p}"
-    echo "  port ${p} IN USE:"
-    echo "${holder}" | sed 's/^/    /'
+  if [ "${PORT_TOOL}" = "lsof" ]; then
+    holder="$(lsof -nP -iTCP:"${p}" -sTCP:LISTEN 2>/dev/null | tail -n +2)"
+  else
+    holder="$(ss -H -ltnp "sport = :${p}" 2>/dev/null)"
   fi
+  [ -n "${holder}" ] || continue
+  busy="${busy} ${p}"
+  echo "  port ${p} IN USE:"
+  echo "${holder}" | sed 's/^/    /'
 done
 if [ -n "${busy}" ]; then
   failed=1

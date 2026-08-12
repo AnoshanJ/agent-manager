@@ -68,8 +68,8 @@ jobs:
         run: |
           command -v git >/dev/null && { git --version; exit 0; }
           sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
           echo "✅ Installed $(git --version)"
 
       - name: Compute dev version
@@ -107,6 +107,11 @@ jobs:
       # `gh` is preinstalled on GitHub-hosted images but not on the VM, and
       # the package probe below is pure `gh api`.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
       - uses: ./.github/actions/setup-self-hosted-tools
         with:
           tools: gh
@@ -184,8 +189,8 @@ jobs:
         run: |
           command -v git >/dev/null && { git --version; exit 0; }
           sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -218,6 +223,11 @@ jobs:
       charts: ${{ steps.set-matrix.outputs.charts }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
 
       # The matrix below is built entirely with jq.
       - uses: ./.github/actions/setup-self-hosted-tools
@@ -258,6 +268,11 @@ jobs:
         image: ${{ fromJson(needs.load-config.outputs.images) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-self-hosted-tools
         with:
@@ -317,6 +332,11 @@ jobs:
         chart: ${{ fromJson(needs.load-config.outputs.charts) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
 
       # Replaces azure/setup-helm: the same 3.14.0 pin, but installed from the
       # single place the VM's helm version is now defined, so this job and the
@@ -381,8 +401,8 @@ jobs:
         run: |
           command -v git >/dev/null && { git --version; exit 0; }
           sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -432,10 +452,15 @@ jobs:
         run: |
           command -v git >/dev/null && { git --version; exit 0; }
           sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
 
       # kubectl and helm were preinstalled on ubuntu-24.04 and only k3d and yq
       # had to be fetched; on the VM all four come from here, at the same pins.
@@ -622,6 +647,11 @@ jobs:
     steps:
       # The alert payload is assembled with jq and posted with curl.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
       - uses: ./.github/actions/setup-self-hosted-tools
 
       - name: Post failure alert
@@ -669,6 +699,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
 
       - name: Teardown
         uses: ./.github/actions/teardown-self-hosted
