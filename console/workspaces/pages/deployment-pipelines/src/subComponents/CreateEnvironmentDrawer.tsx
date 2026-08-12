@@ -114,70 +114,6 @@ function deriveNameFromDisplayName(displayName: string): string {
     .replace(/^-|-$/g, "");
 }
 
-// Common words/roles that make an otherwise-valid handle easy for an outsider to
-// guess even though it passes format/length validation (agent-manager-service's
-// own minThunderHandleLen catches SHORT handles; this catches LONG-but-obvious
-// ones a length rule can't). Deliberately a warning, not a rejection — the API
-// still accepts any of these, since "guessable" is a judgment call the user
-// should be able to override (e.g. an internal-only deployment where this
-// doesn't matter), not one the console should block on their behalf.
-const GUESSABLE_HANDLE_WORDS = [
-  "production",
-  "prod",
-  "development",
-  "dev",
-  "staging",
-  "stage",
-  "test",
-  "testing",
-  "default",
-  "admin",
-  "administrator",
-  "root",
-  "local",
-  "localhost",
-  "sandbox",
-  "demo",
-  "internal",
-  "company",
-  "organization",
-  "org",
-  "example",
-  "sample",
-  "uat",
-  "qa",
-  "beta",
-  "alpha",
-  "trial",
-];
-
-// guessableThunderHandleWarning returns a short, specific reason a handle is
-// easy to guess, or undefined when it looks reasonably random. Checked against
-// the environment's own name/display name too — a handle that just repeats the
-// environment it belongs to is guessable by anyone who already knows that name.
-function guessableThunderHandleWarning(
-  handle: string,
-  envName: string,
-  displayName: string,
-): string | undefined {
-  const lowered = handle.toLowerCase();
-
-  const derivedEnvName = deriveNameFromDisplayName(displayName) || envName;
-  if (derivedEnvName && lowered === derivedEnvName.toLowerCase()) {
-    return "This matches the environment's own name — easy to guess for anyone who knows it.";
-  }
-  if (GUESSABLE_HANDLE_WORDS.some((word) => lowered.includes(word))) {
-    return "This contains a common word — consider something more random.";
-  }
-  if (/^[0-9]+$/.test(lowered)) {
-    return "This is all digits — consider adding letters.";
-  }
-  if (new Set(lowered.replace(/-/g, "")).size <= 2) {
-    return "This has very little variation — consider something more random.";
-  }
-  return undefined;
-}
-
 function buildScript(
   name: string,
   displayName: string,
@@ -393,19 +329,6 @@ export function CreateEnvironmentDrawer({
     (t) => t.value === (formData.isolationTier ?? "runc"),
   );
 
-  // Non-blocking: a guessable handle still passes validation and can still be
-  // submitted (see GUESSABLE_HANDLE_WORDS's doc comment for why this warns
-  // instead of rejecting). Skipped once there's a hard validation error so the
-  // two messages don't fight for the same line.
-  const thunderHandleWarning =
-    formData.thunderHandle && !errors.thunderHandle
-      ? guessableThunderHandleWarning(
-          formData.thunderHandle,
-          formData.name,
-          formData.displayName,
-        )
-      : undefined;
-
   return (
     <DrawerWrapper open={open} onClose={onClose}>
       <DrawerHeader
@@ -518,17 +441,10 @@ export function CreateEnvironmentDrawer({
               />
               <Typography
                 variant="caption"
-                color={
-                  errors.thunderHandle
-                    ? "error"
-                    : thunderHandleWarning
-                      ? "warning.main"
-                      : "text.secondary"
-                }
+                color={errors.thunderHandle ? "error" : "text.secondary"}
                 sx={{ mt: 0.5 }}
               >
                 {errors.thunderHandle ??
-                  thunderHandleWarning ??
                   "Please provide a private, hard-to-guess label for this environment's identity service address — avoid your company or team name. Leave it blank and one will be generated for you automatically."}
               </Typography>
               <Typography
