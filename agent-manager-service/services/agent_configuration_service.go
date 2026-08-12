@@ -188,10 +188,11 @@ func sanitizeForK8sName(s string) string {
 
 const proxyNamePrefixMaxLen = 10
 
-// agentConfigListLimit caps the per-agent configuration listing used when rebuilding or
-// auditing an agent's system-managed env vars. An agent has one configuration row per bound
-// LLM provider / MCP proxy, so this never truncates.
-const agentConfigListLimit = 1000
+// agentConfigListAll disables the row cap on the per-agent configuration listing used when
+// rebuilding or auditing an agent's system-managed env vars: a truncated listing there
+// silently drops bindings from promotion and from the unresolved-binding audit. GORM omits
+// the LIMIT clause for a negative value.
+const agentConfigListAll = -1
 
 // agentAppIdentifier builds a stable, collision-resistant handle for the per-agent-per-env
 // AIApplication. Format: "<agentPrefix>-<16-hex-chars>".
@@ -2179,6 +2180,13 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		uuidToEnvName[e.UUID] = e.Name
 	}
 
+	// Resolved before anything is persisted: a failure here aborts the update, and the name
+	// and description must not already be written when it does.
+	isExternalAgent, firstEnvName, agentErr := s.agentDeploymentShape(ctx, ouID, projectName, agentName)
+	if agentErr != nil {
+		return nil, agentErr
+	}
+
 	nameChanged := req.Name != "" && req.Name != existingConfig.Name
 	if req.Name != "" {
 		existingConfig.Name = req.Name
@@ -2192,11 +2200,6 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		}); err != nil {
 			return nil, fmt.Errorf("failed to update MCP configuration: %w", err)
 		}
-	}
-
-	isExternalAgent, firstEnvName, agentErr := s.agentDeploymentShape(ctx, ouID, projectName, agentName)
-	if agentErr != nil {
-		return nil, agentErr
 	}
 
 	if len(req.EnvironmentVariables) > 0 {
@@ -3988,6 +3991,7 @@ func (s *agentConfigurationService) resolveDeployableMCPGateway(
 	sharedArtifactUUID := mcpProxyEnvArtifactUUID(proxy, envUUID.String())
 	if sharedArtifactUUID == uuid.Nil {
 		s.logger.Warn("Treating MCP environment as non-deployable; missing shared artifact",
+			"ouID", ouID, "correlationID", utils.GetCorrelationId(ctx),
 			"environmentUUID", envUUID, "mcpProxyUUID", proxy.UUID)
 		return nil, errMCPEnvNotDeployable
 	}
@@ -5274,7 +5278,7 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 		return nil, err
 	}
 
-	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListLimit, 0)
+	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
 	}
@@ -5303,7 +5307,7 @@ func (s *agentConfigurationService) BuildSystemManagedEnvVarsFromConfig(
 		return nil, err
 	}
 
-	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListLimit, 0)
+	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
 	}

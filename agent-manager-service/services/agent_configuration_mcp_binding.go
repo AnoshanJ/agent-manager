@@ -261,10 +261,19 @@ func (s *agentConfigurationService) agentDeploymentShape(ctx context.Context, ou
 	if isExternal {
 		return true, "", nil
 	}
-	if pipeline, pipelineErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); pipelineErr == nil && pipeline != nil {
-		firstEnvName = client.FindFirstEnvironment(pipeline.PromotionPaths)
+	pipeline, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName)
+	if err != nil {
+		// A project with no pipeline simply has no first environment; anything else is a
+		// real lookup failure and must not masquerade as one.
+		if errors.Is(err, utils.ErrProjectNotFound) || errors.Is(err, utils.ErrDeploymentPipelineNotFound) {
+			return false, "", nil
+		}
+		return false, "", fmt.Errorf("failed to get deployment pipeline for project %s: %w", projectName, err)
 	}
-	return false, firstEnvName, nil
+	if pipeline == nil {
+		return false, "", nil
+	}
+	return false, client.FindFirstEnvironment(pipeline.PromotionPaths), nil
 }
 
 // ListUnresolvedMCPBindings returns the names of the agent's MCP connections that are
@@ -278,7 +287,7 @@ func (s *agentConfigurationService) ListUnresolvedMCPBindings(
 	if err != nil {
 		return nil, err
 	}
-	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListLimit, 0)
+	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
 	}
