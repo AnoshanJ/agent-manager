@@ -22,7 +22,7 @@ Agents run sandboxed under the standard **runc** runtime by default. Agent Manag
 Install Agent Manager on a Linux VM where Docker is the only host dependency. Pick the path that fits you:
 
 - **Simple**: give the installer the VM's public IP and it does everything else: hostnames are derived from the IP via [sslip.io](https://sslip.io) and TLS certificates are issued automatically by Let's Encrypt. No domain, no DNS setup, no certificate handling. Best for demos and quick evaluations.
-- **Advanced**: a config-file-driven installer for a **custom domain**, on a VM that is either publicly reachable or **private-network-only**. TLS is always a publicly-trusted wildcard certificate issued in-cluster by cert-manager through the ACME **DNS-01** challenge (Let's Encrypt by default, any ACME CA via `ACME_SERVER`), so issuance needs outbound access only and works on a private VM. Requires a DNS zone you control on a supported provider (Cloudflare, Route 53, Cloud DNS, or Azure DNS). Validates your config before installing and reports whether your DNS points at the VM.
+- **Advanced**: a config-file-driven installer for a **custom domain**, on a VM that is either publicly reachable or **private-network-only**. TLS is a single wildcard certificate, obtained either way you prefer: cert-manager issues and auto-renews a publicly-trusted one through the ACME **DNS-01** challenge (Let's Encrypt by default, any ACME CA via `ACME_SERVER`), which needs outbound access only and so works on a private VM but requires a DNS zone you control on a supported provider (Cloudflare, Route 53, Cloud DNS, or Azure DNS); or you supply your own certificate, which needs no DNS credential and no reachable CA. Validates your config and certificate before installing, and reports whether your DNS points at the VM.
 
 <Tabs groupId="vm-installer">
 <TabItem value="simple" label="Simple (IP + automatic TLS)" default>
@@ -205,7 +205,12 @@ Agent Manager can drive external WSO2 AI gateways. The control-plane endpoint `h
 </TabItem>
 <TabItem value="advanced" label="Advanced">
 
-The advanced installer (`install-advanced.sh`) is config-file driven and runs **on the VM** with `sudo`. Use it when you have your own domain. It issues **publicly-trusted certificates** via cert-manager's ACME **DNS-01** challenge and terminates TLS on `:443` at a single in-cluster gateway. Because DNS-01 validates by writing a DNS TXT record rather than by connecting to the VM, the same flow works whether the VM is **public** or reachable only from a **private network**. Issuance needs outbound access only.
+The advanced installer (`install-advanced.sh`) is config-file driven and runs **on the VM** with `sudo`. Use it when you have your own domain. It terminates TLS on `:443` at a single in-cluster gateway, and gives you two ways to obtain the certificate that gateway serves:
+
+- **`TLS_MODE=dns01`** (the default) — cert-manager issues a **publicly-trusted** certificate via the ACME **DNS-01** challenge and auto-renews it. You supply a DNS-provider API credential; the VM needs outbound access to the ACME and provider APIs.
+- **`TLS_MODE=byoc`** — you supply the certificate and key ([Bring your own certificate](#adv-byoc)). No ACME, no DNS-provider credential, and no outbound access to a CA, so this also covers air-gapped VMs and certificates from a corporate PKI. Nothing auto-renews, so you rotate it yourself.
+
+Everything downstream of the certificate is identical in both modes. Neither mode needs inbound access for issuance, so both work whether the VM is **public** or reachable only from a **private network**.
 
 Setup is the same for both up to and including the install; only how clients reach the VM differs. Work through [Prerequisites](#adv-prerequisites), [Configure](#adv-configure), and [Install](#adv-install), then switch the **Public network / Private network** selector below to the one matching your VM. Everything after that selector applies to both again.
 
@@ -214,9 +219,8 @@ If you just want a quick IP-based demo with automatic TLS, prefer the **Simple**
 ## Prerequisites {#adv-prerequisites}
 
 - **Docker, k3d, kubectl, Helm, curl, and `lsof`** must already be installed on the VM. The installer **verifies** they are present and exits with install hints if any are missing. It does **not** install them for you.
-- A **Linux VM** with at least **4 vCPUs**, **8 GB RAM**, and **50 GB of disk**, and **outbound** internet access (to pull images/charts and reach the ACME + DNS-provider APIs). Inbound `:443` is needed only for clients to reach the services, **not** for certificate issuance, so a fully private VM works.
-- **A domain you control**, hosted on one of the supported DNS providers: **Cloudflare**, **AWS Route 53**, **Google Cloud DNS**, or **Azure DNS**.
-- **A DNS-provider API credential** scoped to edit that zone's records. cert-manager uses it to write the `_acme-challenge` TXT record; you do **not** create TXT records by hand.
+- A **Linux VM** with at least **4 vCPUs**, **8 GB RAM**, and **50 GB of disk**, and **outbound** internet access to pull images and charts. Inbound `:443` is needed only for clients to reach the services, **not** for certificate issuance, so a fully private VM works.
+- **A domain you control.** With `TLS_MODE=dns01` it must additionally be hosted on one of the supported DNS providers — **Cloudflare**, **AWS Route 53**, **Google Cloud DNS**, or **Azure DNS** — and you need **a DNS-provider API credential** scoped to edit that zone's records, which cert-manager uses to write the `_acme-challenge` TXT record. You do **not** create TXT records by hand. With `TLS_MODE=byoc` neither the provider nor the credential matters; you need only [a certificate covering the right names](#adv-byoc).
 
 ## Configure {#adv-configure}
 
@@ -226,16 +230,21 @@ The config file is plain shell, one `KEY=value` assignment per line. Generate an
 |---|---|---|
 | `AMP_VERSION` | yes | Agent Manager release to install (an `amp/v*` [release](https://github.com/wso2/agent-manager/releases)) |
 | `DOMAIN_BASE` | yes | Base domain; service hosts are derived as `<svc>.<DOMAIN_BASE>` |
-| `ACME_EMAIL` | yes | ACME account contact; cert-manager registers the account with it |
-| `DNS_PROVIDER` | yes | `cloudflare`, `route53`, `clouddns`, or `azuredns`; supply that provider's credentials below |
+| `TLS_MODE` | no | `dns01` (default) or `byoc`. Omitting it keeps the cert-manager DNS-01 behaviour |
+| `ACME_EMAIL` | dns01 | ACME account contact; cert-manager registers the account with it |
+| `DNS_PROVIDER` | dns01 | `cloudflare`, `route53`, `clouddns`, or `azuredns`; supply that provider's credentials below |
 | `ACME_SERVER` | no | Override the ACME directory (e.g. Let's Encrypt **staging**) while testing, to avoid rate limits |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | byoc | Paths on the VM to your certificate chain and its private key, both PEM |
+| `TLS_CA_FILE` | no | Only for `byoc` with a **private** CA: the CA certificate, so in-cluster components trust it |
 | `EXTERNAL_GATEWAYS` | no | `true` (default) exposes the `cp` endpoint for external data-plane gateways |
 | `HOST_CONSOLE`, `HOST_API`, `HOST_THUNDER`, `HOST_OBSERVER`, `HOST_GATEWAY`, `HOST_CP` | no | Override an individual service hostname (default `<svc>.<DOMAIN_BASE>`) |
 | `AGENTS_BASE` | no | Base for deployed-agent hostnames (default `agents.<DOMAIN_BASE>`) |
 
-With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<org>-<env>.thunder.amp.mycompany.com`, and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. cert-manager issues one **wildcard** certificate covering all of them, so there are no per-host certificate steps.
+With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<org>-<env>.thunder.amp.mycompany.com`, and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. A single **wildcard** certificate covers all of them, so there are no per-host certificate steps.
 
-### DNS provider credentials {#adv-dns-provider}
+Fill in the section below that matches your `TLS_MODE`.
+
+### DNS provider credentials (`dns01`) {#adv-dns-provider}
 
 Add the block for your provider to `amp-config.env`. Only the credential is secret; keep the file `chmod 600`.
 
@@ -274,9 +283,84 @@ AZURE_SUBSCRIPTION_ID=<subscription-id>
 AZURE_RESOURCE_GROUP=<zone-resource-group>
 ```
 
+### Bring your own certificate (`byoc`) {#adv-byoc}
+
+Use this when you already hold a certificate — purchased, issued by your corporate PKI, or obtained by an ACME client you run elsewhere — or when the VM cannot reach a public CA or your DNS provider's API at all. The installer loads your certificate and key into the same Kubernetes Secret the DNS-01 path would have cert-manager issue, so the gateway, routes, and everything downstream behave identically.
+
+The certificate must carry **every** name this install serves as a SAN:
+
+| SAN | Covers |
+|---|---|
+| `console.<DOMAIN_BASE>` | Console |
+| `api.<DOMAIN_BASE>` | Agent Manager API |
+| `thunder.<DOMAIN_BASE>` | Platform Thunder (OAuth) |
+| `observer.<DOMAIN_BASE>` | Observer |
+| `gateway.<DOMAIN_BASE>` | AI Gateway (LLM proxy, OTel ingest) |
+| `cp.<DOMAIN_BASE>` | Gateway control plane (omit if `EXTERNAL_GATEWAYS=false`) |
+| `*.agents.<DOMAIN_BASE>` | Deployed agents |
+| `*.thunder.<DOMAIN_BASE>` | Per-environment Thunder |
+| `*.gateway.<DOMAIN_BASE>` | Per-environment API Platform Gateways |
+
+:::warning A `*.<DOMAIN_BASE>` wildcard does **not** cover the three dynamic tiers
+A wildcard matches exactly one label. `*.amp.mycompany.com` therefore covers `console.amp.mycompany.com` but **not** `myorg-myproject.agents.amp.mycompany.com`, which sits one level deeper. The three `*.agents`, `*.thunder`, and `*.gateway` entries must appear in the certificate literally, and unlike the `dns01` path there is no ACME to issue per-host certificates on demand.
+
+This is the certificate-side counterpart of the DNS wildcard trap described under [How clients reach the VM](#adv-reachability) — the same one-label rule, biting in a different layer.
+:::
+
+The installer checks all of this **before** it touches the cluster, and fails naming the specific problem: a missing SAN, a key that doesn't match the certificate, or an expired certificate. Run `--dry-run` to print the required SANs next to the ones your certificate actually carries.
+
+A self-signed certificate covering every tier, if you are testing or running an internal-only deployment:
+
+```bash
+D=amp.mycompany.com
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout privkey.pem -out fullchain.pem -subj "/CN=$D" \
+  -addext "subjectAltName=DNS:console.$D,DNS:api.$D,DNS:thunder.$D,DNS:observer.$D,DNS:gateway.$D,DNS:cp.$D,DNS:*.agents.$D,DNS:*.thunder.$D,DNS:*.gateway.$D"
+```
+
+Then point the installer at the certificate and key:
+
+```sh
+AMP_VERSION=<AMP_VERSION>
+DOMAIN_BASE=amp.mycompany.com
+TLS_MODE=byoc
+TLS_CERT_FILE=/opt/amp/certs/fullchain.pem
+TLS_KEY_FILE=/opt/amp/certs/privkey.pem
+```
+
+`TLS_CERT_FILE` should be the **full chain** (leaf plus any intermediates). A leaf-only file makes clients that don't already hold the intermediate fail to validate, which typically shows up as some clients working and others not.
+
+#### Certificates from a private CA
+
+If your certificate chains to a corporate CA rather than a public one, also set `TLS_CA_FILE` to that CA certificate:
+
+```sh
+TLS_CA_FILE=/opt/amp/certs/corporate-ca.pem
+```
+
+This matters more than it looks. Per-environment Thunder fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`, which goes back through the same `:443` gateway. Without the CA, that fetch fails on an untrusted chain and **logging in to an agent environment breaks**, even though the console and every other host look completely healthy.
+
+The installer stores the CA in the cluster as the ConfigMap `amp-platform-ca` (namespace `openchoreo-control-plane`). That is what makes the setting durable: environments are created long after the install finishes, and each one provisions its own Thunder that has to validate the same HTTPS endpoint. Every later environment reads the CA from there automatically, so there is nothing extra to pass when you add one.
+
+Browsers and API clients are a separate matter: they still need the CA in their own trust stores, which is a distribution problem the installer cannot solve for you.
+
+:::note Adding environments to an install that did not set `TLS_CA_FILE`
+If you installed with a private-CA certificate but no `TLS_CA_FILE`, environments created afterwards fall back to the cluster's own self-signed root — the wrong CA — and their Thunder cannot validate the JWKS URL. The environment is still reported as created successfully; only the login fails. Create the ConfigMap and re-add the environment:
+
+```bash
+kubectl create configmap amp-platform-ca -n openchoreo-control-plane \
+  --from-file=ca.crt=/opt/amp/certs/ca.pem \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+:::
+
+:::warning `byoc` certificates are never renewed automatically
+cert-manager renews the `dns01` certificate in-cluster with no involvement from you. Nothing does that for `byoc`. When the certificate expires, **every** host stops working at once — console, API, login, and deployed agents. Track the expiry date yourself and see [Persistence and teardown](#adv-persistence) for the rotation command, which does not require a reinstall.
+:::
+
 ## How TLS and routing work {#adv-tls}
 
-cert-manager (installed in the cluster) runs the ACME DNS-01 challenge, issues one **wildcard certificate** into a Kubernetes Secret, and auto-renews it.
+With `TLS_MODE=dns01`, cert-manager (installed in the cluster) runs the ACME DNS-01 challenge, issues one **wildcard certificate** into a Kubernetes Secret, and auto-renews it. With `TLS_MODE=byoc` the installer writes your certificate and key into that same Secret and creates no cert-manager objects at all — in the diagram below, the gateway and everything under it are unchanged and only the three numbered ACME steps disappear.
 
 Routing uses a **front-proxy** model. A single consolidated Gateway (`amp-consolidated-gateway`) is the only thing listening on `:443`; it terminates TLS with the wildcard certificate and then forwards **by `Host` header** to each plane's own `gateway-default` gateway, which keeps its native routes. Three HTTPRoutes do the forwarding, and because two of the planes live in other namespaces, each cross-namespace hop is authorised by a ReferenceGrant.
 
@@ -345,17 +429,17 @@ Edit `amp-config.env` with the keys from [Configure](#adv-configure), then valid
 sudo deployments/vm/install-advanced.sh --config amp-config.env --dry-run
 ```
 
-The dry run loads the config, runs the advisory DNS check, and prints the derived hosts, the wildcard certificate's SAN list, the helm overrides, and every cert-manager and gateway resource it would apply. It never contacts the cluster and it redacts the DNS-provider credential. When it looks right, run the real install:
+The dry run loads the config, runs the advisory DNS check, and prints the derived hosts, the required certificate SAN list, the helm overrides, and every TLS and gateway resource it would apply. It never contacts the cluster, and it redacts secrets — the DNS-provider credential in `dns01`, the certificate and key in `byoc`. In `byoc` mode it also validates your certificate and prints the SANs it actually carries beside the required list, so a mismatch surfaces here rather than after a 20-minute install. When it looks right, run the real install:
 
 ```bash
 sudo deployments/vm/install-advanced.sh --config amp-config.env
 ```
 
-The installer runs in three phases: preflight (verify tools + firewall), platform install, and TLS (cert-manager issues the wildcard certificate via DNS-01, then the consolidated gateway serves `:443`). Allow 15-20 minutes plus a few minutes for issuance. It needs `sudo` because it opens the firewall and creates the cluster. On completion it prints the access URLs.
+The installer runs in three phases: preflight (verify tools + firewall, and in `byoc` mode validate the certificate), platform install, and TLS (obtain or install the certificate, then the consolidated gateway serves `:443`). Allow 15-20 minutes, plus a few minutes for issuance in `dns01` mode. It needs `sudo` because it opens the firewall and creates the cluster. On completion it prints the access URLs.
 
 There are **no per-setting command-line flags** on the advanced path; everything comes from the config file.
 
-:::tip Use Let's Encrypt staging first
+:::tip Use Let's Encrypt staging first (`dns01` only)
 Set `ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory` for your first run. Staging exercises the entire DNS-01 flow but has far looser rate limits than production, which enforces a weekly cap per registered domain that is easy to burn through while iterating. The staging certificate is **not** publicly trusted, so browsers and `curl` will warn, which is expected. Once a staging run succeeds end to end, remove `ACME_SERVER` (or point it at production), delete the cluster, and reinstall for a trusted certificate.
 
 If you opened the console in a browser while the staging certificate was being served and clicked through the warning, clear that decision after switching to production. Browsers remember the approval for the rest of the session and keep reporting the page as insecure even once the trusted certificate is in place. Chrome shows "active content with certificate errors" while simultaneously reporting the certificate itself as valid and trusted. Quit **every** window of that browser profile (for an incognito window, closing one tab is not enough, because the session survives until all incognito windows are closed) and reopen it.
@@ -383,7 +467,7 @@ Open inbound **`443/tcp` only** in your cloud security group or firewall. Nothin
 
 ### DNS records {#adv-dns-records}
 
-Certificate issuance itself needs **no A records**, because cert-manager proves control of the zone by writing the `_acme-challenge` TXT record through your provider credential. A records exist only so clients can **reach** the services. Point them at the VM's public IP:
+Certificate issuance itself needs **no A records** — in `dns01` mode cert-manager proves control of the zone by writing the `_acme-challenge` TXT record through your provider credential, and `byoc` proves nothing at all. A records exist only so clients can **reach** the services. Point them at the VM's public IP:
 
 ```
 *.amp.mycompany.com          A  <VM_PUBLIC_IP>   # console/api/thunder/observer/gateway/cp
@@ -413,9 +497,11 @@ done
 </TabItem>
 <TabItem value="private" label="Private network">
 
-Use this when the VM has **no public IP** and is reachable only from inside your network. The advanced installer supports this unchanged, because DNS-01 validation never requires an inbound connection: the ACME CA reads a TXT record from your DNS provider instead of calling the VM. The result is a **publicly-trusted certificate on a private host**, with no private CA to distribute.
+Use this when the VM has **no public IP** and is reachable only from inside your network. The advanced installer supports this unchanged in both TLS modes, because neither ever requires an inbound connection. With `dns01` the ACME CA reads a TXT record from your DNS provider instead of calling the VM, giving you a **publicly-trusted certificate on a private host** with no private CA to distribute.
 
-The VM still needs **outbound** internet access to pull images and charts and to reach the ACME and DNS-provider APIs. On Google Cloud, for example, that means a **Cloud NAT** gateway attached to the VM's subnet; AWS and Azure have equivalent NAT gateways.
+The VM still needs **outbound** internet access to pull images and charts, and in `dns01` mode to reach the ACME and DNS-provider APIs. On Google Cloud, for example, that means a **Cloud NAT** gateway attached to the VM's subnet; AWS and Azure have equivalent NAT gateways.
+
+If the VM has no route to a public CA or to your DNS provider's API — a genuinely isolated network, or a policy that forbids handing the VM a zone-editing credential — use [`TLS_MODE=byoc`](#adv-byoc) instead and supply a certificate from your internal PKI.
 
 ### Reaching the console
 
@@ -478,14 +564,14 @@ Then point every service hostname at the tunnel in your workstation's `/etc/host
 If agent invocation fails with a DNS error while the console works, this is almost always why. A local DNS resolver that supports wildcards (dnsmasq, or a private DNS zone) avoids the per-agent edits.
 :::
 
-TLS still validates normally through the tunnel: the certificate is publicly trusted and the `Host` header is preserved, so the browser sees the real hostname and the gateway routes on it.
+TLS still validates normally through the tunnel, because the `Host` header and SNI are preserved: the browser sees the real hostname and the gateway routes on it, regardless of which address the tunnel connected to. With `dns01` the certificate is publicly trusted, so nothing else is needed. With `byoc` the browser trusts it only if it already trusts the issuing CA — for an internal PKI that means importing your CA (see [Certificates from a private CA](#adv-byoc)).
 
 </TabItem>
 </Tabs>
 
 ## Persistence and teardown {#adv-persistence}
 
-Application data (PostgreSQL), the issued certificate (a Kubernetes Secret, auto-renewed by cert-manager), and the k3d cluster persist across restarts. To tear down completely, delete the cluster. Everything the installer created lives inside it, including the certificate and the gateway resources:
+Application data (PostgreSQL), the certificate (a Kubernetes Secret), and the k3d cluster persist across restarts. To tear down completely, delete the cluster. Everything the installer created lives inside it, including the certificate and the gateway resources:
 
 ```bash
 sudo k3d cluster delete amp-local     # delete the cluster (workloads, app data, cert, gateways)
@@ -497,15 +583,50 @@ To remove only the TLS and routing layer while keeping the platform running (for
 kubectl delete httproute amp-frontproxy-controlplane amp-frontproxy-observability \
   amp-frontproxy-dataplane -n openchoreo-control-plane
 kubectl delete gateway amp-consolidated-gateway -n openchoreo-control-plane
-kubectl delete certificate amp-wildcard-tls -n openchoreo-control-plane
 kubectl delete secret amp-wildcard-tls -n openchoreo-control-plane
 kubectl delete referencegrant amp-frontproxy-to-services -n openchoreo-observability-plane
 kubectl delete referencegrant amp-frontproxy-to-services -n openchoreo-data-plane
+
+# byoc with TLS_CA_FILE only
+kubectl delete configmap amp-platform-ca -n openchoreo-control-plane
+
+# dns01 only — byoc creates none of these
+kubectl delete certificate amp-wildcard-tls -n openchoreo-control-plane
 kubectl delete clusterissuer amp-acme-dns01
 kubectl delete secret amp-dns01-credentials amp-acme-dns01-account-key -n cert-manager
 ```
 
-Delete the `amp-wildcard-tls` Secret as well as the Certificate. cert-manager will not re-issue into a Secret that already holds a valid certificate, so leaving it behind silently keeps the old (for example, staging) certificate in place. The ACME account key Secret only needs deleting if you are also changing `ACME_EMAIL` or the ACME server.
+In `dns01` mode, delete the `amp-wildcard-tls` Secret as well as the Certificate. cert-manager will not re-issue into a Secret that already holds a valid certificate, so leaving it behind silently keeps the old (for example, staging) certificate in place. The ACME account key Secret only needs deleting if you are also changing `ACME_EMAIL` or the ACME server.
+
+### Rotating a `byoc` certificate {#adv-byoc-rotate}
+
+Nothing renews a `byoc` certificate for you, so replace it before it expires. This is a Secret update, not a reinstall — the Gateway references the Secret by name, so the routes, the cluster, and your data are untouched:
+
+```bash
+kubectl create secret tls amp-wildcard-tls -n openchoreo-control-plane \
+  --cert=/opt/amp/certs/fullchain.pem --key=/opt/amp/certs/privkey.pem \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The replacement must carry the same SAN list as the original (see [Bring your own certificate](#adv-byoc)) — the checks the installer runs do not apply here, so verify it first:
+
+```bash
+openssl x509 -noout -ext subjectAltName -in /opt/amp/certs/fullchain.pem
+```
+
+Confirm the new certificate is being served, from a machine that can reach the VM:
+
+```bash
+echo | openssl s_client -connect console.amp.mycompany.com:443 \
+  -servername console.amp.mycompany.com 2>/dev/null | openssl x509 -noout -dates
+```
+
+If the old certificate is still being served, restart the gateway deployment to force a reload:
+
+```bash
+kubectl rollout restart deployment -n openchoreo-control-plane \
+  -l gateway.networking.k8s.io/gateway-name=amp-consolidated-gateway
+```
 
 **Changing the domain or hostnames after install requires a full teardown first.** The platform install is idempotent in the "create if missing" sense, so editing `DOMAIN_BASE` (or the `HOST_*` overrides) and re-running does **not** reconfigure already-installed services. To move an existing install to a different domain, delete the cluster and install again with the new config.
 
@@ -515,8 +636,18 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
 
 ## Troubleshooting {#adv-troubleshooting}
 
-- **Config rejected before install.** The installer names the missing/invalid key (e.g. an unsupported `DNS_PROVIDER`, or a missing provider credential). Fix `amp-config.env` and re-run.
-- **Certificate never becomes Ready.** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit. Re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
+- **Config rejected before install.** The installer names the missing/invalid key (e.g. an unsupported `DNS_PROVIDER` or `TLS_MODE`, a missing provider credential, or `byoc` without `TLS_CERT_FILE`). Fix `amp-config.env` and re-run.
+- **Certificate rejected before install (`byoc`).** The pre-flight found that the certificate and key don't match, the certificate has expired, or its SANs don't cover a required name. The message names the specific problem. The most common one is a missing `*.agents`, `*.thunder`, or `*.gateway` wildcard: a `*.<DOMAIN_BASE>` wildcard does not reach those tiers (see [Bring your own certificate](#adv-byoc)). Reissue with the full SAN list.
+- **Certificate never becomes Ready (`dns01`).** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit. Re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
+- **Untrusted-certificate warnings everywhere (`byoc` with a private CA).** Expected on any client that doesn't hold your CA. Import the CA into the client's trust store. If browsers also report the chain as incomplete, `TLS_CERT_FILE` is probably leaf-only — rebuild it as the full chain and rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
+- **Login to an agent environment fails while the console works (`byoc` with a private CA).** That environment's Thunder cannot validate the chain when it fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`. Environment creation reports success regardless, so this only ever surfaces at login. Check whether the CA is published in the cluster:
+
+  ```bash
+  kubectl get configmap amp-platform-ca -n openchoreo-control-plane
+  ```
+
+  If it is **missing**, the install ran without `TLS_CA_FILE`. Create it from your CA using the command under [Certificates from a private CA](#adv-byoc), then re-add the affected environments. If it is **present**, only environments created before it existed are affected; re-add those. Setting `TLS_CA_FILE` at install time covers both cases from the start.
+- **Everything stops working at once (`byoc`).** Check whether the certificate expired — `byoc` certificates are never auto-renewed. `echo | openssl s_client -connect console.<DOMAIN_BASE>:443 -servername console.<DOMAIN_BASE> 2>/dev/null | openssl x509 -noout -dates`, then rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
 - **Cert issued but a host is unreachable.** Confirm the service host's A record points at the VM (public or private IP) and that clients can reach `:443` on it. Issuance does not need this, but client access does.
 - **Login fails but every other host works.** `thunder.<DOMAIN_BASE>` is probably not resolving because the deeper `*.thunder` wildcard shadows it. Check with `dig +short thunder.<DOMAIN_BASE> A` and add the explicit A record (see **DNS records** under [How clients reach the VM](#adv-reachability)).
 - **A host returns a connection failure rather than an HTTP status.** The front-proxy route for that plane is not bound. List them with `kubectl get httproute -n openchoreo-control-plane` and check that each `amp-frontproxy-*` route reports `Accepted=True` and `ResolvedRefs=True`; a failed `ResolvedRefs` on the observability or data-plane route usually means its ReferenceGrant is missing. Note that a gateway-level `404` is a *healthy* response from an unrouted path: it proves TLS terminated and the request reached the gateway.
