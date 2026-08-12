@@ -34,7 +34,7 @@ import {
   Stack,
   Typography,
 } from "@wso2/oxygen-ui";
-import { PageLayout } from "@agent-management-platform/views";
+import { PageLayout, DescriptionCard } from "@agent-management-platform/views";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { LabelChips, SwaggerSpecViewer, parseOpenApiSpecContent } from "@agent-management-platform/shared-component";
 import { useGetAgentKind, useGetBuild, useListKindAgents, useListProjects, useGetAgentKindVersion } from "@agent-management-platform/api-client";
@@ -252,7 +252,7 @@ export const CatalogKindDetails: React.FC = () => {
             <Typography variant="overline" color="text.secondary">
               Description
             </Typography>
-            <Typography variant="body1">{kind.description}</Typography>
+            <DescriptionCard content={kind.description} />
           </Box>
         )}
 

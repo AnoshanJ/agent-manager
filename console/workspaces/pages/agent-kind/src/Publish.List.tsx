@@ -31,7 +31,7 @@ import {
 } from "@wso2/oxygen-ui";
 import { Package, Plus, Trash } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { DrawerWrapper, DrawerHeader, DrawerContent, TextInput, PageLayout } from "@agent-management-platform/views";
+import { DrawerWrapper, DrawerHeader, DrawerContent, TextInput, PageLayout, DescriptionCard } from "@agent-management-platform/views";
 import {
   absoluteRouteMap,
   type AgentKindConfigSchemaItem,
@@ -40,6 +40,7 @@ import {
 } from "@agent-management-platform/types";
 import { LabelsEditor, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { RuntimeConfigEditor, createRuntimeConfigRow, type RuntimeConfigRow } from "./RuntimeConfigEditor";
+import { KindDescriptionField } from "./KindDescriptionField";
 import { useDeleteAgentKind, useGetAgent, useGetAgentBuilds, useGetAgentKind, useListAgentKindVersions, usePublishAgentKind } from "@agent-management-platform/api-client";
 
 
@@ -240,6 +241,10 @@ export const PublishedList: React.FC = () => {
           </Button>,
         ].filter(Boolean)}
       >
+        {existingKind?.description && (
+          <DescriptionCard content={existingKind.description} sx={{ mb: 2 }} />
+        )}
+
         <ListingTable.Container>
           {isAgentKindVersionsLoading ? (
             <Box sx={{ m: 2 }}>
@@ -325,18 +330,11 @@ export const PublishedList: React.FC = () => {
                       size="small"
                     />
                   </Form.ElementWrapper>
-                  <Form.ElementWrapper label="Description" name="kindDescription">
-                    <TextInput
-                      id="kindDescription"
-                      placeholder="Describe this Agent Kind"
-                      value={kindDescription}
-                      onChange={(e) => setKindDescription(e.target.value)}
-                      fullWidth
-                      size="small"
-                      multiline
-                      rows={2}
-                    />
-                  </Form.ElementWrapper>
+                  <KindDescriptionField
+                    id="kindDescription"
+                    value={kindDescription}
+                    onChange={setKindDescription}
+                  />
                   <Form.ElementWrapper label="Labels (optional)" name="kindLabels">
                     <LabelsEditor
                       hideTitle

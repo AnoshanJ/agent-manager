@@ -36,6 +36,7 @@ import { absoluteRouteMap } from "@agent-management-platform/types";
 import { useGetAgentKind, useGetAgentKindVersion, useGetBuild, useUpdateAgentKind } from "@agent-management-platform/api-client";
 import { LabelsEditor, SwaggerSpecViewer, parseOpenApiSpecContent, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { RuntimeConfigEditor, createRuntimeConfigRow, type RuntimeConfigRow } from "./RuntimeConfigEditor";
+import { KindDescriptionField } from "./KindDescriptionField";
 
 const deepEqual = (a: unknown, b: unknown): boolean => {
   if (a === b) {
@@ -359,17 +360,11 @@ export const PublishVersionDetails: React.FC = () => {
                     size="small"
                   />
                 </Form.ElementWrapper>
-                <Form.ElementWrapper label="Description" name="description">
-                  <TextInput
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    fullWidth
-                    size="small"
-                    multiline
-                    rows={3}
-                  />
-                </Form.ElementWrapper>
+                <KindDescriptionField
+                  id="description"
+                  value={description}
+                  onChange={setDescription}
+                />
                 <Form.ElementWrapper label="Labels (optional)" name="labels">
                   <LabelsEditor
                     hideTitle

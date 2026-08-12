@@ -29,6 +29,7 @@ import { PageLayout, TextInput } from "@agent-management-platform/views";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { useGetAgentKind, useUpdateAgentKind } from "@agent-management-platform/api-client";
 import { useConfirmationDialog } from "@agent-management-platform/shared-component";
+import { KindDescriptionField } from "./KindDescriptionField";
 
 export const PublishEditVersion: React.FC = () => {
   const navigate = useNavigate();
@@ -132,17 +133,11 @@ export const PublishEditVersion: React.FC = () => {
                   size="small"
                 />
               </Form.ElementWrapper>
-              <Form.ElementWrapper label="Description" name="description">
-                <TextInput
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  fullWidth
-                  size="small"
-                  multiline
-                  rows={3}
-                />
-              </Form.ElementWrapper>
+              <KindDescriptionField
+                id="description"
+                value={description}
+                onChange={setDescription}
+              />
             </Form.Stack>
           </Form.Section>
         </Form.Stack>
