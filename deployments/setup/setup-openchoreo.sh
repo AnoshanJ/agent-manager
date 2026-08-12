@@ -467,118 +467,8 @@ echo "All core OpenChoreo planes are installed and registered!"
 # setup-default-env-thunder target: it needs AMS up (store_via_ams).
 # ============================================================================
 echo ""
-echo "5️⃣  AMP Extensions (parallel)"
-echo "   Updating Helm dependencies..."
-helm dependency update "${SCRIPT_DIR}/../helm-charts/wso2-amp-thunder-extension"
-
-echo "✅ Helm dependencies updated"
-echo ""
-
-# Define installation functions for parallel execution
-install_thunder_extension() {
-    echo "📦 Installing/Upgrading WSO2 AMP Thunder Extension..."
-
-    # Detect an image mismatch and do a clean uninstall+install so the
-    # pre-install setup job re-runs and re-bootstraps the database.
-    local target_image="ghcr.io/thunder-id/thunderid:1.0.0-beta"
-    local selector="app.kubernetes.io/instance=amp-thunder-extension"
-    if helm status amp-thunder-extension -n amp-thunder &>/dev/null; then
-        local current_image
-        current_image=$(kubectl get pods -n amp-thunder -l "$selector" \
-            -o jsonpath='{range .items[*]}{.spec.containers[0].image}{"\n"}{end}' 2>/dev/null \
-            | grep -v "^$" | head -1 || echo "")
-        if [[ -z "$current_image" ]]; then
-            echo "❌ Could not determine current Thunder image; refusing destructive reset"
-            return 1
-        fi
-        if [[ "$current_image" != "$target_image" ]]; then
-            echo "⚠️  Thunder version mismatch (installed: '${current_image}', target: '${target_image}')"
-            echo "   Uninstalling for clean reinstall (setup job must re-run with new scope format)..."
-            if ! helm uninstall amp-thunder-extension -n amp-thunder --wait --timeout=2m; then
-                echo "❌ Failed to uninstall existing Thunder release; aborting clean reinstall"
-                helm status amp-thunder-extension -n amp-thunder 2>/dev/null || true
-                return 1
-            fi
-
-            # Explicitly delete the PVC so the setup job initialises a fresh database.
-            if kubectl get pvc -n amp-thunder -l "$selector" -o name 2>/dev/null | grep -q .; then
-                if ! kubectl delete pvc -n amp-thunder -l "$selector" --wait --timeout=60s; then
-                    echo "❌ Failed to delete Thunder PVC(s); aborting to avoid reusing the stale database"
-                    kubectl get pvc -n amp-thunder -l "$selector" 2>/dev/null || true
-                    return 1
-                fi
-                # Confirm none linger (async delete / stuck finalizer)
-                if kubectl get pvc -n amp-thunder -l "$selector" -o name 2>/dev/null | grep -q .; then
-                    echo "❌ Thunder PVC(s) still present after delete; aborting clean reinstall"
-                    return 1
-                fi
-            fi
-            echo "✅ Existing Thunder release removed (database reset)"
-        else
-            echo "   Thunder is already at target version, skipping reinstall."
-        fi
-    fi
-
-    helm upgrade --install amp-thunder-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-thunder-extension" \
-        --namespace amp-thunder --create-namespace
-    echo "✅ AMP Thunder Extension installed/upgraded successfully"
-}
-
-install_evaluation_workflows() {
-    echo "📦 Installing/Upgrading Evaluation Workflows Extension..."
-    helm upgrade --install amp-evaluation-workflows-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-evaluation-extension" \
-        --namespace openchoreo-workflow-plane \
-        --set ampEvaluation.image.repository="amp-evaluation-monitor" \
-        --set ampEvaluation.publisher.endpoint="http://agent-manager-service:8080" \
-        --set ampEvaluation.publisher.idpTokenUrl="http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token" \
-        --set ampEvaluation.publisher.clientId="amp-publisher-client"
-    echo "✅ Evaluation Workflows Extension installed/upgraded successfully"
-}
-
-install_platform_resources() {
-    echo "📦 Installing/Upgrading Default Platform Resources..."
-    echo "   Creating default Organization, Project, Environment, and DeploymentPipeline..."
-    # --server-side=false: Helm 4 defaults to Server-Side Apply, which conflicts with the
-    # openchoreo-api controller's live ownership of DeploymentPipeline.spec.promotionPaths
-    # (it recomputes that field at runtime). Client-side apply avoids contesting that field.
-    helm upgrade --install amp-default-platform-resources "${SCRIPT_DIR}/../helm-charts/wso2-amp-platform-resources-extension" \
-        --namespace default \
-        --server-side=false
-    echo "✅ Default Platform Resources installed/upgraded successfully"
-}
-
-echo "🚀 Starting PARALLEL installation of AMP extensions..."
-echo ""
-
-run_parallel_tasks \
-    "Thunder Extension:install_thunder_extension" \
-    "Evaluation Workflows:install_evaluation_workflows" \
-    "Platform Resources:install_platform_resources" \
-    || exit 1
-
-echo "✅ All AMP extensions installed successfully"
-echo ""
-
-# Default-env Thunder provisioning moved to the Makefile's setup-default-env-thunder
-# target: it now needs AMS up (store_via_ams), which this script runs before.
-
-# ============================================================================
-# Step 6: Install Observability Extension (Agent Manager Observer)
-# ============================================================================
-echo "6️⃣  Observability Extension (Agent Manager Observer)"
-if ! helm status wso2-amp-observability-extension -n openchoreo-observability-plane &>/dev/null; then
-    echo "Building and loading Agent Manager Observer Docker image into k3d cluster..."
-    make -C "${PROJECT_ROOT}/agent-manager-observer" docker-load-k3d
-    sleep 10
-fi
-echo "   Installing/upgrading Agent Manager Observer (local dev: JWKS disabled, unverified JWT parse)..."
-helm upgrade --install wso2-amp-observability-extension "${PROJECT_ROOT}/deployments/helm-charts/wso2-amp-observability-extension" \
-    --create-namespace \
-    --namespace openchoreo-observability-plane \
-    --timeout=10m \
-    --set amObserver.developmentMode=true \
-    --set amObserver.auth.isLocalDevEnv=true \
-    --set-string amObserver.auth.jwksUrl=""
+echo "5️⃣ +6️⃣  AMP Extensions"
+"${SCRIPT_DIR}/setup-amp-extensions.sh" "${PROJECT_ROOT}" || exit 1
 echo ""
 
 # ============================================================================
@@ -635,11 +525,7 @@ echo ""
 # ============================================================================
 
 echo ""
-echo "🔍 Final Verification - Waiting for remaining components..."
-echo ""
-
-wait_for_namespace_ready amp-thunder 'Thunder Extension'
-
+echo "🔍 Final Verification"
 echo ""
 echo "📊 Final Pod Status:"
 echo ""

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -3638,8 +3639,12 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// This runs before the first write to the target environment (AgentID
 	// provisioning, the API key, the persisted agent config), so a promotion
 	// that cannot get a namespace leaves no half-provisioned target behind. It
-	// runs after the read-only guards above so a promotion they already reject
-	// does not create a binding for an environment nothing was promoted into.
+	// runs after the request-shape guards above so a promotion they already
+	// reject does not create a binding for an environment nothing was promoted
+	// into. The configuration guards below still run after it, so a promotion
+	// they reject can leave an unused binding behind — a binding is an empty,
+	// reusable namespace claim, and the next promotion into that environment
+	// adopts it.
 	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
 		s.logger.Error("Failed to ensure project release binding before promote",
 			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)
@@ -3664,6 +3669,16 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	if len(srcSystemKeys) > 0 && len(tgtSystemKeys) == 0 {
 		return fmt.Errorf("%w: agent %q has LLM/system configuration in source environment %q but none in target environment %q — configure system variables in the target environment before promoting",
 			utils.ErrInvalidInput, agentName, req.SourceEnvironment, req.TargetEnvironment)
+	}
+
+	// The key-presence check above cannot see a connection that is present but dead: an MCP
+	// connection configured for the target environment still has its env var rows there, so
+	// tgtSystemKeys is non-empty, yet its URL and API key resolve to empty strings when the
+	// proxy has no endpoint bound to that environment. Promoting anyway produces an agent
+	// that starts and fails on every tool call. Compare against the source so a connection
+	// that is unbound in both environments (deliberately not offered there) still promotes.
+	if err := s.assertMCPBindingsSurvivePromotion(ctx, agentName, ouID, projectName, req.SourceEnvironment, req.TargetEnvironment); err != nil {
+		return err
 	}
 
 	// Build the target environment's system-managed env vars from the DB. We always
@@ -3976,6 +3991,40 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 
 	s.logger.Info("Agent promoted successfully", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment)
 	return nil
+}
+
+// assertMCPBindingsSurvivePromotion rejects a promotion that would carry an MCP connection
+// working in sourceEnv into targetEnv as a dead one — variables injected, but empty, because
+// the proxy has no endpoint bound to the target. A connection already unresolved in the
+// source is left alone: it is unbound everywhere, not broken by this promotion.
+func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
+	ctx context.Context, agentName, ouID, projectName, sourceEnv, targetEnv string,
+) error {
+	targetUnresolved, err := s.agentConfigurationService.ListUnresolvedMCPBindings(ctx, agentName, ouID, projectName, targetEnv)
+	if err != nil {
+		return fmt.Errorf("failed to check MCP bindings in target environment %q: %w", targetEnv, err)
+	}
+	if len(targetUnresolved) == 0 {
+		return nil
+	}
+	sourceUnresolved, err := s.agentConfigurationService.ListUnresolvedMCPBindings(ctx, agentName, ouID, projectName, sourceEnv)
+	if err != nil {
+		return fmt.Errorf("failed to check MCP bindings in source environment %q: %w", sourceEnv, err)
+	}
+
+	var brokenByPromotion []string
+	for name := range targetUnresolved {
+		if _, alsoUnresolvedInSource := sourceUnresolved[name]; !alsoUnresolvedInSource {
+			brokenByPromotion = append(brokenByPromotion, name)
+		}
+	}
+	if len(brokenByPromotion) == 0 {
+		return nil
+	}
+	sort.Strings(brokenByPromotion)
+
+	return fmt.Errorf("%w: agent %q uses MCP connection(s) %s, which work in environment %q but have no endpoint in %q — promoting would deploy the agent with an empty MCP URL and API key. Bind those MCP proxies to an endpoint in %q, then promote",
+		utils.ErrInvalidInput, agentName, strings.Join(brokenByPromotion, ", "), sourceEnv, targetEnv, targetEnv)
 }
 
 // promotionIdentityPollInterval/promotionIdentityPollBudget bound

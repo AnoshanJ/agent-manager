@@ -58,8 +58,8 @@ func (s *MCPProxyService) EnvironmentUUIDByName(ctx context.Context, ouID, envNa
 	return environmentUUIDByName(ctx, s.infraManager, ouID, envName)
 }
 
-// MCPResourceServerIdentifier derives the protocol-stripped public URI the proxy
-// is invoked at in the given environment — the value the env-Thunder resource
+// MCPResourceServerIdentifier derives the absolute public URI the proxy is
+// invoked at in the given environment — the value the env-Thunder resource
 // server's identifier must carry.
 func (s *MCPProxyService) MCPResourceServerIdentifier(ctx context.Context, ouID string, envID uuid.UUID, proxy *models.MCPProxy) (string, error) {
 	_ = ctx
@@ -80,5 +80,5 @@ func (s *MCPProxyService) MCPResourceServerIdentifier(ctx context.Context, ouID 
 		return "", err
 	}
 
-	return stripURLScheme(buildMCPProxyURL(gateway, proxy.Configuration)), nil
+	return buildMCPProxyURL(gateway, proxy.Configuration), nil
 }

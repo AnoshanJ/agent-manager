@@ -72,7 +72,7 @@ func TestMCPResourceServerIdentifier_DerivesPublicURI(t *testing.T) {
 	id, err := svc.MCPResourceServerIdentifier(context.Background(), "ou-1", envID, proxy)
 
 	require.NoError(t, err)
-	require.Equal(t, "gw.example.com/github/mcp", id)
+	require.Equal(t, "https://gw.example.com/github/mcp", id)
 }
 
 func TestMCPResourceServerIdentifier_NotDeployedToEnvironment(t *testing.T) {

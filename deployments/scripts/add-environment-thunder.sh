@@ -151,12 +151,46 @@ platform_thunder_jwks_url() {
   printf 'https://thunder.amp.localhost:8443/oauth2/jwks'
 }
 
-# platform_thunder_ca_cert -> prints the PEM CA cert that signed the
-# thunder.amp.localhost TLS certificate, or returns 1 if not yet provisioned.
-# Set PLATFORM_THUNDER_CA_PEM to inject a cert directly (useful in tests/CI).
+# platform_thunder_ca_cert -> prints the PEM CA cert that signed the certificate
+# platform Thunder's issuer is served with, or returns 1 if not yet provisioned.
+# Sources, in order:
+#   1. PLATFORM_THUNDER_CA_PEM  — explicit injection (tests/CI, and the installer's
+#      own in-process call).
+#   2. ConfigMap amp-platform-ca — the operator-supplied CA persisted at install time
+#      by a TLS_MODE=byoc advanced VM install (see deployments/vm/install-advanced.sh).
+#   3. amp-local-root-ca-secret — the cert-manager self-signed root used by local/k3d
+#      and any install where platform Thunder is served with the in-cluster CA.
+#
+# Source 2 exists because environments are created LONG AFTER the install exits. On a
+# byoc install the public listener is served with the operator's certificate, so the
+# self-signed root in (3) is the wrong CA: env-Thunder would mount a bundle that cannot
+# validate the JWKS URL, and this script would still exit 0 — a silent failure that only
+# surfaces later as a broken login into that environment. Persisting the CA in-cluster
+# makes the trust decision durable instead of living in the installer's process env.
 platform_thunder_ca_cert() {
   if [ -n "${PLATFORM_THUNDER_CA_PEM:-}" ]; then
     printf '%s' "$PLATFORM_THUNDER_CA_PEM"
+    return 0
+  fi
+
+  # Operator-supplied CA persisted by a byoc install. Absent on every other install
+  # path, so this lookup is a no-op there and the behaviour below is unchanged.
+  local operator_ca
+  operator_ca="$(kubectl get configmap amp-platform-ca -n openchoreo-control-plane \
+    -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true)"
+  if [ -n "$operator_ca" ]; then
+    # Any non-empty value would otherwise be accepted and folded into the trust bundle,
+    # so a truncated or non-PEM ConfigMap would reproduce the exact silent failure this
+    # lookup exists to prevent. The Mozilla bundle download applies the same check.
+    if ! printf '%s' "$operator_ca" | grep -q "BEGIN CERTIFICATE"; then
+      echo "❌ ConfigMap amp-platform-ca exists but ca.crt is not a PEM certificate." >&2
+      echo "   Replace it with the CA that signed platform Thunder's certificate:" >&2
+      echo "     kubectl create configmap amp-platform-ca -n openchoreo-control-plane \\" >&2
+      echo "       --from-file=ca.crt=<ca.pem> --dry-run=client -o yaml | kubectl apply -f -" >&2
+      return 1
+    fi
+    echo "🔐 Using the operator-supplied platform CA (ConfigMap amp-platform-ca)" >&2
+    printf '%s' "$operator_ca"
     return 0
   fi
 

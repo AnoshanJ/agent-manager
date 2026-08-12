@@ -68,8 +68,8 @@ type AgentIdentityController interface {
 	ListAgents(w http.ResponseWriter, r *http.Request)
 }
 
-// MCPResourceServerIdentifierResolver derives the protocol-stripped public URI an
-// MCP proxy is invoked at in one environment — the env-Thunder RS identifier.
+// MCPResourceServerIdentifierResolver derives the absolute public URI an MCP
+// proxy is invoked at in one environment — the env-Thunder RS identifier.
 // The environment is resolved once per request and its UUID passed to each
 // per-proxy identifier derivation.
 type MCPResourceServerIdentifierResolver interface {
