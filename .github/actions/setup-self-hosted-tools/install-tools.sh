@@ -79,6 +79,27 @@ if [ -n "${GITHUB_PATH:-}" ]; then
   echo "${BIN_DIR}" >> "${GITHUB_PATH}"
 fi
 
+# Registry credentials get their own per-job store.
+#
+# By default docker and helm write to the runner user's home, which on this VM
+# is shared by every job of every run. That leaks credentials forward in a way
+# that breaks unrelated work: `helm registry login ghcr.io` in package-charts
+# left a token behind, and the e2e job's *anonymous* pull of a third-party
+# public chart then presented it and got 403 Forbidden from ghcr.io — an
+# install failure three jobs downstream of the job that caused it.
+#
+# RUNNER_TEMP is per-job and cleared by the runner, so pointing both tools
+# there makes the leak structurally impossible rather than something teardown
+# has to remember to undo.
+if [ -n "${RUNNER_TEMP:-}" ] && [ -n "${GITHUB_ENV:-}" ]; then
+  mkdir -p "${RUNNER_TEMP}/docker-config"
+  {
+    echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config"
+    echo "HELM_REGISTRY_CONFIG=${RUNNER_TEMP}/helm-registry-config.json"
+  } >> "${GITHUB_ENV}"
+  ok "Registry credentials isolated to this job (${RUNNER_TEMP})"
+fi
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 

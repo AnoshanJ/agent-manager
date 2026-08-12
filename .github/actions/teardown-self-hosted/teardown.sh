@@ -59,10 +59,15 @@ pkill -f 'kubectl.*port-forward' >/dev/null 2>&1 && log "Killed stray kubectl po
 
 echo "::endgroup::"
 
+# Skip only the Docker-specific sweeps when there is no daemon here — the
+# credential and workspace cleanup further down still has to run, since a job
+# can leave a registry token behind without ever touching Docker (helm does
+# exactly that).
 if ! have docker; then
-  ok "Teardown complete (no Docker on this runner)"
-  exit 0
+  log "No Docker on this runner; skipping the container, image and volume sweep"
 fi
+
+if have docker; then
 
 echo "::group::Teardown — containers, volumes, networks"
 
@@ -149,15 +154,34 @@ fi
 
 echo "::endgroup::"
 
+fi  # have docker
+
 echo "::group::Teardown — credentials and workspace"
 
 # --- registry credentials --------------------------------------------------
-# docker/login-action writes ~/.docker/config.json, which persists on a VM
-# runner; the same for `helm registry login` inside package-helm-chart.sh.
+# docker/login-action writes ~/.docker/config.json and `helm registry login`
+# inside package-helm-chart.sh writes helm's own store; both persist on a VM
+# runner.
 if [ -n "${REGISTRY}" ]; then
   docker logout "${REGISTRY}" >/dev/null 2>&1 && log "docker logout ${REGISTRY}" || true
   have helm && helm registry logout "${REGISTRY}" >/dev/null 2>&1 && log "helm registry logout ${REGISTRY}" || true
 fi
+
+# Then delete the stores outright, rather than trusting the logouts above.
+# `logout <host>` only removes an entry filed under exactly that key, and
+# package-helm-chart.sh logs in to "${HELM_REGISTRY#oci://}" — a host *and
+# path* — so a logout of the bare host can miss it and report failure, which
+# is what happened in run 31617009772: the surviving token made the e2e job's
+# anonymous chart pull 403. Removing the file needs no key to match.
+for cred in \
+  "${DOCKER_CONFIG:-${HOME}/.docker}/config.json" \
+  "${HOME}/.docker/config.json" \
+  "${HELM_REGISTRY_CONFIG:-${HOME}/.config/helm/registry/config.json}" \
+  "${HOME}/.config/helm/registry/config.json"
+do
+  [ -f "${cred}" ] || continue
+  rm -f "${cred}" && log "Removed credential store ${cred}" || true
+done
 
 # --- persisted git credential ----------------------------------------------
 # actions/checkout writes an authorization header into .git/config unless
