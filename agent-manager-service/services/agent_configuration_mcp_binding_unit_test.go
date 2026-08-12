@@ -17,12 +17,15 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 )
 
 // mcpVarRows builds the pair of env var rows (url + apikey) that configuring an MCP
@@ -59,8 +62,26 @@ func TestMCPEnvsNeedingActivation_ReportsEnvWithVarRowsButNoMapping(t *testing.T
 		"prod has env var rows but no mapping — it must be reported for backfill")
 }
 
+// Each unmapped environment is reported once, in the order its variable rows appear —
+// mcpVarRows emits two rows per environment, and a repeated environment would make the
+// caller activate it twice and violate uq_env_mcp_mapping on the second pass.
+func TestMCPEnvsNeedingActivation_ReportsEachUnmappedEnvOnce(t *testing.T) {
+	configUUID, proxyUUID := uuid.New(), uuid.New()
+	devEnv, stagingEnv, prodEnv := uuid.New(), uuid.New(), uuid.New()
+
+	mappings := []models.EnvAgentMCPMapping{
+		{ConfigUUID: configUUID, EnvironmentUUID: devEnv, MCPProxyUUID: proxyUUID},
+	}
+	vars := mcpVarRows(configUUID, devEnv, stagingEnv, prodEnv)
+
+	got := mcpEnvsNeedingActivation(mappings, vars, proxyUUID)
+
+	require.Equal(t, []uuid.UUID{stagingEnv, prodEnv}, got)
+}
+
 // An environment that already has a mapping is fully bound; re-activating it would
-// mint a duplicate API key and violate uq_env_mcp_mapping.
+// mint a duplicate API key and violate uq_env_mcp_mapping. An environment that was never
+// configured is absent from both slices, so it is covered by the same assertion.
 func TestMCPEnvsNeedingActivation_SkipsAlreadyMappedEnv(t *testing.T) {
 	configUUID, proxyUUID := uuid.New(), uuid.New()
 	devEnv := uuid.New()
@@ -110,17 +131,95 @@ func TestMCPEnvsNeedingActivation_SkipsConfigNotBoundToThisProxy(t *testing.T) {
 	require.Empty(t, got)
 }
 
-// An environment with no env var rows was never part of the connection's requested
-// environment set, so there is no binding intent to restore.
-func TestMCPEnvsNeedingActivation_SkipsEnvNeverConfigured(t *testing.T) {
-	configUUID, proxyUUID := uuid.New(), uuid.New()
-	devEnv := uuid.New()
+// unresolvedBindingsFixture builds the service ListUnresolvedMCPBindings needs: an
+// environment lookup, the agent's configurations, and their per-environment variable rows.
+// No configuration has an MCP mapping in the environment — the dead state promotion must
+// refuse — so the URL each one resolves to is empty.
+func unresolvedBindingsFixture(
+	envUUID uuid.UUID,
+	configs []models.AgentConfiguration,
+	varsByConfig map[uuid.UUID][]models.AgentEnvConfigVariable,
+) *agentConfigurationService {
+	return &agentConfigurationService{
+		ocClient: &clientmocks.OpenChoreoClientMock{
+			GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
+				return &models.EnvironmentResponse{Name: envName, UUID: envUUID.String()}, nil
+			},
+		},
+		agentConfigRepo: &repomocks.AgentConfigurationRepositoryMock{
+			ListByAgentFunc: func(_ context.Context, _, _, _ string, _, _ int) ([]models.AgentConfiguration, error) {
+				return configs, nil
+			},
+		},
+		envVariableRepo: &repomocks.AgentEnvConfigVariableRepositoryMock{
+			ListByConfigAndEnvFunc: func(_ context.Context, configUUID, _ uuid.UUID) ([]models.AgentEnvConfigVariable, error) {
+				return varsByConfig[configUUID], nil
+			},
+		},
+		envMCPMappingRepo: &repomocks.EnvAgentMCPMappingRepositoryMock{
+			ListByConfigFunc: func(_ context.Context, _ uuid.UUID) ([]models.EnvAgentMCPMapping, error) {
+				return []models.EnvAgentMCPMapping{}, nil
+			},
+		},
+	}
+}
 
-	mappings := []models.EnvAgentMCPMapping{
-		{ConfigUUID: configUUID, EnvironmentUUID: devEnv, MCPProxyUUID: proxyUUID},
+// A connection configured for the environment — its variable rows are there, so its URL and
+// API key are injected into the workload — but with no mapping backing them resolves to an
+// empty URL. That is the connection promotion must refuse to carry over.
+func TestListUnresolvedMCPBindings_ReportsConfiguredConnectionWithNoResolvableURL(t *testing.T) {
+	envUUID := uuid.New()
+	bookingUUID := uuid.New()
+	configs := []models.AgentConfiguration{
+		{UUID: bookingUUID, Name: "booking", TypeID: models.AgentConfigTypeIDMCP},
+	}
+	varsByConfig := map[uuid.UUID][]models.AgentEnvConfigVariable{
+		bookingUUID: mcpVarRows(bookingUUID, envUUID),
 	}
 
-	got := mcpEnvsNeedingActivation(mappings, mcpVarRows(configUUID, devEnv), proxyUUID)
+	svc := unresolvedBindingsFixture(envUUID, configs, varsByConfig)
 
+	got, err := svc.ListUnresolvedMCPBindings(context.Background(), "my-agent", "acme", "proj1", "staging")
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]struct{}{"booking": {}}, got)
+}
+
+// No variable rows in the environment means the connection was never offered there, so
+// nothing is injected and nothing is broken. Reporting it would block promotions that are
+// perfectly safe.
+func TestListUnresolvedMCPBindings_SkipsConnectionNotConfiguredForEnvironment(t *testing.T) {
+	envUUID := uuid.New()
+	bookingUUID := uuid.New()
+	configs := []models.AgentConfiguration{
+		{UUID: bookingUUID, Name: "booking", TypeID: models.AgentConfigTypeIDMCP},
+	}
+
+	svc := unresolvedBindingsFixture(envUUID, configs, nil)
+
+	got, err := svc.ListUnresolvedMCPBindings(context.Background(), "my-agent", "acme", "proj1", "staging")
+
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+// An LLM configuration also owns injected system-managed variables, but its URL comes from
+// the provider rather than an MCP mapping. Scanning it here would report every LLM binding
+// as a broken MCP connection.
+func TestListUnresolvedMCPBindings_IgnoresNonMCPConfigurations(t *testing.T) {
+	envUUID := uuid.New()
+	llmUUID := uuid.New()
+	configs := []models.AgentConfiguration{
+		{UUID: llmUUID, Name: "openai", TypeID: models.AgentConfigTypeIDLLM},
+	}
+	varsByConfig := map[uuid.UUID][]models.AgentEnvConfigVariable{
+		llmUUID: mcpVarRows(llmUUID, envUUID),
+	}
+
+	svc := unresolvedBindingsFixture(envUUID, configs, varsByConfig)
+
+	got, err := svc.ListUnresolvedMCPBindings(context.Background(), "my-agent", "acme", "proj1", "staging")
+
+	require.NoError(t, err)
 	require.Empty(t, got)
 }

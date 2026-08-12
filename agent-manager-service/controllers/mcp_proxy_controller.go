@@ -209,14 +209,18 @@ func (c *mcpProxyController) UpdateMCPProxy(w http.ResponseWriter, r *http.Reque
 	//
 	// Binding an endpoint to a NEW environment does, though: agents already promoted into
 	// that environment were left with their MCP env vars injected but empty, because no
-	// binding could be created for them at the time. Reconcile them now — this is the only
-	// event that can resolve that state. Best-effort; a failure leaves the proxy updated and
-	// is retried on the next update.
+	// binding could be created for them at the time. Reconcile them now. Best-effort; a
+	// failure leaves the proxy updated and is retried on the next update.
+	//
+	// This covers the proxy-side trigger only. Deployability also flips on gateway topology
+	// — PlatformGatewayService.AssignGatewayToEnvironment mapping the first egress gateway to
+	// an environment resolves the same dead state for every proxy already bound there — and
+	// those paths do not reconcile. Agents stuck that way stay stuck until this proxy is
+	// updated again.
 	//
 	// Run inline rather than detached so the caller reads back a bound agent immediately.
-	// The expensive part (minting keys, patching bindings) only runs when an agent actually
-	// needs backfilling, which happens at most once per agent and environment; the steady
-	// state is a handful of indexed reads.
+	// Nothing here calls out to the gateway or OpenChoreo until an environment is genuinely
+	// bindable, so the steady state is a handful of indexed reads.
 	if err := c.agentConfigService.ReconcileMCPBindingsForProxy(ctx, ouID, proxyID); err != nil {
 		log.Warn("UpdateMCPProxy: failed to reconcile agent MCP bindings", "ouID", ouID, "proxyID", proxyID, "error", err)
 	}

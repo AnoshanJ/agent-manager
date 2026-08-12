@@ -756,6 +756,48 @@ func TestPromoteAgent_AllowsMCPConnectionUnresolvableInBothEnvironments(t *testi
 	assert.True(t, *promoteCalled)
 }
 
+// Not knowing whether the target's MCP connections resolve is not the same as knowing they
+// do. A lookup failure must abort the promotion rather than wave it through — otherwise a
+// transient database blip is all it takes to ship an agent with an empty MCP URL.
+func TestPromoteAgent_BlocksWhenMCPBindingLookupFails(t *testing.T) {
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
+	require.True(t, ok)
+	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, _ string) (map[string]struct{}, error) {
+		return nil, errors.New("database unavailable")
+	}
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.Error(t, err)
+	assert.False(t, *promoteCalled)
+}
+
+// Several broken connections are listed in a stable order, so the same rejection produces
+// the same message on every run instead of reshuffling with Go's map iteration order.
+func TestPromoteAgent_ListsBrokenMCPConnectionsInStableOrder(t *testing.T) {
+	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
+	require.True(t, ok)
+	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
+		if envName == "staging" {
+			return map[string]struct{}{"payments": {}, "booking": {}}, nil
+		}
+		return map[string]struct{}{}, nil
+	}
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "booking, payments")
+}
+
 func TestPromoteAgent_BlocksWhenTargetIdentityNotReady(t *testing.T) {
 	// Empty, no-error result — exactly what EnvVarsForEnvironment returns
 	// when the target's AgentID binding hasn't finished provisioning yet.

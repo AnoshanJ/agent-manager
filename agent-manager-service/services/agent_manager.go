@@ -3639,8 +3639,12 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// This runs before the first write to the target environment (AgentID
 	// provisioning, the API key, the persisted agent config), so a promotion
 	// that cannot get a namespace leaves no half-provisioned target behind. It
-	// runs after the read-only guards above so a promotion they already reject
-	// does not create a binding for an environment nothing was promoted into.
+	// runs after the request-shape guards above so a promotion they already
+	// reject does not create a binding for an environment nothing was promoted
+	// into. The configuration guards below still run after it, so a promotion
+	// they reject can leave an unused binding behind — a binding is an empty,
+	// reusable namespace claim, and the next promotion into that environment
+	// adopts it.
 	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
 		s.logger.Error("Failed to ensure project release binding before promote",
 			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)

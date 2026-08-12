@@ -188,6 +188,11 @@ func sanitizeForK8sName(s string) string {
 
 const proxyNamePrefixMaxLen = 10
 
+// agentConfigListLimit caps the per-agent configuration listing used when rebuilding or
+// auditing an agent's system-managed env vars. An agent has one configuration row per bound
+// LLM provider / MCP proxy, so this never truncates.
+const agentConfigListLimit = 1000
+
 // agentAppIdentifier builds a stable, collision-resistant handle for the per-agent-per-env
 // AIApplication. Format: "<agentPrefix>-<16-hex-chars>".
 func agentAppIdentifier(projectName, agentID, envName string) string {
@@ -1332,26 +1337,14 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 		}
 
 		// The proxy is selected for the agent regardless of environment, but it is only
-		// deployable when the proxy has an endpoint bound to the environment, that binding
-		// owns a shared gateway artifact, and the environment has an active gateway. For any
-		// other environment, create no mapping/deployment and inject empty env vars.
-		endpoint, _ := resolveMCPEndpointForEnv(sourceProxy, env.UUID)
-		configured := endpoint != nil
-		sharedArtifactUUID := mcpProxyEnvArtifactUUID(sourceProxy, env.UUID)
-		var gateway *models.Gateway
-		if configured && sharedArtifactUUID == uuid.Nil {
-			s.logger.Warn("Skipping MCP mapping for environment with missing shared artifact",
-				"environment", envName, "mcpProxyUUID", sourceProxy.UUID)
-		}
-		if configured && sharedArtifactUUID != uuid.Nil {
-			gw, gwErr := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envUUID)
-			if gwErr != nil && !errors.Is(gwErr, errNoGatewayForEnvironment) {
+		// deployable in some of them. Elsewhere, create no mapping/deployment and inject empty
+		// env vars.
+		gateway, gwErr := s.resolveDeployableMCPGateway(ctx, sourceProxy, ouID, envUUID)
+		if gwErr != nil {
+			if !errors.Is(gwErr, errMCPEnvNotDeployable) {
 				s.cleanupMCPConfig(ctx, config.UUID, ouID)
 				return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)
 			}
-			gateway = gw // nil when no gateway is mapped to the environment
-		}
-		if gateway == nil {
 			if err := s.provisionUnconfiguredMCPEnv(ctx, config, envUUID, envName, ouID, projectName, agentID,
 				envTemplates, isExternalAgent, firstEnvName, envCredentials); err != nil {
 				s.cleanupMCPConfig(ctx, config.UUID, ouID)
@@ -1362,13 +1355,7 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 
 		handle := mcpMappingProxyName(projectName, agentID, config.Name, envName)
 		artifactName := handle
-		sourceProxyVersion := sourceProxy.Version
-		if sourceProxy.Artifact != nil && sourceProxy.Artifact.Version != "" {
-			sourceProxyVersion = sourceProxy.Artifact.Version
-		}
-		if sourceProxyVersion == "" {
-			sourceProxyVersion = sourceProxy.Configuration.Version
-		}
+		sourceProxyVersion := mcpProxyArtifactVersion(sourceProxy)
 		mapping := &models.EnvAgentMCPMapping{
 			ConfigUUID:      config.UUID,
 			EnvironmentUUID: envUUID,
@@ -1390,6 +1377,7 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 		// The agent configuration deploys nothing: the proxy already deployed the single
 		// gateway artifact for this environment. We only mint the per-agent inbound key
 		// (against the shared artifact) and inject the env vars pointing at its URL.
+		sharedArtifactUUID := mcpProxyEnvArtifactUUID(sourceProxy, env.UUID)
 		scopedID := scopedProxyIdentifier(config.ProjectName, config.AgentID, config.Name, env.Name)
 		// Only provision an inbound API key when the source MCP proxy has api-key
 		// security enabled. When disabled, no gateway key / app binding is created and no
@@ -2206,16 +2194,9 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		}
 	}
 
-	agentComp, agentErr := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
+	isExternalAgent, firstEnvName, agentErr := s.agentDeploymentShape(ctx, ouID, projectName, agentName)
 	if agentErr != nil {
-		return nil, fmt.Errorf("failed to determine agent type: %w", agentErr)
-	}
-	isExternalAgent := agentComp.Provisioning.Type == string(utils.ExternalAgent)
-	firstEnvName := ""
-	if !isExternalAgent {
-		if pipeline, pipelineErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); pipelineErr == nil && pipeline != nil {
-			firstEnvName = client.FindFirstEnvironment(pipeline.PromotionPaths)
-		}
+		return nil, agentErr
 	}
 
 	if len(req.EnvironmentVariables) > 0 {
@@ -2224,13 +2205,9 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		}
 	}
 
-	existingVarNames, err := s.loadExistingVarNames(ctx, existingConfig.UUID)
+	envTemplates, err := s.mcpEnvTemplatesForConfig(ctx, existingConfig)
 	if err != nil {
 		return nil, err
-	}
-	envTemplates, err := s.buildMCPMappingEnvironmentVariables(existingConfig.Name, varNamesToOverrides(existingVarNames))
-	if err != nil {
-		return nil, errors.Join(utils.ErrInvalidInput, err)
 	}
 
 	if req.EnvMappings == nil {
@@ -2295,24 +2272,13 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		handle := mcpMappingProxyName(projectName, agentName, existingConfig.Name, envName)
 		artifactName := handle
 		sourceVersion := mcpProxyArtifactVersion(sourceProxy)
-		// An environment is deployable only if the proxy has an endpoint bound to it, the
-		// binding owns a shared gateway artifact, and it has an active gateway. Otherwise
-		// the mapping is torn down / never created and the env vars are injected empty.
-		endpoint, _ := resolveMCPEndpointForEnv(sourceProxy, env.UUID)
-		configured := endpoint != nil
-		sharedArtifactUUID := mcpProxyEnvArtifactUUID(sourceProxy, env.UUID)
-		deployable := false
-		if configured && sharedArtifactUUID == uuid.Nil {
-			s.logger.Warn("Treating MCP environment as non-deployable; missing shared artifact",
-				"environment", envName, "mcpProxyUUID", sourceProxy.UUID)
+		// A non-deployable environment gets its mapping torn down / never created and its env
+		// vars injected empty.
+		_, gwErr := s.resolveDeployableMCPGateway(ctx, sourceProxy, ouID, envUUID)
+		if gwErr != nil && !errors.Is(gwErr, errMCPEnvNotDeployable) {
+			return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)
 		}
-		if configured && sharedArtifactUUID != uuid.Nil {
-			_, gwErr := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envUUID)
-			if gwErr != nil && !errors.Is(gwErr, errNoGatewayForEnvironment) {
-				return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)
-			}
-			deployable = gwErr == nil
-		}
+		deployable := gwErr == nil
 
 		if mapping, ok := existingEnvMap[envName]; ok {
 			if deployable {
@@ -2366,7 +2332,11 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 		}
 
 		if err := s.activateMCPMappingForEnv(ctx, existingConfig, sourceProxy, envUUID, envName, ouID,
-			envTemplates, isExternalAgent, firstEnvName); err != nil {
+			mcpActivationInputs{
+				envTemplates:    envTemplates,
+				isExternalAgent: isExternalAgent,
+				firstEnvName:    firstEnvName,
+			}); err != nil {
 			return nil, fmt.Errorf("failed to bind MCP proxy for environment %s: %w", envName, err)
 		}
 	}
@@ -3999,6 +3969,38 @@ func (s *agentConfigurationService) resolveGatewayForProxy(
 	return resolveEgressGatewayForArtifact(s.gatewayRepo, ouID, envUUID, deployed, nil)
 }
 
+// errMCPEnvNotDeployable reports that an MCP proxy cannot back an agent binding in an
+// environment. Not a failure: the connection is still recorded and its env vars are still
+// injected, they just resolve to nothing until the proxy gains an endpoint there.
+var errMCPEnvNotDeployable = errors.New("MCP proxy has no deployable endpoint in this environment")
+
+// resolveDeployableMCPGateway returns the gateway that can back an agent binding to proxy in
+// envUUID. It is the single definition of deployability: the proxy needs an endpoint bound to
+// the environment, a shared gateway artifact owned by that binding, and a gateway mapped to
+// the environment. Any of those missing yields errMCPEnvNotDeployable; every other error is
+// unexpected and worth surfacing.
+func (s *agentConfigurationService) resolveDeployableMCPGateway(
+	ctx context.Context, proxy *models.MCPProxy, ouID string, envUUID uuid.UUID,
+) (*models.Gateway, error) {
+	if endpoint, _ := resolveMCPEndpointForEnv(proxy, envUUID.String()); endpoint == nil {
+		return nil, errMCPEnvNotDeployable
+	}
+	sharedArtifactUUID := mcpProxyEnvArtifactUUID(proxy, envUUID.String())
+	if sharedArtifactUUID == uuid.Nil {
+		s.logger.Warn("Treating MCP environment as non-deployable; missing shared artifact",
+			"environmentUUID", envUUID, "mcpProxyUUID", proxy.UUID)
+		return nil, errMCPEnvNotDeployable
+	}
+	gateway, err := s.resolveGatewayForMCPArtifact(ctx, sharedArtifactUUID, ouID, envUUID)
+	if err != nil {
+		if errors.Is(err, errNoGatewayForEnvironment) {
+			return nil, errMCPEnvNotDeployable
+		}
+		return nil, err
+	}
+	return gateway, nil
+}
+
 // resolveGatewayForMCPArtifact returns the gateway the MCP proxy's shared per-environment
 // artifact is deployed to.
 func (s *agentConfigurationService) resolveGatewayForMCPArtifact(
@@ -4514,6 +4516,46 @@ func varNamesToOverrides(names map[string]string) []models.EnvironmentVariableCo
 		overrides = append(overrides, models.EnvironmentVariableConfig{Key: key, Name: name})
 	}
 	return overrides
+}
+
+// mcpEnvTemplatesForConfig rebuilds the config's MCP env var templates from the variable
+// names currently persisted for it, so the names the agent already runs with (including user
+// overrides) survive instead of being re-derived from the config name.
+func (s *agentConfigurationService) mcpEnvTemplatesForConfig(
+	ctx context.Context, config *models.AgentConfiguration,
+) ([]EnvConfigTemplate, error) {
+	vars, err := s.envVariableRepo.ListByConfig(ctx, config.UUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load existing variable names: %w", err)
+	}
+	return s.mcpEnvTemplatesFromVars(config, vars)
+}
+
+// mcpEnvTemplatesFromVars is mcpEnvTemplatesForConfig for callers that already hold the
+// config's variable rows.
+func (s *agentConfigurationService) mcpEnvTemplatesFromVars(
+	config *models.AgentConfiguration, vars []models.AgentEnvConfigVariable,
+) ([]EnvConfigTemplate, error) {
+	envTemplates, err := s.buildMCPMappingEnvironmentVariables(config.Name, varNamesToOverrides(s.variableNameMap(config.UUID, vars)))
+	if err != nil {
+		return nil, errors.Join(utils.ErrInvalidInput, err)
+	}
+	return envTemplates, nil
+}
+
+// resolveEnvironmentUUID resolves an environment name to its UUID.
+func (s *agentConfigurationService) resolveEnvironmentUUID(
+	ctx context.Context, ouID, environmentName string,
+) (uuid.UUID, error) {
+	env, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to get environment %q: %w", environmentName, err)
+	}
+	envUUID, err := uuid.Parse(env.UUID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid environment UUID %q: %w", env.UUID, err)
+	}
+	return envUUID, nil
 }
 
 // loadExistingVarNames loads the variable key→name mapping from DB for a config.
@@ -5209,13 +5251,9 @@ func (s *agentConfigurationService) cleanupMCPConfig(ctx context.Context, config
 }
 
 func (s *agentConfigurationService) ListAgentLLMConfigSecretReferences(ctx context.Context, agentID, ouID, environmentName string) (map[string]struct{}, error) {
-	env, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName)
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get environment %q: %w", environmentName, err)
-	}
-	envUUID, err := uuid.Parse(env.UUID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid environment UUID %q: %w", env.UUID, err)
+		return nil, err
 	}
 	refs, err := s.envVariableRepo.ListSecretReferencesByAgentAndEnv(ctx, agentID, ouID, envUUID)
 	if err != nil {
@@ -5231,13 +5269,9 @@ func (s *agentConfigurationService) ListAgentLLMConfigSecretReferences(ctx conte
 func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) (map[string]bool, error) {
-	env, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName)
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get environment %q: %w", environmentName, err)
-	}
-	envUUID, err := uuid.Parse(env.UUID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid environment UUID %q: %w", env.UUID, err)
+		return nil, err
 	}
 
 	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListLimit, 0)
@@ -5264,13 +5298,9 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 func (s *agentConfigurationService) BuildSystemManagedEnvVarsFromConfig(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) ([]client.EnvVar, error) {
-	env, err := s.ocClient.GetEnvironment(ctx, ouID, environmentName)
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get environment %q: %w", environmentName, err)
-	}
-	envUUID, err := uuid.Parse(env.UUID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid environment UUID %q: %w", env.UUID, err)
+		return nil, err
 	}
 
 	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListLimit, 0)
