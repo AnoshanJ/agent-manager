@@ -19,7 +19,7 @@ Routing LLM and MCP traffic through a gateway rather than exposing upstream prov
 
 ## Per-Environment Deployment
 
-A gateway is registered at the organization level, but it deploys one artifact per **[Environment](./environment.mdx)** it's active in. When you register an LLM Service Provider or MCP Proxy, the platform deploys that resource's configuration into each environment it's configured for, onto an egress gateway active in that environment — you don't wire a provider to a gateway environment by environment yourself. You only name a gateway explicitly when an environment offers more than one choice; see [How the Active Gateway Is Selected](#how-the-active-gateway-is-selected).
+A gateway is registered at the organization level, but it deploys one artifact per **[Environment](./environment.mdx)** it's mapped to. When you register an LLM Service Provider or MCP Proxy, the platform deploys that resource's configuration into each environment it's configured for, onto an egress gateway in that environment — you don't wire a provider to a gateway environment by environment yourself. You only name a gateway explicitly when an environment offers more than one choice; see [How the Egress Gateway Is Selected](#how-the-egress-gateway-is-selected).
 
 ## Ingress and Egress Gateways
 
@@ -30,7 +30,7 @@ Every gateway is registered with a placement **role** (`INGRESS`, `EGRESS`, or `
 
 Separating the two lets inbound and outbound traffic be scaled and hardened independently, since they rarely share the same load or threat profile.
 
-### How the Active Gateway Is Selected
+### How the Egress Gateway Is Selected
 
 Because the ingress slot holds at most one gateway, inbound routing is unambiguous — there is nothing to choose.
 
