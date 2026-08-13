@@ -42,9 +42,62 @@ env:
   HELM_REGISTRY: oci://ghcr.io/wso2
 
 jobs:
+  # ==========================================================================
+  # TEMPORARY — REMOVE BEFORE MERGE
+  #
+  # Run 31620869475 was cancelled on the job timeout before its Teardown could
+  # run, leaving a live k3d cluster and the full AMP stack on the VM. Both
+  # teardown paths that would normally recover from that were themselves
+  # skipped, so the box needs one unconditional sweep before the next run can
+  # get past its port-availability check.
+  #
+  # Deliberately does NOT check out the repo or use the composite action: on a
+  # thrashing VM the checkout is exactly what hung last time. Raw commands
+  # against the tools already installed on the host are the one thing that
+  # still works when everything else is stuck.
+  #
+  # Once a run completes with its Teardown intact, delete this job and the
+  # `needs: prepare-runner` lines on compute-version and load-config.
+  # ==========================================================================
+  prepare-runner:
+    name: Prepare Runner (temporary)
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 20
+    steps:
+      - name: Sweep leftover state
+        run: |
+          export PATH="${HOME}/.local/share/amp-ci/bin:${PATH}"
+          bounded() { timeout --kill-after=10s "$@" || echo "  (timed out or failed, continuing)"; }
+
+          echo "::group::Before"
+          bounded 60 k3d cluster list || true
+          bounded 60 docker ps -a || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "::group::Sweeping"
+          bounded 300 k3d cluster delete --all || true
+          leftover="$(bounded 60 docker ps -aq 2>/dev/null | grep -E '^[0-9a-f]+$' || true)"
+          for c in ${leftover}; do bounded 60 docker rm -f "${c}" >/dev/null 2>&1 || true; done
+          bounded 120 docker buildx prune -af >/dev/null 2>&1 || true
+          bounded 600 docker system prune -af --volumes >/dev/null 2>&1 || true
+          pkill -f 'kubectl.*port-forward' >/dev/null 2>&1 || true
+          rm -f "${HOME}/.docker/config.json" "${HOME}/.config/helm/registry/config.json" || true
+          echo "::endgroup::"
+
+          echo "::group::After"
+          bounded 60 k3d cluster list || true
+          bounded 60 docker ps -a || true
+          bounded 60 docker system df || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "✅ Runner swept"
+
   # Compute the dated version string once; all jobs consume it via needs.
   compute-version:
     name: Compute Version
+    needs: prepare-runner
     runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 5
     outputs:
@@ -216,6 +269,7 @@ jobs:
   # Load release-config.json and emit job matrices (mirrors release.yml pattern).
   load-config:
     name: Load Config
+    needs: prepare-runner  # TEMPORARY — remove with the prepare-runner job
     runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 10
     outputs:
