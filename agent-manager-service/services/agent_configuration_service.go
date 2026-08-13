@@ -154,6 +154,13 @@ type rollbackResource struct {
 	// before this operation, so a later failure must restore its prior
 	// configuration instead of deleting it outright.
 	priorProxyConfig *models.LLMProxy
+	// restoreDeploymentID is the OLD deployment that was still Deployed before
+	// a new one superseded it (Scenario B only). Deploying the new "current"
+	// deployment atomically overwrites the shared deployment_status row, so the
+	// old deployment is left ARCHIVED even though it was never explicitly
+	// undeployed — on rollback it must be explicitly reactivated, not just left
+	// alone, or the proxy ends up with no live deployment on this gateway.
+	restoreDeploymentID uuid.UUID
 }
 
 // pendingAppBinding captures the arguments for a deferred AIApplication
@@ -1522,6 +1529,10 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 	// a bind failure here still cleans up everything created above.
 	var mcpAppRollback []rollbackResource
 	if err := s.flushPendingAppBindings(ctx, pendingAppBindings, &mcpAppRollback); err != nil {
+		// mcpAppRollback holds any AI applications a partially-successful flush
+		// already created — cleanupMCPConfig only tears down the MCP config
+		// itself, so those apps must be rolled back separately or they leak.
+		s.rollbackProxies(ctx, mcpAppRollback, ouID)
 		s.cleanupMCPConfig(ctx, config.UUID, ouID)
 		return nil, err
 	}
@@ -1958,13 +1969,21 @@ func (s *agentConfigurationService) processEnvProxyUpdate(
 	}); err != nil {
 		// Carry the new deployment's identity and the pre-update proxy snapshot
 		// back to the caller so rollbackProxies can remove the deployment that
-		// was just created and restore the proxy's prior configuration.
+		// was just created and restore the proxy's prior configuration. Deploying
+		// newDeployment already superseded existingDeployment's Deployed status
+		// (see restoreDeploymentID doc comment), so its ID must travel too or the
+		// proxy is left with no live deployment after rollback.
+		var restoreDeploymentID uuid.UUID
+		if existingDeployment != nil {
+			restoreDeploymentID = existingDeployment.DeploymentID
+		}
 		return rollbackResource{
-			proxyHandle:      proxyHandle,
-			deploymentID:     newDeployment.DeploymentID,
-			gatewayID:        gateway.UUID.String(),
-			priorProxyConfig: existingMapping.LLMProxy,
-			providerUUID:     providerUUID,
+			proxyHandle:         proxyHandle,
+			deploymentID:        newDeployment.DeploymentID,
+			gatewayID:           gateway.UUID.String(),
+			priorProxyConfig:    existingMapping.LLMProxy,
+			providerUUID:        providerUUID,
+			restoreDeploymentID: restoreDeploymentID,
 		}, fmt.Errorf("failed to update policy configuration for environment %s: %w", envName, err)
 	}
 
@@ -5058,11 +5077,58 @@ func (s *agentConfigurationService) rollbackProxies(ctx context.Context, resourc
 				s.logger.Info("Restored prior proxy configuration during rollback",
 					"proxyHandle", res.proxyHandle)
 			}
+			// The old deployment was silently superseded (ARCHIVED) the instant
+			// the new deployment was created above — it was never explicitly
+			// undeployed, so it must be explicitly reactivated here.
+			if res.restoreDeploymentID != uuid.Nil {
+				if _, err := s.llmProxyDeploymentService.RestoreLLMProxyDeployment(
+					res.proxyHandle, res.restoreDeploymentID.String(), res.gatewayID, ouID,
+				); err != nil {
+					s.logger.Error("Failed to restore prior deployment during rollback",
+						"proxyHandle", res.proxyHandle, "deploymentID", res.restoreDeploymentID, "error", err)
+				} else {
+					s.logger.Info("Restored prior deployment during rollback",
+						"proxyHandle", res.proxyHandle, "deploymentID", res.restoreDeploymentID)
+				}
+			}
 			continue
 		}
 
 		if res.proxyHandle != "" {
 			proxyHandles[res.proxyHandle] = true
+		}
+	}
+
+	// Revert DB mappings for Scenario A BEFORE deleting the replacement proxy
+	// below (HIGH-4): the mapping's llm_proxy_uuid FK still points at the new
+	// proxy at this point (processEnvProviderChange already committed that
+	// repoint), and fk_env_mapping_proxy is ON DELETE CASCADE — deleting the
+	// new proxy first would cascade-delete the mapping row outright, leaving
+	// the environment with no LLM mapping at all instead of one merely
+	// pointing at the old proxy. Reverting first repoints the FK away from the
+	// new proxy so its deletion below only removes the orphaned proxy row.
+	for _, res := range resources {
+		if res.mappingID != 0 && res.oldProxyUUID != uuid.Nil {
+			revertErr := s.db.Transaction(func(tx *gorm.DB) error {
+				result := tx.Model(&models.EnvAgentModelMapping{}).
+					Where("id = ?", res.mappingID).
+					Update("llm_proxy_uuid", res.oldProxyUUID)
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected == 0 {
+					return fmt.Errorf("mapping %d not found", res.mappingID)
+				}
+				return nil
+			})
+			if revertErr != nil {
+				s.logger.Error(
+					"Failed to revert DB mapping to old proxy UUID during rollback — mapping may be dangling",
+					"mappingID", res.mappingID,
+					"oldProxyUUID", res.oldProxyUUID,
+					"error", revertErr,
+				)
+			}
 		}
 	}
 
@@ -5074,25 +5140,6 @@ func (s *agentConfigurationService) rollbackProxies(ctx context.Context, resourc
 				"handle", handle,
 				"error", err,
 			)
-		}
-	}
-
-	// Revert DB mappings for Scenario A: restore old proxy UUID so the mapping is not left dangling (HIGH-4).
-	for _, res := range resources {
-		if res.mappingID != 0 && res.oldProxyUUID != uuid.Nil {
-			revertErr := s.db.Transaction(func(tx *gorm.DB) error {
-				return tx.Model(&models.EnvAgentModelMapping{}).
-					Where("id = ?", res.mappingID).
-					Update("llm_proxy_uuid", res.oldProxyUUID).Error
-			})
-			if revertErr != nil {
-				s.logger.Error(
-					"Failed to revert DB mapping to old proxy UUID during rollback — mapping may be dangling",
-					"mappingID", res.mappingID,
-					"oldProxyUUID", res.oldProxyUUID,
-					"error", revertErr,
-				)
-			}
 		}
 	}
 }
