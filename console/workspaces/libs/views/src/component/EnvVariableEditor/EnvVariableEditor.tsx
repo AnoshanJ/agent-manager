@@ -25,7 +25,7 @@ import {
   Stack,
   Tooltip,
 } from '@wso2/oxygen-ui';
-import { Edit, Eye, EyeOff, Trash2 as DeleteOutline, X } from '@wso2/oxygen-ui-icons-react';
+import { Edit, Eye, EyeOff, Lock, Trash2 as DeleteOutline, X } from '@wso2/oxygen-ui-icons-react';
 import { useState } from 'react';
 import { TextInput } from '../FormElements';
 
@@ -91,6 +91,13 @@ export interface EnvVariableEditorProps {
    * When true, the value field will be locked by default and require explicit edit action
    */
   isExistingSecret?: boolean;
+  /**
+   * Whether this variable is injected by the platform rather than user-managed
+   * (e.g. AMP-provided). When true, the key/value fields and the secret
+   * checkbox are disabled, edit/delete are hidden, and a lock icon is shown
+   * in their place.
+   */
+  isSystem?: boolean;
 }
 
 export function EnvVariableEditor({
@@ -109,6 +116,7 @@ export function EnvVariableEditor({
   valueError,
   keyDisabled = false,
   isExistingSecret = false,
+  isSystem = false,
 }: EnvVariableEditorProps) {
   // Existing secrets start locked: the stored value is never returned, so the
   // field is masked until the user explicitly clicks Edit to enter a new value.
@@ -121,11 +129,13 @@ export function EnvVariableEditor({
 
   const isSecretField = isValueSecret || isSensitive;
   const isSecretLocked = isExistingSecret && isSensitive && !isEditing;
+  // System-injected variables are always non-editable, regardless of secret state.
+  const isValueLocked = isSecretLocked || isSystem;
 
   // Lets users paste a full "KEY=VALUE" line into the Key field and have it
   // split automatically, instead of forcing a manual copy into each field.
   const handleKeyPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    if (keyDisabled || isSecretLocked) return;
+    if (keyDisabled || isValueLocked) return;
     const pasted = e.clipboardData.getData('text');
     const equalsIdx = pasted.indexOf('=');
     if (equalsIdx === -1) return;
@@ -160,7 +170,7 @@ export function EnvVariableEditor({
   // Reveal toggle for secret values; hidden while the field is locked since
   // there is nothing entered to reveal.
   const valueEndAdornment =
-    isSecretField && !isSecretLocked ? (
+    isSecretField && !isValueLocked ? (
       <InputAdornment position="end">
         <Tooltip title={showValue ? 'Hide value' : 'Show value'}>
           <IconButton
@@ -188,7 +198,7 @@ export function EnvVariableEditor({
             onPaste={handleKeyPaste}
             error={!!keyError}
             helperText={keyError}
-            disabled={keyDisabled}
+            disabled={keyDisabled || isSystem}
           />
         </Box>
         <Box flex={1} minWidth={0}>
@@ -201,7 +211,7 @@ export function EnvVariableEditor({
             onChange={(e) => onValueChange(e.target.value)}
             error={!!valueError}
             helperText={valueError}
-            disabled={isSecretLocked}
+            disabled={isValueLocked}
             placeholder={isSecretLocked ? '••••••••' : undefined}
             slotProps={{ input: { endAdornment: valueEndAdornment } }}
           />
@@ -222,6 +232,7 @@ export function EnvVariableEditor({
               <Checkbox
                 size="small"
                 checked={isSensitive}
+                disabled={isSystem}
                 onChange={(e) => onSensitiveChange?.(e.target.checked)}
               />
             }
@@ -230,11 +241,12 @@ export function EnvVariableEditor({
           />
         </Box>
         <Box pb={1} display="flex" alignItems="center">
-          {/* Always reserve this slot so the delete buttons stay aligned across
+          {/* Always reserve this slot so the delete/lock icons stay aligned across
               rows. Existing secrets toggle between Edit (locked) and Cancel
               (editing); other fields keep the slot hidden. Cancel stays visible
               for the whole edit session even after typing clears the stored
-              secret flag upstream. */}
+              secret flag upstream. System rows are excluded outright, even when
+              they happen to be an existing secret — they're never editable. */}
           <Tooltip title={isEditing ? 'Cancel edit' : 'Edit value'}>
             <IconButton
               size="small"
@@ -244,17 +256,33 @@ export function EnvVariableEditor({
                 isEditing
                   ? undefined
                   : {
-                      visibility: isSecretLocked ? 'visible' : 'hidden',
-                      pointerEvents: isSecretLocked ? 'auto' : 'none',
+                      visibility: isSecretLocked && !isSystem ? 'visible' : 'hidden',
+                      pointerEvents: isSecretLocked && !isSystem ? 'auto' : 'none',
                     }
               }
             >
               {isEditing ? <X size={16} /> : <Edit size={16} />}
             </IconButton>
           </Tooltip>
-          <IconButton size="small" color="error" onClick={onRemove}>
-            <DeleteOutline size={16} />
-          </IconButton>
+          {isSystem ? (
+            // Same slot/size as the delete button below, so system rows line up
+            // pixel-for-pixel with editable rows instead of drifting left.
+            <Tooltip title="System-injected variable — managed by the platform, not editable">
+              <IconButton
+                size="small"
+                disableRipple
+                tabIndex={-1}
+                aria-label="System-injected variable — managed by the platform, not editable"
+                sx={{ cursor: 'default' }}
+              >
+                <Lock size={16} />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <IconButton size="small" color="error" onClick={onRemove}>
+              <DeleteOutline size={16} />
+            </IconButton>
+          )}
         </Box>
       </Stack>
     </Stack>

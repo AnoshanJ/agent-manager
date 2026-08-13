@@ -4448,6 +4448,12 @@ type ProviderConfig struct {
 	// ProviderName Name of the llm provider
 	ProviderName string `json:"providerName"`
 
+	// ProviderPolicies Guardrails configured on the org-level LLM provider this config is based on; applied in addition to the config's own policies
+	ProviderPolicies *[]LLMPolicy `json:"providerPolicies,omitempty"`
+
+	// ProviderUuid UUID of the org-level LLM provider this config is based on
+	ProviderUuid *openapi_types.UUID `json:"providerUuid,omitempty"`
+
 	// ProxyId ID/handle of the MCP proxy
 	ProxyId *string `json:"proxyId,omitempty"`
 

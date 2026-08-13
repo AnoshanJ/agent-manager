@@ -78,8 +78,12 @@ type LLMProxyInfo struct {
 	AuthHeaderName *string     `json:"authHeaderName,omitempty"`
 	ProxyUUID      *string     `json:"proxyUuid"`
 	ProxyName      *string     `json:"proxyName,omitempty"` // Handle of the LLM proxy (used to manage proxy API keys)
-	ProviderName   *string     `json:"providerName"`        // Handle/name of the provider
+	ProviderUUID   *string     `json:"providerUuid,omitempty"`
+	ProviderName   *string     `json:"providerName"` // Handle/name of the provider
 	Policies       []LLMPolicy `json:"policies,omitempty"`
+	// ProviderPolicies are the guardrails configured on the org-level LLM
+	// provider itself, applied in addition to Policies.
+	ProviderPolicies []LLMPolicy `json:"providerPolicies,omitempty"`
 	// Resilience is the explicitly stored override, if any. Nil means the
 	// gateway's own default timeout applies.
 	Resilience *Resilience `json:"resilience,omitempty"`

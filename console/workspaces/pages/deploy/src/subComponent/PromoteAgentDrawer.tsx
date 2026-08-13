@@ -62,6 +62,7 @@ import {
   normalizePythonMinor,
   pickInstrumentationVersion,
 } from "../utils/instrumentation";
+import { excludeSystemVars, sortSystemLast } from "../utils/envVars";
 
 interface PromoteAgentDrawerProps {
   open: boolean;
@@ -203,29 +204,29 @@ export function PromoteAgentDrawer({
   }, [open, targetEnvOptions, resetMutation]);
 
   // Pre-fill the editor with the destination environment's existing config so the
-  // user edits from its previous values rather than starting blank. Only the
-  // user-managed keys (isSystem=false) are editable; system entries are
-  // platform-injected. We wait for the target's query to settle (targetConfigLoaded)
-  // before filling, so switching to a target with no config clears the previous
-  // target's values to empty rather than leaving them stale. We fill once per
-  // target (tracked by filledForTarget) so a background refetch of the same target
-  // doesn't clobber in-progress edits.
+  // user edits from its previous values rather than starting blank. System-injected
+  // entries (isSystem=true) are included for visibility but rendered disabled by
+  // EnvVariableEditor and excluded from the submit payload in handleSubmit, since
+  // they're platform-managed rather than user-managed. We wait for the target's
+  // query to settle (targetConfigLoaded) before filling, so switching to a target
+  // with no config clears the previous target's values to empty rather than leaving
+  // them stale. We fill once per target (tracked by filledForTarget) so a background
+  // refetch of the same target doesn't clobber in-progress edits.
   useEffect(() => {
     if (!open) return;
     const target = formState.targetEnvironment;
     if (!target || filledForTarget === target || !targetConfigLoaded) return;
     const cfg = targetConfigs?.configurations;
-    const userEditableEnv = (cfg?.env ?? [])
-      .filter((e) => !e.isSystem)
-      .map((e) => ({
-        key: e.key,
-        value: e.value ?? "",
-        isSensitive: e.isSensitive,
-        secretRef: e.secretRef,
-      }));
+    const displayEnv = sortSystemLast((cfg?.env ?? []).map((e) => ({
+      key: e.key,
+      value: e.value ?? "",
+      isSensitive: e.isSensitive,
+      secretRef: e.secretRef,
+      isSystem: e.isSystem,
+    })));
     setFormState((prev) => ({
       ...prev,
-      env: userEditableEnv,
+      env: displayEnv,
       files: cfg?.files ?? [],
     }));
     setFilledForTarget(target);
@@ -288,7 +289,7 @@ export function PromoteAgentDrawer({
   const handleAddEnv = useCallback(() => {
     setFormState((prev) => ({
       ...prev,
-      env: [...prev.env, { key: "", value: "", isSensitive: false }],
+      env: [{ key: "", value: "", isSensitive: false }, ...prev.env],
     }));
   }, []);
 
@@ -299,38 +300,27 @@ export function PromoteAgentDrawer({
     }));
   }, []);
 
-  // Same system-key exclusion as the prefill effect above: uploaded entries
-  // must not shadow platform-injected keys, which are never part of formState.env.
-  const targetSystemKeys = useMemo(
-    () =>
-      new Set(
-        (targetConfigs?.configurations?.env ?? [])
-          .filter((e) => e.isSystem)
-          .map((e) => e.key),
-      ),
-    [targetConfigs],
-  );
-
   const handleEnvFileParsed = useCallback((entries: { key: string; value: string }[]) => {
     setFormState((prev) => {
       const nextEnv = [...prev.env];
       for (const { key, value } of entries) {
-        if (targetSystemKeys.has(key)) continue;
         const existingIndex = nextEnv.findIndex((e) => e.key === key);
         if (existingIndex !== -1) {
+          // Never let an uploaded .env file shadow a system-injected key.
+          if (nextEnv[existingIndex].isSystem) continue;
           nextEnv[existingIndex] = { ...nextEnv[existingIndex], key, value, secretRef: undefined };
         } else {
           nextEnv.push({ key, value, isSensitive: false });
         }
       }
-      return { ...prev, env: nextEnv };
+      return { ...prev, env: sortSystemLast(nextEnv) };
     });
-  }, [targetSystemKeys]);
+  }, []);
 
   const handleAddFile = useCallback(() => {
     setFormState((prev) => ({
       ...prev,
-      files: [...prev.files, { key: "", mountPath: "", value: "" }],
+      files: [{ key: "", mountPath: "", value: "" }, ...prev.files],
     }));
   }, []);
 
@@ -368,9 +358,8 @@ export function PromoteAgentDrawer({
             ...(formState.useConfigFromSourceEnv
               ? {}
               : {
-                  env: formState.env
-                    .filter((envVar) => envVar.key)
-                    .map(({ key, value, isSensitive, secretRef }) =>
+                  env: excludeSystemVars(formState.env).map(
+                    ({ key, value, isSensitive, secretRef }) =>
                       // Preserve the secret reference for secrets the user did not edit.
                       isSensitive && secretRef && !value
                         ? ({
@@ -379,7 +368,7 @@ export function PromoteAgentDrawer({
                             secretRef,
                           } as EnvironmentVariable)
                         : { key, value, isSensitive },
-                    ),
+                  ),
                   files: formState.files,
                   // Only send the version when the user explicitly picked a
                   // compatible one; otherwise omit it so the backend inherits
@@ -559,6 +548,7 @@ export function PromoteAgentDrawer({
                                   isExistingSecret={
                                     !!(item.secretRef && item.isSensitive)
                                   }
+                                  isSystem={item.isSystem}
                                   onKeyChange={(v) =>
                                     handleEnvChange(index, "key", v)
                                   }

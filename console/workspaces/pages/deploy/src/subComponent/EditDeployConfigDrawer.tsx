@@ -56,6 +56,7 @@ import type {
   UpdateAgentDeploySettingsRequest,
 } from "@agent-management-platform/types";
 import { compatibleInstrumentationVersions, pickInstrumentationVersion } from "../utils/instrumentation";
+import { excludeSystemVars, sortSystemLast } from "../utils/envVars";
 import { SecurityConfigSections, type SecurityConfigHandle } from "./SecurityConfigSections";
 
 export interface EditDeployConfigDrawerProps {
@@ -142,9 +143,15 @@ export function EditDeployConfigDrawer({
     }
     if (seededRef.current || !configurations) return;
     const cfg = configurations.configurations;
-    setEnv(cfg?.env?.map(
-      (e) => ({ key: e.key, value: e.value ?? "", isSensitive: e.isSensitive, secretRef: e.secretRef }),
-    ) ?? []);
+    setEnv(sortSystemLast(cfg?.env?.map(
+      (e) => ({
+        key: e.key,
+        value: e.value ?? "",
+        isSensitive: e.isSensitive,
+        secretRef: e.secretRef,
+        isSystem: e.isSystem,
+      }),
+    ) ?? []));
     setFiles(cfg?.files ?? []);
     setTracingEnabled(configurations.enableAutoInstrumentation ?? false);
     setInstrumentationVersion("");
@@ -178,13 +185,15 @@ export function EditDeployConfigDrawer({
   const isPending = isDeploying || isUpdating || isUpdatingSettings;
 
   const handleSave = useCallback(() => {
-    const validEnv = env.filter((e) => e.key).map(({ key, value, isSensitive, secretRef }) => {
-      // Preserve secretRef for secrets the user did not edit
-      if (isSensitive && secretRef && !value) {
-        return { key, isSensitive, secretRef } as EnvironmentVariable;
-      }
-      return { key, value, isSensitive };
-    });
+    const validEnv = excludeSystemVars(env).map(
+      ({ key, value, isSensitive, secretRef }) => {
+        // Preserve secretRef for secrets the user did not edit
+        if (isSensitive && secretRef && !value) {
+          return { key, isSensitive, secretRef } as EnvironmentVariable;
+        }
+        return { key, value, isSensitive };
+      },
+    );
     const validFiles = files.filter((f) => f.key && f.mountPath);
 
     if (mode === "update") {
@@ -292,7 +301,7 @@ export function EditDeployConfigDrawer({
 
   // ── Env handlers ─────────────────────────────────────────────────────────
   const handleAddEnv = useCallback(() => {
-    setEnv((prev) => [...prev, { key: "", value: "", isSensitive: false }]);
+    setEnv((prev) => [{ key: "", value: "", isSensitive: false }, ...prev]);
   }, []);
 
   const handleEnvChange = useCallback(
@@ -317,18 +326,20 @@ export function EditDeployConfigDrawer({
       for (const { key, value } of entries) {
         const existingIndex = next.findIndex((e) => e.key === key);
         if (existingIndex !== -1) {
+          // Never let an uploaded .env file shadow a system-injected key.
+          if (next[existingIndex].isSystem) continue;
           next[existingIndex] = { ...next[existingIndex], key, value, secretRef: undefined };
         } else {
           next.push({ key, value, isSensitive: false });
         }
       }
-      return next;
+      return sortSystemLast(next);
     });
   }, []);
 
   // ── File handlers ─────────────────────────────────────────────────────────
   const handleAddFile = useCallback(() => {
-    setFiles((prev) => [...prev, { key: "", mountPath: "", value: "" }]);
+    setFiles((prev) => [{ key: "", mountPath: "", value: "" }, ...prev]);
   }, []);
 
   const handleFileChange = useCallback(
@@ -469,6 +480,7 @@ export function EditDeployConfigDrawer({
                     valueValue={item.value}
                     isSensitive={item.isSensitive ?? false}
                     isExistingSecret={!!(item.secretRef && item.isSensitive)}
+                    isSystem={item.isSystem}
                     onKeyChange={(v) => handleEnvChange(index, "key", v)}
                     onValueChange={(v) => handleEnvChange(index, "value", v)}
                     onSensitiveChange={(v) => handleEnvChange(index, "isSensitive", v)}
