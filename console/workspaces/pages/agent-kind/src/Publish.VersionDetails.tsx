@@ -47,11 +47,12 @@ export const PublishVersionDetails: React.FC = () => {
   );
 
   const { data: kind } = useGetAgentKind({ orgName: orgId!, kindName: agentId! });
-  const { data: version, isLoading: isVersionLoading } = useGetAgentKindVersion({
-    orgName: orgId!,
-    kindName: agentId!,
-    versionTag: versionId!,
-  });
+  const { data: version, isLoading: isVersionLoading, isError: isVersionError }
+    = useGetAgentKindVersion({
+      orgName: orgId!,
+      kindName: agentId!,
+      versionTag: versionId!,
+    });
 
   const { data: build, isLoading: isBuildLoading } = useGetBuild({
     orgName: orgId!,
@@ -92,6 +93,8 @@ export const PublishVersionDetails: React.FC = () => {
           <Skeleton variant="rounded" height={48} sx={{ mb: 1 }} />
           <Skeleton variant="rounded" height={48} />
         </Box>
+      ) : isVersionError ? (
+        <Alert severity="error">Failed to load this version. Please try again.</Alert>
       ) : !version ? (
         <Alert severity="error">Version not found.</Alert>
       ) : (

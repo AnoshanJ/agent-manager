@@ -129,6 +129,7 @@ export const CatalogKindDetails: React.FC = () => {
 
   const versionSelector = sortedVersions.length > 1 && (
     <Select
+      key="version-selector"
       size="small"
       value={selectedVersionTag}
       onChange={(e: SelectChangeEvent<string>) =>

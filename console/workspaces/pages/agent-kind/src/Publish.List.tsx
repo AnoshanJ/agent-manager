@@ -55,7 +55,7 @@ const labelsEqual = (a: Record<string, string>, b: Record<string, string>): bool
 export const PublishedList: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   const { orgId, projectId, agentId } = useParams<{
     orgId: string;
     projectId: string;
@@ -65,10 +65,10 @@ export const PublishedList: React.FC = () => {
   const { mutate: unpublishAgentKind, isPending: isUnpublishing, isSuccess: hasUnpublished } =
     useDeleteAgentKind();
 
-  const {data: agentKindVersions, isLoading: isAgentKindVersionsLoading} =
+  const { data: agentKindVersions, isLoading: isAgentKindVersionsLoading } =
     useListAgentKindVersions({ orgName: orgId, kindName: agentId! });
 
-  const { data:agent } = useGetAgent({
+  const { data: agent } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
@@ -152,7 +152,8 @@ export const PublishedList: React.FC = () => {
       },
     });
     navigate(listPath);
-  }, [orgId, agentId, editDisplayName, editDescription, editLabels, updateKind, navigate, listPath]);
+  }, [orgId, agentId, editDisplayName, editDescription,
+    editLabels, updateKind, navigate, listPath]);
 
   // Pre-fill drawer fields from existing kind data when either drawer opens.
   // Skipped once hasUnpublished is true — the drawers are closed at that
@@ -518,7 +519,12 @@ export const PublishedList: React.FC = () => {
       </DrawerWrapper>
 
       {/* Edit Kind Drawer */}
-      <DrawerWrapper open={isEditKindOpen} onClose={handleCloseEditKind} minWidth={700} maxWidth={700}>
+      <DrawerWrapper
+        open={isEditKindOpen}
+        onClose={handleCloseEditKind}
+        minWidth={700}
+        maxWidth={700}
+      >
         <DrawerHeader title="Edit Agent Kind" icon={<Edit size={24} />} onClose={handleCloseEditKind} />
         <DrawerContent>
           <Form.Stack spacing={3}>
