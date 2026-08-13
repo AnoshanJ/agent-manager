@@ -511,9 +511,20 @@ jobs:
             --poll-progress-after=600s --keep-going --junit-report=report.xml \
             ./tests/... 2>&1 | tee e2e-output.log
 
+      # Bounded, twice. Every kubectl call below is unattended and there are
+      # well over a hundred of them, so a cluster whose API server has stopped
+      # answering — exactly the state worth diagnosing — makes each one block
+      # forever. In run 31620869475 this step hung for 19 minutes and ate the
+      # rest of the job's budget: the artifact uploads never ran, Teardown
+      # never ran, GitHub never finalized the log, and the diagnostics this
+      # step exists to collect were lost along with the reason for the
+      # failure. --request-timeout bounds each call, timeout-minutes bounds
+      # the step, and partial diagnostics still get uploaded either way.
       - name: Dump pod logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
+          kubectl() { command kubectl --request-timeout=15s "$@"; }
           mkdir -p /tmp/pod-logs
           kubectl logs deployment/amp-api -n wso2-amp --tail=500 --all-containers=true > /tmp/pod-logs/amp-api.txt 2>&1 || true
           kubectl logs deployment/openchoreo-api -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-api.txt 2>&1 || true
@@ -696,16 +707,30 @@ jobs:
       - notify-google-chat
     if: always()
     runs-on: ${{ inputs.runner || 'self-hosted' }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
+      # This job is the safety net, so it has to reach its Teardown step even
+      # when the VM is in the state that made the net necessary. In run
+      # 31620869475 it did not: the e2e job was cancelled with the full AMP
+      # stack still running, and checking out on the thrashing box took over
+      # 20 minutes, hit the job timeout, and skipped Teardown entirely — the
+      # cluster was left running.
+      #
+      # So: fetch only .github (a fraction of the I/O), bound the step so a
+      # slow checkout fails instead of consuming the job, and run Teardown
+      # even if it does fail. A stale .github is still enough to clean up.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 10
+        continue-on-error: true
         with:
+          sparse-checkout: .github
           # Long-lived runner: the default true writes the token into
           # .git/config, which outlives the job if the post-step is
           # skipped (cancel, timeout). Nothing here pushes over git.
           persist-credentials: false
 
       - name: Teardown
+        if: always()
         uses: ./.github/actions/teardown-self-hosted
         with:
           registry: ${{ env.REGISTRY }}

@@ -23,7 +23,34 @@ log()  { echo "  $*"; }
 ok()   { echo "✅ $*"; }
 warn() { echo "::warning::$*"; }
 
-have() { command -v "$1" >/dev/null 2>&1; }
+# type -P searches PATH only. `command -v` would also match the docker and k3d
+# shell functions defined just below and report them as installed even on a
+# host that has neither binary.
+have() { type -P "$1" >/dev/null 2>&1; }
+
+# Every docker and k3d call here talks to a daemon that may be wedged — this
+# action runs after the job that broke things, so a hung daemon is a normal
+# input, not an edge case. An unbounded call would make the cleanup itself the
+# thing that needs cleaning up. Wrap them so each one gives up and lets the
+# rest of the teardown proceed.
+# Resolve the real binaries up front. `timeout` execs a program, so it cannot
+# be handed the `command` builtin — and the no-timeout fallback below would
+# recurse into these same wrappers if it re-ran the bare name. Absolute paths
+# avoid both traps.
+DOCKER_BIN="$(type -P docker || true)"
+K3D_BIN="$(type -P k3d || true)"
+
+run_bounded() {
+  local secs="$1"
+  shift
+  if have timeout; then
+    timeout --kill-after=10s "${secs}" "$@"
+  else
+    "$@"
+  fi
+}
+[ -n "${DOCKER_BIN}" ] && docker() { run_bounded 180 "${DOCKER_BIN}" "$@"; }
+[ -n "${K3D_BIN}" ]    && k3dcmd() { run_bounded 300 "${K3D_BIN}" "$@"; }
 
 echo "::group::Teardown — cluster and workloads"
 
@@ -32,10 +59,10 @@ echo "::group::Teardown — cluster and workloads"
 # 8443, 10082, 11080/11082/11085, 19080, 19443) the next run's port check
 # requires, and it drops the kubeconfig contexts along with the containers.
 if have k3d; then
-  clusters="$(k3d cluster list --no-headers 2>/dev/null | awk '{print $1}')"
+  clusters="$(k3dcmd cluster list --no-headers 2>/dev/null | awk '{print $1}')"
   if [ -n "${clusters}" ]; then
     log "Deleting k3d clusters: $(echo "${clusters}" | tr '\n' ' ')"
-    k3d cluster delete --all >/dev/null 2>&1 || warn "k3d cluster delete --all did not complete cleanly; the container sweep below should still remove the nodes."
+    k3dcmd cluster delete --all >/dev/null 2>&1 || warn "k3d cluster delete --all did not complete cleanly; the container sweep below should still remove the nodes."
   else
     log "No k3d clusters present"
   fi
@@ -143,7 +170,7 @@ if [ "${PRUNE_IMAGES}" = "true" ]; then
   # -a (not just dangling) is deliberate: the nightly's whole point is that the
   # next run installs from scratch, and the dated 0.0.0-dev-* tags would
   # otherwise accumulate a new full image set on disk every single night.
-  docker system prune -af --volumes >/dev/null 2>&1 || true
+  run_bounded 600 "${DOCKER_BIN}" system prune -af --volumes >/dev/null 2>&1 || true
   ok "Pruned all unused images, volumes and networks"
 else
   docker container prune -f >/dev/null 2>&1 || true
