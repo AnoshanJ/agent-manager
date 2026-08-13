@@ -104,16 +104,17 @@ type IdentityClient interface {
 	// Permissions catalog
 	ListAMPPermissions(ctx context.Context) ([]ThunderPermission, string, error)
 	// EnsureProxyResourceServer makes sure the proxy's resource server exists
-	// (handle = proxyHandle, identifier = the proxy's protocol-stripped public
-	// invocation URI in this environment, delimiter ":", type MCP), that its
-	// permission-anchor resource exists (handle = proxyHandle), and every
-	// given action is registered under that resource, then returns the RS ID.
-	// Anchoring under a resource (rather than registering actions at the RS
-	// root) is required for Thunder to derive a "<proxyHandle>:<action>"
-	// permission string — see ensureProxyResource's doc comment for why. The
-	// identifier must be an RFC 8707 absolute URI; it is canonicalized and
-	// non-canonical input is rejected. A drifted identifier is updated in
-	// place; the handle never changes.
+	// (handle = proxyHandle, identifier = the proxy's public invocation URI in
+	// this environment, delimiter ":", type MCP), that its permission-anchor
+	// resource exists (handle = proxyHandle), and every given action is
+	// registered under that resource, then returns the RS ID. Anchoring under
+	// a resource (rather than registering actions at the RS root) is required
+	// for Thunder to derive a "<proxyHandle>:<action>" permission string — see
+	// ensureProxyResource's doc comment for why. The identifier must be an
+	// RFC 8707 absolute URI; it is normalized into canonical form (lowercased
+	// host, default port and trailing slash stripped), so non-canonical input
+	// is accepted, not rejected. A drifted identifier is updated in place; the
+	// handle never changes.
 	EnsureProxyResourceServer(ctx context.Context, proxyHandle, displayName, identifier string, actions []string) (string, error)
 	// DeleteProxyResourceServerAction best-effort deletes one action from the
 	// proxy's permission-anchor resource. Missing RS, anchor resource, or
@@ -994,8 +995,9 @@ func (c *thunderClient) RemoveRoleAssignees(ctx context.Context, roleID string, 
 
 // --- Permissions catalog ---
 
-// ListAMPPermissions returns all permissions registered under the "amp" resource server.
-// It returns the permissions as strings (e.g. "amp:agents:create") and the resource server ID.
+// ListAMPPermissions returns all permissions registered under the "amp" resource
+// server (each entry's Name is the scope string, e.g. "amp:agents:create") and
+// the resource server ID.
 func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermission, string, error) {
 	token, err := c.getSystemToken(ctx)
 	if err != nil {
@@ -1068,8 +1070,6 @@ func (c *thunderClient) ListAMPPermissions(ctx context.Context) ([]ThunderPermis
 	return perms, ampRSID, nil
 }
 
-// findResourceServer paginates through resource servers and returns the first one
-// match accepts, or nil if none match.
 // listResources paginates through a resource server's resources and returns
 // them all. When parentID is "", it lists top-level resources (Thunder's
 // listing endpoint does not descend into children by default); pass a
@@ -1101,6 +1101,8 @@ func (c *thunderClient) listResources(ctx context.Context, token, rsID, parentID
 	return resources, nil
 }
 
+// findResourceServer paginates through resource servers and returns the first
+// one match accepts, or nil if none match.
 func (c *thunderClient) findResourceServer(ctx context.Context, token string, match func(*ThunderResourceServer) bool) (*ThunderResourceServer, error) {
 	const rsPageSize = 20
 	rsOffset := 0

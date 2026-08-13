@@ -912,9 +912,10 @@ func (c *identityController) ListRoles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The OU-scoped ListRoles already restricts to the caller's OU and hides
-	// Thunder's native Administrator role (thundersvc.NativeAdministratorRoleName),
-	// so its total is the true post-filter count; only the display-only
-	// IsReadOnly flag is computed here.
+	// Thunder's native Administrator role and the AMP system-client role
+	// (thundersvc.NativeAdministratorRoleName, AMPSystemClientRoleName), so its
+	// total is the true post-filter count; only the display-only IsReadOnly
+	// flag is computed here.
 	for i := range roles {
 		roles[i].IsReadOnly = constants.IsPredefinedRole(roles[i].Name)
 	}

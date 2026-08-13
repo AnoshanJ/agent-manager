@@ -535,52 +535,16 @@ thunder:
         - "groups"
         - "ouId"
         - "ouHandle"
-    # MCP resource servers — RFC 8707 resource indicators for the platform's
-    # MCP endpoints. Thunder (v0.45+) rejects an authorize request with
-    # invalid_target unless its `resource` parameter exactly matches a
-    # registered resource-server identifier. MCP clients send the canonical
-    # origin of the MCP endpoint WITH a trailing slash, so each identifier
-    # must be the externally reachable base URL of the service (the same value
-    # as agent-manager's serverPublicURL / the observability extension's
-    # amObserver.publicUrl), slash included.
-    #
-    # Thunder additionally downscopes granted scopes to the permissions defined
-    # on the resource server named in `resource`, so each entry mirrors the
-    # slice of the amp permission tree its MCP client is allowed, selected by
-    # permissionSet:
-    #   - "amp-minus-observability": the full amp tree minus the four
-    #     amp:observability:*-read actions (matches the am-mcp client)
-    #   - "observability-only": only the amp:observability resource with its
-    #     four *-read actions (matches the am-obs-mcp client)
-    # The handle MUST stay empty: Thunder prefixes derived permissions with the
-    # resource-server handle, and the scope strings must come out identical to
-    # the amp resource server's (amp:project:read etc.). The bootstrap roots
-    # the tree under a top-level "amp" resource instead.
-    # NOTE: seeded by the pre-install bootstrap job only — on existing installs,
-    # re-run the bootstrap job (it automatically replaces MCP resource servers
-    # created by an older bootstrap with a non-empty handle); a helm upgrade
-    # alone will not re-seed.
-    #
-    # Each resource server's identifier is derived by the bootstrap template from
-    # the base URL named in baseUrlValue, with the trailing slash appended. The
-    # base URLs live as their own scalars below rather than inline here so a
-    # deployment can override just the host: `helm --set` merges a scalar, but
-    # `--set mcpResourceServers[0].identifier=...` REPLACES the whole list element
-    # and silently drops name/handle/description/permissionSet. Point each base
-    # URL at the externally reachable origin of its MCP endpoint's service — the
-    # same value as agent-manager's serverPublicURL and the observability
-    # extension's amObserver.publicUrl. Defaults suit a k3d/local install, where
-    # amp-api is reached through the OpenChoreo control-plane gateway rather than
-    # on its container port.
-    #
-    # An identifier is matched EXACTLY, so a service reachable on more than one
-    # origin needs one entry per origin. Entries marked `optional: true` are
-    # skipped when their base URL is empty. agentManagerMcpDevBaseUrl is the
-    # opt-in second origin for the dev stack, where `make setup`
-    # (deployments/setup/setup-openchoreo.sh, this chart's only installer on that
-    # path) runs agent-manager-service as a host process on :9000 — an MCP client
-    # there asks for resource http://localhost:9000/, so without that entry
-    # Thunder answers invalid_target. setup-openchoreo.sh sets it.
+    # RFC 8707 resource-server definitions for the platform's own MCP endpoints
+    # (agent-manager's MCP endpoint, its docker-compose dev variant, and the
+    # observer's MCP endpoint). NOT currently consumed by any template in this
+    # chart — nothing renders these into Thunder on install/upgrade yet; see
+    # deployments/setup/register-amp-resources.sh for the manual/bash
+    # registration that has to be run by hand instead. baseUrlValue names the
+    # scalar below holding that entry's base URL; permissionSet picks which
+    # slice of the amp permission tree it gets ("amp-minus-observability" or
+    # "observability-only"); `optional: true` entries are skipped when their
+    # base URL is empty.
     agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
     agentManagerMcpDevBaseUrl: ""
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"

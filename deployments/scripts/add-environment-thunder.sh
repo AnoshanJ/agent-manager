@@ -615,7 +615,7 @@ main() {
 
   # Namespace/host are ALWAYS computed from (org, env) — never overridable. Every
   # other consumer of this env-Thunder (the gateway's ThunderKeyManager wiring in
-  # add-environment.sh, and agent-manager-service's naming.go, which the future
+  # add-environment.sh, and agent-manager-service's naming.go, which
   # EnvThunderResolver resolves per-agent OAuth clients against) recomputes these
   # same coordinates purely from (org, env), with no way to learn about an override.
   # An override here would silently strand those callers pointed at an address

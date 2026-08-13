@@ -76,8 +76,7 @@ amObserver:
     # Enables scope-based authorization on the observer REST data routes.
     # Mirrors agent-manager-service's rbacEnabled. MUST stay a quoted string:
     # Helm's `default` treats boolean false as unset, which would make the
-    # kill-switch impossible to turn off (see wso2-agent-manager/values.yaml:134
-    # for the same convention).
+    # kill-switch impossible to turn off.
     rbacEnabled: "true"
   # Externally reachable base URL of this service.
   # Used as the `resource` identifier in RFC 9728 protected resource metadata

@@ -39,9 +39,10 @@ import (
 )
 
 // AgentIdentityController exposes env-Thunder group/role management for agent
-// identities. Every handler is a passthrough to the environment's own Thunder
-// instance, resolved per request via EnvThunderResolver — AMS stores no
-// group/role state of its own. Roles carry catalog scopes as their permissions.
+// identities, resolved per request via EnvThunderResolver — AMS stores no
+// group/role state of its own. Roles carry catalog scopes as their
+// permissions. ListAgents is the exception: it reads the assignment picker
+// straight from AMS's own state, not Thunder.
 type AgentIdentityController interface {
 	// Groups
 	ListGroups(w http.ResponseWriter, r *http.Request)
@@ -694,8 +695,9 @@ func (c *agentIdentityController) UpdateRole(w http.ResponseWriter, r *http.Requ
 		currentByRS[p.ResourceServerID] = p.Permissions
 	}
 
-	// Reconcile every resource server the role touches — those newly desired and
-	// those it already carried (a proxy dropped from the role has have\desired = have).
+	// Reconcile every resource server the role touches — newly desired ones and
+	// ones it already had. A proxy dropped from the role has no entry in desired
+	// but still has one in currentByRS, so it must be visited to clear it.
 	rsIDs := make(map[string]struct{}, len(desired)+len(currentByRS))
 	for rsID := range desired {
 		rsIDs[rsID] = struct{}{}

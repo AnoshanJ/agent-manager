@@ -280,9 +280,10 @@ data:
     # skips /oauth2/authorize entirely).
     #
     # A urn: (not http:) URI on purpose: resource-server identifiers must be unique,
-    # and the http origins are already taken by the MCP resource servers below
-    # (mcpResourceServers). A urn is also deployment-independent, so it needs no
-    # per-environment host templating.
+    # and Thunder's own built-in System resource server already claims this
+    # deployment's http origin (70-fix-thunder-system-rs-identifier.yaml below).
+    # A urn is also deployment-independent, so it needs no per-environment host
+    # templating.
     #
     # This value IS the token's "aud" claim, so it must stay in sync with every
     # audience allow-list that accepts platform-Thunder tokens: agent-manager-service's
@@ -1029,11 +1030,11 @@ data:
 
   71-amp-cors-config.yaml: |
     # CORS is configured via a "cors" server_config resource (same read-only/writable
-    # server-config mechanism as defaultResourceServer above), not via Thunder's static
-    # server config. The old
-    # configuration.cors.allowedOrigins value below is no longer read by any template or by
-    # Thunder itself - without this document Thunder returns no
-    # Access-Control-Allow-Origin header for any cross-origin request. The browser then
+    # server-config mechanism as defaultResourceServer above); Thunder's static
+    # server config has no CORS section anymore, so this document is the only
+    # thing that sets configuration.cors.allowedOrigins below. Without this
+    # document Thunder returns no Access-Control-Allow-Origin header for any
+    # cross-origin request. The browser then
     # silently fails the /oauth2/token exchange right after a successful sign-in (Thunder
     # processes the request fine; the browser just refuses to hand the response to the
     # calling script), which made the AMP console bounce back into a fresh sign-in loop
