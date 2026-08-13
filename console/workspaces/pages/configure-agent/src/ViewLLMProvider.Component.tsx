@@ -36,6 +36,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   Divider,
   Form,
   FormLabel,
@@ -337,6 +338,20 @@ export const ViewLLMProviderComponent: React.FC = () => {
   );
 
   const providerConfig = envMapping?.configuration;
+
+  // Guardrails configured on the LLM provider itself (org level), shown
+  // read-only alongside the per-agent-config guardrails edited below.
+  const orgGuardrails = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { key: string; label: string }[] = [];
+    for (const policy of providerConfig?.providerPolicies ?? []) {
+      const key = `${policy.name}@${policy.version}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ key, label: guardrailDisplayNames.get(policy.name) ?? policy.name });
+    }
+    return list;
+  }, [providerConfig, guardrailDisplayNames]);
 
   const catalogProvider = useMemo(() => {
     if (!providerConfig?.providerName || !catalogData?.entries)
@@ -1102,6 +1117,26 @@ export const ViewLLMProviderComponent: React.FC = () => {
               onEdit={handleEditGuardrail}
               onRemove={handleRemoveGuardrail}
             />
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                Provider Guardrails
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Configured on the LLM provider itself, applied in addition to the guardrails above.
+              </Typography>
+              {orgGuardrails.length > 0 ? (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {orgGuardrails.map((g) => (
+                    <Chip key={g.key} label={g.label} variant="outlined" />
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No org-level guardrails configured.
+                </Typography>
+              )}
+            </Box>
 
             <Stack spacing={1}>
               <ResilienceTimeoutFields
