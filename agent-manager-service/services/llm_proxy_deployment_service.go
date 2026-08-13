@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -241,13 +242,13 @@ func (s *LLMProxyDeploymentService) DeployLLMProxy(proxyID string, req *models.D
 }
 
 // UndeployLLMProxyDeployment undeploys a deployment
-func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(proxyID, deploymentID, gatewayID, ouID string) (*models.Deployment, error) {
+func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(ctx context.Context, proxyID, deploymentID, gatewayID, ouID string) (*models.Deployment, error) {
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: starting", "proxyID", proxyID,
 		"deploymentID", deploymentID, "gatewayID", gatewayID, "ouID", ouID)
 
 	// Get proxy
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: getting proxy", "proxyID", proxyID, "ouID", ouID)
-	proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
+	proxy, err := s.proxyRepo.GetByIDCtx(ctx, proxyID, ouID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			slog.Warn("LLMProxyDeploymentService.UndeployLLMProxyDeployment: proxy not found", "proxyID", proxyID)
@@ -263,7 +264,7 @@ func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(proxyID, deployme
 
 	// Get deployment
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: getting deployment", "proxyID", proxyID, "deploymentID", deploymentID)
-	deployment, err := s.deploymentRepo.GetWithState(deploymentID, proxy.UUID.String(), ouID)
+	deployment, err := s.deploymentRepo.GetWithStateCtx(ctx, deploymentID, proxy.UUID.String(), ouID)
 	if err != nil {
 		slog.Error("LLMProxyDeploymentService.UndeployLLMProxyDeployment: failed to get deployment", "proxyID", proxyID, "deploymentID", deploymentID, "error", err)
 		return nil, fmt.Errorf("failed to get deployment: %w", err)
@@ -285,7 +286,7 @@ func (s *LLMProxyDeploymentService) UndeployLLMProxyDeployment(proxyID, deployme
 
 	// Update status to undeployed
 	slog.Info("LLMProxyDeploymentService.UndeployLLMProxyDeployment: setting status to undeployed", "proxyID", proxyID, "deploymentID", deploymentID)
-	updatedAt, err := s.deploymentRepo.SetCurrent(proxy.UUID.String(), ouID, gatewayID, deploymentID, models.DeploymentStatusUndeployed)
+	updatedAt, err := s.deploymentRepo.SetCurrentCtx(ctx, proxy.UUID.String(), ouID, gatewayID, deploymentID, models.DeploymentStatusUndeployed)
 	if err != nil {
 		slog.Error("LLMProxyDeploymentService.UndeployLLMProxyDeployment: failed to undeploy", "proxyID", proxyID, "deploymentID", deploymentID, "error", err)
 		return nil, fmt.Errorf("failed to undeploy: %w", err)

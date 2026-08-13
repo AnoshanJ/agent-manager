@@ -805,7 +805,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
     isExternal && providerConfig ? (
       <DrawerWrapper
         open={panelOpen}
-        onClose={(_, reason) => { if (reason === "backdropClick") return; setPanelOpen(false); }}
+        onClose={() => setPanelOpen(false)}
         minWidth={640}
         maxWidth={640}
       >
