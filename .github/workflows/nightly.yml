@@ -43,24 +43,27 @@ env:
 
 jobs:
   # ==========================================================================
-  # TEMPORARY — REMOVE BEFORE MERGE
+  # Unconditional sweep of the VM before anything else starts.
   #
-  # Run 31620869475 was cancelled on the job timeout before its Teardown could
-  # run, leaving a live k3d cluster and the full AMP stack on the VM. Both
-  # teardown paths that would normally recover from that were themselves
-  # skipped, so the box needs one unconditional sweep before the next run can
-  # get past its port-availability check.
+  # Every other cleanup in this workflow runs at the *end* of a job, which
+  # makes all of it best-effort: run 31620869475 was cancelled on its job
+  # timeout before Teardown could run, and cleanup-runner — the safety net —
+  # then hit its own timeout, so the VM sat with a live k3d cluster holding
+  # port 8080 for eleven hours. Cleaning up first is the only guarantee that
+  # survives that, because the previous run is already over and cannot
+  # pre-empt this.
   #
-  # Deliberately does NOT check out the repo or use the composite action: on a
-  # thrashing VM the checkout is exactly what hung last time. Raw commands
-  # against the tools already installed on the host are the one thing that
-  # still works when everything else is stuck.
+  # Costs nothing when there is nothing to do: measured at 0s on an already
+  # clean VM, and 1s on one with no docker or k3d installed at all.
   #
-  # Once a run completes with its Teardown intact, delete this job and the
-  # `needs: prepare-runner` lines on compute-version and load-config.
+  # Deliberately checks out nothing and uses no composite action. On a
+  # thrashing VM the checkout is exactly what hung, so the recovery path must
+  # not depend on one. That is why this duplicates a little of
+  # teardown-self-hosted: this one has to work when nothing else does, so it
+  # stays minimal and raw, and the composite action remains the thorough one.
   # ==========================================================================
   prepare-runner:
-    name: Prepare Runner (temporary)
+    name: Prepare Runner
     runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 20
     steps:
@@ -269,7 +272,7 @@ jobs:
   # Load release-config.json and emit job matrices (mirrors release.yml pattern).
   load-config:
     name: Load Config
-    needs: prepare-runner  # TEMPORARY — remove with the prepare-runner job
+    needs: prepare-runner
     runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 10
     outputs:
