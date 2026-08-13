@@ -687,10 +687,14 @@ func convertAgentModelConfigResponse(modelResp models.AgentModelConfigResponse) 
 				proxyUUID = *envConfig.LLMProxy.ProxyUUID
 			}
 			modelEnvConfig := &spec.ProviderConfig{
-				ProxyUuid:    proxyUUID,
-				ProviderName: providerName,
-				Policies:     convertToSpecPolicies(&envConfig.LLMProxy.Policies),
-				Resilience:   utils.ConvertModelToSpecResilience(envConfig.LLMProxy.Resilience),
+				ProxyUuid:        proxyUUID,
+				ProviderName:     providerName,
+				Policies:         convertToSpecPolicies(&envConfig.LLMProxy.Policies),
+				ProviderPolicies: convertToSpecPolicies(&envConfig.LLMProxy.ProviderPolicies),
+				Resilience:       utils.ConvertModelToSpecResilience(envConfig.LLMProxy.Resilience),
+			}
+			if envConfig.LLMProxy.ProviderUUID != nil {
+				modelEnvConfig.SetProviderUuid(*envConfig.LLMProxy.ProviderUUID)
 			}
 			if modelResp.Type == "mcp" {
 				modelEnvConfig.SetProxyName(providerName)

@@ -16776,6 +16776,10 @@ components:
           type: string
           format: uuid
           description: UUID of the proxy created
+        providerUuid:
+          type: string
+          format: uuid
+          description: UUID of the org-level LLM provider this config is based on
         proxyName:
           type: string
           description: Name/handle of the MCP proxy
@@ -16800,6 +16804,11 @@ components:
         policies:
           type: array
           description: Provider-specific policy configurations
+          items:
+            $ref: "#/components/schemas/LLMPolicy"
+        providerPolicies:
+          type: array
+          description: Guardrails configured on the org-level LLM provider this config is based on; applied in addition to the config's own policies
           items:
             $ref: "#/components/schemas/LLMPolicy"
         resilience:

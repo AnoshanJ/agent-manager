@@ -5169,14 +5169,19 @@ func (s *agentConfigurationService) buildConfigResponse(ctx context.Context, con
 
 		var proxyInfo *models.LLMProxyInfo = nil
 		if mapping.LLMProxy != nil {
+			providerUUID := mapping.LLMProxy.ProviderUUID.String()
 			proxyInfo = &models.LLMProxyInfo{
-				ProxyUUID:  utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
-				ProxyName:  utils.StrAsStrPointer(mapping.LLMProxy.Handle),
-				Policies:   mapping.PolicyConfiguration,
-				Resilience: mapping.LLMProxy.Configuration.Resilience,
+				ProxyUUID:    utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
+				ProxyName:    utils.StrAsStrPointer(mapping.LLMProxy.Handle),
+				ProviderUUID: utils.StrAsStrPointer(providerUUID),
+				Policies:     mapping.PolicyConfiguration,
+				Resilience:   mapping.LLMProxy.Configuration.Resilience,
 			}
-			if provider, err := s.llmProviderRepo.GetByUUID(mapping.LLMProxy.ProviderUUID.String(), config.OUID); err == nil && provider.Artifact != nil {
-				proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)
+			if provider, err := s.llmProviderRepo.GetByUUID(providerUUID, config.OUID); err == nil {
+				if provider.Artifact != nil {
+					proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)
+				}
+				proxyInfo.ProviderPolicies = provider.Configuration.Policies
 			}
 
 			// Add proxy URL for external agents (subsequent GET calls)
@@ -5299,14 +5304,19 @@ func (s *agentConfigurationService) buildExternalAgentConfigResponse(
 
 		var proxyInfo *models.LLMProxyInfo
 		if mapping.LLMProxy != nil {
+			providerUUID := mapping.LLMProxy.ProviderUUID.String()
 			proxyInfo = &models.LLMProxyInfo{
-				ProxyUUID:  utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
-				ProxyName:  utils.StrAsStrPointer(mapping.LLMProxy.Handle),
-				Policies:   mapping.PolicyConfiguration,
-				Resilience: mapping.LLMProxy.Configuration.Resilience,
+				ProxyUUID:    utils.StrAsStrPointer(mapping.LLMProxy.UUID.String()),
+				ProxyName:    utils.StrAsStrPointer(mapping.LLMProxy.Handle),
+				ProviderUUID: utils.StrAsStrPointer(providerUUID),
+				Policies:     mapping.PolicyConfiguration,
+				Resilience:   mapping.LLMProxy.Configuration.Resilience,
 			}
-			if provider, err := s.llmProviderRepo.GetByUUID(mapping.LLMProxy.ProviderUUID.String(), config.OUID); err == nil && provider.Artifact != nil {
-				proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)
+			if provider, err := s.llmProviderRepo.GetByUUID(providerUUID, config.OUID); err == nil {
+				if provider.Artifact != nil {
+					proxyInfo.ProviderName = utils.StrAsStrPointer(provider.Artifact.Handle)
+				}
+				proxyInfo.ProviderPolicies = provider.Configuration.Policies
 			}
 
 			// Add credentials for external agents
