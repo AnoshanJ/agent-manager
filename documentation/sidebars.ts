@@ -146,8 +146,10 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'CLI',
           collapsed: true,
+          // Overview is the category's landing page rather than a sibling of the
+          // individual command pages: clicking "CLI" opens it.
+          link: {type: 'doc', id: 'reference/cli/overview'},
           items: [
-            'reference/cli/overview',
             'reference/cli/login',
             'reference/cli/context',
             'reference/cli/project',
