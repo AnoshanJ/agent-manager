@@ -34,7 +34,6 @@ export const PublishComponent: React.FC = () => {
       <Route index element={<PublishedList />} />
       <Route path="create-new-version" element={<PublishedList />} />
       <Route path="version-details/:versionId" element={<PublishVersionDetails />} />
-      <Route path="version-details/:versionId/edit" element={<PublishVersionDetails />} />
       <Route
         path="*"
         element={
