@@ -31,9 +31,7 @@ import (
 const agentConflictCode = "AGT-1013"
 
 // CreateAgentIdentity creates a client_credentials AgentID in Thunder via the
-// /agents endpoint (not /applications — Thunder's agent-specific resource, verified
-// against a live console capture and confirmed unchanged through
-// thunderid-1.0.0-beta/backend/internal/agent, the version this client targets now).
+// /agents endpoint — a distinct resource type from /applications, not a typo.
 // ouID is the Thunder organization unit to assign the agent to; owner is the
 // Thunder subject recorded as the agent's owner (may be empty).
 //

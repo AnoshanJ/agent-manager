@@ -90,11 +90,11 @@ type thunderClient struct {
 	clientSecret string // OAuth2 client secret of the system app
 	// systemResource is the resource indicator (RFC 8707) sent with the client_credentials
 	// token request so the issued token is scoped to Thunder's built-in System resource
-	// server (identifier "<issuer>/mcp"), which owns the "system" permission. Since
-	// ThunderID 1.0.0-alpha, admin APIs (/users, /applications, ...) require that permission,
-	// and it is only granted when the token is scoped to the System RS. Without this, the
-	// server-wide default resource server (amp-resource-server) resolves the request instead,
-	// the "system" scope is dropped, and every admin call fails with AUTH-4030 Forbidden.
+	// server (identifier "<issuer>/mcp"), which owns the "system" permission. Admin APIs
+	// (/users, /applications, ...) require that permission, granted only when the token
+	// is scoped to the System RS. Without this, the server-wide default resource server
+	// (amp-resource-server) resolves the request instead, the "system" scope is dropped,
+	// and every admin call fails with AUTH-4030 Forbidden.
 	systemResource string
 	httpClient     *http.Client
 
