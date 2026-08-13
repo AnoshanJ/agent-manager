@@ -21,11 +21,7 @@ import { generatePath, useParams } from "react-router-dom";
 import {
   Alert,
   Box,
-  Card,
-  CardContent,
-  CardHeader,
   Chip,
-  Divider,
   ListingTable,
   Skeleton,
   Stack,
@@ -35,6 +31,7 @@ import { PageLayout } from "@agent-management-platform/views";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { useGetAgentKind, useGetAgentKindVersion, useGetBuild } from "@agent-management-platform/api-client";
 import { SwaggerSpecViewer, parseOpenApiSpecContent } from "@agent-management-platform/shared-component";
+import { SectionCard } from "./SectionCard";
 
 export const PublishVersionDetails: React.FC = () => {
   const { orgId, projectId, agentId, versionId } = useParams<{
@@ -112,10 +109,10 @@ export const PublishVersionDetails: React.FC = () => {
           </Stack>
 
           {/* Config Schema */}
-          <Card variant="outlined">
-            <CardHeader title="Configuration Schema" />
-            <Divider />
-            <CardContent>
+          <SectionCard title="Configuration Schema">
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Set when this version was published — publish a new version to change it.
+            </Typography>
             {version.configSchema.length > 0 ? (
               <ListingTable.Container>
                 <ListingTable>
@@ -162,14 +159,10 @@ export const PublishVersionDetails: React.FC = () => {
             ) : (
               <Alert severity="info">No configuration schema defined for this version.</Alert>
             )}
-            </CardContent>
-          </Card>
+          </SectionCard>
 
           {/* API Specification */}
-          <Card variant="outlined">
-            <CardHeader title="API Specification" />
-            <Divider />
-            <CardContent>
+          <SectionCard title="API Specification">
             {isBuildLoading ? (
               <Skeleton variant="rounded" height={300} />
             ) : apiSpec ? (
@@ -183,8 +176,7 @@ export const PublishVersionDetails: React.FC = () => {
             ) : (
               <Alert severity="info">No API specification available for this version.</Alert>
             )}
-            </CardContent>
-          </Card>
+          </SectionCard>
         </Stack>
       )}
     </PageLayout>

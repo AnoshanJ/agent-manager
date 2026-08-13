@@ -45,6 +45,12 @@ import { RuntimeConfigEditor, createRuntimeConfigRow, type RuntimeConfigRow } fr
 import { KindDescriptionField } from "./KindDescriptionField";
 import { useDeleteAgentKind, useGetAgent, useGetAgentBuilds, useGetAgentKind, useListAgentKindVersions, usePublishAgentKind, useUpdateAgentKind } from "@agent-management-platform/api-client";
 
+/** Order-independent equality for label maps — key insertion order shouldn't count as a change. */
+const labelsEqual = (a: Record<string, string>, b: Record<string, string>): boolean => {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  return aKeys.length === bKeys.length && aKeys.every((key) => a[key] === b[key]);
+};
 
 export const PublishedList: React.FC = () => {
   const navigate = useNavigate();
@@ -80,7 +86,14 @@ export const PublishedList: React.FC = () => {
     { orgId: orgId ?? "", projectId: projectId ?? "", agentId: agentId ?? "" },
   );
 
+  const editKindPath = generatePath(
+    absoluteRouteMap.children.org.children.projects.children.agents
+      .children.publish.children.editKind.path,
+    { orgId: orgId ?? "", projectId: projectId ?? "", agentId: agentId ?? "" },
+  );
+
   const isCreateOpen = location.pathname.endsWith("/create-new-version");
+  const isEditKindOpen = location.pathname.endsWith("/edit-kind");
 
   // Create drawer state
   const [versionName, setVersionName] = useState("");
@@ -92,42 +105,39 @@ export const PublishedList: React.FC = () => {
 
   const { addConfirmation } = useConfirmationDialog();
 
+  // Shared "close a dirty drawer" confirmation, used by both the Create
+  // Version and Edit Kind drawers below.
+  const confirmDiscardIfDirty = useCallback((dirty: boolean, onDiscard: () => void) => {
+    if (dirty) {
+      addConfirmation({
+        title: "Discard Changes?",
+        description: "You have unsaved changes. Are you sure you want to close without saving?",
+        confirmButtonText: "Discard",
+        confirmButtonColor: "error",
+        onConfirm: onDiscard,
+      });
+    } else {
+      onDiscard();
+    }
+  }, [addConfirmation]);
+
   // Edit Kind drawer state — separate from the create-version drawer's
   // kind-detail fields above, so editing an existing kind never interacts
   // with pre-filling a new one.
-  const [isEditKindOpen, setIsEditKindOpen] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLabels, setEditLabels] = useState<Record<string, string>>({});
 
   const { mutateAsync: updateKind, isPending: isSavingKind } = useUpdateAgentKind();
 
-  const handleOpenEditKind = useCallback(() => {
-    if (!existingKind) return;
-    setEditDisplayName(existingKind.displayName ?? "");
-    setEditDescription(existingKind.description ?? "");
-    setEditLabels(existingKind.labels ?? {});
-    setIsEditKindOpen(true);
-  }, [existingKind]);
-
   const isEditKindDirty =
     editDisplayName !== (existingKind?.displayName ?? "") ||
     editDescription !== (existingKind?.description ?? "") ||
-    JSON.stringify(editLabels) !== JSON.stringify(existingKind?.labels ?? {});
+    !labelsEqual(editLabels, existingKind?.labels ?? {});
 
   const handleCloseEditKind = useCallback(() => {
-    if (isEditKindDirty) {
-      addConfirmation({
-        title: "Discard Changes?",
-        description: "You have unsaved changes. Are you sure you want to close without saving?",
-        confirmButtonText: "Discard",
-        confirmButtonColor: "error",
-        onConfirm: () => setIsEditKindOpen(false),
-      });
-    } else {
-      setIsEditKindOpen(false);
-    }
-  }, [isEditKindDirty, addConfirmation]);
+    confirmDiscardIfDirty(isEditKindDirty, () => navigate(listPath));
+  }, [isEditKindDirty, confirmDiscardIfDirty, navigate, listPath]);
 
   const handleSaveEditKind = useCallback(async () => {
     if (!orgId || !agentId) return;
@@ -141,13 +151,13 @@ export const PublishedList: React.FC = () => {
         labels: editLabels,
       },
     });
-    setIsEditKindOpen(false);
-  }, [orgId, agentId, editDisplayName, editDescription, editLabels, updateKind]);
+    navigate(listPath);
+  }, [orgId, agentId, editDisplayName, editDescription, editLabels, updateKind, navigate, listPath]);
 
-  // Pre-fill display name & description from existing kind when drawer opens.
-  // Skipped once hasUnpublished is true — the drawer is closed at that point
-  // anyway, so there's nothing to pre-fill, only a pointless re-render as
-  // `existingKind` settles to null once the invalidated query refetches.
+  // Pre-fill drawer fields from existing kind data when either drawer opens.
+  // Skipped once hasUnpublished is true — the drawers are closed at that
+  // point anyway, so there's nothing to pre-fill, only a pointless re-render
+  // as `existingKind` settles to null once the invalidated query refetches.
   useEffect(() => {
     if (hasUnpublished) {
       return;
@@ -159,7 +169,12 @@ export const PublishedList: React.FC = () => {
       setKindDisplayName(agent.displayName ?? "");
       setKindDescription(agent.description ?? "");
     }
-  }, [isCreateOpen, existingKind, agent, hasUnpublished]);
+    if (isEditKindOpen && existingKind) {
+      setEditDisplayName(existingKind.displayName ?? "");
+      setEditDescription(existingKind.description ?? "");
+      setEditLabels(existingKind.labels ?? {});
+    }
+  }, [isCreateOpen, isEditKindOpen, existingKind, agent, hasUnpublished]);
 
   const { mutateAsync: publishAgentKind, isPending: isCreating } = usePublishAgentKind();
 
@@ -189,21 +204,11 @@ export const PublishedList: React.FC = () => {
   }, []);
 
   const handleDrawerClose = useCallback(() => {
-    if (isDirty) {
-      addConfirmation({
-        title: "Discard Changes?",
-        description: "You have unsaved changes. Are you sure you want to close without saving?",
-        confirmButtonText: "Discard",
-        confirmButtonColor: "error",
-        onConfirm: () => {
-          resetCreateForm();
-          navigate(listPath);
-        },
-      });
-    } else {
+    confirmDiscardIfDirty(isDirty, () => {
+      resetCreateForm();
       navigate(listPath);
-    }
-  }, [isDirty, addConfirmation, resetCreateForm, navigate, listPath]);
+    });
+  }, [isDirty, confirmDiscardIfDirty, resetCreateForm, navigate, listPath]);
 
   const handleCreate = useCallback(async () => {
     const configSchema: AgentKindConfigSchemaItem[] = createRows
@@ -275,8 +280,9 @@ export const PublishedList: React.FC = () => {
             <Button
               key="edit-kind"
               variant="outlined"
+              component={Link}
+              to={editKindPath}
               startIcon={<Edit />}
-              onClick={handleOpenEditKind}
             >
               Edit Kind
             </Button>

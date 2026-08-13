@@ -331,6 +331,11 @@ export const generatedRouteMap =  {
                       "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/publish/create-new-version/*",
                       "children": {}
                     },
+                    "editKind": {
+                      "path": "/org/:orgId/project/:projectId/agents/:agentId/publish/edit-kind",
+                      "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/publish/edit-kind/*",
+                      "children": {}
+                    },
                     "versionDetails": {
                       "path": "/org/:orgId/project/:projectId/agents/:agentId/publish/version-details/:versionId",
                       "wildPath": "/org/:orgId/project/:projectId/agents/:agentId/publish/version-details/:versionId/*",

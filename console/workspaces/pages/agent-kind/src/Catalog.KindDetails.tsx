@@ -24,10 +24,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  Divider,
   ListingTable,
   Menu,
   MenuItem,
@@ -41,6 +37,7 @@ import { PageLayout, DescriptionCard } from "@agent-management-platform/views";
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { LabelChips, SwaggerSpecViewer, parseOpenApiSpecContent } from "@agent-management-platform/shared-component";
 import { useGetAgentKind, useGetBuild, useListKindAgents, useListProjects, useGetAgentKindVersion } from "@agent-management-platform/api-client";
+import { SectionCard } from "./SectionCard";
 import { ExternalLink, Layers, Plus } from "@wso2/oxygen-ui-icons-react";
 
 const KIND_AVATAR = { children: <Layers size={32} />, color: "primary.main" };
@@ -251,10 +248,10 @@ export const CatalogKindDetails: React.FC = () => {
         {kind.description && <DescriptionCard content={kind.description} />}
 
         {/* Configuration Schema */}
-        <Card variant="outlined">
-          <CardHeader title="Configuration Schema" />
-          <Divider />
-          <CardContent>
+        <SectionCard title="Configuration Schema">
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Set when this version was published — publish a new version to change it.
+          </Typography>
           {selectedVersion && selectedVersion.configSchema.length > 0 ? (
             <ListingTable.Container>
               <ListingTable>
@@ -301,14 +298,10 @@ export const CatalogKindDetails: React.FC = () => {
           ) : (
             <Alert severity="info">No configuration schema defined for this version.</Alert>
           )}
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* Usage — agents deployed from this kind */}
-        <Card variant="outlined">
-          <CardHeader title="Usage" />
-          <Divider />
-          <CardContent>
+        <SectionCard title="Usage">
           {isKindAgentsLoading ? (
             <Skeleton variant="rounded" height={120} />
           ) : kindAgents && kindAgents.length > 0 ? (
@@ -372,14 +365,10 @@ export const CatalogKindDetails: React.FC = () => {
           ) : (
             <Alert severity="info">No agents are currently using this kind.</Alert>
           )}
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* API Specification */}
-        <Card variant="outlined">
-          <CardHeader title="API Specification" />
-          <Divider />
-          <CardContent>
+        <SectionCard title="API Specification">
           {isVersionLoading || isBuildLoading ? (
             <Skeleton variant="rounded" height={300} />
           ) : (apiSpec ? (
@@ -393,8 +382,7 @@ export const CatalogKindDetails: React.FC = () => {
           ) : (
             <Alert severity="info">No API specification available for this version.</Alert>
           ))}
-          </CardContent>
-        </Card>
+        </SectionCard>
       </Stack>
     </PageLayout>
   );
