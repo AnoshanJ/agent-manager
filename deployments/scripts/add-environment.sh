@@ -28,7 +28,7 @@ set -euo pipefail
 #     release so an added env runs the same chart. Injected by the console.
 # Optional:
 #   - CHART_VERSION: gateway-extension chart version (e.g. 0.15.0). Injected by the console.
-#   - THUNDER_CHART_VERSION: ThunderID chart version for the per-env instance (default: 0.45.0).
+#   - THUNDER_CHART_VERSION: ThunderID chart version for the per-env instance (default: 1.0.0-beta).
 #   - GATEWAY_CHART: path to a local chart directory or tarball (e.g. ./deployments/helm-charts/wso2-amp-api-platform-gateway-extension).
 #     When set, CHART_VERSION is ignored and the local chart is used directly.
 #   - IS_PRODUCTION (default: false)

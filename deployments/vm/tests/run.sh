@@ -59,11 +59,11 @@ assert_eq "amp keyManager.issuer (service key)" \
 # has to follow it off the chart's localhost default. Assert only that entry —
 # pinning the whole list would break on any unrelated audience change.
 assert_eq "amp keyManager.audience carries the public API URL (service key)" "yes" \
-  "$(has "$amp" 'agentManagerService.config.keyManager.audience=amp\,')"
+  "$(has "$amp" 'agentManagerService.config.keyManager.audience=urn:wso2:amp\,')"
 assert_eq "amp keyManager.audience ends with the public API URL (service key)" "yes" \
   "$(has "$amp" 'am-mcp\,https://api.amp.203.0.113.10.sslip.io/')"
 assert_eq "amp keyManager.audience carries the public API URL (legacy key)" "yes" \
-  "$(has "$amp" 'agentManager.config.keyManager.audience=amp\,')"
+  "$(has "$amp" 'agentManager.config.keyManager.audience=urn:wso2:amp\,')"
 # tlsEnabled=true makes amp-api advertise the https deployed-agent endpoint variant;
 # emitted under both keys (old agentManager + new agentManagerService).
 assert_eq "amp tlsEnabled (service key)" \
@@ -166,7 +166,7 @@ assert_eq "observability oauth authorizationServers -> public thunder" \
 # slash, so the audience list has to follow publicUrl off the chart's localhost
 # default. Commas stay escaped or helm splits the value into a list.
 assert_eq "observability audience carries the public observer URL" \
-  'amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.203.0.113.10.sslip.io/' \
+  'amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.203.0.113.10.sslip.io/' \
   "$(grep -F 'amObserver.auth.audience' <<<"$obs")"
 
 # --- render_dataplane_external_ingress: public host on :443, both http+https entries
@@ -430,7 +430,7 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
 
   core_obs="$(observability_helm_args)"
   assert_eq "core observability audience carries the public observer URL" \
-    'amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.example.com/' \
+    'amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://observer.amp.example.com/' \
     "$(grep -F 'amObserver.auth.audience' <<<"$core_obs")"
 
   core_gw="$(gateway_helm_args)"

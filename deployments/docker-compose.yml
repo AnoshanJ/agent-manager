@@ -67,7 +67,7 @@ services:
       - KEY_MANAGER_ISSUER=Agent Management Platform Local,http://thunder.amp.localhost:8080
       # Last entry is SERVER_PUBLIC_URL above plus a trailing slash — an MCP
       # token's `aud`. The Helm charts derive this; here it moves by hand.
-      - KEY_MANAGER_AUDIENCE=amp,localhost,amp-publisher-*,amp-api-client,amp-console-client,amctl,am-mcp,http://localhost:9000/
+      - KEY_MANAGER_AUDIENCE=urn:wso2:amp,localhost,amp-publisher-*,amp-api-client,amp-console-client,amctl,am-mcp,http://localhost:9000/
       - AMP_VERSION=v0.8.0
       - OPEN_CHOREO_BASE_URL=http://api.openchoreo.localhost:8195
       # OpenBao/Vault Secret Management Configuration

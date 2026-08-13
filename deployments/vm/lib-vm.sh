@@ -37,6 +37,11 @@ vm_host() {
 # these functions have just moved. So both this function and
 # observability_helm_args below restate the derived values explicitly. Commas
 # stay escaped or helm's --set splits the value into a list.
+#
+# "urn:wso2:amp" is the amp resource server's identifier — see
+# 60-amp-resource-server.yaml in the Thunder extension chart. If a future
+# AMP_VERSION changes that identifier again, this value needs to move with it,
+# same as the hostnames above.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -45,7 +50,7 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
+      "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
       "--set" "${k}.config.tlsEnabled=true" \
       "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
       "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
@@ -143,8 +148,9 @@ build_gateway_helm_args() {
 # AMP_HOST_OBSERVER.
 #
 # authorizationServers/audience are restated for the version-skew reason noted
-# above amp_helm_args. The last audience entry is the observer MCP token's `aud`
-# (publicUrl plus a trailing slash); the first three cover console/amctl tokens.
+# above amp_helm_args (including the "urn:wso2:amp" identifier value). The last
+# audience entry is the observer MCP token's `aud` (publicUrl plus a trailing
+# slash); the first three cover console/amctl tokens.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
@@ -152,7 +158,7 @@ observability_helm_args() {
     "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}" \
-    "--set" "amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
+    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.
