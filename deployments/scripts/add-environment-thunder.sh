@@ -72,9 +72,8 @@ set -euo pipefail
 #     Thunder's tokens carry once any amp:* scope is requested, since ThunderID composes
 #     aud from the resource server(s) resolved via the granted scopes. Must match the amp
 #     resource server's identifier in the Thunder extension chart's
-#     60-amp-resource-server.yaml; it was the bare string "amp" before ThunderID
-#     1.0.0-alpha2 required resource identifiers to be absolute URIs. A scopeless
-#     client_credentials token instead carries the calling client's own ID as aud.)
+#     60-amp-resource-server.yaml. A scopeless client_credentials token instead
+#     carries the calling client's own ID as aud.)
 #   Non-local-dev deployments (e.g. a VM — see deployments/vm/lib-vm.sh, which sets
 #   all three of these together, deployment-wide, whenever it provisions env-Thunder):
 #   - THUNDER_HOST_BASE_DOMAIN (default: amp.localhost) — the domain suffix env-Thunder's
@@ -315,22 +314,19 @@ store_via_ams() {
 # resource document (resource_type: application) registering the amp-system-client
 # OAuth2 app with the "system" OAuth scope.
 #
-# Was previously a bash+curl script (ThunderID <1.0.0 style) that registered the app
-# then assigned it to ThunderID's own native "Administrator" role via
-# /roles/{id}/assignments/add. ThunderID 1.0.0-alpha removed the mechanism that
-# executed custom bootstrap scripts at all (setup.sh no longer scans $BOOTSTRAP_DIR
-# for *.sh/*.bash — see agent-manager/deployments/helm-charts/wso2-amp-thunder-extension,
-# converted the same way), so this is now a plain YAML document instead, imported by
-# ThunderID's own `thunderid bootstrap` subcommand.
+# Was previously a bash+curl script that registered the app then assigned it to
+# ThunderID's own native "Administrator" role via /roles/{id}/assignments/add.
+# ThunderID's bootstrap no longer executes custom scripts at all — it only imports
+# declarative YAML documents via its own `thunderid bootstrap` subcommand — so this
+# renders a plain YAML document instead of calling the API directly.
 #
 # Also switched the actual admin-API grant mechanism from role-assignment to the
-# "system" OAuth scope: ThunderID 1.0.0-alpha's admin API is gated by
-# security.HasSystemPermission, which reads the "system" scope directly off the
-# token's OAuth scope claim (backend/internal/system/security/jwt_authenticator.go +
-# permissions.go) — NOT by a live role-assignment lookup. A client_credentials
-# request that includes any explicit scope also requires a resolvable resource
-# indicator, so render_default_resource_server_config below pairs with this to point
-# at ThunderID's own built-in "System" resource server.
+# "system" OAuth scope: Thunder's admin API is gated by security.HasSystemPermission,
+# which reads the "system" scope directly off the token's OAuth scope claim — NOT by
+# a live role-assignment lookup. A client_credentials request that includes any
+# explicit scope also requires a resolvable resource indicator, so
+# render_default_resource_server_config below pairs with this to point at Thunder's
+# own built-in "System" resource server.
 #
 # This is the ONLY bootstrap env-Thunder needs: agent-manager-service uses this one
 # client_credentials app (see agent-manager-service/clients/thundersvc/naming.go) to
@@ -442,8 +438,7 @@ BOOTSTRAP_RESOURCE
 # URL, so the native /console app's own OAuth resource_identifier (correctly derived from
 # configuration.server.publicUrl) never matches it — every native-console login redirects
 # back with "invalid_target: The resource parameter does not match any registered
-# resource server", and the console silently renders nothing (confirmed live: empty
-# <div id="root">, no console errors, only visible in the network trace's redirect).
+# resource server", and the console silently renders nothing.
 # Preserves the full resources/actions tree verbatim so nothing ThunderID's own native
 # Administrator role depends on gets dropped.
 render_system_rs_identifier_fix() {

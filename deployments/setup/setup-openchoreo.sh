@@ -121,7 +121,8 @@ install_control_plane() {
     echo "⏳ Waiting for Control Plane deployments to be ready (timeout: 5 minutes)..."
     kubectl wait -n openchoreo-control-plane --for=condition=available --timeout=300s deployment --all
 
-    # ThunderID v0.45.0 onwards uses 'client_id' (not 'sub') for client_credentials tokens.
+    # Thunder's client_credentials tokens carry the subject as 'client_id', not the
+    # 'sub' OpenChoreo's own service-account entitlement claim mapping defaults to.
     # The Helm chart schema doesn't expose this setting, so patch the configmap using
     # server-side apply (Apply operation) to stay compatible with Helm's field manager.
     echo "🔧 Patching openchoreo-api-config: service_account entitlement claim → client_id..."

@@ -45,8 +45,7 @@ amObserver:
   # stamps the resource-server identifier as the token audience, so query tokens
   # (console/CLI) carry aud=urn:wso2:amp — the amp resource server's identifier,
   # which must stay in sync with 60-amp-resource-server.yaml in the Thunder
-  # extension chart (it was the bare string "amp" before ThunderID 1.0.0-alpha2
-  # required an absolute URI). The agent-manager-service's own
+  # extension chart. The agent-manager-service's own
   # amp-api-client client-credentials token (used for the monitor-run-logs
   # server-to-server call) requests the full amp:* scope set and resolves to the
   # same resource-server audience; "amp-api-client" is listed too as a

@@ -83,10 +83,9 @@ func TestNewThunderClientWithDialOverride_EmptyOverrideDialsBaseURLDirectly(t *t
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// TestCreateApp_SendsRequiredApplicationType guards against a regression where
-// ThunderID 1.0.0-alpha2 made an application's "type" field required on create
-// (previously it didn't exist at all) — a POST /applications missing it now
-// fails outright. createApp's payload must always include it.
+// TestCreateApp_SendsRequiredApplicationType guards against a regression:
+// applications require a "type" field on create, and a POST /applications
+// missing it fails outright. createApp's payload must always include it.
 func TestCreateApp_SendsRequiredApplicationType(t *testing.T) {
 	var gotBody map[string]any
 	mux := http.NewServeMux()

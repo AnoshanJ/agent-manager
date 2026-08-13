@@ -25,16 +25,15 @@ type Permission string
 const ResourceServer = "amp"
 
 // ResourceServerIdentifier is the amp resource server's Thunder IDENTIFIER (RFC 8707 resource
-// indicator / the token's aud claim) — a SEPARATE field from ResourceServer above. Must be kept in
-// sync with 60-amp-resource-server.yaml's `identifier` in the Thunder extension chart. Before
-// ThunderID 1.0.0-alpha2 required resource identifiers to be absolute URIs, this happened to also
-// be the bare string "amp", so one constant covered both uses; findResourceServerID must look this
-// value up specifically, or it silently finds no match and every permission list comes back empty.
+// indicator / the token's aud claim) — a SEPARATE field from ResourceServer above, because Thunder
+// requires resource identifiers to be absolute URIs while ResourceServer stays the bare handle
+// "amp". Must be kept in sync with 60-amp-resource-server.yaml's `identifier` in the Thunder
+// extension chart. findResourceServerID must look this value up specifically, or it silently
+// finds no match and every permission list comes back empty.
 const ResourceServerIdentifier = "urn:wso2:amp"
 
 // Scope returns the OAuth2 scope string for this permission as Thunder issues it (e.g. "amp:org:view").
-// Thunder builds permissions as <resource-server-handle>:<resource>:<action> —
-// unchanged from v0.45 through the current v1.0.0-beta
+// Thunder builds permissions as <resource-server-handle>:<resource>:<action>.
 func (p Permission) Scope() string {
 	return ResourceServer + ":" + string(p)
 }

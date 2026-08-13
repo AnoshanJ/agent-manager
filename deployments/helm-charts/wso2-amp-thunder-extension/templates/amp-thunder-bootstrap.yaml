@@ -23,10 +23,10 @@ data:
     # concern, not something to solve here.
     #
     # ouId alone is NOT enough: Thunder only embeds ouId/ouHandle as token claims when
-    # a client's own token.accessToken.clientConfig.attributes opts in — true in both
-    # alpha1 and alpha2, not an alpha2 regression. Every client_credentials-only
-    # application in this file needs this attributes list, or its tokens keep getting
-    # rejected as "missing ou identity in token" even though ouId above is set correctly.
+    # a client's own token.accessToken.clientConfig.attributes opts in. Every
+    # client_credentials-only application in this file needs this attributes list, or
+    # its tokens keep getting rejected as "missing ou identity in token" even though
+    # ouId above is set correctly.
     resource_type: application
     id: amp-api-client
     type: m2m # client_credentials only, no interactive login
@@ -58,13 +58,11 @@ data:
 {{ .Values.thunder.bootstrap.ampConsoleTheme.theme | toYaml | indent 6 }}
 
   52-amp-console-layout.yaml: |
-    # ThunderID 1.0.0-alpha2 fixed layout import to honour a caller-specified id
-    # (previously it silently discarded one — see git history for the workaround
-    # this replaced). CreateLayout still enforces handle uniqueness with no
-    # "already exists under a different id, reuse it" fallback, so a cluster with
-    # a pre-alpha2 layout row at a different id needs its Thunder PVC wiped
-    # before reinstalling with this fixed id — same requirement as the version
-    # bump itself.
+    # CreateLayout enforces handle uniqueness with no "already exists under a
+    # different id, reuse it" fallback. Older ThunderID versions silently discarded
+    # a caller-specified layout id, so a cluster upgraded from one of those still has
+    # this layout row under a different id — wipe Thunder's PVC before reinstalling
+    # with this fixed id, or the id mismatch causes a conflict.
     resource_type: layout
     id: {{ .Values.thunder.bootstrap.ampConsoleLayout.id | quote }}
     handle: {{ .Values.thunder.bootstrap.ampConsoleLayout.handle | quote }}
@@ -273,16 +271,13 @@ data:
     id: amp-resource-server
     name: Agent Manager API
     description: Agent Manager platform permissions
-    # MUST be an absolute URI (RFC 8707 §2). This was the bare string "amp" until
-    # ThunderID 1.0.0-alpha2, which broke every interactive login: alpha2's
-    # /oauth2/authorize now binds the request to one resource server up front and
-    # persists the resolved identifier into the authorization code, and the token
-    # endpoint then re-validates that stored value — "amp" has no URI scheme, so every
-    # authorization_code exchange failed with invalid_target "Invalid resource
-    # parameter: must be an absolute URI". alpha1 did not resolve a resource server at
-    # the authorize endpoint at all, so the value was never URI-validated and the bare
-    # string worked by accident. client_credentials never hit this (it skips
-    # /oauth2/authorize entirely).
+    # MUST be an absolute URI (RFC 8707 §2): Thunder's /oauth2/authorize binds an
+    # authorization request to one resource server up front and persists the resolved
+    # identifier into the authorization code, and the token endpoint then re-validates
+    # that stored value — a bare string like "amp" has no URI scheme to validate, so
+    # every authorization_code exchange fails with invalid_target "Invalid resource
+    # parameter: must be an absolute URI". client_credentials never hits this (it
+    # skips /oauth2/authorize entirely).
     #
     # A urn: (not http:) URI on purpose: resource-server identifiers must be unique,
     # and the http origins are already taken by the MCP resource servers below
@@ -856,8 +851,8 @@ data:
     # No credentials block here, deliberately: Thunder's own "01-" bootstrap document
     # (which runs first in the same import batch, since it sorts before "67-") already
     # creates this exact user and sets its credential from thunder.setup.admin.password
-    # (explicitly set, matching defaultUsers[0].password below — the subchart no longer
-    # defaults this itself as of ThunderID 1.0.0-alpha2). Setting credentials again here,
+    # (explicitly set, matching defaultUsers[0].password below — the subchart does not
+    # default this itself). Setting credentials again here,
     # on the very same id in the very same batch, fails with USR-1028 "Credential update
     # not allowed" — Thunder refuses a second credential write against a user that
     # already has one, even within a single bootstrap run. If you change
@@ -983,8 +978,7 @@ data:
     # "http://thunder.amp.localhost:8080/mcp" for us), so the two never match, and every
     # native-console login redirects back with "invalid_target: The resource parameter
     # does not match any registered resource server" — the console loads but silently
-    # renders nothing (confirmed live: empty <div id="root">, no console errors, only
-    # visible in the network trace's redirect). This document re-declares the SAME
+    # renders nothing. This document re-declares the SAME
     # resource server (same id, so it's an update not a duplicate) with the correct
     # identifier, preserving its full resources/actions tree verbatim so nothing Thunder's
     # own native Administrator role depends on gets dropped. Runs after Thunder's own
@@ -1034,9 +1028,9 @@ data:
             description: Read-only access to user types
 
   71-amp-cors-config.yaml: |
-    # ThunderID 1.0.0-alpha moved CORS from static server config to a "cors" server_config
-    # resource (backend/internal/system/cors/dynamic.go, same read-only/writable
-    # server-config mechanism as defaultResourceServer above). The old
+    # CORS is configured via a "cors" server_config resource (same read-only/writable
+    # server-config mechanism as defaultResourceServer above), not via Thunder's static
+    # server config. The old
     # configuration.cors.allowedOrigins value below is no longer read by any template or by
     # Thunder itself - without this document Thunder returns no
     # Access-Control-Allow-Origin header for any cross-origin request. The browser then

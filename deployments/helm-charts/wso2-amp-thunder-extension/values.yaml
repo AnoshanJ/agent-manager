@@ -179,9 +179,9 @@ thunder:
     # and ThunderID's own native console without needing a second AMP-side role for it.
     # admin.password is what actually sets this merged account's real credential —
     # 67-amp-default-users.yaml deliberately never touches credentials on it (see that
-    # file's comment for why). Must be set explicitly: ThunderID 1.0.0-alpha2 removed the
-    # subchart's own "admin" default (it now generates a random password if left unset,
-    # per the thunderid chart's own values.yaml comment), so leaving this unset silently
+    # file's comment for why). Must be set explicitly: the thunderid subchart does not
+    # default this value itself (it generates a random password if left unset, per the
+    # thunderid chart's own values.yaml comment), so leaving this unset silently
     # breaks the documented admin/admin console login. Keep this in sync with
     # thunder.bootstrap.defaultUsers[0].password below if you change either one.
     # WARNING: admin.password below is a LOCAL-DEVELOPMENT-ONLY placeholder.

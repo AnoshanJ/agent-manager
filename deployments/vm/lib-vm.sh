@@ -38,10 +38,10 @@ vm_host() {
 # observability_helm_args below restate the derived values explicitly. Commas
 # stay escaped or helm's --set splits the value into a list.
 #
-# "urn:wso2:amp" (not the bare "amp" used pre-ThunderID-1.0.0-alpha2) is the amp
-# resource server's identifier — see 60-amp-resource-server.yaml in the Thunder
-# extension chart. If a future AMP_VERSION changes that identifier again, this
-# value needs to move with it, same as the hostnames above.
+# "urn:wso2:amp" is the amp resource server's identifier — see
+# 60-amp-resource-server.yaml in the Thunder extension chart. If a future
+# AMP_VERSION changes that identifier again, this value needs to move with it,
+# same as the hostnames above.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
