@@ -52,7 +52,7 @@ import {
 } from "@wso2/oxygen-ui";
 import { AlertTriangle, BookOpen, Edit, Plus } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useLocation, useNavigate, useParams } from "react-router-dom";
-import { absoluteRouteMap } from "@agent-management-platform/types";
+import { absoluteRouteMap, type CatalogLLMProviderEntry } from "@agent-management-platform/types";
 import {
   useGetAgent,
   useGetAgentModelConfig,
@@ -340,10 +340,27 @@ export const ViewLLMProviderComponent: React.FC = () => {
   const providerConfig = envMapping?.configuration;
 
   // Guardrails configured on the LLM provider itself (org level), shown
-  // read-only alongside the per-agent-config guardrails edited below.
+  // read-only alongside the per-agent-config guardrails edited below. When the
+  // user has picked a new (not-yet-saved) provider for this env, show that
+  // provider's own guardrails instead of the previously saved one's.
   const orgGuardrails = useMemo(() => {
+    const pendingUuid = pendingProviderByEnv[selectedEnvName];
+    const pendingCatalogProvider = pendingUuid
+      ? catalogData?.entries?.find((e: CatalogLLMProviderEntry) => e.uuid === pendingUuid)
+      : undefined;
+
     const seen = new Set<string>();
     const list: { key: string; label: string }[] = [];
+
+    if (pendingCatalogProvider) {
+      for (const name of pendingCatalogProvider.policies ?? []) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        list.push({ key: name, label: guardrailDisplayNames.get(name) ?? name });
+      }
+      return list;
+    }
+
     for (const policy of providerConfig?.providerPolicies ?? []) {
       const key = `${policy.name}@${policy.version}`;
       if (seen.has(key)) continue;
@@ -351,7 +368,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
       list.push({ key, label: guardrailDisplayNames.get(policy.name) ?? policy.name });
     }
     return list;
-  }, [providerConfig, guardrailDisplayNames]);
+  }, [providerConfig, guardrailDisplayNames, pendingProviderByEnv, selectedEnvName, catalogData]);
 
   const catalogProvider = useMemo(() => {
     if (!providerConfig?.providerName || !catalogData?.entries)

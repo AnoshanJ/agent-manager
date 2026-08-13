@@ -313,7 +313,7 @@ export function PromoteAgentDrawer({
           nextEnv.push({ key, value, isSensitive: false });
         }
       }
-      return { ...prev, env: nextEnv };
+      return { ...prev, env: sortSystemLast(nextEnv) };
     });
   }, []);
 

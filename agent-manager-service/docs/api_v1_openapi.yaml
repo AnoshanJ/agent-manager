@@ -16662,7 +16662,11 @@ components:
             $ref: "#/components/schemas/EnvModelConfigRequest"
           example:
             development:
-              providerUuid: "550e8400-e29b-41d4-a716-446655440000"
+              providerName: "openai-gpt4"
+              configuration:
+                policies:
+                  - name: "retry"
+                    enabled: true
         environmentVariables:
           type: array
           description: >
@@ -16779,6 +16783,7 @@ components:
         providerUuid:
           type: string
           format: uuid
+          readOnly: true
           description: UUID of the org-level LLM provider this config is based on
         proxyName:
           type: string
@@ -16808,6 +16813,7 @@ components:
             $ref: "#/components/schemas/LLMPolicy"
         providerPolicies:
           type: array
+          readOnly: true
           description: Guardrails configured on the org-level LLM provider this config is based on; applied in addition to the config's own policies
           items:
             $ref: "#/components/schemas/LLMPolicy"

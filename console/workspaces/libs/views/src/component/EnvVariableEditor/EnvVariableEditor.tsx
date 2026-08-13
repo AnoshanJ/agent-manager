@@ -268,7 +268,13 @@ export function EnvVariableEditor({
             // Same slot/size as the delete button below, so system rows line up
             // pixel-for-pixel with editable rows instead of drifting left.
             <Tooltip title="System-injected variable — managed by the platform, not editable">
-              <IconButton size="small" disableRipple tabIndex={-1} sx={{ cursor: 'default' }}>
+              <IconButton
+                size="small"
+                disableRipple
+                tabIndex={-1}
+                aria-label="System-injected variable — managed by the platform, not editable"
+                sx={{ cursor: 'default' }}
+              >
                 <Lock size={16} />
               </IconButton>
             </Tooltip>

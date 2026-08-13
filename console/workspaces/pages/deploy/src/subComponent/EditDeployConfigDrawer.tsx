@@ -333,7 +333,7 @@ export function EditDeployConfigDrawer({
           next.push({ key, value, isSensitive: false });
         }
       }
-      return next;
+      return sortSystemLast(next);
     });
   }, []);
 
