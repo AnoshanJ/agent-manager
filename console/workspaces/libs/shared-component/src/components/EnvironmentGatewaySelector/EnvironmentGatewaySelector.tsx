@@ -74,7 +74,12 @@ const gatewayLabel = (gateway: GatewayResponse): string =>
 const AMBIGUOUS_CAPTION = "Select an egress gateway for this environment.";
 const UNAVAILABLE_CAPTION =
   "No egress-capable gateway is attached to this environment.";
-const DEPLOYED_CAPTION =
+// Shown only when another candidate gateway exists to switch to. A locked row
+// with no other candidate offers no undeploy affordance at all (see
+// isUndeployable below) — undeploying it would strand the provider with no
+// visible way back in, since re-deploying to the same sole gateway would
+// immediately auto-hide again.
+const DEPLOYED_CAPTION_SWITCHABLE =
   "Placement is fixed once deployed. To use a different gateway, uncheck " +
   "this environment and save to undeploy, then select the new gateway and " +
   "save again.";
@@ -172,11 +177,13 @@ export const EnvironmentGatewaySelectorView: React.FC<
     onValidityChange?.(isValid);
   }, [isValid, onValidityChange]);
 
-  // The one case where there's truly nothing to choose: a single environment
-  // whose gateway is already fixed (locked) or has only one candidate, and no
-  // orphaned selection left over to clean up. Any other shape (2+ environments,
-  // one with an ambiguous gateway, or a stale reference to surface) is a real
-  // choice and still needs to render.
+  // The one case where there's truly nothing to *decide*: a single
+  // environment with exactly one unlocked candidate gateway, and no orphaned
+  // selection left over to clean up. Any other shape (2+ environments, one
+  // with an ambiguous gateway, or a stale reference to surface) is a real
+  // choice and still needs to render. A locked (already deployed) single row
+  // is not "nothing to choose" — it's a fact worth showing, so it still
+  // renders below via the normal locked-row path.
   const singleRow = rows.length === 1 ? rows[0] : undefined;
   const isSingleChoice = Boolean(
     !isLoading &&
@@ -184,6 +191,7 @@ export const EnvironmentGatewaySelectorView: React.FC<
       unmappedSelectedUuids.length === 0 &&
       (singleRow.lockedGateway || singleRow.candidates.length === 1),
   );
+  const hidesSingleChoice = isSingleChoice && !singleRow?.lockedGateway;
 
   useEffect(() => {
     onSingleChoiceChange?.(isSingleChoice);
@@ -217,14 +225,20 @@ export const EnvironmentGatewaySelectorView: React.FC<
 
   // Nothing for the user to decide, so commit the sole answer on their behalf
   // instead of requiring a checkbox click for a choice that isn't really one.
+  // Gated on hidesSingleChoice (unlocked only): once the row is locked, an
+  // unchecked state is the user intentionally undeploying, not an unmade
+  // choice, and must not be force-recommitted.
   useEffect(() => {
-    if (!isSingleChoice || !singleRow || singleRow.checked) return;
+    if (!hidesSingleChoice || !singleRow || singleRow.checked) return;
     emitAdd(singleRow.lockedGateway ?? singleRow.candidates[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSingleChoice, singleRow]);
+  }, [hidesSingleChoice, singleRow]);
 
   const handleToggle = (row: EnvironmentRow) => {
     if (row.lockedGateway) {
+      // A sole candidate offers no undeploy affordance (see isUndeployable) —
+      // its checkbox is disabled, so this only guards against a stray event.
+      if (row.candidates.length <= 1) return;
       if (row.checked) emitRemove(row.lockedGateway.uuid);
       else emitAdd(row.lockedGateway);
       return;
@@ -255,8 +269,9 @@ export const EnvironmentGatewaySelectorView: React.FC<
     );
   }
 
-  // Auto-selected above; nothing left to present.
-  if (isSingleChoice) return null;
+  // Auto-selected above with nothing to decide; a locked single row still
+  // renders below to confirm what's deployed.
+  if (hidesSingleChoice) return null;
 
   const selectedCount = rows.filter((row) =>
     row.candidates.some((candidate) => valueSet.has(candidate.uuid)),
@@ -282,9 +297,12 @@ export const EnvironmentGatewaySelectorView: React.FC<
     if (row.lockedGateway) {
       // The gateway is already deployed and can't change here, so it's shown
       // as plain text inline above rather than a disabled (never-editable) select.
+      // With no other candidate, there's nothing to switch to and no undeploy
+      // affordance either (see isUndeployable) — this row is purely a fact.
+      if (row.candidates.length <= 1) return null;
       return (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-          {DEPLOYED_CAPTION}
+          {DEPLOYED_CAPTION_SWITCHABLE}
         </Typography>
       );
     }
@@ -347,7 +365,11 @@ export const EnvironmentGatewaySelectorView: React.FC<
               <Checkbox
                 size="small"
                 checked={row.checked}
-                disabled={disabled || row.candidates.length === 0}
+                disabled={
+                  disabled ||
+                  row.candidates.length === 0 ||
+                  (Boolean(row.lockedGateway) && row.candidates.length === 1)
+                }
                 onChange={() => handleToggle(row)}
                 inputProps={{ "aria-label": row.label }}
                 sx={{ p: 0.5 }}
