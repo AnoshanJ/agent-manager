@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { type AgentPathParams, type Build, type Configurations, type ListQuery, type OrgProjPathParams, type PaginationMeta, type RepositoryConfig } from './common';
+import { type AgentPathParams, type Build, type Configurations, type ListQuery, type OrgPathParams, type OrgProjPathParams, type PaginationMeta, type RepositoryConfig } from './common';
 import type { EnvProviderConfiguration, EnvironmentVariableConfig } from './agent-model-configs';
 import type { ThunderGroup, ThunderRole } from './identities';
 
@@ -126,6 +126,18 @@ export interface AgentResponse {
 export interface AgentListResponse extends PaginationMeta {
   agents: AgentResponse[];
 }
+
+// Lightweight org-wide listing: every agent across all projects, unpaginated.
+export interface AgentSummary {
+  name: string;
+  displayName: string;
+}
+
+export interface AgentSummaryListResponse {
+  agents: AgentSummary[];
+}
+
+export type ListOrgAgentsPathParams = OrgPathParams;
 
 // Path/Query helpers
 export type ListAgentsPathParams = OrgProjPathParams;

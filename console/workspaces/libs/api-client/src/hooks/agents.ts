@@ -18,7 +18,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  createAgent, deleteAgent, getAgent, listAgents, generateAgentToken, updateAgent,
+  createAgent, deleteAgent, getAgent, listAgents, listOrgAgents, generateAgentToken, updateAgent,
   updateAgentBuildParameters, getAgentRoles, getAgentGroups, getAgentIdentity,
   provisionAgentIdentity, regenerateAgentIdentitySecret, revokeAgentIdentitySecret,
 } from "../apis";
@@ -26,12 +26,14 @@ import { SLOW_POLL_INTERVAL } from "../utils";
 import type {
   AgentListResponse,
   AgentResponse,
+  AgentSummaryListResponse,
   CreateAgentPathParams,
   CreateAgentRequest,
   DeleteAgentPathParams,
   GetAgentPathParams,
   ListAgentsPathParams,
   ListAgentsQuery,
+  ListOrgAgentsPathParams,
   UpdateAgentPathParams,
   UpdateAgentRequest,
   UpdateAgentBuildParametersPathParams,
@@ -73,6 +75,17 @@ export function useListAgents(
   });
 }
 
+// Org-wide, lightweight (name + displayName only) agent listing across all
+// projects — for pickers/selectors, not the per-project ListAgents table.
+export function useListOrgAgents(params: ListOrgAgentsPathParams) {
+  const { getToken } = useAuthHooks();
+  return useApiQuery<AgentSummaryListResponse>({
+    queryKey: ['org-agents', params],
+    queryFn: () => listOrgAgents(params, getToken),
+    enabled: !!params.orgName,
+  });
+}
+
 export function useGetAgent(params: GetAgentPathParams) {
     const { getToken } = useAuthHooks();
     return useApiQuery<AgentResponse>({
@@ -94,6 +107,7 @@ export function useCreateAgent() {
     mutationFn: ({ params, body }) => createAgent(params, body, getToken),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
+      queryClient.invalidateQueries({ queryKey: ['org-agents'] });
     },
   });
 }
@@ -111,6 +125,7 @@ export function useUpdateAgent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['agent'] });
+      queryClient.invalidateQueries({ queryKey: ['org-agents'] });
     },
   });
 }
@@ -140,6 +155,7 @@ export function useDeleteAgent() {
         mutationFn: (params) => deleteAgent(params, getToken),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['agents'] });
+            queryClient.invalidateQueries({ queryKey: ['org-agents'] });
         },
     });
 }
