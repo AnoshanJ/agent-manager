@@ -1160,6 +1160,10 @@ func (c *identityController) AddRolePermissions(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if !validatePredefinedRole(w, role.Name) {
+		return
+	}
+
 	var req thundersvc.RolePermissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
@@ -1215,6 +1219,10 @@ func (c *identityController) RemoveRolePermissions(w http.ResponseWriter, r *htt
 	}
 
 	if !validateRoleOwnership(w, ctx, role, resolvedOrg.OUID) {
+		return
+	}
+
+	if !validatePredefinedRole(w, role.Name) {
 		return
 	}
 
