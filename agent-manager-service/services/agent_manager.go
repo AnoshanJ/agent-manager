@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
@@ -43,6 +45,7 @@ import (
 
 type AgentManagerService interface {
 	ListAgents(ctx context.Context, ouID string, projName string, labelFilter map[string]string, limit int32, offset int32) ([]*models.AgentResponse, int32, error)
+	ListOrgAgents(ctx context.Context, ouID string) ([]*models.AgentSummary, error)
 	CreateAgent(ctx context.Context, ouID string, projectName string, req *spec.CreateAgentRequest) error
 	UpdateAgentBasicInfo(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error)
 	UpdateAgentBuildParameters(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error)
@@ -1113,6 +1116,94 @@ func (s *agentManagerService) ListAgents(ctx context.Context, ouID string, projN
 	paginatedAgents := paginateSlice(agents, offset, limit)
 	s.logger.Info("Listed agents successfully", "ouID", ouID, "projName", projName, "totalAgents", total, "returnedAgents", len(paginatedAgents))
 	return paginatedAgents, total, nil
+}
+
+// ListOrgAgents returns every agent across all projects in the organization, unpaginated,
+// with each agent's project name and display name attached.
+func (s *agentManagerService) ListOrgAgents(ctx context.Context, ouID string) ([]*models.AgentSummary, error) {
+	s.logger.Info("Listing all agents in organization", "ouID", ouID)
+
+	// Validate organization exists
+	if _, err := s.ocClient.GetOrganization(ctx, ouID); err != nil {
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
+		return nil, translateOrgError(err)
+	}
+
+	projects, err := listOrgProjects(ctx, s.ocClient, ouID)
+	if err != nil {
+		s.logger.Error("Failed to list projects", "ouID", ouID, "error", err)
+		return nil, err
+	}
+
+	agents, err := fetchAcrossOrgProjects(ctx, projects, ouID, s.ocClient.ListComponents)
+	if err != nil {
+		s.logger.Error("Failed to list agents across projects", "ouID", ouID, "error", err)
+		return nil, err
+	}
+
+	// The project list is already in hand from the fan-out above, so attaching each
+	// agent's project display name costs an in-memory lookup, not another round trip.
+	projectDisplayNames := make(map[string]string, len(projects))
+	for _, p := range projects {
+		projectDisplayNames[p.Name] = p.DisplayName
+	}
+	summaries := make([]*models.AgentSummary, len(agents))
+	for i, a := range agents {
+		summaries[i] = &models.AgentSummary{
+			Name:               a.Name,
+			DisplayName:        a.DisplayName,
+			ProjectName:        a.ProjectName,
+			ProjectDisplayName: projectDisplayNames[a.ProjectName],
+		}
+	}
+
+	s.logger.Info("Listed org agents successfully", "ouID", ouID, "totalAgents", len(summaries))
+	return summaries, nil
+}
+
+// listOrgProjects fetches every project in the org, wrapping the error consistently for
+// the two org-wide listings that need the project list itself (not just the fan-out
+// over it): ListOrgAgents (for project display names) and ListKindAgents (as the
+// fan-out target list).
+func listOrgProjects(ctx context.Context, ocClient client.OpenChoreoClient, ouID string) ([]*models.ProjectResponse, error) {
+	projects, err := ocClient.ListProjects(ctx, ouID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+	return projects, nil
+}
+
+// fetchAcrossOrgProjects concurrently invokes fetch for each of the given projects and
+// aggregates the results. Shared by any org-wide listing that fans out per-project (see
+// also AgentKindService.ListKindAgents).
+func fetchAcrossOrgProjects(
+	ctx context.Context,
+	projects []*models.ProjectResponse,
+	ouID string,
+	fetch func(ctx context.Context, ouID, projectName string) ([]*models.AgentResponse, error),
+) ([]*models.AgentResponse, error) {
+	results := make([][]*models.AgentResponse, len(projects))
+	g, gctx := errgroup.WithContext(ctx)
+	for i, p := range projects {
+		i, projectName := i, p.Name
+		g.Go(func() error {
+			agents, err := fetch(gctx, ouID, projectName)
+			if err != nil {
+				return err
+			}
+			results[i] = agents
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("failed to list agents: %w", err)
+	}
+
+	all := make([]*models.AgentResponse, 0, len(projects))
+	for _, agents := range results {
+		all = append(all, agents...)
+	}
+	return all, nil
 }
 
 // paginateSlice returns items[offset:offset+limit], clamping both bounds defensively so

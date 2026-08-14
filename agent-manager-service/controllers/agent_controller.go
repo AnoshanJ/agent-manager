@@ -36,6 +36,7 @@ import (
 
 type AgentController interface {
 	ListAgents(w http.ResponseWriter, r *http.Request)
+	ListOrgAgents(w http.ResponseWriter, r *http.Request)
 	GetAgent(w http.ResponseWriter, r *http.Request)
 	CreateAgent(w http.ResponseWriter, r *http.Request)
 	UpdateAgentBasicInfo(w http.ResponseWriter, r *http.Request)
@@ -276,6 +277,24 @@ func (c *agentController) ListAgents(w http.ResponseWriter, r *http.Request) {
 		Offset: int32(offset),
 	}
 
+	utils.WriteSuccessResponse(w, http.StatusOK, response)
+}
+
+func (c *agentController) ListOrgAgents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+	ouID := middleware.OUIDFromRequest(r)
+
+	agents, err := c.agentService.ListOrgAgents(ctx, ouID)
+	if err != nil {
+		log.Error("ListOrgAgents: failed to list agents", "error", err)
+		handleCommonErrors(w, err, "Failed to list agents")
+		return
+	}
+
+	response := &spec.AgentSummaryListResponse{
+		Agents: utils.ConvertToAgentSummaryListResponse(agents),
+	}
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
 }
 

@@ -21,11 +21,13 @@ import { httpDELETE, httpGET, httpPOST, httpPUT, SERVICE_BASE } from "../utils";
 import type {
   AgentListResponse,
   AgentResponse,
+  AgentSummaryListResponse,
   CreateAgentPathParams,
   DeleteAgentPathParams,
   GetAgentPathParams,
   ListAgentsPathParams,
   ListAgentsQuery,
+  ListOrgAgentsPathParams,
   CreateAgentRequest,
   UpdateAgentPathParams,
   UpdateAgentRequest,
@@ -80,6 +82,23 @@ export async function listAgents(
       orgName
     )}/projects/${encodeURIComponent(projName)}/agents`,
     { searchParams: search, token: token }
+  );
+
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// Lists every agent across all projects in the org — lightweight (name +
+// displayName only) and unpaginated, unlike listAgents which is per-project.
+export async function listOrgAgents(
+  params: ListOrgAgentsPathParams,
+  getToken?: () => Promise<string>,
+): Promise<AgentSummaryListResponse> {
+  const { orgName = "default" } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpGET(
+    `${SERVICE_BASE}/orgs/${encodeURIComponent(orgName)}/agents`,
+    { token }
   );
 
   if (!res.ok) throw await res.json();

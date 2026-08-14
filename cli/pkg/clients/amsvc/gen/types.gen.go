@@ -1634,6 +1634,19 @@ type AgentRevokeSecretResponse struct {
 	WorkloadRefreshWarning *string `json:"workloadRefreshWarning,omitempty"`
 }
 
+// AgentSummary defines model for AgentSummary.
+type AgentSummary struct {
+	DisplayName        string `json:"displayName"`
+	Name               string `json:"name"`
+	ProjectDisplayName string `json:"projectDisplayName"`
+	ProjectName        string `json:"projectName"`
+}
+
+// AgentSummaryListResponse defines model for AgentSummaryListResponse.
+type AgentSummaryListResponse struct {
+	Agents []AgentSummary `json:"agents"`
+}
+
 // AgentThunderStatus Provisioning status of one AgentID binding. Goes from `pending` to
 // `in_progress` to `completed`, or to `failed` if it runs out of
 // retries (5 attempts over about 15 minutes).

@@ -138,6 +138,9 @@ type ClientInterface interface {
 	// GetAgentKindVersion request
 	GetAgentKindVersion(ctx context.Context, orgName string, kindName string, versionTag string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListOrgAgents request
+	ListOrgAgents(ctx context.Context, orgName string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListCatalogResources request
 	ListCatalogResources(ctx context.Context, orgName string, params *ListCatalogResourcesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1072,6 +1075,18 @@ func (c *Client) DeleteAgentKindVersion(ctx context.Context, orgName string, kin
 
 func (c *Client) GetAgentKindVersion(ctx context.Context, orgName string, kindName string, versionTag string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetAgentKindVersionRequest(c.Server, orgName, kindName, versionTag)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListOrgAgents(ctx context.Context, orgName string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListOrgAgentsRequest(c.Server, orgName)
 	if err != nil {
 		return nil, err
 	}
@@ -4959,6 +4974,40 @@ func NewGetAgentKindVersionRequest(server string, orgName string, kindName strin
 	}
 
 	operationPath := fmt.Sprintf("/orgs/%s/agent-kinds/%s/versions/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListOrgAgentsRequest generates requests for ListOrgAgents
+func NewListOrgAgentsRequest(server string, orgName string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/agents", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -16508,6 +16557,9 @@ type ClientWithResponsesInterface interface {
 	// GetAgentKindVersionWithResponse request
 	GetAgentKindVersionWithResponse(ctx context.Context, orgName string, kindName string, versionTag string, reqEditors ...RequestEditorFn) (*GetAgentKindVersionResp, error)
 
+	// ListOrgAgentsWithResponse request
+	ListOrgAgentsWithResponse(ctx context.Context, orgName string, reqEditors ...RequestEditorFn) (*ListOrgAgentsResp, error)
+
 	// ListCatalogResourcesWithResponse request
 	ListCatalogResourcesWithResponse(ctx context.Context, orgName string, params *ListCatalogResourcesParams, reqEditors ...RequestEditorFn) (*ListCatalogResourcesResp, error)
 
@@ -17574,6 +17626,30 @@ func (r GetAgentKindVersionResp) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetAgentKindVersionResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListOrgAgentsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AgentSummaryListResponse
+	JSON404      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListOrgAgentsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListOrgAgentsResp) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -22654,6 +22730,15 @@ func (c *ClientWithResponses) GetAgentKindVersionWithResponse(ctx context.Contex
 	return ParseGetAgentKindVersionResp(rsp)
 }
 
+// ListOrgAgentsWithResponse request returning *ListOrgAgentsResp
+func (c *ClientWithResponses) ListOrgAgentsWithResponse(ctx context.Context, orgName string, reqEditors ...RequestEditorFn) (*ListOrgAgentsResp, error) {
+	rsp, err := c.ListOrgAgents(ctx, orgName, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListOrgAgentsResp(rsp)
+}
+
 // ListCatalogResourcesWithResponse request returning *ListCatalogResourcesResp
 func (c *ClientWithResponses) ListCatalogResourcesWithResponse(ctx context.Context, orgName string, params *ListCatalogResourcesParams, reqEditors ...RequestEditorFn) (*ListCatalogResourcesResp, error) {
 	rsp, err := c.ListCatalogResources(ctx, orgName, params, reqEditors...)
@@ -25527,6 +25612,46 @@ func ParseGetAgentKindVersionResp(rsp *http.Response) (*GetAgentKindVersionResp,
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest AgentKindVersionResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListOrgAgentsResp parses an HTTP response from a ListOrgAgentsWithResponse call
+func ParseListOrgAgentsResp(rsp *http.Response) (*ListOrgAgentsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListOrgAgentsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentSummaryListResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
