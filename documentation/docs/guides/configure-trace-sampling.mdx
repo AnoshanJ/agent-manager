@@ -24,11 +24,11 @@ This page covers **Python** agents instrumented with `amp-instrumentation`. An a
 | `OTEL_TRACES_SAMPLER` | Behaviour |
 |---|---|
 | `parentbased_always_on` | **Default.** Keep every trace. |
-| `parentbased_traceidratio` | Keep a fraction of traces, set by `OTEL_TRACES_SAMPLER_ARG`. Respects an upstream caller's sampling decision. **Recommended.** |
-| `traceidratio` | Keep a fraction of traces, but ignore any upstream decision. |
-| `always_on` | Keep every trace, ignoring any upstream decision. |
+| `parentbased_traceidratio` | Keep a fraction of traces, set by `OTEL_TRACES_SAMPLER_ARG`, but reuse the caller's decision when there is one. **Recommended.** |
+| `traceidratio` | Keep a fraction of traces, ignoring the caller's decision. |
+| `always_on` | Keep every trace, even ones the caller decided to drop. |
 | `always_off` | Drop everything. Disables tracing for the agent. |
-| `parentbased_always_off` | Drop everything except traces an upstream caller already sampled. |
+| `parentbased_always_off` | Drop everything except traces the caller already decided to keep. |
 
 `OTEL_TRACES_SAMPLER_ARG` is a decimal between `0.0` and `1.0` and applies only to the two ratio samplers — `0.1` keeps roughly 10% of traces. Values outside the list above (for example `jaeger_remote` or `xray`) are not supported by the bundled SDK.
 
@@ -39,9 +39,20 @@ export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
 export OTEL_TRACES_SAMPLER_ARG="0.1"
 ```
 
-This keeps about 10% of traces. Prefer `parentbased_traceidratio` over plain `traceidratio`: when the agent is called from another instrumented service, the parent-based variant honours the decision that service already made, so a distributed trace is not cut in half at the agent boundary.
+This keeps about 10% of traces.
 
 Sampling is **per trace, not per span**. The decision is derived from the trace ID, so every span in a trace shares the same outcome — a sampled trace arrives complete in the Console, and an unsampled one never leaves the agent process. You will not see partial traces.
+
+### What "parent-based" means
+
+When another instrumented service calls your agent, that service starts the trace and decides whether to keep it. It passes that decision along in the standard `traceparent` HTTP header. The *parent* is simply the calling span.
+
+- A **parent-based** sampler reuses the caller's decision when a caller is present, and applies its own rule only when the agent starts the trace itself.
+- A **non-parent-based** sampler (`traceidratio`, `always_on`, `always_off`) ignores the caller entirely and always applies its own rule.
+
+Prefer `parentbased_traceidratio` because it keeps distributed traces whole. If the calling service decided to keep a trace but your agent independently dropped it, the trace would still appear upstream with the agent's portion missing.
+
+If nothing calls your agent through an instrumented service — that is, the agent always starts its own traces — then `parentbased_traceidratio` and `traceidratio` behave identically.
 
 ## Where to Set the Variables
 
@@ -49,7 +60,7 @@ The variables are the same for both deployment models — only *how* you set the
 
 | | Platform-hosted agent | Externally-hosted agent |
 |---|---|---|
-| Where | Console → agent → **Deploy** → **Environment Variables** | The agent's own environment (shell, Dockerfile, systemd unit, Kubernetes manifest) |
+| Where | Console → **Deploy** → **Configure & Deploy** → **Environment Variables** | The agent's own environment (shell, Dockerfile, systemd unit, Kubernetes manifest) |
 | Endpoint and API key | Injected by AMP — you do not set them | You set `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY` yourself |
 | You add | The two sampler variables only | The two sampler variables, alongside the endpoint and API key |
 | To apply | Redeploy the agent | Restart the agent |
@@ -60,13 +71,16 @@ The sampler is read once when the agent process starts, so a change never affect
 
 AMP already injects `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY`, so you only add the two sampler variables:
 
-1. In the AMP Console, open your agent and go to **Deploy**.
-2. Open the deployment configuration and find the **Environment Variables** section.
-3. Click **Add** and enter `OTEL_TRACES_SAMPLER` with the value `parentbased_traceidratio`.
-4. Click **Add** again and enter `OTEL_TRACES_SAMPLER_ARG` with the value `0.1`.
-5. Save and redeploy the agent.
+1. Open the agent and click **Deploy**.
+2. Click **Configure & Deploy** on the environment you want to sample.
+3. Under **Environment Variables**, add `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`.
+4. Deploy the agent.
 
-This works whether the agent uses auto-instrumentation (the injected init container) or the manual `init_otel()` helper — both read the variables from the container environment at startup.
+You can set the same variables while first creating the agent — the **Configure & Deploy** step offers the same **Environment Variables** section.
+
+Environment variables apply to one environment at a time, so set them for each environment you want sampled; values for later environments are configured when you promote. See [Manage Environments and Deployment Pipelines](./environment-management.mdx) for how promotion works.
+
+This works whether the agent uses auto-instrumentation or the manual `init_otel()` helper — both read the variables from the container environment at startup.
 
 ### Externally-Hosted Agents
 
