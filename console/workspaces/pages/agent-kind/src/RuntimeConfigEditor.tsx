@@ -285,7 +285,7 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
                     <Button size="small" variant="outlined" startIcon={<Plus />} onClick={addRow} disabled={isInvalid}>
                         Add Runtime Key
                     </Button>
-                    <Box display="flex" flexDirection="column">
+                    <Box display="flex" flexDirection="column" alignItems="flex-start">
                         <EnvFileUploadButton onParsed={handleEnvFileParsed} label="Upload .env file" />
                     </Box>
                 </Box>
