@@ -2,10 +2,35 @@ name: Nightly Dev Build
 
 run-name: Nightly Dev Build #${{ github.run_number }}
 
+# Runs on a dedicated, long-lived self-hosted VM in our datacenter rather than
+# GitHub-hosted runners. Two consequences shape every job below:
+#
+#   1. The VM starts with none of the tooling a GitHub-hosted image ships.
+#      Each job opens with ./.github/actions/setup-self-hosted-tools, which
+#      installs only what is missing at pinned versions — a no-op on every run
+#      after the first.
+#   2. Nothing is discarded when a job ends. Any job that touches Docker or
+#      Kubernetes therefore closes with ./.github/actions/teardown-self-hosted
+#      under `if: always()`, so the next nightly starts from a clean host.
+#      Tool installations survive; the environment under test does not.
+#
+# Register exactly ONE runner on this VM. The teardown prunes the whole Docker
+# state, which would pull the ground out from under a second job running
+# concurrently against the same daemon.
+
 on:
-  # schedule:
-  #   - cron: '0 0 * * *' # midnight UTC
-  workflow_dispatch: {}
+  schedule:
+    - cron: '0 0 * * *' # midnight UTC
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: >-
+          Runner label every job runs on. Defaults to the self-hosted VM;
+          set it to e.g. ubuntu-latest to fall back to GitHub-hosted for a
+          single run without editing this file.
+        required: false
+        default: self-hosted
+        type: string
 
 concurrency:
   group: nightly
@@ -17,13 +42,92 @@ env:
   HELM_REGISTRY: oci://ghcr.io/wso2
 
 jobs:
+  # ==========================================================================
+  # Unconditional sweep of the VM before anything else starts.
+  #
+  # Every other cleanup in this workflow runs at the *end* of a job, which
+  # makes all of it best-effort: run 31620869475 was cancelled on its job
+  # timeout before Teardown could run, and cleanup-runner — the safety net —
+  # then hit its own timeout, so the VM sat with a live k3d cluster holding
+  # port 8080 for eleven hours. Cleaning up first is the only guarantee that
+  # survives that, because the previous run is already over and cannot
+  # pre-empt this.
+  #
+  # Costs nothing when there is nothing to do: measured at 0s on an already
+  # clean VM, and 1s on one with no docker or k3d installed at all.
+  #
+  # Deliberately checks out nothing and uses no composite action. On a
+  # thrashing VM the checkout is exactly what hung, so the recovery path must
+  # not depend on one. That is why this duplicates a little of
+  # teardown-self-hosted: this one has to work when nothing else does, so it
+  # stays minimal and raw, and the composite action remains the thorough one.
+  # ==========================================================================
+  prepare-runner:
+    name: Prepare Runner
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 20
+    steps:
+      - name: Sweep leftover state
+        run: |
+          export PATH="${HOME}/.local/share/amp-ci/bin:${PATH}"
+          bounded() { timeout --kill-after=10s "$@" || echo "  (timed out or failed, continuing)"; }
+
+          echo "::group::Before"
+          bounded 60 k3d cluster list || true
+          bounded 60 docker ps -a || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "::group::Sweeping"
+          bounded 300 k3d cluster delete --all || true
+          leftover="$(bounded 60 docker ps -aq 2>/dev/null | grep -E '^[0-9a-f]+$' || true)"
+          for c in ${leftover}; do bounded 60 docker rm -f "${c}" >/dev/null 2>&1 || true; done
+          bounded 120 docker buildx prune -af >/dev/null 2>&1 || true
+          bounded 600 docker system prune -af --volumes >/dev/null 2>&1 || true
+          pkill -f 'kubectl.*port-forward' >/dev/null 2>&1 || true
+          rm -f "${HOME}/.docker/config.json" "${HOME}/.config/helm/registry/config.json" || true
+          echo "::endgroup::"
+
+          echo "::group::After"
+          bounded 60 k3d cluster list || true
+          bounded 60 docker ps -a || true
+          bounded 60 docker system df || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "✅ Runner swept"
+
   # Compute the dated version string once; all jobs consume it via needs.
   compute-version:
     name: Compute Version
-    runs-on: ubuntu-latest
+    needs: prepare-runner
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 5
     outputs:
       dev-version: ${{ steps.version.outputs.dev-version }}
     steps:
+      # First job on the VM, and the only place git can be installed before
+      # anything checks out — a local composite action is unavailable until
+      # after actions/checkout, and checkout is what needs git.
+      #
+      # This matters more than it looks. Without git on PATH, actions/checkout
+      # does not fail: it quietly downloads a REST tarball instead, leaving a
+      # working tree with no .git directory. Everything that only reads files
+      # still works, so the breakage surfaces much later and somewhere else —
+      # dorny/test-reporter shells out to `git ls-files -z` and dies, and
+      # fetch-depth/tag pushes have nothing to operate on.
+      #
+      # Later jobs re-assert this for themselves where a real repository is
+      # required, since job-to-runner assignment is not guaranteed if a second
+      # runner is ever registered.
+      - name: Bootstrap git
+        run: |
+          command -v git >/dev/null && { git --version; exit 0; }
+          sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+          echo "✅ Installed $(git --version)"
+
       - name: Compute dev version
         id: version
         run: |
@@ -36,7 +140,8 @@ jobs:
   cleanup-images:
     name: Cleanup Previous Nightly Images
     needs: compute-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 30
     permissions:
       packages: write
     strategy:
@@ -55,6 +160,18 @@ jobs:
           - wso2-amp-evaluation-extension
           - wso2-amp-api-platform-gateway-extension
     steps:
+      # `gh` is preinstalled on GitHub-hosted images but not on the VM, and
+      # the package probe below is pure `gh api`.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+      - uses: ./.github/actions/setup-self-hosted-tools
+        with:
+          tools: gh
+
       # The package may not exist yet (e.g. right after an image is renamed,
       # before its first build/push creates the GHCR package), in which case
       # ghcr-cleanup-action 404s and fails the job. Probe existence first so
@@ -116,10 +233,21 @@ jobs:
   cleanup-git-tag:
     name: Cleanup Previous Nightly Git Tag
     needs: compute-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      # See compute-version for why this is inline. Here specifically: without
+      # a real clone there is no history for fetch-depth: 0 and no way to push
+      # the tag deletions below.
+      - name: Bootstrap git
+        run: |
+          command -v git >/dev/null && { git --version; exit 0; }
+          sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -144,12 +272,22 @@ jobs:
   # Load release-config.json and emit job matrices (mirrors release.yml pattern).
   load-config:
     name: Load Config
-    runs-on: ubuntu-latest
+    needs: prepare-runner
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 10
     outputs:
       images: ${{ steps.set-matrix.outputs.images }}
       charts: ${{ steps.set-matrix.outputs.charts }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+
+      # The matrix below is built entirely with jq.
+      - uses: ./.github/actions/setup-self-hosted-tools
 
       - name: Load configuration and set matrix
         id: set-matrix
@@ -176,7 +314,8 @@ jobs:
   build-images:
     name: Build ${{ matrix.image.name }}
     needs: [compute-version, cleanup-images, load-config]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -186,6 +325,22 @@ jobs:
         image: ${{ fromJson(needs.load-config.outputs.images) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-self-hosted-tools
+        with:
+          tools: docker
+
+      # build-docker-image pushes a linux/amd64 + linux/arm64 manifest. The
+      # GitHub-hosted images come with qemu-user-static binfmt handlers already
+      # registered, so the arm64 half "just worked" there; a bare VM has no
+      # handler and the arm64 build fails with "exec format error".
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -208,10 +363,23 @@ jobs:
           tag: ${{ needs.compute-version.outputs.dev-version }}
           context: ${{ matrix.image.context }}
 
+      # Drops the builder, its cache and the registry credentials that
+      # docker/login-action wrote into the runner user's home directory.
+      # prune-images stays off here so the matrix entries that run after this
+      # one on the same VM keep their base-image layers; the cleanup-runner
+      # job at the end of the workflow does the full prune.
+      - name: Teardown
+        if: always()
+        uses: ./.github/actions/teardown-self-hosted
+        with:
+          registry: ${{ env.REGISTRY }}
+          prune-images: 'false'
+
   package-charts:
     name: Package ${{ matrix.chart.name }}
     needs: [compute-version, build-images, load-config]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -221,11 +389,18 @@ jobs:
         chart: ${{ fromJson(needs.load-config.outputs.charts) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
         with:
-          version: '3.14.0'
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+
+      # Replaces azure/setup-helm: the same 3.14.0 pin, but installed from the
+      # single place the VM's helm version is now defined, so this job and the
+      # e2e job below cannot drift apart.
+      - uses: ./.github/actions/setup-self-hosted-tools
+        with:
+          tools: helm
 
       - name: Cache Helm chart dependencies
         if: hashFiles(format('{0}/Chart.lock', matrix.chart.path)) != ''
@@ -260,13 +435,32 @@ jobs:
           HELM_REGISTRY: ${{ env.HELM_REGISTRY }}
           HELM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Clears the OCI credentials package-helm-chart.sh's `helm registry
+      # login` leaves in the runner user's home directory.
+      - name: Teardown
+        if: always()
+        uses: ./.github/actions/teardown-self-hosted
+        with:
+          registry: ${{ env.REGISTRY }}
+          prune-images: 'false'
+
   update-dev-tag:
     name: Update Nightly Git Tag
     needs: [compute-version, cleanup-git-tag]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      # Same as cleanup-git-tag: this job creates and pushes a tag, so it needs
+      # a real clone, not checkout's tarball fallback.
+      - name: Bootstrap git
+        run: |
+          command -v git >/dev/null && { git --version; exit 0; }
+          sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
@@ -297,7 +491,7 @@ jobs:
   e2e:
     name: E2E
     needs: [compute-version, package-charts, update-dev-tag]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
     # Bumped from 60 to accommodate the reduced test parallelism below: with
     # --procs=1 (was -p, i.e. one proc per vCPU) suites run serially, so
     # wall-clock grows even though no suite thrashes on CPU any more.
@@ -308,29 +502,44 @@ jobs:
     outputs:
       summary: ${{ steps.test-summary.outputs.summary }}
     steps:
+      # Needed before checkout: the "Publish test results" step below runs
+      # `git ls-files -z` against the working tree, which only exists if
+      # checkout produced a real clone rather than its tarball fallback.
+      - name: Bootstrap git
+        run: |
+          command -v git >/dev/null && { git --version; exit 0; }
+          sudo -n true 2>/dev/null || { echo "::error::git is not installed and this runner has no passwordless sudo. Install git once on the VM."; exit 1; }
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+
+      # kubectl and helm were preinstalled on ubuntu-24.04 and only k3d and yq
+      # had to be fetched; on the VM all four come from here, at the same pins.
+      # `sysctl` raises vm.max_map_count and the inotify limits, without which
+      # the observability plane's OpenSearch fails its bootstrap check and
+      # controllers start reporting "too many open files".
+      - uses: ./.github/actions/setup-self-hosted-tools
+        with:
+          tools: docker,k3d,yq,kubectl,helm,sysctl
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: Install k3d
-        env:
-          K3D_VERSION: v5.8.3
-          K3D_SHA256: dbaa79a76ace7f4ca230a1ff41dc7d8a5036a8ad0309e9c54f9bf3836dbe853e
-        run: |
-          curl -fsSL -o /tmp/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
-          echo "${K3D_SHA256}  /tmp/k3d" | sha256sum -c -
-          sudo install /tmp/k3d /usr/local/bin/k3d
-          k3d version
+      # A previous run that was cancelled or timed out leaves its cluster and
+      # published ports behind, and quick-start/install.sh would silently adopt
+      # that cluster instead of building a fresh one. Clear it first so the
+      # nightly always tests a from-scratch install.
+      - name: Clean any leftover state from a previous run
+        uses: ./.github/actions/teardown-self-hosted
 
-      - name: Install yq
-        env:
-          YQ_VERSION: v4.45.4
-          YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
-        run: |
-          curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
-          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
-          sudo install /tmp/yq /usr/local/bin/yq
+      - name: Preflight
+        uses: ./.github/actions/preflight-k3d
 
       - name: Install platform
         env:
@@ -359,9 +568,20 @@ jobs:
             --poll-progress-after=600s --keep-going --junit-report=report.xml \
             ./tests/... 2>&1 | tee e2e-output.log
 
+      # Bounded, twice. Every kubectl call below is unattended and there are
+      # well over a hundred of them, so a cluster whose API server has stopped
+      # answering — exactly the state worth diagnosing — makes each one block
+      # forever. In run 31620869475 this step hung for 19 minutes and ate the
+      # rest of the job's budget: the artifact uploads never ran, Teardown
+      # never ran, GitHub never finalized the log, and the diagnostics this
+      # step exists to collect were lost along with the reason for the
+      # failure. --request-timeout bounds each call, timeout-minutes bounds
+      # the step, and partial diagnostics still get uploaded either way.
       - name: Dump pod logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
+          kubectl() { command kubectl --request-timeout=15s "$@"; }
           mkdir -p /tmp/pod-logs
           kubectl logs deployment/amp-api -n wso2-amp --tail=500 --all-containers=true > /tmp/pod-logs/amp-api.txt 2>&1 || true
           kubectl logs deployment/openchoreo-api -n openchoreo-control-plane --tail=500 --all-containers=true > /tmp/pod-logs/openchoreo-api.txt 2>&1 || true
@@ -424,6 +644,15 @@ jobs:
           path: /tmp/pod-logs/
           retention-days: 7
 
+      # fail-on-error/fail-on-empty are off (both default to true) because this
+      # step only *publishes* a result someone else already decided. With them
+      # on it fails twice over for reasons that are not its own: once because
+      # the report contains failed tests — which "Run e2e tests" above has
+      # already failed the job for — and once when there is no report.xml at
+      # all, which is the normal outcome when the platform install dies before
+      # ginkgo ever starts. Both showed up in run 31572576550, where the second
+      # red step masked the fact that the only real failure was upstream.
+      # "Build test summary" below reports the missing-report case explicitly.
       - name: Publish test results
         if: always()
         uses: dorny/test-reporter@6e6a65b7a0bd2c9197df7d0ae36ac5cee784230c # v2.0.0
@@ -431,6 +660,8 @@ jobs:
           name: Nightly E2E Test Results
           path: test/e2e/report.xml
           reporter: java-junit
+          fail-on-error: 'false'
+          fail-on-empty: 'false'
 
       - name: Upload test logs
         if: always()
@@ -467,12 +698,30 @@ jobs:
           echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
           echo "Test summary: $SUMMARY"
 
+      # Last step in the job, deliberately: everything above — the pod-log
+      # dump, the artifact uploads, the JUnit report — reads from the live
+      # cluster. Deleting it here is what frees the published host ports and
+      # guarantees tomorrow's run installs from scratch.
+      - name: Teardown
+        if: always()
+        uses: ./.github/actions/teardown-self-hosted
+
   notify-google-chat:
     name: Notify Google Chat
     needs: [compute-version, e2e]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 10
     if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
     steps:
+      # The alert payload is assembled with jq and posted with curl.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+      - uses: ./.github/actions/setup-self-hosted-tools
+
       - name: Post failure alert
         env:
           GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
@@ -494,3 +743,51 @@ jobs:
           curl -s -X POST "${GCHAT_WEBHOOK_URL}" \
             -H 'Content-Type: application/json' \
             -d "${PAYLOAD}"
+
+  # Final sweep of the VM. Individual jobs clean up after themselves, but only
+  # for the paths they took: a job cancelled mid-step, or one that failed
+  # before its own teardown was reached, can still leave a cluster or an image
+  # set behind. This runs unconditionally after every other job and does the
+  # deep prune, so the disk state at the end of a nightly does not depend on
+  # how that nightly went.
+  cleanup-runner:
+    name: Cleanup Runner
+    needs:
+      - compute-version
+      - cleanup-images
+      - cleanup-git-tag
+      - load-config
+      - build-images
+      - package-charts
+      - update-dev-tag
+      - e2e
+      - notify-google-chat
+    if: always()
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    timeout-minutes: 30
+    steps:
+      # This job is the safety net, so it has to reach its Teardown step even
+      # when the VM is in the state that made the net necessary. In run
+      # 31620869475 it did not: the e2e job was cancelled with the full AMP
+      # stack still running, and checking out on the thrashing box took over
+      # 20 minutes, hit the job timeout, and skipped Teardown entirely — the
+      # cluster was left running.
+      #
+      # So: fetch only .github (a fraction of the I/O), bound the step so a
+      # slow checkout fails instead of consuming the job, and run Teardown
+      # even if it does fail. A stale .github is still enough to clean up.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 10
+        continue-on-error: true
+        with:
+          sparse-checkout: .github
+          # Long-lived runner: the default true writes the token into
+          # .git/config, which outlives the job if the post-step is
+          # skipped (cancel, timeout). Nothing here pushes over git.
+          persist-credentials: false
+
+      - name: Teardown
+        if: always()
+        uses: ./.github/actions/teardown-self-hosted
+        with:
+          registry: ${{ env.REGISTRY }}

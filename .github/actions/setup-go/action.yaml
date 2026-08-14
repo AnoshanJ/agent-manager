@@ -3,7 +3,116 @@ description: Sets up Go environment
 runs:
   using: "composite"
   steps:
-    - uses: actions/setup-go@v6.1.0
+    - id: setup
+      uses: actions/setup-go@v6.1.0
       with:
         go-version-file: agent-manager-service/go.mod
         cache-dependency-path: agent-manager-service/go.sum
+
+    # actions/setup-go installs the right toolchain and adds it to PATH, but it
+    # cannot stop a runner from overriding that. The self-hosted VM ships its
+    # own Go at /build/software/go/go and exports GOROOT machine-wide, which
+    # wins: run 31668341652 logged "Successfully set up Go version 1.25.7" and
+    # then "go version go1.25.4" three lines later. Because setup-go also sets
+    # GOTOOLCHAIN=local to keep builds hermetic, the older Go could not fetch
+    # the version go.mod asks for either, and every Go step failed instantly
+    # with "go.mod requires go >= 1.25.7".
+    #
+    # That VM's globals should be removed, but a workflow should not depend on
+    # a runner being configured correctly. Pointing GOROOT and PATH at the
+    # toolchain we just installed makes the outcome the same everywhere.
+    #
+    # GOPATH moves too: the VM sets it equal to GOROOT, which Go itself warns
+    # about. Consequence worth knowing — it also moves GOMODCACHE, so
+    # setup-go's cache restore above lands somewhere Go no longer reads. That
+    # costs a cold module download, not correctness.
+    #
+    # The required version comes from go.mod, NOT from
+    # steps.setup.outputs.go-version. That output looks like the obvious
+    # source and is actively wrong here: setup-go derives it by running
+    # `go version` after installing, so on a runner with a shadowing Go it
+    # reports the shadow. Run 31670349845 logged "Successfully set up Go
+    # version 1.25.7" and still emitted 1.25.4 as its output — corrupted by
+    # the exact problem this step exists to correct. go.mod is the one input
+    # no runner can taint.
+    - name: Pin Go to the toolchain setup-go installed
+      shell: bash
+      run: |
+        set -euo pipefail
+        required="$(awk '$1 == "go" { print $2; exit }' "${GITHUB_WORKSPACE}/agent-manager-service/go.mod")"
+        if [ -z "${required}" ]; then
+          echo "::warning::Could not read the go directive from agent-manager-service/go.mod; leaving GOROOT as the runner set it."
+          exit 0
+        fi
+        echo "AMP_GO_REQUIRED=${required}" >> "${GITHUB_ENV}"
+
+        # Exact match first; otherwise the newest installed toolchain that
+        # still satisfies the directive, since a `go 1.25` line would have
+        # resolved to some 1.25.x that is not named in the file.
+        root=""
+        for arch in x64 arm64; do
+          cand="${RUNNER_TOOL_CACHE}/go/${required}/${arch}"
+          [ -x "${cand}/bin/go" ] && root="${cand}" && break
+        done
+        if [ -z "${root}" ] && [ -d "${RUNNER_TOOL_CACHE}/go" ]; then
+          for v in $(ls -1 "${RUNNER_TOOL_CACHE}/go" 2>/dev/null | sort -Vr); do
+            [ "$(printf '%s\n%s\n' "${required}" "${v}" | sort -V | head -1)" = "${required}" ] || continue
+            for arch in x64 arm64; do
+              cand="${RUNNER_TOOL_CACHE}/go/${v}/${arch}"
+              [ -x "${cand}/bin/go" ] && root="${cand}" && break 2
+            done
+          done
+        fi
+
+        if [ -z "${root}" ]; then
+          echo "::warning::No Go toolchain satisfying go${required} found under ${RUNNER_TOOL_CACHE}; leaving GOROOT as the runner set it."
+          exit 0
+        fi
+
+        {
+          echo "GOROOT=${root}"
+          echo "GOPATH=${HOME}/go"
+        } >> "${GITHUB_ENV}"
+        echo "${root}/bin" >> "${GITHUB_PATH}"
+
+        # Report from the pinned binary directly: $GITHUB_PATH does not affect
+        # the step that writes it, so `go version` here would still resolve to
+        # whatever the runner had.
+        echo "✅ Go pinned to ${root} ($("${root}/bin/go" version))"
+
+    # Cheap assertion that the pin above actually took, in the first step where
+    # $GITHUB_PATH and $GITHUB_ENV are in effect. Without it a shadowed Go is
+    # only discovered by whatever compiles next, often several steps later and
+    # with a message that points at the code rather than the runner.
+    #
+    # Six other workflows share this action, so the check is "not older than
+    # required" rather than an exact match: a runner carrying a *newer* Go
+    # still satisfies the go directive, and failing that would break builds
+    # that work today.
+    - name: Verify Go version
+      shell: bash
+      run: |
+        set -euo pipefail
+        required="${AMP_GO_REQUIRED:-}"
+        if [ -z "${required}" ]; then
+          echo "::warning::Go requirement unknown (the pin step could not read go.mod); skipping verification."
+          exit 0
+        fi
+
+        have="$(go env GOVERSION)"          # e.g. go1.25.7
+        echo "  go:      $(command -v go)"
+        echo "  GOROOT:  $(go env GOROOT)"
+        echo "  GOPATH:  $(go env GOPATH)"
+        echo "  version: ${have}"
+
+        oldest="$(printf '%s\n%s\n' "${required}" "${have#go}" | sort -V | head -1)"
+        if [ "${oldest}" != "${required}" ]; then
+          echo "::error::Go on PATH is ${have}, older than the go${required} this repo requires. A runner-level GOROOT or PATH entry is shadowing the toolchain setup-go installed — check for a machine-wide Go on this runner."
+          exit 1
+        fi
+
+        if [ "$(go env GOPATH)" = "$(go env GOROOT)" ]; then
+          echo "::error::GOPATH and GOROOT are both $(go env GOROOT). Go warns about this and module operations misbehave; the runner has a misconfigured Go installation."
+          exit 1
+        fi
+        echo "✅ Go ${have} satisfies go${required}"
