@@ -56,6 +56,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'guides/custom-evaluators',
             'guides/evaluation-monitors',
+            'guides/configure-trace-sampling',
           ],
         },
         {

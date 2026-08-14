@@ -98,6 +98,12 @@ The contract is layered on the OpenTelemetry GenAI semantic conventions (`gen_ai
 
 ---
 
+## Trace Sampling
+
+By default every trace an agent produces is exported. At high request rates that becomes expensive, so the OpenTelemetry SDK can be told to keep only a fraction of traces. Sampling is a head-based decision made inside the agent process, configured with the standard `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` environment variables — see [Configure Trace Sampling](../guides/configure-trace-sampling.mdx).
+
+---
+
 ## Trace Visibility in AMP Console
 
 Once traces start flowing in, you can explore them in the AMP Console under your agent's sidebar:
