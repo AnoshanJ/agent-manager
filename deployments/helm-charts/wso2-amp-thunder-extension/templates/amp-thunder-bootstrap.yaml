@@ -536,7 +536,7 @@ data:
   61-amp-role-admin.yaml: |
     resource_type: role
     id: amp-role-admin
-    name: admin
+    name: Agent Manager Admin
     description: Full administrative access to all AMP resources
     ouHandle: default
     permissions:
@@ -655,7 +655,7 @@ data:
   62-amp-role-developer.yaml: |
     resource_type: role
     id: amp-role-developer
-    name: developer
+    name: Developer
     description: "Development access: build, deploy, and observe agents within projects"
     ouHandle: default
     permissions:
@@ -715,7 +715,7 @@ data:
   63-amp-role-ai-lead.yaml: |
     resource_type: role
     id: amp-role-ai-lead
-    name: ai-lead
+    name: AI Lead
     description: "AI lead access: manage LLM providers, MCP servers, and evaluators"
     ouHandle: default
     permissions:
@@ -769,7 +769,7 @@ data:
   64-amp-role-platform-engineer.yaml: |
     resource_type: role
     id: amp-role-platform-engineer
-    name: platform-engineer
+    name: Platform Engineer
     description: "Platform engineering: manage environments, gateways, and agent deployments"
     ouHandle: default
     permissions:
