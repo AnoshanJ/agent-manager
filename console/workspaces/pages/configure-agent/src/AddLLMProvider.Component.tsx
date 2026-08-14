@@ -989,6 +989,7 @@ export const AddLLMProviderComponent: React.FC = () => {
           />
           {providerByEnv[selectedEnvName] && (
             <PolicyListSection
+              providerId={providerByEnv[selectedEnvName]?.uuid}
               title="Guardrails"
               description="Add safety policies to enforce consistent protections."
               addButtonLabel="Add Guardrail"
