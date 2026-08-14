@@ -1914,3 +1914,65 @@ func TestPopulateCreatedBy_NilUserWithoutError_KeepsIDOnly(t *testing.T) {
 	assert.Equal(t, "user-123", agent.CreatedBy.ID)
 	assert.Empty(t, agent.CreatedBy.Display)
 }
+
+func TestListOrgAgents_AggregatesAcrossProjects(t *testing.T) {
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, _ string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{}, nil
+		},
+		ListProjectsFunc: func(_ context.Context, _ string) ([]*models.ProjectResponse, error) {
+			return []*models.ProjectResponse{{Name: "proj1"}, {Name: "proj2"}}, nil
+		},
+		ListComponentsFunc: func(_ context.Context, _ string, projectName string) ([]*models.AgentResponse, error) {
+			switch projectName {
+			case "proj1":
+				return []*models.AgentResponse{{Name: "agent-a", DisplayName: "Agent A"}}, nil
+			case "proj2":
+				return []*models.AgentResponse{{Name: "agent-b", DisplayName: "Agent B"}}, nil
+			default:
+				t.Fatalf("unexpected project name %q", projectName)
+				return nil, nil
+			}
+		},
+	}
+	s := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
+
+	agents, err := s.ListOrgAgents(context.Background(), "acme")
+
+	require.NoError(t, err)
+	names := make([]string, len(agents))
+	for i, a := range agents {
+		names[i] = a.Name
+	}
+	assert.ElementsMatch(t, []string{"agent-a", "agent-b"}, names)
+}
+
+func TestListOrgAgents_OrganizationNotFound(t *testing.T) {
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, _ string) (*models.OrganizationResponse, error) {
+			return nil, utils.ErrNotFound
+		},
+	}
+	s := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
+
+	_, err := s.ListOrgAgents(context.Background(), "acme")
+
+	assert.ErrorIs(t, err, utils.ErrOrganizationNotFound)
+}
+
+func TestListOrgAgents_ProjectListFailurePropagates(t *testing.T) {
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, _ string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{}, nil
+		},
+		ListProjectsFunc: func(_ context.Context, _ string) ([]*models.ProjectResponse, error) {
+			return nil, errors.New("openchoreo unavailable")
+		},
+	}
+	s := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
+
+	_, err := s.ListOrgAgents(context.Background(), "acme")
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, utils.ErrOrganizationNotFound, "an unrelated openchoreo failure must not be masked as not-found")
+}

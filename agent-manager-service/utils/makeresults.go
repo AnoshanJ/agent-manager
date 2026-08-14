@@ -66,6 +66,17 @@ func ConvertToAgentListResponse(components []*models.AgentResponse) []spec.Agent
 	return responses
 }
 
+func ConvertToAgentSummaryListResponse(components []*models.AgentResponse) []spec.AgentSummary {
+	summaries := make([]spec.AgentSummary, len(components))
+	for i, component := range components {
+		summaries[i] = spec.AgentSummary{
+			Name:        component.Name,
+			DisplayName: component.DisplayName,
+		}
+	}
+	return summaries
+}
+
 func ConvertToAgentResponse(component *models.AgentResponse) spec.AgentResponse {
 	if component == nil {
 		return spec.AgentResponse{}

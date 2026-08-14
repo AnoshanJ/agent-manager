@@ -25,6 +25,7 @@ import (
 func registerAgentRoutes(rr *middleware.RouteRegistrar, ctrl controllers.AgentController) {
 	rr.HandleFuncWithValidationAndAuthz("POST /orgs/{orgName}/projects/{projName}/agents", rbac.AgentCreate, ctrl.CreateAgent)
 	rr.HandleFuncWithValidationAndAuthz("GET /orgs/{orgName}/projects/{projName}/agents", rbac.AgentRead, ctrl.ListAgents)
+	rr.HandleFuncWithValidationAndAuthz("GET /orgs/{orgName}/agents", rbac.AgentRead, ctrl.ListOrgAgents)
 	rr.HandleFuncWithValidationAndAuthz("POST /orgs/{orgName}/utils/generate-name", rbac.AgentCreate, ctrl.GenerateName)
 	rr.HandleFuncWithValidationAndAuthz("GET /orgs/{orgName}/projects/{projName}/agents/{agentName}", rbac.AgentRead, ctrl.GetAgent)
 	rr.HandleFuncWithValidationAndAuthz("PUT /orgs/{orgName}/projects/{projName}/agents/{agentName}", rbac.AgentUpdate, ctrl.UpdateAgentBasicInfo)

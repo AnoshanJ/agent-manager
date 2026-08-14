@@ -580,6 +580,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /orgs/{orgName}/agents:
+    get:
+      summary: List all agents in an organization
+      description: >-
+        Returns a lightweight, unpaginated list of every agent in the
+        organization across all projects, containing only the name and
+        display name of each agent.
+      operationId: listOrgAgents
+      parameters:
+        - name: orgName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of agents in the organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSummaryListResponse"
+        "404":
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /orgs/{orgName}/projects/{projName}/agents/{agentName}:
     get:
       summary: Get agent details
@@ -11543,6 +11577,25 @@ components:
         - total
         - limit
         - offset
+    AgentSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        displayName:
+          type: string
+      required:
+        - name
+        - displayName
+    AgentSummaryListResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSummary"
+      required:
+        - agents
     BuildsListResponse:
       type: object
       properties:
