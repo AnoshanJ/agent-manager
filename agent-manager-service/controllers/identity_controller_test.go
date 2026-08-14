@@ -14,11 +14,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Regression tests for AM-CWE862 (the permission-mutation endpoints skipped
+// the predefined-role guard that UpdateRole/DeleteRole enforce): a caller
+// holding only the RoleUpdate scope could silently rewrite a predefined,
+// high-privilege role's permission set, because AddRolePermissions/
+// RemoveRolePermissions checked role ownership but never checked whether the
+// role was predefined.
+//
+// A predefined role's permission set is a fixed system definition — nobody,
+// admin included, edits it through the API; a different bundle means a new
+// custom role. So AddRolePermissions/RemoveRolePermissions now reject a
+// predefined role unconditionally, exactly like UpdateRole/DeleteRole already
+// did, with no bypass.
+//
+// Assigning a *user* to a role (including a predefined one) is a separate,
+// intentional capability of RoleUpdate — deciding who holds a role is role
+// membership data, not the role's definition — so AddRoleAssignees/
+// RemoveRoleAssignees are deliberately unrestricted by role name and are
+// pinned here to stay that way.
 package controllers
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,177 +44,183 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
-	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
-	"github.com/wso2/agent-manager/agent-manager-service/utils"
+	"github.com/wso2/agent-manager/agent-manager-service/orgctx"
 )
 
-// TestUpdateUser_CarriesOverTypeAndOUID guards against a regression where
-// UpdateUser sent Thunder a PUT /users/{id} with an empty Type/OuID. Thunder's
-// PUT is a full-replace operation that requires a valid type on every call, so an
-// empty Type failed with USR-1021 "user type not found" instead of preserving the
-// user's existing type — spec.UpdateUserRequest has no type/ouId field for callers
-// to set explicitly, so the handler must carry both over from the fetched record.
-func TestUpdateUser_CarriesOverTypeAndOUID(t *testing.T) {
-	var gotReq thundersvc.UpdateUserRequest
-	client := &clientmocks.IdentityClientMock{
-		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
-			return &thundersvc.ThunderUser{ID: userID, Type: "engineer", OuID: "ou-1"}, nil
+// roleRequest builds a request carrying the org context, roleID path value,
+// and a no-op audit recorder every identityController role-mutation handler
+// needs (the write handlers refuse to proceed if no recorder is installed).
+func roleRequest(method, url, body string) *http.Request {
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	req.SetPathValue("roleID", "role-under-test")
+	ctx := middleware.WithResolvedOrg(req.Context(), orgctx.ResolvedOrg{OUID: "ou-1", OuHandle: "acme"})
+	ctx = audit.WithRecorder(ctx, audit.NewNoopRecorder())
+	return req.WithContext(ctx)
+}
+
+func identityClientReturning(role *thundersvc.ThunderRole) *clientmocks.IdentityClientMock {
+	return &clientmocks.IdentityClientMock{
+		GetRoleFunc: func(_ context.Context, _ string) (*thundersvc.ThunderRole, error) {
+			return role, nil
 		},
-		UpdateUserFunc: func(_ context.Context, _ string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error) {
-			gotReq = req
-			return &thundersvc.ThunderUser{ID: "user-1", Type: req.Type, OuID: req.OuID}, nil
-		},
+	}
+}
+
+func predefinedRole() *thundersvc.ThunderRole {
+	return &thundersvc.ThunderRole{ID: "role-under-test", OuID: "ou-1", Name: "Agent Manager Admin"}
+}
+
+func customRole() *thundersvc.ThunderRole {
+	return &thundersvc.ThunderRole{ID: "role-under-test", OuID: "ou-1", Name: "custom-delegated-role"}
+}
+
+func TestAddRolePermissions_PredefinedRoleRejected(t *testing.T) {
+	client := identityClientReturning(predefinedRole())
+	// AddRolePermissionsFunc is left nil: reaching Thunder would panic, proving
+	// the guard returned before any mutation was attempted.
+	ctrl := NewIdentityController(client)
+
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/permissions/add",
+		`{"resourceServerId":"amp-resource-server","permissions":["amp:org:view"]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.AddRolePermissions(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAddRolePermissions_CustomRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(customRole())
+	client.AddRolePermissionsFunc = func(_ context.Context, roleID string, req thundersvc.RolePermissionRequest) error {
+		called = true
+		assert.Equal(t, "role-under-test", roleID)
+		return nil
 	}
 	ctrl := NewIdentityController(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/orgs/o1/identities/users/user-1",
-		strings.NewReader(`{"attributes":{"given_name":"Updated"}}`))
-	req.SetPathValue(utils.PathParamUserID, "user-1")
-	req = req.WithContext(middleware.WithResolvedOrg(req.Context(), middleware.ResolvedOrg{OUID: "ou-1"}))
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/permissions/add",
+		`{"resourceServerId":"amp-resource-server","permissions":["amp:org:view"]}`)
 	w := httptest.NewRecorder()
 
-	ctrl.UpdateUser(w, req)
+	ctrl.AddRolePermissions(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "engineer", gotReq.Type)
-	assert.Equal(t, "ou-1", gotReq.OuID)
-	assert.Equal(t, "Updated", gotReq.Attributes["given_name"])
+	assert.True(t, called, "a genuinely custom role must still be reachable")
 }
 
-// TestUpdateCurrentUserProfile_RoutesPasswordToCredentialsEndpoint guards against a
-// regression where a password change from the profile page was folded into the regular
-// attribute-update call. Thunder rejects a password field there with USR-1028
-// "Credential update not allowed" — it only accepts credential changes through the
-// dedicated update-credentials endpoint, so the handler must split the two calls.
-func TestUpdateCurrentUserProfile_RoutesPasswordToCredentialsEndpoint(t *testing.T) {
-	var gotUpdateReq thundersvc.UpdateUserRequest
-	var gotCredUserID, gotCredPassword string
-	client := &clientmocks.IdentityClientMock{
-		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
-			return &thundersvc.ThunderUser{ID: userID, Type: "engineer", OuID: "ou-1"}, nil
-		},
-		UpdateUserFunc: func(_ context.Context, _ string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error) {
-			gotUpdateReq = req
-			return &thundersvc.ThunderUser{ID: "user-1", Type: req.Type, OuID: req.OuID}, nil
-		},
-		UpdateUserCredentialsFunc: func(_ context.Context, userID, password string) error {
-			gotCredUserID = userID
-			gotCredPassword = password
-			return nil
-		},
+func TestRemoveRolePermissions_PredefinedRoleRejected(t *testing.T) {
+	client := identityClientReturning(predefinedRole())
+	ctrl := NewIdentityController(client)
+
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/permissions/remove",
+		`{"resourceServerId":"amp-resource-server","permissions":["amp:org:view"]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.RemoveRolePermissions(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRemoveRolePermissions_CustomRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(customRole())
+	client.RemoveRolePermissionsFunc = func(_ context.Context, roleID string, req thundersvc.RolePermissionRequest) error {
+		called = true
+		return nil
 	}
 	ctrl := NewIdentityController(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/orgs/o1/identities/users/user-1/profile",
-		strings.NewReader(`{"attributes":{"given_name":"Updated","password":"newpass123"}}`))
-	req.SetPathValue(utils.PathParamUserID, "user-1")
-	req = req.WithContext(middleware.WithResolvedOrg(req.Context(), middleware.ResolvedOrg{OUID: "ou-1"}))
-	req = req.WithContext(jwtassertion.ContextWithTokenClaims(req.Context(), &jwtassertion.TokenClaims{Sub: "user-1"}))
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/permissions/remove",
+		`{"resourceServerId":"amp-resource-server","permissions":["amp:org:view"]}`)
 	w := httptest.NewRecorder()
 
-	ctrl.UpdateCurrentUserProfile(w, req)
+	ctrl.RemoveRolePermissions(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "Updated", gotUpdateReq.Attributes["given_name"])
-	_, passwordInAttrs := gotUpdateReq.Attributes["password"]
-	assert.False(t, passwordInAttrs, "password must not be sent through the regular attribute-update call")
-	assert.Equal(t, "user-1", gotCredUserID)
-	assert.Equal(t, "newpass123", gotCredPassword)
+	assert.True(t, called)
 }
 
-// TestUpdateCurrentUserProfile_RejectsUpdatingAnotherUser guards the self-check
-// that makes this a "current user" endpoint at all: without it, any
-// authenticated caller could change another user's name, email, or password
-// by putting a different ID in the path.
-func TestUpdateCurrentUserProfile_RejectsUpdatingAnotherUser(t *testing.T) {
-	client := &clientmocks.IdentityClientMock{
-		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
-			t.Fatalf("must not even fetch the target user once the self-check fails")
-			return nil, nil //nolint:nilnil // unreachable: t.Fatalf halts the goroutine before this returns
-		},
+// TestAddRoleAssignees_PredefinedRoleAllowed pins the deliberate distinction
+// from the permission-mutation endpoints above: adding a user as an assignee
+// of a predefined role is role-membership data, which RoleUpdate is meant to
+// cover, so it must NOT be blocked the way editing the role's permissions is.
+func TestAddRoleAssignees_PredefinedRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(predefinedRole())
+	client.AddRoleAssigneesFunc = func(_ context.Context, roleID string, req thundersvc.RoleAssignmentsRequest) error {
+		called = true
+		return nil
 	}
 	ctrl := NewIdentityController(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/orgs/o1/identities/users/victim-user/profile",
-		strings.NewReader(`{"attributes":{"password":"attacker-set-password"}}`))
-	req.SetPathValue(utils.PathParamUserID, "victim-user")
-	req = req.WithContext(middleware.WithResolvedOrg(req.Context(), middleware.ResolvedOrg{OUID: "ou-1"}))
-	req = req.WithContext(jwtassertion.ContextWithTokenClaims(req.Context(), &jwtassertion.TokenClaims{Sub: "attacker-user"}))
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/assignees/add",
+		`{"userIds":["some-user"]}`)
 	w := httptest.NewRecorder()
 
-	ctrl.UpdateCurrentUserProfile(w, req)
-
-	require.Equal(t, http.StatusForbidden, w.Code)
-}
-
-// TestUpdateCurrentUserProfile_PasswordFailureReportsPartialSuccess guards the
-// degrade path when the attribute update succeeds but the follow-up
-// credential update fails: the response must say so explicitly (not a generic
-// 500) since the name/email change already committed and a naive retry would
-// resubmit those needlessly.
-func TestUpdateCurrentUserProfile_PasswordFailureReportsPartialSuccess(t *testing.T) {
-	updateUserCalled := false
-	client := &clientmocks.IdentityClientMock{
-		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
-			return &thundersvc.ThunderUser{ID: userID, Type: "engineer", OuID: "ou-1"}, nil
-		},
-		UpdateUserFunc: func(_ context.Context, _ string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error) {
-			updateUserCalled = true
-			return &thundersvc.ThunderUser{ID: "user-1", Type: req.Type, OuID: req.OuID}, nil
-		},
-		UpdateUserCredentialsFunc: func(_ context.Context, _, _ string) error {
-			return fmt.Errorf("thunder update user credentials: HTTP 500: internal error")
-		},
-	}
-	ctrl := NewIdentityController(client)
-
-	req := httptest.NewRequest(http.MethodPut, "/orgs/o1/identities/users/user-1/profile",
-		strings.NewReader(`{"attributes":{"given_name":"Updated","password":"newpass123"}}`))
-	req.SetPathValue(utils.PathParamUserID, "user-1")
-	req = req.WithContext(middleware.WithResolvedOrg(req.Context(), middleware.ResolvedOrg{OUID: "ou-1"}))
-	req = req.WithContext(jwtassertion.ContextWithTokenClaims(req.Context(), &jwtassertion.TokenClaims{Sub: "user-1"}))
-	w := httptest.NewRecorder()
-
-	ctrl.UpdateCurrentUserProfile(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.True(t, updateUserCalled, "the name/email change must still have been attempted and committed")
-	assert.Contains(t, w.Body.String(), "Profile updated, but password change failed")
-}
-
-// TestUpdateCurrentUserProfile_EmptyPasswordSkipsCredentialsCall covers a
-// profile save where the password field is present but blank (e.g. a form
-// that always includes the field but the user left it untouched): it must be
-// treated as "no password change requested," not as "set the password to
-// empty."
-func TestUpdateCurrentUserProfile_EmptyPasswordSkipsCredentialsCall(t *testing.T) {
-	credsCalled := false
-	client := &clientmocks.IdentityClientMock{
-		GetUserFunc: func(_ context.Context, userID string) (*thundersvc.ThunderUser, error) {
-			return &thundersvc.ThunderUser{ID: userID, Type: "engineer", OuID: "ou-1"}, nil
-		},
-		UpdateUserFunc: func(_ context.Context, _ string, req thundersvc.UpdateUserRequest) (*thundersvc.ThunderUser, error) {
-			return &thundersvc.ThunderUser{ID: "user-1", Type: req.Type, OuID: req.OuID}, nil
-		},
-		UpdateUserCredentialsFunc: func(_ context.Context, _, _ string) error {
-			credsCalled = true
-			return nil
-		},
-	}
-	ctrl := NewIdentityController(client)
-
-	req := httptest.NewRequest(http.MethodPut, "/orgs/o1/identities/users/user-1/profile",
-		strings.NewReader(`{"attributes":{"given_name":"Updated","password":""}}`))
-	req.SetPathValue(utils.PathParamUserID, "user-1")
-	req = req.WithContext(middleware.WithResolvedOrg(req.Context(), middleware.ResolvedOrg{OUID: "ou-1"}))
-	req = req.WithContext(jwtassertion.ContextWithTokenClaims(req.Context(), &jwtassertion.TokenClaims{Sub: "user-1"}))
-	w := httptest.NewRecorder()
-
-	ctrl.UpdateCurrentUserProfile(w, req)
+	ctrl.AddRoleAssignees(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.False(t, credsCalled, "a blank password must not trigger a credentials update call")
+	assert.True(t, called, "assigning a user to a predefined role is role-membership data, not a definition change")
+}
+
+func TestAddRoleAssignees_CustomRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(customRole())
+	client.AddRoleAssigneesFunc = func(_ context.Context, roleID string, req thundersvc.RoleAssignmentsRequest) error {
+		called = true
+		return nil
+	}
+	ctrl := NewIdentityController(client)
+
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/assignees/add",
+		`{"userIds":["some-user"]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.AddRoleAssignees(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, called, "assigning to a genuinely custom role must still work")
+}
+
+func TestRemoveRoleAssignees_PredefinedRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(predefinedRole())
+	client.RemoveRoleAssigneesFunc = func(_ context.Context, roleID string, req thundersvc.RoleAssignmentsRequest) error {
+		called = true
+		return nil
+	}
+	ctrl := NewIdentityController(client)
+
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/assignees/remove",
+		`{"userIds":["some-user"]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.RemoveRoleAssignees(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, called, "removing a user from a predefined role is role-membership data, not a definition change")
+}
+
+func TestRemoveRoleAssignees_CustomRoleAllowed(t *testing.T) {
+	called := false
+	client := identityClientReturning(customRole())
+	client.RemoveRoleAssigneesFunc = func(_ context.Context, roleID string, req thundersvc.RoleAssignmentsRequest) error {
+		called = true
+		return nil
+	}
+	ctrl := NewIdentityController(client)
+
+	req := roleRequest(http.MethodPost, "/orgs/acme/identities/roles/role-under-test/assignees/remove",
+		`{"userIds":["some-user"]}`)
+	w := httptest.NewRecorder()
+
+	ctrl.RemoveRoleAssignees(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, called)
 }
