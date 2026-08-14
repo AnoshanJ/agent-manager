@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Configure Trace Sampling
 
-At high request rates, exporting every trace becomes impractical — a single agent invocation produces a root span plus one span per LLM call, tool call, and retrieval step, so trace volume grows faster than request volume.
+At high request rates, exporting every trace becomes impractical — a single agent invocation produces a root span plus one span per LLM call, tool call, and retrieval step.
 
 AMP does not sample traces on the server side. Sampling is a **client-side, head-based** decision made inside the agent process by the OpenTelemetry SDK, before spans are exported. You control it with two standard OpenTelemetry environment variables:
 
