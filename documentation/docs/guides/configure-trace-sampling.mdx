@@ -43,7 +43,22 @@ This keeps about 10% of traces. Prefer `parentbased_traceidratio` over plain `tr
 
 Sampling is **per trace, not per span**. The decision is derived from the trace ID, so every span in a trace shares the same outcome — a sampled trace arrives complete in the Console, and an unsampled one never leaves the agent process. You will not see partial traces.
 
-## Platform-Hosted Agents
+## Where to Set the Variables
+
+The variables are the same for both deployment models — only *how* you set them differs:
+
+| | Platform-hosted agent | Externally-hosted agent |
+|---|---|---|
+| Where | Console → agent → **Deploy** → **Environment Variables** | The agent's own environment (shell, Dockerfile, systemd unit, Kubernetes manifest) |
+| Endpoint and API key | Injected by AMP — you do not set them | You set `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY` yourself |
+| You add | The two sampler variables only | The two sampler variables, alongside the endpoint and API key |
+| To apply | Redeploy the agent | Restart the agent |
+
+The sampler is read once when the agent process starts, so a change never affects a running agent until it is redeployed or restarted.
+
+### Platform-Hosted Agents
+
+AMP already injects `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY`, so you only add the two sampler variables:
 
 1. In the AMP Console, open your agent and go to **Deploy**.
 2. Open the deployment configuration and find the **Environment Variables** section.
@@ -51,9 +66,11 @@ Sampling is **per trace, not per span**. The decision is derived from the trace 
 4. Click **Add** again and enter `OTEL_TRACES_SAMPLER_ARG` with the value `0.1`.
 5. Save and redeploy the agent.
 
-## Externally-Hosted Agents
+This works whether the agent uses auto-instrumentation (the injected init container) or the manual `init_otel()` helper — both read the variables from the container environment at startup.
 
-Export the variables alongside `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY` before starting the agent:
+### Externally-Hosted Agents
+
+Set all four variables in the agent's own environment, then start it:
 
 ```bash
 export AMP_OTEL_ENDPOINT="<your-amp-otel-endpoint>"
@@ -64,7 +81,9 @@ export OTEL_TRACES_SAMPLER_ARG="0.1"
 amp-instrument python my_agent.py
 ```
 
-The same variables apply if you use the manual `init_otel()` helper instead. The sampler is read once at startup, so restart the agent after changing them.
+The same variables apply if you call `init_otel()` from your own code instead of using `amp-instrument`.
+
+If the agent runs under Docker, systemd, or Kubernetes rather than from a shell, set them in the container environment or unit file — exports from a parent shell will not reach the process.
 
 ## Important Considerations
 
