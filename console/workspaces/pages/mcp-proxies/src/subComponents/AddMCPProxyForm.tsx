@@ -42,7 +42,7 @@ import { EndpointsEditorSection } from "./EndpointsEditorSection";
 import { draftToEndpoint } from "./mcpEndpoints";
 import { MCP_SPEC_VERSION } from "../constants";
 
-const DEFAULT_PROXY_VERSION = "0.0.1";
+const DEFAULT_PROXY_VERSION = "1.0.0";
 
 const SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
@@ -75,6 +75,8 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
   const [proxyVersion, setProxyVersion] = useState(DEFAULT_PROXY_VERSION);
   const [proxyDescription, setProxyDescription] = useState("");
   const [proxyContext, setProxyContext] = useState("");
+  const [handle, setHandle] = useState("");
+  const [handleEdited, setHandleEdited] = useState(false);
   const [endpoints, setEndpoints] = useState<EndpointDraft[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -99,9 +101,17 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
       if (!proxyContext || proxyContext === previousContext) {
         setProxyContext(value ? `/default/${toHandle(value)}` : "");
       }
+      if (!handleEdited) {
+        setHandle(toHandle(value));
+      }
     },
-    [proxyContext, proxyName],
+    [proxyContext, proxyName, handleEdited],
   );
+
+  const handleHandleChange = useCallback((value: string) => {
+    setHandleEdited(true);
+    setHandle(toHandle(value));
+  }, []);
 
   // Convenience: seed the proxy name/version/context from the first fetched
   // server when the user hasn't typed them yet. They remain fully editable.
@@ -112,12 +122,15 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
         if (!proxyContext) {
           setProxyContext(`/default/${toHandle(draft.serverName)}`);
         }
+        if (!handleEdited) {
+          setHandle(toHandle(draft.serverName));
+        }
       }
       if (proxyVersion === DEFAULT_PROXY_VERSION && draft.serverVersion) {
         handleVersionChange(draft.serverVersion);
       }
     },
-    [proxyContext, proxyName, proxyVersion, handleVersionChange],
+    [proxyContext, proxyName, proxyVersion, handleEdited, handleVersionChange],
   );
 
   const handleCreate = useCallback(async () => {
@@ -130,7 +143,7 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
     // and is bound to one or more environments. The org-level proxy is a grouping and
     // deploys nothing itself.
     const body: MCPProxy = {
-      id: toHandle(name),
+      id: toHandle(handle || name),
       name,
       version: proxyVersion.trim(),
       description: proxyDescription.trim() || undefined,
@@ -157,6 +170,7 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
     orgId,
     proxyContext,
     proxyDescription,
+    handle,
     proxyName,
     proxyVersion,
     validateForm,
@@ -164,6 +178,7 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
 
   const canCreate =
     Boolean(proxyName.trim()) &&
+    Boolean(handle.trim()) &&
     Boolean(proxyVersion.trim()) &&
     !errors.version &&
     endpoints.length > 0 &&
@@ -200,6 +215,18 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
               />
             </FormControl>
           </Form.Stack>
+
+          <FormControl fullWidth>
+            <FormLabel required>Handle</FormLabel>
+            <TextField
+              fullWidth
+              value={handle}
+              onChange={(event) => handleHandleChange(event.target.value)}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Unique, immutable identifier for the MCP Server.
+            </Typography>
+          </FormControl>
 
           <FormControl fullWidth>
             <FormLabel>Description</FormLabel>
