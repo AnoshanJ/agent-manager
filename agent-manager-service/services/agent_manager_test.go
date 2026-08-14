@@ -19,6 +19,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -1933,8 +1934,7 @@ func TestListOrgAgents_AggregatesAcrossProjects(t *testing.T) {
 			case "proj2":
 				return []*models.AgentResponse{{Name: "agent-b", DisplayName: "Agent B", ProjectName: "proj2"}}, nil
 			default:
-				t.Fatalf("unexpected project name %q", projectName)
-				return nil, nil
+				return nil, fmt.Errorf("unexpected project name %q", projectName)
 			}
 		},
 	}
