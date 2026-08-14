@@ -2,7 +2,7 @@
 
 Stdlib only — no npm, no build step. Run it from anywhere:
 
-    AGENT_URL=http://localhost:8000/chat python frontend/serve.py
+    AGENT_URL=http://localhost:10150/chat python frontend/serve.py
 
 Leaving OIDC_CLIENT_ID unset serves the UI in no-login mode, so the sample can
 be exercised before OAuth is configured on the agent.
@@ -20,7 +20,7 @@ HERE = Path(__file__).parent
 
 
 def build_config() -> dict[str, str]:
-    agent_url = os.environ.get("AGENT_URL", "http://localhost:8000/chat")
+    agent_url = os.environ.get("AGENT_URL", "http://localhost:10150/chat")
     return {
         "agentUrl": agent_url,
         "issuer": os.environ.get("OIDC_ISSUER", "").rstrip("/"),
@@ -57,7 +57,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    port = int(os.environ.get("PORT", "3000"))
+    # UI_PORT, not PORT: the agent uses PORT, and both often run from one shell.
+    port = int(os.environ.get("UI_PORT", "13000"))
     config = build_config()
 
     handler = partial(Handler, directory=str(HERE))

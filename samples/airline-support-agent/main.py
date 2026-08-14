@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
+
 import uvicorn
 
 from app import app
 
+# Platform-hosted chat agents are routed to 8000; override only for local runs.
+DEFAULT_PORT = 8000
+
 
 def main() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", DEFAULT_PORT)))
 
 
 if __name__ == "__main__":

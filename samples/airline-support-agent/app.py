@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from strands import Agent
 
@@ -21,6 +22,17 @@ CONFIG = Config.from_env()
 SESSIONS: dict[str, Agent] = {}
 
 app = FastAPI(title="Airline Support Agent", version="1.0.0")
+
+# Off unless set: deployed agents get CORS from the gateway, and a second set of
+# headers from here would make browsers reject the response.
+_cors_origins = [o for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["POST", "GET", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 class ChatRequest(BaseModel):
