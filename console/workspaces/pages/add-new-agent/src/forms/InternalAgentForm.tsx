@@ -35,6 +35,7 @@ import { MCPProxySection } from "../components/MCPProxySection";
 import { LabelsEditor, MarkdownEditor } from "@agent-management-platform/shared-component";
 import type { CreateAgentFormValues, LLMProviderFormEntry, MCPProxyFormEntry } from "../form/schema";
 import { BuildpackIcon } from "@agent-management-platform/views";
+import { mcpEntryVarNames } from "../utils/mcpEnvVarNames";
 
 interface InternalAgentFormProps {
   formData: CreateAgentFormValues;
@@ -698,10 +699,7 @@ export const InternalAgentForm = ({
             : "AGENT";
           return new Set([
             ...(formData.env ?? []).map((e) => e.key).filter((k): k is string => !!k),
-            ...mcpProxies.flatMap((e, i) => [
-              e.urlVarName ?? `${agentNameUpper}_MCP_${i + 1}_URL`,
-              e.apikeyVarName ?? `${agentNameUpper}_MCP_${i + 1}_API_KEY`,
-            ]),
+            ...mcpProxies.flatMap((e, i) => mcpEntryVarNames(e, i, agentNameUpper)),
           ]);
         })()}
       />
@@ -736,10 +734,7 @@ export const InternalAgentForm = ({
               e.urlVarName ?? `${agentNameUpper}_${i + 1}_URL`,
               e.apikeyVarName ?? `${agentNameUpper}_${i + 1}_API_KEY`,
             ]),
-            ...mcpProxies.flatMap((e, i) => [
-              e.urlVarName ?? `${agentNameUpper}_MCP_${i + 1}_URL`,
-              e.apikeyVarName ?? `${agentNameUpper}_MCP_${i + 1}_API_KEY`,
-            ]),
+            ...mcpProxies.flatMap((e, i) => mcpEntryVarNames(e, i, agentNameUpper)),
           ]);
         })()}
       />

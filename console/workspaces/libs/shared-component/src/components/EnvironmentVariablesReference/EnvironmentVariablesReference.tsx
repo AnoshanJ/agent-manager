@@ -18,15 +18,9 @@
 import { type ChangeEvent, type ReactNode } from "react";
 import { Alert, Box, ListingTable, Stack, Typography } from "@wso2/oxygen-ui";
 import { TextInput } from "@agent-management-platform/views";
+import type { EnvVarReferenceRow } from "../../utils/mcpEnvVarSpec";
 
-export interface EnvVarReferenceRow {
-  /** Canonical key identifying the variable. */
-  key: string;
-  /** The (possibly user-overridden) environment variable name. */
-  name: string;
-  /** Human-readable description of what the variable holds. */
-  description?: string;
-}
+export type { EnvVarReferenceRow };
 
 interface EnvironmentVariablesReferenceProps {
   /** Heading text; override when a page shows more than one of these blocks. */

@@ -33,6 +33,7 @@ import {
   findLowestEnvironmentName,
   hasMultipleEnvironments,
 } from "../utils/buildAgentPayload";
+import { mcpEntryVarNames } from "../utils/mcpEnvVarNames";
 
 export const InternalAgentFlow: React.FC = () => {
   const navigate = useNavigate();
@@ -215,10 +216,7 @@ export const InternalAgentFlow: React.FC = () => {
                 e.urlVarName ?? `${agentNameUpper}_${i + 1}_URL`,
                 e.apikeyVarName ?? `${agentNameUpper}_${i + 1}_API_KEY`,
               ]),
-              ...mcpProxies.flatMap((e, i) => [
-                e.urlVarName ?? `${agentNameUpper}_MCP_${i + 1}_URL`,
-                e.apikeyVarName ?? `${agentNameUpper}_MCP_${i + 1}_API_KEY`,
-              ]),
+              ...mcpProxies.flatMap((e, i) => mcpEntryVarNames(e, i, agentNameUpper)),
             ];
             const llmNameSet = new Set(llmNames);
             // Duplicate LLM/MCP names

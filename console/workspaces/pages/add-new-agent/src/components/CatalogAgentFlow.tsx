@@ -35,6 +35,7 @@ import { LLMProviderSection } from "./LLMProviderSection";
 import { MCPProxySection } from "./MCPProxySection";
 import { EnvironmentVariable } from "./EnvironmentVariable";
 import { FileMount } from "./FileMount";
+import { mcpEntryVarNames } from "../utils/mcpEnvVarNames";
 
 export const CatalogAgentFlow: React.FC = () => {
   const navigate = useNavigate();
@@ -163,10 +164,9 @@ export const CatalogAgentFlow: React.FC = () => {
         entry.urlVarName ?? `${agentNameUpper}_${index + 1}_URL`,
         entry.apikeyVarName ?? `${agentNameUpper}_${index + 1}_API_KEY`,
       ]),
-      ...mcpProxies.flatMap((entry, index) => [
-        entry.urlVarName ?? `${agentNameUpper}_MCP_${index + 1}_URL`,
-        entry.apikeyVarName ?? `${agentNameUpper}_MCP_${index + 1}_API_KEY`,
-      ]),
+      ...mcpProxies.flatMap((entry, index) =>
+        mcpEntryVarNames(entry, index, agentNameUpper),
+      ),
     ];
   }, [formData.displayName, llmProviders, mcpProxies]);
 
@@ -311,10 +311,7 @@ export const CatalogAgentFlow: React.FC = () => {
               : "AGENT";
             return new Set([
               ...(formData.env ?? []).map((e) => e.key).filter((k): k is string => !!k),
-              ...mcpProxies.flatMap((e, i) => [
-                e.urlVarName ?? `${agentNameUpper}_MCP_${i + 1}_URL`,
-                e.apikeyVarName ?? `${agentNameUpper}_MCP_${i + 1}_API_KEY`,
-              ]),
+              ...mcpProxies.flatMap((e, i) => mcpEntryVarNames(e, i, agentNameUpper)),
             ]);
           })()}
         />

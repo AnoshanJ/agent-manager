@@ -25,7 +25,9 @@ import {
 } from "@agent-management-platform/views";
 import {
   CodeBlock,
+  AGENTID_ENV_VAR_ROWS,
   copyToClipboard,
+  EnvironmentVariablesReference,
   getErrorMessage,
   monospaceInputSx,
   useAgentIdentityCredentials,
@@ -85,10 +87,6 @@ import {
   useParams,
 } from "react-router-dom";
 import { EnvironmentVariablesGuideDrawer } from "./Configure/subComponents/EnvironmentVariablesGuideDrawer";
-import {
-  EnvironmentVariablesReference,
-  type EnvVarReferenceRow,
-} from "./Configure/subComponents/EnvironmentVariablesReference";
 import { MCPServerDisplay } from "./Configure/subComponents/MCPServerDisplay";
 import { MCPProxyAPIKeysSection } from "./Configure/subComponents/MCPProxyAPIKeysSection";
 import { CONFIGURE_TAB_PARAM } from "./configureTabs";
@@ -102,29 +100,9 @@ type AuthInfoEntry = {
 
 // Fixed, never-renameable AMP_AGENTID_* names (client.EnvVarAgentID* in
 // constants.go) — kept as their own reference instead of folding into
-// envVarReferenceRows.
-export const AGENTID_ENV_VAR_ROWS: EnvVarReferenceRow[] = [
-  {
-    key: "clientId",
-    name: "AMP_AGENTID_CLIENT_ID",
-    description: "This agent's OAuth2 client ID for this environment",
-  },
-  {
-    key: "clientSecret",
-    name: "AMP_AGENTID_CLIENT_SECRET",
-    description: "This agent's OAuth2 client secret for this environment",
-  },
-  {
-    key: "tokenEndpoint",
-    name: "AMP_AGENTID_TOKEN_ENDPOINT",
-    description: "Token endpoint to call with a client_credentials grant",
-  },
-  {
-    key: "scopes",
-    name: "AMP_AGENTID_SCOPES",
-    description: "Space-separated scopes to request for this tool's actions",
-  },
-];
+// envVarReferenceRows. Now defined in shared-component so the agent-creation flow
+// shows the same variables; re-exported here for existing importers.
+export { AGENTID_ENV_VAR_ROWS };
 
 // Mirrors how buildMCPPythonSnippet resolves the (possibly renamed) URL var,
 // so both guides stay consistent if that name changes.
