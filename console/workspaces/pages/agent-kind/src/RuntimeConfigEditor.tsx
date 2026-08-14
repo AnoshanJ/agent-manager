@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import React from "react";
+import React, { useRef } from "react";
 import {
     Box,
     Button,
@@ -240,13 +240,25 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
 
     const removeRow = (index: number) => onChange(rows.filter((_, i) => i !== index));
 
+    // FileReader resolves asynchronously, so by the time it fires, `rows` closed
+    // over at render time may be behind the latest edits — read from this ref instead.
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+
     const handleEnvFileParsed = (entries: ParsedEnvEntry[]) => {
-        const next = [...rows];
+        const next = [...rowsRef.current];
+        const indexByKey = new Map<string, number>();
+        next.forEach((row, i) => {
+            const trimmedKey = row.key.trim();
+            if (trimmedKey) indexByKey.set(trimmedKey, i);
+        });
+
         for (const { key, value } of entries) {
-            const existingIndex = next.findIndex((row) => row.key.trim() === key);
-            if (existingIndex !== -1) {
+            const existingIndex = indexByKey.get(key);
+            if (existingIndex !== undefined) {
                 next[existingIndex] = { ...next[existingIndex], defaultValue: value };
             } else {
+                indexByKey.set(key, next.length);
                 next.push(createRuntimeConfigRow({ key, defaultValue: value }));
             }
         }
@@ -269,11 +281,13 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
                 />
             ))}
             {!readonlyKey && (
-                <Box display="flex" flexDirection="row" gap={1}>
+                <Box display="flex" flexDirection="row" gap={1} alignItems="flex-start">
                     <Button size="small" variant="outlined" startIcon={<Plus />} onClick={addRow} disabled={isInvalid}>
                         Add Runtime Key
                     </Button>
-                    <EnvFileUploadButton onParsed={handleEnvFileParsed} label="Upload .env file" />
+                    <Box display="flex" flexDirection="column">
+                        <EnvFileUploadButton onParsed={handleEnvFileParsed} label="Upload .env file" />
+                    </Box>
                 </Box>
             )}
         </Stack>
