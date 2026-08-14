@@ -1,0 +1,114 @@
+openapi: 3.0.3
+info:
+  title: Airline Support Agent
+  description: |
+    A Strands agent exposing a single POST /chat endpoint. It answers passenger
+    questions about bookings, flight status and seat changes using three tools
+    over in-memory fixtures.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+paths:
+  /chat:
+    post:
+      summary: Chat with the airline support agent
+      description: |
+        Sends a passenger message to the agent. Conversation history is kept per
+        session_id; omit it to start a new conversation.
+      operationId: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+            examples:
+              flightStatus:
+                summary: Ask for a flight status
+                value:
+                  session_id: "session_123"
+                  message: "What is the status of flight SK412?"
+              seatChange:
+                summary: Change a seat
+                value:
+                  session_id: "session_123"
+                  message: "Move booking SKY7QT to seat 12C"
+      responses:
+        "200":
+          description: The agent's reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+              examples:
+                flightStatusResponse:
+                  summary: Flight status reply
+                  value:
+                    response: "SK412 to New York JFK is on time, departing from gate B12."
+                    session_id: "session_123"
+        "400":
+          description: Empty message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Agent invocation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /health:
+    get:
+      summary: Liveness check
+      operationId: health
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  airline:
+                    type: string
+                    example: Skyline Airways
+components:
+  schemas:
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: The passenger's message
+        session_id:
+          type: string
+          description: Conversation identifier; generated when omitted
+        context:
+          type: object
+          additionalProperties: true
+          description: Optional caller-supplied context
+    ChatResponse:
+      type: object
+      required:
+        - response
+        - session_id
+      properties:
+        response:
+          type: string
+          description: The agent's reply
+        session_id:
+          type: string
+          description: Conversation identifier to send with the next message
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: "message must not be empty"
