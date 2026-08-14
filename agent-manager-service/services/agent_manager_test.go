@@ -1921,14 +1921,17 @@ func TestListOrgAgents_AggregatesAcrossProjects(t *testing.T) {
 			return &models.OrganizationResponse{}, nil
 		},
 		ListProjectsFunc: func(_ context.Context, _ string) ([]*models.ProjectResponse, error) {
-			return []*models.ProjectResponse{{Name: "proj1"}, {Name: "proj2"}}, nil
+			return []*models.ProjectResponse{
+				{Name: "proj1", DisplayName: "Project One"},
+				{Name: "proj2", DisplayName: "Project Two"},
+			}, nil
 		},
 		ListComponentsFunc: func(_ context.Context, _ string, projectName string) ([]*models.AgentResponse, error) {
 			switch projectName {
 			case "proj1":
-				return []*models.AgentResponse{{Name: "agent-a", DisplayName: "Agent A"}}, nil
+				return []*models.AgentResponse{{Name: "agent-a", DisplayName: "Agent A", ProjectName: "proj1"}}, nil
 			case "proj2":
-				return []*models.AgentResponse{{Name: "agent-b", DisplayName: "Agent B"}}, nil
+				return []*models.AgentResponse{{Name: "agent-b", DisplayName: "Agent B", ProjectName: "proj2"}}, nil
 			default:
 				t.Fatalf("unexpected project name %q", projectName)
 				return nil, nil
@@ -1940,11 +1943,14 @@ func TestListOrgAgents_AggregatesAcrossProjects(t *testing.T) {
 	agents, err := s.ListOrgAgents(context.Background(), "acme")
 
 	require.NoError(t, err)
-	names := make([]string, len(agents))
-	for i, a := range agents {
-		names[i] = a.Name
+	byName := make(map[string]*models.AgentSummary, len(agents))
+	for _, a := range agents {
+		byName[a.Name] = a
 	}
-	assert.ElementsMatch(t, []string{"agent-a", "agent-b"}, names)
+	require.Contains(t, byName, "agent-a")
+	require.Contains(t, byName, "agent-b")
+	assert.Equal(t, "Project One", byName["agent-a"].ProjectDisplayName)
+	assert.Equal(t, "Project Two", byName["agent-b"].ProjectDisplayName)
 }
 
 func TestListOrgAgents_OrganizationNotFound(t *testing.T) {

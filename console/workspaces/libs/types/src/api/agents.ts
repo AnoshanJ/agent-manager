@@ -128,9 +128,13 @@ export interface AgentListResponse extends PaginationMeta {
 }
 
 // Lightweight org-wide listing: every agent across all projects, unpaginated.
+// Includes the owning project's name/displayName so consumers can resolve
+// both without a separate project lookup.
 export interface AgentSummary {
   name: string;
   displayName: string;
+  projectName: string;
+  projectDisplayName: string;
 }
 
 export interface AgentSummaryListResponse {

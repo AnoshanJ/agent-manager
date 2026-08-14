@@ -585,8 +585,9 @@ paths:
       summary: List all agents in an organization
       description: >-
         Returns a lightweight, unpaginated list of every agent in the
-        organization across all projects, containing only the name and
-        display name of each agent.
+        organization across all projects, containing each agent's name,
+        display name, and the name and display name of the project it
+        belongs to.
       operationId: listOrgAgents
       parameters:
         - name: orgName
@@ -11584,9 +11585,15 @@ components:
           type: string
         displayName:
           type: string
+        projectName:
+          type: string
+        projectDisplayName:
+          type: string
       required:
         - name
         - displayName
+        - projectName
+        - projectDisplayName
     AgentSummaryListResponse:
       type: object
       properties:

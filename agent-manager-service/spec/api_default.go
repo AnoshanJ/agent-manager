@@ -6862,7 +6862,7 @@ func (r ApiListOrgAgentsRequest) Execute() (*AgentSummaryListResponse, *http.Res
 /*
 ListOrgAgents List all agents in an organization
 
-Returns a lightweight, unpaginated list of every agent in the organization across all projects, containing only the name and display name of each agent.
+Returns a lightweight, unpaginated list of every agent in the organization across all projects, containing each agent's name, display name, and the name and display name of the project it belongs to.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName

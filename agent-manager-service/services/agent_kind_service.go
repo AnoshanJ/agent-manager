@@ -319,7 +319,12 @@ func (s *agentKindService) ListKindAgents(ctx context.Context, ouID, kindName st
 		return nil, fmt.Errorf("failed to get agent kind: %w", err)
 	}
 
-	return fetchAcrossOrgProjects(ctx, s.ocClient, ouID, func(ctx context.Context, ouID, projectName string) ([]*models.AgentResponse, error) {
+	projects, err := listOrgProjects(ctx, s.ocClient, ouID)
+	if err != nil {
+		return nil, err
+	}
+
+	return fetchAcrossOrgProjects(ctx, projects, ouID, func(ctx context.Context, ouID, projectName string) ([]*models.AgentResponse, error) {
 		return s.ocClient.ListComponentsByKind(ctx, ouID, projectName, kindName)
 	})
 }

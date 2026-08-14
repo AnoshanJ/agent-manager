@@ -19,18 +19,22 @@ var _ MappedNullable = &AgentSummary{}
 
 // AgentSummary struct for AgentSummary
 type AgentSummary struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
+	Name               string `json:"name"`
+	DisplayName        string `json:"displayName"`
+	ProjectName        string `json:"projectName"`
+	ProjectDisplayName string `json:"projectDisplayName"`
 }
 
 // NewAgentSummary instantiates a new AgentSummary object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAgentSummary(name string, displayName string) *AgentSummary {
+func NewAgentSummary(name string, displayName string, projectName string, projectDisplayName string) *AgentSummary {
 	this := AgentSummary{}
 	this.Name = name
 	this.DisplayName = displayName
+	this.ProjectName = projectName
+	this.ProjectDisplayName = projectDisplayName
 	return &this
 }
 
@@ -90,6 +94,54 @@ func (o *AgentSummary) SetDisplayName(v string) {
 	o.DisplayName = v
 }
 
+// GetProjectName returns the ProjectName field value
+func (o *AgentSummary) GetProjectName() string {
+	if o == nil {
+		var ret string
+		return ret
+	}
+
+	return o.ProjectName
+}
+
+// GetProjectNameOk returns a tuple with the ProjectName field value
+// and a boolean to check if the value has been set.
+func (o *AgentSummary) GetProjectNameOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.ProjectName, true
+}
+
+// SetProjectName sets field value
+func (o *AgentSummary) SetProjectName(v string) {
+	o.ProjectName = v
+}
+
+// GetProjectDisplayName returns the ProjectDisplayName field value
+func (o *AgentSummary) GetProjectDisplayName() string {
+	if o == nil {
+		var ret string
+		return ret
+	}
+
+	return o.ProjectDisplayName
+}
+
+// GetProjectDisplayNameOk returns a tuple with the ProjectDisplayName field value
+// and a boolean to check if the value has been set.
+func (o *AgentSummary) GetProjectDisplayNameOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.ProjectDisplayName, true
+}
+
+// SetProjectDisplayName sets field value
+func (o *AgentSummary) SetProjectDisplayName(v string) {
+	o.ProjectDisplayName = v
+}
+
 func (o AgentSummary) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -102,6 +154,8 @@ func (o AgentSummary) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
 	toSerialize["displayName"] = o.DisplayName
+	toSerialize["projectName"] = o.ProjectName
+	toSerialize["projectDisplayName"] = o.ProjectDisplayName
 	return toSerialize, nil
 }
 

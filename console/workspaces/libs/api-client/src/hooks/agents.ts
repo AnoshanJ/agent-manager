@@ -16,6 +16,7 @@
  * under the License.
  */
 
+import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createAgent, deleteAgent, getAgent, listAgents, listOrgAgents, generateAgentToken, updateAgent,
@@ -26,6 +27,7 @@ import { SLOW_POLL_INTERVAL } from "../utils";
 import type {
   AgentListResponse,
   AgentResponse,
+  AgentSummary,
   AgentSummaryListResponse,
   CreateAgentPathParams,
   CreateAgentRequest,
@@ -84,6 +86,44 @@ export function useListOrgAgents(params: ListOrgAgentsPathParams) {
     queryFn: () => listOrgAgents(params, getToken),
     enabled: !!params.orgName,
   });
+}
+
+// Agent names are only unique within a project, so any lookup keyed off name
+// alone risks colliding across projects — always pair it with projectName.
+const orgAgentSummaryKey = (projectName: string, name: string) => `${projectName}::${name}`;
+
+export interface OrgAgentDisplayResolver {
+  // Resolves an agent's real display name; falls back to the raw name when
+  // it's missing from the org-wide list (still loading, or not an agent at
+  // all — e.g. a monitor).
+  resolveAgentName: (projectName: string, name: string) => string;
+  // Same fallback contract as resolveAgentName, but for the owning project.
+  resolveProjectName: (projectName: string, name: string) => string;
+}
+
+// Single source of truth for resolving a raw (projectName, name) pair to its
+// real display name and project display name, backed by the org-wide agent
+// list. Every consumer that needs to show a display name instead of a raw
+// name/project should go through this, rather than re-deriving the lookup.
+export function useOrgAgentDisplayNames(params: ListOrgAgentsPathParams): OrgAgentDisplayResolver {
+  const { data } = useListOrgAgents(params);
+  const byKey = useMemo(() => {
+    const map = new Map<string, AgentSummary>();
+    for (const agent of data?.agents ?? []) {
+      map.set(orgAgentSummaryKey(agent.projectName, agent.name), agent);
+    }
+    return map;
+  }, [data]);
+
+  return useMemo(
+    () => ({
+      resolveAgentName: (projectName: string, name: string) =>
+        byKey.get(orgAgentSummaryKey(projectName, name))?.displayName ?? name,
+      resolveProjectName: (projectName: string, name: string) =>
+        byKey.get(orgAgentSummaryKey(projectName, name))?.projectDisplayName ?? projectName,
+    }),
+    [byKey],
+  );
 }
 
 export function useGetAgent(params: GetAgentPathParams) {
