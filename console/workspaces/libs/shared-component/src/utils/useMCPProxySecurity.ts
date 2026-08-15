@@ -49,6 +49,21 @@ export interface UseMCPProxySecurityResult {
   spec: MCPEnvVarSpec;
   /** The proxy fetch is still in flight, so `spec` is not yet trustworthy. */
   isLoading: boolean;
+  /** The proxy fetch failed, so the security kind is unknown. */
+  isError: boolean;
+  /**
+   * `spec` reflects the proxy's real security. False while loading, on a failed
+   * fetch, and when the proxy came back empty.
+   *
+   * Callers MUST gate on this rather than reading `authenticationType`
+   * directly. An unresolved fetch yields `""`, which is indistinguishable from a
+   * genuinely unsecured endpoint — and acting on it hides the API key field and
+   * drops the variable from the payload, the same silent-empty-credential
+   * failure as issue #1597 with the polarity reversed. There is no safe guess
+   * here: assuming "apiKey" reintroduces #1597 for OAuth proxies. Surface the
+   * error instead.
+   */
+  isResolved: boolean;
 }
 
 /**
@@ -67,7 +82,7 @@ export function useMCPProxySecurity({
   proxyId,
   environmentUuid,
 }: UseMCPProxySecurityParams): UseMCPProxySecurityResult {
-  const { data: proxy, isLoading } = useGetMCPProxy({
+  const { data: proxy, isLoading, isError } = useGetMCPProxy({
     orgName,
     proxyId: proxyId ?? "",
   });
@@ -86,11 +101,17 @@ export function useMCPProxySecurity({
     [authenticationType],
   );
 
+  // No proxy selected yet means nothing to wait for, whatever the query says.
+  const hasProxy = Boolean(proxyId);
+
   return {
     authenticationType,
     usesIdentitySecurity: authenticationType === "identity",
     spec,
-    // No proxy selected yet means nothing to wait for, whatever the query says.
-    isLoading: Boolean(proxyId) && isLoading,
+    isLoading: hasProxy && isLoading,
+    isError: hasProxy && isError,
+    // React Query reports isLoading false once a fetch errors, so `proxy` being
+    // present is the only thing that proves the answer is real.
+    isResolved: !hasProxy || Boolean(proxy),
   };
 }

@@ -145,10 +145,21 @@ export function AddMCPToolConfigPanel({
   // environmentUuid is passed on purpose: this proxy maps to every environment at
   // once, so the hook's every-endpoint rule applies and a mixed-security proxy
   // keeps both fields.
-  const { authenticationType, usesIdentitySecurity, spec } = useMCPProxySecurity({
+  const {
+    authenticationType,
+    usesIdentitySecurity,
+    spec,
+    isLoading: isSecurityLoading,
+    isResolved: isSecurityResolved,
+  } = useMCPProxySecurity({
     orgName: orgId,
     proxyId: selectedProxyId,
   });
+  // A failed fetch reports "" (unsecured), which is indistinguishable from a
+  // genuinely open endpoint — acting on it would drop an API key variable the
+  // agent needs. Hold the section until the answer is real.
+  const isSecurityUnknown = !isSecurityLoading && !isSecurityResolved;
+  const isSecurityPending = isSecurityLoading || isSecurityUnknown;
   const relevantEnvVarKeys: EnvVarKey[] = spec.editableKeys;
 
   const filteredServers = useMemo(() => {
@@ -271,7 +282,11 @@ export function AddMCPToolConfigPanel({
     Boolean(selectedProxyId) &&
     !createConfig.isPending &&
     !isLoadingEnvironments &&
-    environments.length > 0;
+    environments.length > 0 &&
+    // Saving before the proxy's security resolves would write whichever env vars
+    // the unknown default implies (issue #1597). External agents get no env vars
+    // at all, so they are unaffected.
+    (isExternal || !isSecurityPending);
 
   return (
     <DrawerWrapper open={open} onClose={onClose} minWidth={740}>
@@ -411,7 +426,26 @@ export function AddMCPToolConfigPanel({
                 placeholder="my-mcp-configuration"
               />
 
-              {!isExternal ? (
+              {!isExternal && isSecurityUnknown ? (
+                <Form.Section>
+                  <Form.Subheader>Environment Variable Names</Form.Subheader>
+                  <Alert severity="error">
+                    Couldn&apos;t load this MCP server&apos;s security settings, so
+                    the runtime variables it needs are unknown. Reselect the server
+                    or retry once it is reachable — saving now could leave the agent
+                    without a credential it needs.
+                  </Alert>
+                </Form.Section>
+              ) : null}
+
+              {!isExternal && isSecurityLoading ? (
+                <Form.Section>
+                  <Form.Subheader>Environment Variable Names</Form.Subheader>
+                  <Skeleton variant="rounded" height={120} />
+                </Form.Section>
+              ) : null}
+
+              {!isExternal && !isSecurityPending ? (
                 <Form.Section>
                   <Form.Subheader>Environment Variable Names</Form.Subheader>
                   <Typography

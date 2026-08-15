@@ -30,6 +30,7 @@ import {
   EnvironmentVariablesReference,
   getErrorMessage,
   monospaceInputSx,
+  resolveAuthenticationType,
   useAgentIdentityCredentials,
   usePipelineEnvironmentsState,
   useThunderInstanceForEnv,
@@ -453,7 +454,11 @@ export const ViewMCPServerComponent = () => {
     selectedEnvUuid,
   );
   const apiKeyHeaderName = getMCPAPIKeyHeaderName(sourceProxyEndpoint?.security);
-  const usesIdentitySecurity = sourceProxyEndpoint?.security?.identity?.enabled === true;
+  // Same rule the MCP Servers Security tab renders and the creation flow derives
+  // its variables from, so all three surfaces agree on API key vs OAuth vs None.
+  const authenticationType = resolveAuthenticationType(sourceProxyEndpoint);
+  const usesIdentitySecurity = authenticationType === "identity";
+  const usesAPIKeySecurity = authenticationType === "apiKey";
 
   // Scopes are a proxy-level catalog (action -> tools it authorizes), not
   // per-endpoint, so this fetch doesn't depend on the selected environment.
@@ -508,14 +513,16 @@ export const ViewMCPServerComponent = () => {
     [config],
   );
 
-  // A config may still carry an apikey row from before the proxy's security
-  // was switched to OAuth; hide it rather than show a stale, irrelevant field.
+  // A config may still carry an apikey row from before the proxy's security was
+  // switched away from API key; hide it rather than show a stale, irrelevant
+  // field. Only an API-key endpoint has one — OAuth mints credentials
+  // server-side and an unsecured endpoint needs none (issue #1597).
   const visibleEnvVarRows = useMemo(
     () =>
-      usesIdentitySecurity
-        ? envVarRows.filter((envVar) => !isAPIKeyEnvVarKey(envVar.key))
-        : envVarRows,
-    [envVarRows, usesIdentitySecurity],
+      usesAPIKeySecurity
+        ? envVarRows
+        : envVarRows.filter((envVar) => !isAPIKeyEnvVarKey(envVar.key)),
+    [envVarRows, usesAPIKeySecurity],
   );
 
   useEffect(() => {
@@ -1028,7 +1035,7 @@ export const ViewMCPServerComponent = () => {
           )}
         </Form.Section>
 
-        {isExternal && providerConfig && !usesIdentitySecurity && (
+        {isExternal && providerConfig && usesAPIKeySecurity && (
           <MCPProxyAPIKeysSection
             orgName={orgId}
             projName={projectId}

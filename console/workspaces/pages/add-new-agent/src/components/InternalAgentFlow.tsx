@@ -33,7 +33,10 @@ import {
   findLowestEnvironmentName,
   hasMultipleEnvironments,
 } from "../utils/buildAgentPayload";
-import { mcpEntryVarNames } from "../utils/mcpEnvVarNames";
+import {
+  hasUnresolvedMCPSecurity,
+  mcpEntryVarNames,
+} from "../utils/mcpEnvVarNames";
 
 export const InternalAgentFlow: React.FC = () => {
   const navigate = useNavigate();
@@ -207,7 +210,8 @@ export const InternalAgentFlow: React.FC = () => {
           onSubmit={handleDeploy}
           isNameEmpty={!formData.name.trim()}
           mode="deploy"
-          hasLLMVarConflicts={(() => {
+          hasUnresolvedMCPSecurity={hasUnresolvedMCPSecurity(mcpProxies)}
+        hasLLMVarConflicts={(() => {
             const agentNameUpper = formData.displayName
               ? formData.displayName.toUpperCase().replace(/[^A-Z0-9]/g, "_")
               : "AGENT";

@@ -111,9 +111,13 @@ describe("resolveMCPEnvVarSpec", () => {
     }
   });
 
-  it("returns a fresh editableKeys array so callers cannot mutate the constant", () => {
+  it("returns fresh arrays so callers cannot mutate the shared constants", () => {
     resolveMCPEnvVarSpec("apiKey").editableKeys.push("url");
     expect(resolveMCPEnvVarSpec("apiKey").editableKeys).toEqual(["url", "apikey"]);
+
+    resolveMCPEnvVarSpec("identity").referenceRows.pop();
+    expect(resolveMCPEnvVarSpec("identity").referenceRows).toEqual(AGENTID_ENV_VAR_ROWS);
+    expect(AGENTID_ENV_VAR_ROWS).toHaveLength(4);
   });
 
   it("names exactly the four AgentID variables the platform injects", () => {

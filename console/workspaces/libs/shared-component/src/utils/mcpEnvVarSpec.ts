@@ -140,7 +140,7 @@ export function resolveMCPEnvVarSpec(
     case "apiKey":
       return { editableKeys: [...ENV_VAR_KEYS], referenceRows: [] };
     case "identity":
-      return { editableKeys: ["url"], referenceRows: AGENTID_ENV_VAR_ROWS };
+      return { editableKeys: ["url"], referenceRows: [...AGENTID_ENV_VAR_ROWS] };
     default:
       return { editableKeys: ["url"], referenceRows: [] };
   }

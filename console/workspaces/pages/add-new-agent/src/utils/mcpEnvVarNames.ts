@@ -57,3 +57,17 @@ export function mcpEntryVarNames(
   }
   return names;
 }
+
+/**
+ * Whether any MCP entry has a proxy selected but its security still unresolved —
+ * the fetch is in flight or failed. Creating in that state would submit whichever
+ * env vars the unknown default happens to imply, so the flows block on it
+ * (issue #1597).
+ */
+export function hasUnresolvedMCPSecurity(entries: MCPProxyFormEntry[]): boolean {
+  return entries.some(
+    (entry) =>
+      entry.authenticationType === undefined &&
+      Object.values(entry.selectedProxyByEnv).some((proxy) => !!proxy),
+  );
+}

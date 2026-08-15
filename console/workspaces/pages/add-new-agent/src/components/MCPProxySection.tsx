@@ -26,6 +26,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Avatar,
   Box,
   Button,
@@ -160,20 +161,28 @@ const EntryCard: React.FC<EntryCardProps> = ({
   // Which runtime variables this binding actually needs. Scoped to the selected
   // environment's endpoint, matching how the server resolves MCP security; falls
   // back to the every-endpoint rule when the environment carries no uuid.
-  const { authenticationType, spec, isLoading: isSecurityLoading } =
-    useMCPProxySecurity({
-      orgName: orgId,
-      proxyId: currentEnvProxyId,
-      environmentUuid: selectedEnvUuid,
-    });
+  const {
+    authenticationType,
+    spec,
+    isLoading: isSecurityLoading,
+    isResolved: isSecurityResolved,
+  } = useMCPProxySecurity({
+    orgName: orgId,
+    proxyId: currentEnvProxyId,
+    environmentUuid: selectedEnvUuid,
+  });
   const showApiKeyField = spec.editableKeys.includes("apikey");
+  // A failed fetch reports "" (unsecured) just like a genuinely open endpoint.
+  // Acting on that would hide the API key field for a proxy that needs one, so
+  // treat unresolved as unknown and say so.
+  const isSecurityUnknown = !isSecurityLoading && !isSecurityResolved;
 
   // The resolved security owns apikeyVarName: only an API-key endpoint gets a
   // default name, and any other kind has it cleared. Keeping the name absent
   // until the proxy resolves means a submit that races the fetch omits the
   // variable rather than sending one the platform would inject empty.
   useEffect(() => {
-    if (isSecurityLoading) return;
+    if (isSecurityLoading || !isSecurityResolved) return;
     const nextApikeyVarName = showApiKeyField
       ? (entry.apikeyVarName ?? defaultMCPApiKeyVarName(agentNameUpper, index))
       : undefined;
@@ -190,6 +199,7 @@ const EntryCard: React.FC<EntryCardProps> = ({
     });
   }, [
     isSecurityLoading,
+    isSecurityResolved,
     authenticationType,
     showApiKeyField,
     agentNameUpper,
@@ -329,7 +339,7 @@ const EntryCard: React.FC<EntryCardProps> = ({
                 */}
               {isSecurityLoading ? (
                 <Skeleton variant="rounded" height={40} sx={{ flex: 1 }} />
-              ) : !showApiKeyField ? null : (
+              ) : isSecurityUnknown || !showApiKeyField ? null : (
               <Form.ElementWrapper label="API key variable name" name="apikeyVarName">
                 <TextField
                   size="small"
@@ -356,7 +366,15 @@ const EntryCard: React.FC<EntryCardProps> = ({
               </Form.ElementWrapper>
               )}
             </Stack>
-            {!isSecurityLoading && spec.referenceRows.length > 0 && (
+            {isSecurityUnknown && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                Couldn&apos;t load this MCP server&apos;s security settings, so the
+                runtime variables it needs are unknown. Reselect the server or
+                retry once it is reachable — saving now could leave the agent
+                without a credential it needs.
+              </Alert>
+            )}
+            {!isSecurityLoading && !isSecurityUnknown && spec.referenceRows.length > 0 && (
               <EnvironmentVariablesReference
                 title="Injected at runtime"
                 description="This MCP server uses OAuth (AgentID) security, so there is no API key to name. These values are injected into the agent's pod at runtime alongside the URL above; their names are fixed, only their values change per environment."

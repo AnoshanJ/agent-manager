@@ -35,7 +35,10 @@ import { LLMProviderSection } from "./LLMProviderSection";
 import { MCPProxySection } from "./MCPProxySection";
 import { EnvironmentVariable } from "./EnvironmentVariable";
 import { FileMount } from "./FileMount";
-import { mcpEntryVarNames } from "../utils/mcpEnvVarNames";
+import {
+  hasUnresolvedMCPSecurity,
+  mcpEntryVarNames,
+} from "../utils/mcpEnvVarNames";
 
 export const CatalogAgentFlow: React.FC = () => {
   const navigate = useNavigate();
@@ -367,7 +370,8 @@ export const CatalogAgentFlow: React.FC = () => {
           onSubmit={handleDeploy}
           isNameEmpty={!formData.name.trim()}
           mode="deploy"
-          hasLLMVarConflicts={(() => {
+          hasUnresolvedMCPSecurity={hasUnresolvedMCPSecurity(mcpProxies)}
+        hasLLMVarConflicts={(() => {
             if (llmGeneratedNames.length !== llmReservedNames.size) return true;
             const envKeyList = (formData.env ?? [])
               .map((envEntry) => envEntry.key)
