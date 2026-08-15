@@ -44,7 +44,12 @@ import {
   ResilienceTimeoutFields,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
-import { useListGateways } from "@agent-management-platform/api-client";
+import {
+  useListGateways,
+  useLLMPoliciesCatalog,
+} from "@agent-management-platform/api-client";
+import { AWSAuthFields } from "./AWSAuthFields";
+import { regionFromEndpoint } from "../utils/awsRegion";
 
 export type TemplateCard = {
   id: string;
@@ -74,6 +79,12 @@ export type TemplateCard = {
    * Value prefix from template metadata (e.g., "Bearer " for bearer tokens).
    */
   authValuePrefix?: string;
+  /**
+   * Gateway policy this template can use for upstream auth instead of a header
+   * (e.g. "aws-authentication"). Presence switches the form to a credential
+   * source selector.
+   */
+  authPolicy?: string;
 };
 
 export type { AddLLMProviderFormValues, GuardrailSelection };
@@ -188,7 +199,26 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
 
   const hasTemplateUrl = Boolean(selectedTemplate?.hasTemplateUrl);
   const requiresUpstream = !hasTemplateUrl;
-  const requiresApiKey = !!selectedTemplate?.hasTemplateAuthHeader;
+  // A template naming an auth policy offers SigV4 credential sources alongside
+  // the api key, so the plain api key field is no longer unconditionally required.
+  const authPolicy = selectedTemplate?.authPolicy;
+  const usesSigV4 =
+    Boolean(authPolicy) &&
+    Boolean(formData.awsCredentialSource) &&
+    formData.awsCredentialSource !== "api-key";
+  const requiresApiKey =
+    !!selectedTemplate?.hasTemplateAuthHeader && !usesSigV4;
+  // Unfiltered gateway policy list: aws-authentication is hidden from the
+  // guardrail picker, so availability must come from the catalog, not that view.
+  const { data: policiesCatalog } = useLLMPoliciesCatalog(
+    orgId,
+    Boolean(authPolicy),
+  );
+  const awsAuthPolicy = useMemo(
+    () => policiesCatalog?.data?.find((policy) => policy.name === authPolicy),
+    [policiesCatalog, authPolicy],
+  );
+  const awsPolicyAvailable = Boolean(awsAuthPolicy);
 
   const [guardrails, setGuardrails] = useState<GuardrailSelection[]>([]);
   const [isGatewaySelectionValid, setIsGatewaySelectionValid] = useState(true);
@@ -231,9 +261,22 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
       setFormData((prev) => ({
         ...prev,
         upstreamUrl: selectedTemplate.endpointUrl ?? "",
+        awsCredentialSource: selectedTemplate.authPolicy ? "api-key" : undefined,
+        awsRegion: regionFromEndpoint(selectedTemplate.endpointUrl),
       }));
     }
   }, [selectedTemplate]);
+
+  // The gateway reports its own build version; pin the artifact to it rather
+  // than a constant so a gateway upgrade does not strand the form.
+  useEffect(() => {
+    if (awsAuthPolicy?.version) {
+      setFormData((prev) => ({
+        ...prev,
+        awsAuthPolicyVersion: awsAuthPolicy.version,
+      }));
+    }
+  }, [awsAuthPolicy]);
 
   useEffect(() => {
     const { displayName, context } = formData;
@@ -563,6 +606,17 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
               />
             </Form.ElementWrapper>
 
+            {authPolicy && (
+              <AWSAuthFields
+                values={formData}
+                errors={errors}
+                onChange={handleFieldChange}
+                policyAvailable={awsPolicyAvailable}
+                policyName={authPolicy}
+              />
+            )}
+
+            {!usesSigV4 && (
             <Form.ElementWrapper
               label="API key / Credential"
               name="apiKey"
@@ -602,6 +656,7 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
                 }}
               />
             </Form.ElementWrapper>
+            )}
           </Form.Stack>
           <Form.Stack>
             <ResilienceTimeoutFields

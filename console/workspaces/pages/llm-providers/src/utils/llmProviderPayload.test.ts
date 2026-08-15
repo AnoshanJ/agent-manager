@@ -48,8 +48,6 @@ const baseValues: AddLLMProviderFormValues = {
   context: "",
   upstreamUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
   apiKey: "ABSK-test-key",
-  resilienceTimeout: "",
-  resilienceIdleTimeout: "",
   gatewayIds: [],
 };
 
@@ -79,6 +77,98 @@ describe("buildCreateLLMProviderRequest for AWS Bedrock", () => {
 
     expect(req.upstream?.main?.auth?.header).toBe("Authorization");
     expect(req.upstream?.main?.auth?.value).toBe("Bearer ABSK-test-key");
+  });
+});
+
+describe("SigV4 credential sources", () => {
+  const sigV4Values: AddLLMProviderFormValues = {
+    ...baseValues,
+    apiKey: "",
+    awsCredentialSource: "iam-user-access-key",
+    awsRegion: "eu-west-1",
+    awsAccessKeyId: "AKIAEXAMPLE",
+    awsSecretAccessKey: "secret-value",
+    awsAuthPolicyVersion: "v0.10.0",
+  };
+
+  // The gateway rejects every upstream auth type but api-key, and a SigV4
+  // signature cannot be a static header, so the block must be delegated.
+  it("delegates upstream auth to a policy instead of sending a header", () => {
+    const req = buildCreateLLMProviderRequest(sigV4Values, [], [bedrockTemplate]);
+
+    expect(req.upstream?.main?.auth?.type).toBe("other");
+    expect(req.upstream?.main?.auth?.value).toBeFalsy();
+  });
+
+  it("attaches aws-authentication on /* with the credentials", () => {
+    const req = buildCreateLLMProviderRequest(sigV4Values, [], [bedrockTemplate]);
+
+    const policy = req.policies?.find((p) => p.name === "aws-authentication");
+    expect(policy).toBeDefined();
+    expect(policy?.version).toBe("v0.10.0");
+    expect(policy?.paths[0].path).toBe("/*");
+    expect(policy?.paths[0].params).toEqual({
+      service: "bedrock",
+      region: "eu-west-1",
+      authenticationType: "iam-user-access-key",
+      awsAccessKeyID: "AKIAEXAMPLE",
+      awsSecretAccessKey: "secret-value",
+    });
+  });
+
+  // The policy schema sets additionalProperties:false, so a key belonging to a
+  // different credential mode fails validation at the gateway.
+  it("omits key/secret fields for role-based and ambient modes", () => {
+    const req = buildCreateLLMProviderRequest(
+      {
+        ...sigV4Values,
+        awsCredentialSource: "irsa",
+        awsAccessKeyId: "",
+        awsSecretAccessKey: "",
+        awsRoleArn: "arn:aws:iam::123456789012:role/bedrock",
+      },
+      [],
+      [bedrockTemplate],
+    );
+
+    const params = req.policies?.find((p) => p.name === "aws-authentication")?.paths[0].params;
+    expect(params).toEqual({
+      service: "bedrock",
+      region: "eu-west-1",
+      authenticationType: "irsa",
+      awsRoleARN: "arn:aws:iam::123456789012:role/bedrock",
+    });
+  });
+
+  it("sends only the required params for the ambient credential chain", () => {
+    const req = buildCreateLLMProviderRequest(
+      {
+        ...sigV4Values,
+        awsCredentialSource: "default-credential-chain",
+        awsAccessKeyId: "",
+        awsSecretAccessKey: "",
+      },
+      [],
+      [bedrockTemplate],
+    );
+
+    const params = req.policies?.find((p) => p.name === "aws-authentication")?.paths[0].params;
+    expect(params).toEqual({
+      service: "bedrock",
+      region: "eu-west-1",
+      authenticationType: "default-credential-chain",
+    });
+  });
+
+  it("leaves the api-key path untouched", () => {
+    const req = buildCreateLLMProviderRequest(
+      { ...baseValues, awsCredentialSource: "api-key" },
+      [],
+      [bedrockTemplate],
+    );
+
+    expect(req.upstream?.main?.auth?.type).toBe("api-key");
+    expect(req.policies?.find((p) => p.name === "aws-authentication")).toBeUndefined();
   });
 });
 

@@ -20,6 +20,20 @@ import { z } from "zod";
 const VERSION_PATTERN = /^v\d+\.\d+$/;
 const DURATION_PATTERN = /^\d+(\.\d+)?(ms|s|m|h)$/;
 
+/**
+ * "api-key" sends a Bedrock API key as a bearer token; the rest are the
+ * aws-authentication policy's authenticationType values for SigV4 signing.
+ */
+export const AWS_CREDENTIAL_SOURCES = [
+  "api-key",
+  "iam-user-access-key",
+  "sts-assume-role",
+  "irsa",
+  "default-credential-chain",
+] as const;
+
+export type AWSCredentialSource = (typeof AWS_CREDENTIAL_SOURCES)[number];
+
 export const addLLMProviderSchema = z.object({
   templateId: z
     .string()
@@ -77,6 +91,36 @@ export const addLLMProviderSchema = z.object({
     .optional()
     .or(z.literal("")),
   gatewayIds: z.array(z.string()).optional(),
+  awsCredentialSource: z.enum(AWS_CREDENTIAL_SOURCES).optional(),
+  awsRegion: z.string().trim().optional().or(z.literal("")),
+  awsAccessKeyId: z.string().trim().optional().or(z.literal("")),
+  awsSecretAccessKey: z.string().trim().optional().or(z.literal("")),
+  awsSessionToken: z.string().trim().optional().or(z.literal("")),
+  awsRoleArn: z.string().trim().optional().or(z.literal("")),
+  awsRoleExternalId: z.string().trim().optional().or(z.literal("")),
+  awsRoleSessionName: z.string().trim().optional().or(z.literal("")),
+  awsAuthPolicyVersion: z.string().trim().optional().or(z.literal("")),
+}).superRefine((values, ctx) => {
+  const source = values.awsCredentialSource;
+  if (!source || source === "api-key") return;
+
+  const require = (field: keyof typeof values, message: string) => {
+    if (!String(values[field] ?? "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message });
+    }
+  };
+
+  // region and service are required by the aws-authentication policy schema;
+  // service is fixed to "bedrock" so only region is user-supplied.
+  require("awsRegion", "Region is required");
+
+  if (source === "iam-user-access-key") {
+    require("awsAccessKeyId", "Access key ID is required");
+    require("awsSecretAccessKey", "Secret access key is required");
+  }
+  if (source === "sts-assume-role") {
+    require("awsRoleArn", "Role ARN is required to assume a role");
+  }
 });
 
 export type AddLLMProviderFormValues = z.infer<typeof addLLMProviderSchema>;

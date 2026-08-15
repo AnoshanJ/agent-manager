@@ -44,6 +44,8 @@ export interface LLMProviderTemplateAuth {
   type?: string;
   header?: string;
   valuePrefix?: string;
+  /** Gateway policy that authenticates upstream instead of a header, e.g. aws-authentication. */
+  policy?: string;
 }
 
 export interface LLMProviderTemplateResponse {
