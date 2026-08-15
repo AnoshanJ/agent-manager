@@ -51,6 +51,7 @@ export interface ObserverTraceSpanListParams {
 export interface ObserverTraceSpanDetailParams {
   traceId: string;
   spanId: string;
+  organization: string;
 }
 
 function assertRequired(value: string, field: string): void {
@@ -178,14 +179,15 @@ export async function getSpanDetail(
   params: ObserverTraceSpanDetailParams,
   getToken?: () => Promise<string>,
 ): Promise<Span> {
-  const { traceId, spanId } = params;
+  const { traceId, spanId, organization } = params;
   assertRequired(traceId, "traceId");
   assertRequired(spanId, "spanId");
+  assertRequired(organization, "organization");
 
   const token = getToken ? await getToken() : undefined;
   const res = await httpGETObserver(
     `/api/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}`,
-    { token },
+    { searchParams: { organization }, token },
   );
   return res.json();
 }

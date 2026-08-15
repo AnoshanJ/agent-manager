@@ -179,10 +179,12 @@ func (c *Client) GetTraceSpans(ctx context.Context, traceID string, p *GetTraceS
 	return &out, nil
 }
 
-func (c *Client) GetSpanDetail(ctx context.Context, traceID, spanID string) (*Span, error) {
+func (c *Client) GetSpanDetail(ctx context.Context, organization, traceID, spanID string) (*Span, error) {
+	q := url.Values{}
+	q.Set("organization", organization)
 	var out Span
 	path := "/api/v1/traces/" + url.PathEscape(traceID) + "/spans/" + url.PathEscape(spanID)
-	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, path, q, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -81,7 +81,7 @@ def poll_traces(
             for span_id in _list_span_ids(
                 session, client, base, deployed, trace_id, start_time, end_time
             ):
-                detail = _get_span_detail(session, client, base, trace_id, span_id)
+                detail = _get_span_detail(session, client, base, deployed, trace_id, span_id)
                 if detail is not None:
                     spans.append(_to_validator_span(detail))
 
@@ -171,9 +171,10 @@ def _list_span_ids(session, client, base, deployed, trace_id, start_time, end_ti
     return [s["spanId"] for s in resp.json().get("spans", [])]
 
 
-def _get_span_detail(session, client, base, trace_id, span_id) -> dict | None:
+def _get_span_detail(session, client, base, deployed, trace_id, span_id) -> dict | None:
     resp = _auth_get(
-        session, client, f"{base}/api/v1/traces/{trace_id}/spans/{span_id}"
+        session, client, f"{base}/api/v1/traces/{trace_id}/spans/{span_id}",
+        params={"organization": deployed.org},
     )
     if resp.status_code != 200:
         return None

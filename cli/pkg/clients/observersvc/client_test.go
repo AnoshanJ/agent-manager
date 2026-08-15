@@ -156,6 +156,9 @@ func TestGetSpanDetail_404ReturnsHTTPError(t *testing.T) {
 		if r.URL.Path != "/api/v1/traces/t/spans/s" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
+		if got := r.URL.Query().Get("organization"); got != "acme" {
+			t.Errorf("organization = %q, want %q", got, "acme")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "not_found", Message: "no such span"})
@@ -163,7 +166,7 @@ func TestGetSpanDetail_404ReturnsHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := NewClient(srv.URL)
-	_, err := c.GetSpanDetail(context.Background(), "t", "s")
+	_, err := c.GetSpanDetail(context.Background(), "acme", "t", "s")
 	if err == nil {
 		t.Fatal("expected error")
 	}

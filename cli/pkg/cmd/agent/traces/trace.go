@@ -192,7 +192,7 @@ func runSpanDetail(ctx context.Context, o *TraceOptions) error {
 		return render.Error(o.IO, o.Scope, err)
 	}
 
-	span, err := client.GetSpanDetail(ctx, o.TraceID, o.SpanID)
+	span, err := client.GetSpanDetail(ctx, o.Org, o.TraceID, o.SpanID)
 	if err != nil {
 		return render.Error(o.IO, o.Scope, cmdutil.ObserverErrorFromResponse(err))
 	}

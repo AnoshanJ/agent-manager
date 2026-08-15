@@ -145,6 +145,7 @@ export function TraceDetails({
     isPending: isSpanDetailPending,
     isError: isSpanDetailError,
   } = useSpanDetail(
+    organization,
     traceId,
     selectedSpanId,
     !!traceDetails?.spans?.length && !!selectedSpanId,
