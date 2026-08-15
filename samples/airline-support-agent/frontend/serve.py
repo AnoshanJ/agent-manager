@@ -26,7 +26,7 @@ def build_config() -> dict[str, str]:
         "issuer": os.environ.get("OIDC_ISSUER", "").rstrip("/"),
         "clientId": os.environ.get("OIDC_CLIENT_ID", ""),
         "scopes": os.environ.get("OIDC_SCOPES", "openid profile email"),
-        "airlineName": os.environ.get("AIRLINE_NAME", "Skyline Airways"),
+        "airlineName": os.environ.get("AIRLINE_NAME", "O2 Airlines"),
     }
 
 
