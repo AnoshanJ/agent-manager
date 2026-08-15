@@ -18,6 +18,7 @@ package opensearch
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -2030,5 +2031,58 @@ func TestEventLoopCycleClassifiesAsChain(t *testing.T) {
 	cycle := Span{Name: "execute_event_loop_cycle", Attributes: map[string]interface{}{}}
 	if got := DetermineSpanType(cycle); got != SpanTypeChain {
 		t.Errorf("DetermineSpanType = %q, want %q", got, SpanTypeChain)
+	}
+}
+
+// strandsTrace mirrors a real Strands turn: two event-loop cycles, each with a
+// Strands "chat" span wrapping Traceloop's "openai.chat" and repeating its usage,
+// and an agent span carrying the whole turn's total again.
+func strandsTrace(base time.Time) []Span {
+	ms := func(n int) time.Time { return base.Add(time.Duration(n) * time.Millisecond) }
+	cycle := func(n int, ask, answer string) []Span {
+		c, w, prov := fmt.Sprintf("cycle%d", n), fmt.Sprintf("wrap%d", n), fmt.Sprintf("prov%d", n)
+		off := n * 10
+		return []Span{
+			{SpanID: c, ParentSpanID: "agent", Name: "execute_event_loop_cycle", StartTime: ms(off)},
+			{
+				SpanID: w, ParentSpanID: c, Name: "chat", StartTime: ms(off + 1),
+				Attributes: map[string]interface{}{
+					"gen_ai.usage.input_tokens":  float64(42),
+					"gen_ai.usage.output_tokens": float64(12),
+				},
+			},
+			{
+				SpanID: prov, ParentSpanID: w, Name: "openai.chat", StartTime: ms(off + 2),
+				Attributes: map[string]interface{}{
+					"gen_ai.usage.input_tokens":  float64(42),
+					"gen_ai.usage.output_tokens": float64(12),
+					"gen_ai.input.messages":      fmt.Sprintf(`[{"role":"user","content":%q}]`, ask),
+					"gen_ai.output.messages":     fmt.Sprintf(`[{"role":"assistant","content":%q}]`, answer),
+				},
+			},
+		}
+	}
+	spans := []Span{{
+		SpanID: "agent", Name: "invoke_agent Strands Agents", StartTime: base,
+		Attributes: map[string]interface{}{
+			"gen_ai.usage.input_tokens":  float64(84),
+			"gen_ai.usage.output_tokens": float64(24),
+		},
+	}}
+	spans = append(spans, cycle(1, "status of O2412?", "calling get_flight_status")...)
+	return append(spans, cycle(2, "tool said on time", "O2412 is on time.")...)
+}
+
+func TestExtractTraceInputOutputSkipsContentFreeLeaf(t *testing.T) {
+	spans := strandsTrace(time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC))
+	root := spans[0]
+	input, output := ExtractTraceInputOutputWithFallback(&root, spans)
+	// The "chat" wrapper sorts ahead of the provider span it wraps and carries no
+	// messages, so taking the first leaf verbatim used to yield a nil input.
+	if input != "status of O2412?" {
+		t.Errorf("input = %v, want the user turn from the first provider span", input)
+	}
+	if output != "O2412 is on time." {
+		t.Errorf("output = %v, want the final assistant turn", output)
 	}
 }

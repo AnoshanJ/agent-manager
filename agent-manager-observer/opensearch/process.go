@@ -1046,9 +1046,21 @@ func ExtractTraceInputOutputWithFallback(rootSpan *Span, spans []Span) (input in
 	}
 	if len(leaves) > 0 {
 		slices.SortFunc(leaves, func(a, b *Span) int { return a.StartTime.Compare(b.StartTime) })
+		// Scan past content-free leaves rather than giving up on the first one.
+		// Frameworks that wrap the provider call in their own LLM span (Strands opens
+		// "chat" around "openai.chat") would otherwise lose the trace input preview
+		// to the empty wrapper, which sorts first.
 		if input == nil {
-			input = ExtractInputPreviewFromLeaf(leaves[0])
+			for _, leaf := range leaves {
+				if v := ExtractInputPreviewFromLeaf(leaf); v != nil {
+					input = v
+					break
+				}
+			}
 		}
+		// Not scanned backwards: the last leaf is the turn's final model call, and
+		// falling back to an earlier one would export a previous turn's answer as
+		// the trace response for evaluators to score.
 		if output == nil {
 			output = ExtractOutputPreviewFromLeaf(leaves[len(leaves)-1])
 		}
