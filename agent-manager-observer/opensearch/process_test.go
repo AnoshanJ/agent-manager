@@ -2017,3 +2017,18 @@ func TestExtractTraceInputOutputWithFallback(t *testing.T) {
 		}
 	})
 }
+
+func TestEventLoopCycleClassifiesAsChain(t *testing.T) {
+	if got := DetermineSpanKindFromName("execute_event_loop_cycle"); got != SpanTypeChain {
+		t.Errorf("DetermineSpanKindFromName = %q, want %q", got, SpanTypeChain)
+	}
+	// Nil attributes, not an empty map: real event-loop spans can arrive without
+	// any, and an empty map would pass even while the nil path returned unknown.
+	if got := DetermineSpanType(Span{Name: "execute_event_loop_cycle"}); got != SpanTypeChain {
+		t.Errorf("DetermineSpanType with nil attributes = %q, want %q", got, SpanTypeChain)
+	}
+	cycle := Span{Name: "execute_event_loop_cycle", Attributes: map[string]interface{}{}}
+	if got := DetermineSpanType(cycle); got != SpanTypeChain {
+		t.Errorf("DetermineSpanType = %q, want %q", got, SpanTypeChain)
+	}
+}

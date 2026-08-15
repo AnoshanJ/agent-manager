@@ -1900,8 +1900,12 @@ func ExtractEmbeddingDocuments(attrs map[string]interface{}) []string {
 
 // DetermineSpanType analyzes a span's attributes to determine its semantic type
 func DetermineSpanType(span Span) SpanType {
+	// Fall through to the name, not straight to unknown: a span can be
+	// classifiable by name alone, and returning unknown here made this disagree
+	// with DetermineSpanKindFromName, so the same span drew a different icon in
+	// the trace list than in the detail view.
 	if span.Attributes == nil {
-		return SpanTypeUnknown
+		return determineSpanTypeFromName(span.Name)
 	}
 
 	// Check for CrewAI Task operations (must come before generic task check)
@@ -1981,6 +1985,12 @@ func determineSpanTypeFromName(name string) SpanType {
 		return SpanTypeUnknown
 	}
 
+	// Strands opens one of these per agent reasoning iteration. Matched before the
+	// "."-segment switch below, which would otherwise see the whole undotted name.
+	if strings.HasPrefix(strings.ToLower(name), "execute_event_loop_cycle") {
+		return SpanTypeChain
+	}
+
 	// Split by "." and get the last segment
 	parts := strings.Split(name, ".")
 	if len(parts) == 0 {
@@ -2028,6 +2038,9 @@ func DetermineSpanKindFromName(name string) SpanType {
 	case strings.HasPrefix(lower, "execute_tool"):
 		return SpanTypeTool
 	case strings.HasPrefix(lower, "execute_task"):
+		return SpanTypeChain
+	// Strands opens one of these per agent reasoning iteration.
+	case strings.HasPrefix(lower, "execute_event_loop_cycle"):
 		return SpanTypeChain
 	}
 
