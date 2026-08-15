@@ -139,9 +139,23 @@ func NewIdentityClient(baseURL, clientID, clientSecret string) IdentityClient {
 		baseURL:        baseURL,
 		clientID:       clientID,
 		clientSecret:   clientSecret,
-		systemResource: systemResourceIdentifier(baseURL),
+		systemResource: SystemResourceIdentifier(baseURL),
 		httpClient:     &http.Client{Timeout: httpClientTimeout},
 	}
+}
+
+// NewIdentityClientWithDialOverride creates a Thunder identity client that dials
+// resolveToHost instead of baseURL's own host, while still using baseURL for the
+// HTTP Host header and to derive the System resource server identifier (see
+// SystemResourceIdentifier). Needed when baseURL is Thunder's public/issuer URL
+// (required, since that's the only identifier Thunder's System resource server is
+// registered under) but that hostname isn't directly dialable from this process —
+// e.g. agent-manager-service running in-cluster while Thunder's public URL only
+// resolves via the host machine's own DNS/hosts setup. An empty resolveToHost
+// behaves exactly like NewIdentityClient.
+func NewIdentityClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost string) IdentityClient {
+	c := NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, SystemResourceIdentifier(baseURL))
+	return c.(IdentityClient)
 }
 
 // --- Users ---

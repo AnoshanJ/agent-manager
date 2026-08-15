@@ -162,8 +162,8 @@ func (r *envThunderResolver) Resolve(ctx context.Context, ouID, orgNamespace, en
 		}
 		// The System RS identifier is "<issuer>/mcp", derived from the env-Thunder issuer
 		// URL — not the (possibly cluster-internal) dialable base URL selected above.
-		systemResource := systemResourceIdentifier(ThunderIssuerURL(orgNamespace, envName))
-		client := newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource)
+		systemResource := SystemResourceIdentifier(ThunderIssuerURL(orgNamespace, envName))
+		client := NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource)
 
 		r.mu.Lock()
 		r.cache[cacheKey] = cachedThunderClient{client: client, cachedAt: r.now()}

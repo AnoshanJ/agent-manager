@@ -42,6 +42,14 @@ vm_host() {
 # 60-amp-resource-server.yaml in the Thunder extension chart. If a future
 # AMP_VERSION changes that identifier again, this value needs to move with it,
 # same as the hostnames above.
+#
+# thunder.baseURL must be the public Thunder URL (same as keyManager.issuer),
+# not the in-cluster service address, because it also derives the RFC 8707
+# resource identifier admin API tokens are scoped to. thunder.resolveToHost
+# points the actual connection at the in-cluster service instead, since the
+# public hostname doesn't resolve from inside the cluster. Leaving either
+# unset reproduces AUTH-4030/invalid_target failures on every admin identity
+# call (users/roles/groups).
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -51,6 +59,8 @@ amp_helm_args() {
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
+      "--set" "${k}.config.thunder.baseURL=https://${AMP_HOST_THUNDER}" \
+      "--set" "${k}.config.thunder.resolveToHost=amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090" \
       "--set" "${k}.config.tlsEnabled=true" \
       "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
       "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \

@@ -358,12 +358,24 @@ type InternalServerConfig struct {
 
 // ThunderConfig holds Thunder admin API configuration for provisioning OAuth apps
 type ThunderConfig struct {
-	// BaseURL is the Thunder API base URL (if empty, provisioner uses static defaults)
+	// BaseURL is the Thunder API base URL (if empty, provisioner uses static defaults).
+	// Must be Thunder's public/issuer URL: it also derives the System resource server
+	// identifier (RFC 8707) admin API tokens are scoped to — see
+	// thundersvc.systemResourceIdentifier. It does NOT need to be directly dialable
+	// from this process; see ResolveToHost below.
 	BaseURL string
 	// ClientID is the OAuth2 client ID of the system app (with Administrator role)
 	ClientID string
 	// ClientSecret is the OAuth2 client secret of the system app
 	ClientSecret string `json:"-"`
+	// ResolveToHost, if set, is the host:port this process actually dials for every
+	// Thunder request, while requests still carry BaseURL's host as the HTTP Host
+	// header and BaseURL still derives the System resource server identifier. Set
+	// this when BaseURL isn't directly dialable from here — e.g. agent-manager-service
+	// running in-cluster while Thunder's public URL only resolves via the host
+	// machine's own DNS/hosts setup (typically the in-cluster Thunder service's own
+	// cluster-DNS address). Leave empty when BaseURL is already directly dialable.
+	ResolveToHost string
 }
 
 // WebSocketConfig holds WebSocket-specific configuration

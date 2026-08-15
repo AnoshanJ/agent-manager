@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -234,12 +235,23 @@ func loadEnvs() {
 
 	// Thunder admin API configuration for provisioning per-org OAuth apps
 	config.Thunder = ThunderConfig{
-		BaseURL:      r.readOptionalString("THUNDER_BASE_URL", ""),
-		ClientID:     r.readOptionalString("THUNDER_CLIENT_ID", ""),
-		ClientSecret: r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
+		BaseURL:       r.readOptionalString("THUNDER_BASE_URL", ""),
+		ClientID:      r.readOptionalString("THUNDER_CLIENT_ID", ""),
+		ClientSecret:  r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
+		ResolveToHost: r.readOptionalString("THUNDER_RESOLVE_TO_HOST", ""),
 	}
 	if config.Thunder.BaseURL != "" && (config.Thunder.ClientID == "" || config.Thunder.ClientSecret == "") {
 		r.errors = append(r.errors, fmt.Errorf("THUNDER_BASE_URL is set but THUNDER_CLIENT_ID and/or THUNDER_CLIENT_SECRET are missing"))
+	}
+	if config.Thunder.ResolveToHost != "" {
+		if config.Thunder.BaseURL == "" {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST requires THUNDER_BASE_URL"))
+		}
+		if host, port, err := net.SplitHostPort(config.Thunder.ResolveToHost); err != nil {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST must be host:port: %w", err))
+		} else if host == "" || port == "" {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST must contain a non-empty host and port"))
+		}
 	}
 
 	config.TLSConfig = TLSConfig{
