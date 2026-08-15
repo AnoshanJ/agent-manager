@@ -331,6 +331,7 @@ func mapInputInterface(specInterface *spec.InputInterface) *client.InputInterfac
 	}
 	if specInterface.Schema != nil {
 		config.SchemaPath = utils.StrPointerAsStr(specInterface.Schema.Path, "")
+		config.SchemaContent = utils.StrPointerAsStr(specInterface.Schema.Content, "")
 	}
 
 	return config
@@ -1290,6 +1291,21 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 			}
 			if sourceComponent.InputInterface.Schema != nil && sourceComponent.InputInterface.Schema.Path != "" {
 				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &sourceComponent.InputInterface.Schema.Path}
+				// Kind-sourced agents deploy from a stored image with no git checkout/build step,
+				// so the schema path above can never be resolved into content for them. Resolve the
+				// source agent's already-built OpenAPI content here so the Swagger UI has something
+				// to render instead of "No API schema available for this endpoint".
+				if endpoints, epErr := s.ocClient.GetComponentEndpoints(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, ""); epErr != nil {
+					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation", "agentName", kindVersion.Kind.AgentName, "error", epErr)
+				} else {
+					for _, endpoint := range endpoints {
+						if endpoint.Schema.Content != "" {
+							content := endpoint.Schema.Content
+							req.InputInterface.Schema.Content = &content
+							break
+						}
+					}
+				}
 			}
 		}
 		imageID = kindVersion.ImageId
@@ -5229,9 +5245,9 @@ func modelBuildToSpecBuild(b *models.Build) *spec.Build {
 }
 
 // inputInterfaceToEndpoints converts an InputInterfaceConfig to the slice expected by CreateInternalAgentFromKindWorkload.
-// Note: Workload CRs require inline schema content, not a file path. Since the schema path originates
-// from the git repository of the source agent, schema is intentionally omitted here — it is already
-// configured at the Component level via CreateComponent.
+// Note: Workload CRs require inline schema content, not a file path. Kind-sourced agents have no git
+// checkout/build step to resolve a schema path into content themselves, so CreateAgent must resolve
+// the source agent's schema content up front and pass it in via cfg.SchemaContent.
 func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName string) []client.InputInterfaceEndpoint {
 	if cfg == nil {
 		return nil
@@ -5242,6 +5258,9 @@ func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName s
 		Type:       cfg.Type,
 		BasePath:   cfg.BasePath,
 		Visibility: []string{"external"},
+	}
+	if cfg.SchemaContent != "" {
+		ep.Schema = &client.EndpointSchema{Content: cfg.SchemaContent, Type: client.SchemaTypeOpenAPI}
 	}
 	return []client.InputInterfaceEndpoint{ep}
 }
