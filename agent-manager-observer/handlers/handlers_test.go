@@ -187,6 +187,36 @@ func TestExportTraces_MissingEndTime(t *testing.T) {
 	assertBadRequest(t, rec)
 }
 
+// ── GetSpanDetail ────────────────────────────────────────────────────────────
+
+func TestGetSpanDetail_MissingOrganization(t *testing.T) {
+	fake := &fakeObserverClient{}
+	h := NewHandler(controllers.NewTracingController(fake), nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/abc123/spans/def456", nil)
+	rec := httptest.NewRecorder()
+	h.GetSpanDetail(rec, r)
+
+	assertBadRequest(t, rec)
+	if fake.spanDetailCalls != 0 {
+		t.Errorf("expected no upstream span lookup for an unscoped request, got %d", fake.spanDetailCalls)
+	}
+}
+
+func TestGetSpanDetail_WithOrganization(t *testing.T) {
+	fake := &fakeObserverClient{}
+	h := NewHandler(controllers.NewTracingController(fake), nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/traces/abc123/spans/def456?organization=default", nil)
+	rec := httptest.NewRecorder()
+	h.GetSpanDetail(rec, r)
+
+	assertStatus(t, rec, http.StatusOK)
+	if fake.spanDetailCalls != 1 {
+		t.Errorf("expected exactly 1 upstream span lookup, got %d", fake.spanDetailCalls)
+	}
+}
+
 // ── GetLogs ──────────────────────────────────────────────────────────────────
 
 func TestGetLogs_MissingOrganization(t *testing.T) {
@@ -353,7 +383,8 @@ func TestGetLogs_InvalidSortOrder(t *testing.T) {
 // fakeObserverClient is a minimal observer.Client that captures the request
 // passed to QueryLogs so handler tests can assert on pass-through parameters.
 type fakeObserverClient struct {
-	lastLogsReq observer.LogsQueryRequest
+	lastLogsReq     observer.LogsQueryRequest
+	spanDetailCalls int
 }
 
 func (f *fakeObserverClient) QueryTraces(_ context.Context, _ observer.TracesQueryRequest) (*observer.TracesQueryResponse, error) {
@@ -365,6 +396,7 @@ func (f *fakeObserverClient) QueryTraceSpans(_ context.Context, _ string, _ obse
 }
 
 func (f *fakeObserverClient) GetSpanDetails(_ context.Context, _, _ string) (*observer.SpanDetailsResponse, error) {
+	f.spanDetailCalls++
 	return &observer.SpanDetailsResponse{}, nil
 }
 

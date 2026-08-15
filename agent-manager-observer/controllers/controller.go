@@ -531,7 +531,12 @@ func (c *TracingController) GetTraceSpans(ctx context.Context, traceID string, p
 }
 
 // GetSpanDetail fetches full span details including enriched AmpAttributes.
-func (c *TracingController) GetSpanDetail(ctx context.Context, traceID, spanID string) (*opensearch.Span, error) {
+// organization does not scope the lookup yet — the Observer's span-detail GET
+// takes no searchScope, unlike the trace/span query POSTs.
+func (c *TracingController) GetSpanDetail(ctx context.Context, organization, traceID, spanID string) (*opensearch.Span, error) {
+	logger.GetLogger(ctx).Debug("fetching span detail",
+		"organization", organization, "traceId", traceID, "spanId", spanID)
+
 	details, err := c.observerClient.GetSpanDetails(ctx, traceID, spanID)
 	if err != nil {
 		return nil, err

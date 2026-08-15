@@ -299,7 +299,13 @@ func (h *Handler) GetSpanDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.controller.GetSpanDetail(r.Context(), traceID, spanID)
+	organization := r.URL.Query().Get("organization")
+	if organization == "" {
+		writeError(w, http.StatusBadRequest, "organization is required")
+		return
+	}
+
+	result, err := h.controller.GetSpanDetail(r.Context(), organization, traceID, spanID)
 	if err != nil {
 		log.Error("Failed to get v1 span detail", "traceId", traceID, "spanId", spanID, "error", err)
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve span detail")
