@@ -70,10 +70,11 @@ func tracesToolSpecs() []toolTestSpec {
 			name:                "get_span_details",
 			descriptionKeywords: []string{"span"},
 			descriptionMinLen:   20,
-			requiredParams:      []string{"trace_id", "span_id"},
+			requiredParams:      []string{"organization", "trace_id", "span_id"},
 			testArgs: map[string]any{
-				"trace_id": testTraceID,
-				"span_id":  testSpanID,
+				"organization": testOrgName,
+				"trace_id":     testTraceID,
+				"span_id":      testSpanID,
 			},
 		},
 	}

@@ -76,11 +76,12 @@ type traceDetailsInput struct {
 	EndTime      string `json:"end_time,omitempty"`
 }
 
-// spanDetailsInput has no organization: GetSpanDetail looks a span up by
-// trace/span ID alone and never consults organization/namespace scoping.
+// spanDetailsInput mirrors REST GetSpanDetail: organization scopes the lookup
+// alongside the trace/span IDs.
 type spanDetailsInput struct {
-	TraceID string `json:"trace_id" jsonschema:"required"`
-	SpanID  string `json:"span_id" jsonschema:"required"`
+	Organization string `json:"organization" jsonschema:"required"`
+	TraceID      string `json:"trace_id" jsonschema:"required"`
+	SpanID       string `json:"span_id" jsonschema:"required"`
 }
 
 func (t *Toolsets) registerTraceTools(server *gomcp.Server) {
@@ -266,6 +267,10 @@ func getSpanDetails(tracing *controllers.TracingController, authorize func(*gomc
 		if err := authorize(req); err != nil {
 			return nil, nil, err
 		}
+		organization, err := requireField(input.Organization, "organization")
+		if err != nil {
+			return nil, nil, err
+		}
 		traceID, err := requireField(input.TraceID, "trace_id")
 		if err != nil {
 			return nil, nil, err
@@ -275,7 +280,7 @@ func getSpanDetails(tracing *controllers.TracingController, authorize func(*gomc
 			return nil, nil, err
 		}
 
-		result, err := tracing.GetSpanDetail(ctx, traceID, spanID)
+		result, err := tracing.GetSpanDetail(ctx, organization, traceID, spanID)
 		if err != nil {
 			return nil, nil, wrapToolError("get_span_details", err)
 		}

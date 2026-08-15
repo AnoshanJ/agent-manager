@@ -197,7 +197,8 @@ func TestToolSmokeCall(t *testing.T) {
 
 // Verifies that every tool declaring "organization" as required rejects a
 // call that omits it — either at the protocol level (schema validation,
-// before the handler runs) or as a tool-level error result.
+// before the handler runs) or as a tool-level error result — and that the
+// rejection happens before any upstream data is fetched.
 func TestMissingOrganizationRejected(t *testing.T) {
 	for _, spec := range allToolSpecs {
 		if !slices.Contains(spec.requiredParams, "organization") {
@@ -205,7 +206,7 @@ func TestMissingOrganizationRejected(t *testing.T) {
 		}
 		spec := spec
 		t.Run(spec.name, func(t *testing.T) {
-			clientSession, _ := setupTestServer(t)
+			clientSession, fake := setupTestServer(t)
 			ctx := context.Background()
 
 			args := make(map[string]any, len(spec.testArgs))
@@ -227,6 +228,10 @@ func TestMissingOrganizationRejected(t *testing.T) {
 				// Handler-level tool error — fine.
 			default:
 				t.Errorf("expected error for %q called without organization; got success", spec.name)
+			}
+
+			for method, calls := range fake.calls {
+				t.Errorf("expected no upstream call for unscoped %q, got %d × %s", spec.name, len(calls), method)
 			}
 		})
 	}

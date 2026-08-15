@@ -19,7 +19,7 @@ HTTP → RequestLogger → CORS → mux ┬→ /health                          
 - **`observer/`** — the typed HTTP client to the upstream Observer (`QueryTraces`, `QueryTraceSpans`, `GetSpanDetails`), plus auth token management and response→`opensearch.Span` conversion.
 - **`opensearch/`** — pure span-parsing logic. Extracts input/output from spans; branches by vendor (CrewAI via `crewai.*` attributes vs LangChain/Traceloop via `traceloop.entity.*`).
 - **`config/`** — env-var config loading + startup validation.
-- **`mcp/`** — the `am-obs-mcp` streamable-HTTP MCP server (`mcp/setup.go`) and its seven tools (`mcp/tools/`): `get_runtime_logs`, `get_build_logs`, `get_metrics`, `list_traces`, `get_traces`, `get_trace_details`, `get_span_details`. Tool handlers call `controllers.TracingController`/`controllers.ObservabilityController` directly — no HTTP hop, no claims parsing. Every tool takes an explicit, required `organization` input except `get_span_details` (its controller call is scoped by trace/span ID alone).
+- **`mcp/`** — the `am-obs-mcp` streamable-HTTP MCP server (`mcp/setup.go`) and its seven tools (`mcp/tools/`): `get_runtime_logs`, `get_build_logs`, `get_metrics`, `list_traces`, `get_traces`, `get_trace_details`, `get_span_details`. Tool handlers call `controllers.TracingController`/`controllers.ObservabilityController` directly — no HTTP hop, no claims parsing. Every tool takes an explicit, required `organization` input.
 
 ## File map
 
@@ -90,6 +90,8 @@ The **observer client** holds its own OAuth2 client-credentials token (cached wi
 ### ⚠️ Known gap: no caller-org authorization
 
 `middleware.JWTAuth` only validates the token itself (signature/issuer/audience). It does **not** cross-check the token's org against the requested organization. The handlers read the target org straight from the query string (`organization := query.Get("organization")` in `handlers/handlers.go`) into `controllers.TraceQueryParams.Organization`, which becomes the OpenSearch `Namespace`. **Any valid token can therefore query any organization's traces** — there is no tenant isolation in the request path today.
+
+A second, narrower gap: `GET /api/v1/traces/{traceId}/spans/{spanId}` **requires** `organization` but does nothing with it beyond logging — the upstream Observer's span-detail endpoint is a plain `GET` with no `searchScope`, unlike the `.../query` POSTs, so the span is still looked up by trace/span ID alone and any valid token can read any org's span. The required param exists so callers and the contract are ready; wire the namespace through `TracingController.GetSpanDetail` once upstream accepts one.
 
 The intended rule (not yet enforced): the caller's org identity from the JWT must match (or be authorized for) the `organization` query param before the trace query runs. If you add multi-tenant enforcement, do it in the handlers right after reading `organization`, before constructing `TraceQueryParams` — reject with `403` on mismatch. Until then, treat this service as trusting its network boundary for tenant isolation.
 
