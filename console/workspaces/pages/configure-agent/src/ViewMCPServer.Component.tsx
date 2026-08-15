@@ -459,6 +459,13 @@ export const ViewMCPServerComponent = () => {
   const authenticationType = resolveAuthenticationType(sourceProxyEndpoint);
   const usesIdentitySecurity = authenticationType === "identity";
   const usesAPIKeySecurity = authenticationType === "apiKey";
+  // A failed or in-flight proxy fetch leaves sourceProxyEndpoint undefined,
+  // which resolveAuthenticationType reads as "None" — indistinguishable from a
+  // genuinely unsecured endpoint. Treating that as real would hide whichever
+  // fields/rows the endpoint's actual security needs and show misleading
+  // copy, the same #1597 failure mode with the polarity reversed. Callers must
+  // gate on this rather than trusting authenticationType directly while true.
+  const isMCPSecurityUnresolved = isLoadingProxyDetails || isProxyDetailsError;
 
   // Scopes are a proxy-level catalog (action -> tools it authorizes), not
   // per-endpoint, so this fetch doesn't depend on the selected environment.
