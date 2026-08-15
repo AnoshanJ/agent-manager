@@ -30,5 +30,5 @@ class Config:
             openai_api_key=_env("OPENAI_API_KEY"),
             openai_base_url=_env("OPENAI_BASE_URL", ""),
             openai_model=_env("OPENAI_MODEL", "gpt-4o-mini"),
-            airline_name=_env("AIRLINE_NAME", "Skyline Airways"),
+            airline_name=_env("AIRLINE_NAME", "O2 Airlines"),
         )

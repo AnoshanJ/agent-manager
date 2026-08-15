@@ -11,6 +11,30 @@ from data import BOOKINGS, FLIGHTS, OCCUPIED_SEATS
 
 
 @tool
+def list_flights() -> str:
+    """List every flight in the schedule with its route, times and status."""
+    return json.dumps({"flights": list(FLIGHTS.values())})
+
+
+@tool
+def list_bookings() -> str:
+    """List all bookings held by the current passenger."""
+    summary = [
+        {
+            "reference": b["reference"],
+            "passenger": b["passenger"],
+            "flight_number": b["flight_number"],
+            "seat": b["seat"],
+            "cabin": b["cabin"],
+            "status": b["status"],
+            "route": FLIGHTS.get(b["flight_number"], {}).get("route"),
+        }
+        for b in BOOKINGS.values()
+    ]
+    return json.dumps({"bookings": summary})
+
+
+@tool
 def lookup_booking(reference: str) -> str:
     """Look up a passenger booking by its reference.
 
