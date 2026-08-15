@@ -553,7 +553,8 @@ export const ViewMCPServerComponent = () => {
       !projectId ||
       !agentId ||
       !decodedConfigId ||
-      hasEmptyEnvVarName
+      hasEmptyEnvVarName ||
+      isMCPSecurityUnresolved
     ) {
       return;
     }
@@ -829,7 +830,7 @@ export const ViewMCPServerComponent = () => {
         onSave={handleSave}
         isDirty={isDirty}
         isSaving={updateConfig.isPending}
-        hasInvalidNames={hasEmptyEnvVarName}
+        hasInvalidNames={hasEmptyEnvVarName || isMCPSecurityUnresolved}
         error={updateConfig.isError ? updateConfig.error : undefined}
         description={
           "These variable names are injected into the agent at runtime with environment-specific values. Rename them here if your code already uses different names, then save."
@@ -843,7 +844,20 @@ export const ViewMCPServerComponent = () => {
         }
       >
         <Divider sx={{ my: 2 }} />
-        {usesIdentitySecurity ? (
+        {isMCPSecurityUnresolved ? (
+          isLoadingProxyDetails ? (
+            <Skeleton variant="rounded" height={160} />
+          ) : (
+            <Alert severity="error" icon={<AlertTriangle size={18} />}>
+              <Typography variant="body2">
+                Couldn&apos;t load this MCP server&apos;s security settings, so
+                the fields and integration guide shown here may not match how
+                this tool is actually secured. Reload the page or try again
+                once the server is reachable before saving.
+              </Typography>
+            </Alert>
+          )
+        ) : usesIdentitySecurity ? (
           <Stack spacing={3}>
             <Alert severity="info">
               <Typography variant="body2">
@@ -878,8 +892,9 @@ export const ViewMCPServerComponent = () => {
           <Form.Section>
             <Form.Subheader>Integration Guide</Form.Subheader>
             <Typography variant="body2" color="text.secondary">
-              Copy this pattern into your agent code to load MCP tools
-              through the injected proxy URL and API key.
+              {usesAPIKeySecurity
+                ? "Copy this pattern into your agent code to load MCP tools through the injected proxy URL and API key."
+                : "Copy this pattern into your agent code to load MCP tools through the injected proxy URL. This server requires no API key."}
             </Typography>
             <CodeBlock
               language="python"
@@ -1106,9 +1121,33 @@ function isAPIKeyEnvVarKey(key: string): boolean {
 function buildMCPPythonSnippet(rows: { key: string; name: string }[]): string {
   const urlEnvVar =
     rows.find((row) => /url/i.test(row.key))?.name ?? "MCP_SERVER_URL";
-  const apiKeyEnvVar =
-    rows.find((row) => /api[-_]?key/i.test(row.key))?.name ??
-    "MCP_SERVER_API_KEY";
+  // The caller already filters the apikey row out of `rows` for anything but an
+  // API-key-secured endpoint (visibleEnvVarRows, issue #1597), so its absence
+  // here is the real signal — not something to paper over with a hardcoded
+  // fallback name. An unsecured endpoint has no key to read at all.
+  const apiKeyEnvVar = rows.find((row) => /api[-_]?key/i.test(row.key))?.name;
+
+  if (!apiKeyEnvVar) {
+    return [
+      "import os",
+      "from typing import Any",
+      "from langchain_mcp_adapters.client import MultiServerMCPClient",
+      "",
+      `raw_urls = os.environ.get("${urlEnvVar}", "")`,
+      'mcp_server_urls = [url.strip() for url in raw_urls.split(",") if url.strip()]',
+      "",
+      "server_configs: dict[str, dict[str, Any]] = {",
+      '    f"mcp_server_{i}": {',
+      '        "url": url,',
+      '        "transport": "streamable_http",',
+      "    }",
+      "    for i, url in enumerate(mcp_server_urls)",
+      "} if mcp_server_urls else {}",
+      "",
+      "mcp_client = MultiServerMCPClient(server_configs)",
+      "tools = await mcp_client.get_tools()",
+    ].join("\n");
+  }
 
   return [
     "import os",
