@@ -9,16 +9,20 @@ is an optional second step, and the UI runs with or without it.
 
 ## What is in here
 
-| Path                 | Purpose                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `main.py` / `app.py` | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`) |
-| `agent.py`           | Strands agent and OpenAI model wiring                              |
-| `tools.py`           | Three tools: booking lookup, flight status, seat change            |
-| `data.py`            | In-memory bookings and flights — no database to set up             |
-| `frontend/`          | The invoking service: a single-page UI that calls the agent        |
+| Path                 | Purpose                                                              |
+| -------------------- | -------------------------------------------------------------------- |
+| `main.py` / `app.py` | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`)   |
+| `agent.py`           | Strands agent and OpenAI model wiring                                |
+| `tools.py`           | Five tools: list bookings, list flights, lookup, status, seat change |
+| `data.py`            | In-memory bookings and flights — no database to set up               |
+| `frontend/`          | The invoking service: a single-page UI that calls the agent          |
 
-Sample data to try: bookings `SKY7QT`, `SKY3MN`, `SKY9XB`; flights `SK412`,
-`SK779`, `SK203`.
+The agent handles five things: list the passenger's bookings, show the flight
+schedule, look up one booking, check a flight's status, and change a seat. It
+will say so if you ask "what can you do?".
+
+Sample data: bookings `O2K7QT`, `O2M3MN`, `O2X9XB` (all Ada Lovelace); flights
+`O2412`, `O2779`, `O2203`, `O2118`.
 
 ## Prerequisites
 
@@ -40,7 +44,7 @@ call the interpreter directly: `./.venv/bin/python main.py`.
 ```bash
 curl -X POST http://localhost:10150/chat \
   -H 'Content-Type: application/json' \
-  -d '{"session_id":"s1","message":"What is the status of flight SK412?"}'
+  -d '{"session_id":"s1","message":"What is the status of flight O2412?"}'
 ```
 
 Then run the UI against it — no login, since no provider is configured:
@@ -55,14 +59,14 @@ Open <http://localhost:13000>.
 
 ### Agent
 
-| Variable             | Required | Default           | Purpose                                                                         |
-| -------------------- | -------- | ----------------- | ------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`     | yes      | —                 | Model credential                                                                |
-| `PORT`               | no       | `8000`            | Local override only; deployed agents are routed to 8000                         |
-| `CORS_ALLOW_ORIGINS` | no       | —                 | Comma-separated origins. Only for local browser use — leave unset when deployed |
-| `OPENAI_BASE_URL`    | no       | OpenAI's default  | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy                    |
-| `OPENAI_MODEL`       | no       | `gpt-4o-mini`     | Model id                                                                        |
-| `AIRLINE_NAME`       | no       | `Skyline Airways` | Used in the system prompt and the UI header                                     |
+| Variable             | Required | Default          | Purpose                                                                         |
+| -------------------- | -------- | ---------------- | ------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`     | yes      | —                | Model credential                                                                |
+| `PORT`               | no       | `8000`           | Local override only; deployed agents are routed to 8000                         |
+| `CORS_ALLOW_ORIGINS` | no       | —                | Comma-separated origins. Only for local browser use — leave unset when deployed |
+| `OPENAI_BASE_URL`    | no       | OpenAI's default | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy                    |
+| `OPENAI_MODEL`       | no       | `gpt-4o-mini`    | Model id                                                                        |
+| `AIRLINE_NAME`       | no       | `O2 Airlines`    | Used in the system prompt and the UI header                                     |
 
 Set `OPENAI_BASE_URL` when routing model calls through a gateway; the key you
 supply in `OPENAI_API_KEY` is then the gateway's key.

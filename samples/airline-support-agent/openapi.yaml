@@ -28,12 +28,12 @@ paths:
                 summary: Ask for a flight status
                 value:
                   session_id: "session_123"
-                  message: "What is the status of flight SK412?"
+                  message: "What is the status of flight O2412?"
               seatChange:
                 summary: Change a seat
                 value:
                   session_id: "session_123"
-                  message: "Move booking SKY7QT to seat 12C"
+                  message: "Move booking O2K7QT to seat 12C"
       responses:
         "200":
           description: The agent's reply
@@ -45,7 +45,7 @@ paths:
                 flightStatusResponse:
                   summary: Flight status reply
                   value:
-                    response: "SK412 to New York JFK is on time, departing from gate B12."
+                    response: "O2412 to New York JFK is on time, departing from gate B12."
                     session_id: "session_123"
         "400":
           description: Empty message
@@ -76,7 +76,7 @@ paths:
                     example: ok
                   airline:
                     type: string
-                    example: Skyline Airways
+                    example: O2 Airlines
 components:
   schemas:
     ChatRequest:
