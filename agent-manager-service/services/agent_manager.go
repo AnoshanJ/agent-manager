@@ -1296,15 +1296,14 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 				// source agent's already-built OpenAPI content here so the Swagger UI has something
 				// to render instead of "No API schema available for this endpoint".
 				if endpoints, epErr := s.ocClient.GetComponentEndpoints(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, ""); epErr != nil {
-					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation", "agentName", kindVersion.Kind.AgentName, "error", epErr)
+					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation",
+						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName, "error", epErr)
+				} else if sourceEndpoint, ok := endpoints[kindVersion.Kind.AgentName+"-endpoint"]; ok && sourceEndpoint.Schema.Content != "" {
+					content := sourceEndpoint.Schema.Content
+					req.InputInterface.Schema.Content = &content
 				} else {
-					for _, endpoint := range endpoints {
-						if endpoint.Schema.Content != "" {
-							content := endpoint.Schema.Content
-							req.InputInterface.Schema.Content = &content
-							break
-						}
-					}
+					s.logger.Debug("No resolved OpenAPI schema content found for source agent's endpoint during kind instantiation",
+						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName)
 				}
 			}
 		}
