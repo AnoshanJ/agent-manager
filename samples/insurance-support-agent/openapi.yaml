@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
-  title: Airline Support Agent
+  title: Insurance Support Agent
   description: |
-    A Strands agent exposing a single POST /chat endpoint. It answers passenger
-    questions about bookings, flight status and seat changes using three tools
-    over in-memory fixtures.
+    A Strands agent exposing a single POST /chat endpoint. It answers customer
+    questions about insurance policies and claims, and can open a new claim,
+    using five tools over in-memory fixtures.
   version: 1.0.0
 servers:
   - url: http://localhost:8000
@@ -12,9 +12,9 @@ servers:
 paths:
   /chat:
     post:
-      summary: Chat with the airline support agent
+      summary: Chat with the insurance support agent
       description: |
-        Sends a passenger message to the agent. Conversation history is kept per
+        Sends a customer message to the agent. Conversation history is kept per
         session_id; omit it to start a new conversation.
       operationId: chat
       requestBody:
@@ -24,16 +24,21 @@ paths:
             schema:
               $ref: "#/components/schemas/ChatRequest"
             examples:
-              flightStatus:
-                summary: Ask for a flight status
+              listPolicies:
+                summary: Ask what cover the customer holds
                 value:
                   session_id: "session_123"
-                  message: "What is the status of flight O2412?"
-              seatChange:
-                summary: Change a seat
+                  message: "What policies do I have?"
+              claimStatus:
+                summary: Check a claim
                 value:
                   session_id: "session_123"
-                  message: "Move booking O2K7QT to seat 12C"
+                  message: "What is happening with claim CLM-10432?"
+              fileClaim:
+                summary: Open a new claim
+                value:
+                  session_id: "session_123"
+                  message: "I need to claim on OZ-HOME-2280, a pipe burst and ruined the floor, about £900"
       responses:
         "200":
           description: The agent's reply
@@ -42,10 +47,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ChatResponse"
               examples:
-                flightStatusResponse:
-                  summary: Flight status reply
+                claimStatusResponse:
+                  summary: Claim status reply
                   value:
-                    response: "O2412 to New York JFK is on time, departing from gate B12."
+                    response: "Claim CLM-10432 on your motor policy is in review. An assessor report is expected by 20 August."
                     session_id: "session_123"
         "400":
           description: Empty message
@@ -74,9 +79,9 @@ paths:
                   status:
                     type: string
                     example: ok
-                  airline:
+                  company:
                     type: string
-                    example: O2 Airlines
+                    example: O2 Insurance
 components:
   schemas:
     ChatRequest:
@@ -86,7 +91,7 @@ components:
       properties:
         message:
           type: string
-          description: The passenger's message
+          description: The customer's message
         session_id:
           type: string
           description: Conversation identifier; generated when omitted

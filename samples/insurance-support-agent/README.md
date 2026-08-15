@@ -1,7 +1,7 @@
-# Airline Support Agent
+# Insurance Support Agent
 
 An end-to-end sample: a Strands agent deployed on WSO2 Agent Manager, plus a
-browser UI that logs a passenger in with OAuth2 and chats with the agent through
+browser UI that logs a customer in with OAuth2 and chats with the agent through
 the gateway.
 
 The agent works on its own — deploy it and chat from **Try It**. The login flow
@@ -9,20 +9,21 @@ is an optional second step, and the UI runs with or without it.
 
 ## What is in here
 
-| Path                 | Purpose                                                              |
-| -------------------- | -------------------------------------------------------------------- |
-| `main.py` / `app.py` | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`)   |
-| `agent.py`           | Strands agent and OpenAI model wiring                                |
-| `tools.py`           | Five tools: list bookings, list flights, lookup, status, seat change |
-| `data.py`            | In-memory bookings and flights — no database to set up               |
-| `frontend/`          | The invoking service: a single-page UI that calls the agent          |
+| Path                 | Purpose                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `main.py` / `app.py` | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`)       |
+| `agent.py`           | Strands agent and OpenAI model wiring                                    |
+| `tools.py`           | Five tools: list policies, list claims, lookup, claim status, file claim |
+| `data.py`            | In-memory policies and claims — no database to set up                    |
+| `frontend/`          | The invoking service: a single-page UI that calls the agent              |
 
-The agent handles five things: list the passenger's bookings, show the flight
-schedule, look up one booking, check a flight's status, and change a seat. It
-will say so if you ask "what can you do?".
+The agent handles five things: list the customer's policies, list their claims,
+show the full cover on one policy, check a claim's status, and open a new claim.
+It will say so if you ask "what can you do?".
 
-Sample data: bookings `O2K7QT`, `O2M3MN`, `O2X9XB` (all Ada Lovelace); flights
-`O2412`, `O2779`, `O2203`, `O2118`.
+Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
+(home and contents), `OZ-TRAV-9153` (travel); claims `CLM-10432` (in review) and
+`CLM-10876` (settled).
 
 ## Prerequisites
 
@@ -44,7 +45,7 @@ call the interpreter directly: `./.venv/bin/python main.py`.
 ```bash
 curl -X POST http://localhost:10150/chat \
   -H 'Content-Type: application/json' \
-  -d '{"session_id":"s1","message":"What is the status of flight O2412?"}'
+  -d '{"session_id":"s1","message":"What policies do I have?"}'
 ```
 
 Then run the UI against it — no login, since no provider is configured:
@@ -66,7 +67,7 @@ Open <http://localhost:13000>.
 | `CORS_ALLOW_ORIGINS` | no       | —                | Comma-separated origins. Only for local browser use — leave unset when deployed |
 | `OPENAI_BASE_URL`    | no       | OpenAI's default | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy                    |
 | `OPENAI_MODEL`       | no       | `gpt-4o-mini`    | Model id                                                                        |
-| `AIRLINE_NAME`       | no       | `O2 Airlines`    | Used in the system prompt and the UI header                                     |
+| `COMPANY_NAME`       | no       | `O2 Insurance`   | Used in the system prompt and the UI header                                     |
 
 Set `OPENAI_BASE_URL` when routing model calls through a gateway; the key you
 supply in `OPENAI_API_KEY` is then the gateway's key.
@@ -91,16 +92,16 @@ supply in `OPENAI_API_KEY` is then the gateway's key.
 
 ### Step 2: Configure agent details
 
-| Field                 | Value                                              |
-| --------------------- | -------------------------------------------------- |
-| **Display Name**      | `Airline Support Agent`                            |
-| **Description**       | `Passenger support agent for bookings and flights` |
-| **GitHub Repository** | `https://github.com/wso2/agent-manager`            |
-| **Branch**            | `main`                                             |
-| **App Path**          | `/samples/airline-support-agent`                   |
-| **Language**          | `Python`                                           |
-| **Language Version**  | `3.11`                                             |
-| **Start Command**     | `python main.py`                                   |
+| Field                 | Value                                            |
+| --------------------- | ------------------------------------------------ |
+| **Display Name**      | `Insurance Support Agent`                        |
+| **Description**       | `Customer support agent for policies and claims` |
+| **GitHub Repository** | `https://github.com/wso2/agent-manager`          |
+| **Branch**            | `main`                                           |
+| **App Path**          | `/samples/insurance-support-agent`               |
+| **Language**          | `Python`                                         |
+| **Language Version**  | `3.11`                                           |
+| **Start Command**     | `python main.py`                                 |
 
 ### Step 3: Select the agent interface
 
