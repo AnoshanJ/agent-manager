@@ -26,7 +26,7 @@ def build_config() -> dict[str, str]:
         "issuer": os.environ.get("OIDC_ISSUER", "").rstrip("/"),
         "clientId": os.environ.get("OIDC_CLIENT_ID", ""),
         "scopes": os.environ.get("OIDC_SCOPES", "openid profile email"),
-        "airlineName": os.environ.get("AIRLINE_NAME", "O2 Airlines"),
+        "companyName": os.environ.get("COMPANY_NAME", "O2 Insurance"),
     }
 
 
@@ -65,7 +65,7 @@ def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
 
     mode = "OAuth login" if config["clientId"] else "no-login (OIDC_CLIENT_ID unset)"
-    print(f"Airline support demo UI on http://localhost:{port}")
+    print(f"Insurance support demo UI on http://localhost:{port}")
     print(f"  mode      : {mode}")
     print(f"  agent     : {config['agentUrl']}")
     if config["clientId"]:

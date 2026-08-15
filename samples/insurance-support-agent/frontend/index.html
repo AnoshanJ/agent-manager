@@ -3,34 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>O2 Airlines — Support</title>
+<title>O2 Insurance — Support</title>
 <style>
   :root {
-    --brand-ink: #0a1633;
-    --brand: #1b46d8;
-    --brand-soft: #e8edff;
-    --accent: #00c2c7;
-    --bg: #f4f6fb;
+    --brand: #10396b;
+    --brand-hi: #17548f;
+    --accent: #16a97b;
+    --brand-soft: #e9f0f8;
+    --bg: #f2f5f9;
     --surface: #ffffff;
-    --border: #e3e7f0;
-    --text: #16192b;
-    --muted: #6b7385;
-    --bubble: #f0f2f8;
+    --border: #e0e6ef;
+    --text: #17202f;
+    --muted: #67718a;
+    --bubble: #eef1f6;
     --danger: #b42318;
+    --ok: #12855f;
     --radius: 14px;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --brand-ink: #060d20;
-      --brand: #5b7dff;
-      --brand-soft: #17203d;
-      --bg: #0b0f1c;
-      --surface: #121828;
-      --border: #232c42;
-      --text: #e8eaf2;
-      --muted: #9aa2b6;
-      --bubble: #1b2235;
+      --brand: #4b8ede;
+      --brand-hi: #6ba3e8;
+      --accent: #2bc493;
+      --brand-soft: #16233a;
+      --bg: #0a0f18;
+      --surface: #111926;
+      --border: #212c40;
+      --text: #e7ebf3;
+      --muted: #96a0b5;
+      --bubble: #1a2333;
       --danger: #ff8a80;
+      --ok: #35c795;
     }
   }
 
@@ -44,41 +47,48 @@
   }
   .hidden { display: none !important; }
 
-  /* ---------- shell ---------- */
   .app {
     height: 100dvh;
     display: grid;
-    grid-template-rows: auto 1fr auto;
-    max-width: 1100px;
+    grid-template-rows: auto auto 1fr auto;
+    max-width: 1080px;
     margin: 0 auto;
     background: var(--surface);
     border-inline: 1px solid var(--border);
   }
-  @media (max-width: 1100px) { .app { border-inline: none; } }
+  @media (max-width: 1080px) { .app { border-inline: none; } }
 
   /* ---------- brand ---------- */
-  .logo { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .mark {
-    width: 34px; height: 34px; flex: none; border-radius: 10px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%);
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: linear-gradient(160deg, var(--brand-hi) 0%, var(--brand) 100%);
     display: grid; place-items: center;
   }
   .mark svg { width: 19px; height: 19px; fill: #fff; }
-  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
-  .wordmark span { color: var(--muted); font-weight: 500; }
-  .tagline { font-size: 11.5px; color: var(--muted); }
 
   /* ---------- top bar ---------- */
   .topbar {
     display: flex; align-items: center; gap: 12px;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
   }
+  .logo { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
+  .wordmark span { color: var(--muted); font-weight: 500; }
+  .tagline { font-size: 11.5px; color: var(--muted); }
   .topbar .spacer { flex: 1; }
   .who { text-align: right; line-height: 1.25; min-width: 0; }
   .who .name { font-size: 13px; font-weight: 600; }
   .who .sub { font-size: 11.5px; color: var(--muted); }
+
+  /* ---------- assurance strip ---------- */
+  .strip {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 8px 20px; background: var(--brand-soft);
+    border-bottom: 1px solid var(--border);
+    font-size: 11.5px; color: var(--muted);
+  }
+  .strip b { color: var(--text); font-weight: 600; }
+  .strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
 
   button {
     font: inherit; font-size: 13px;
@@ -88,23 +98,21 @@
     transition: background .15s, border-color .15s;
   }
   button:hover { background: var(--bubble); }
-  button.primary {
-    background: var(--brand); border-color: var(--brand); color: #fff;
-  }
-  button.primary:hover { filter: brightness(1.07); background: var(--brand); }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  button.primary:hover { filter: brightness(1.12); background: var(--brand); }
   button:disabled { opacity: .5; cursor: not-allowed; }
 
   /* ---------- thread ---------- */
-  .thread { overflow-y: auto; padding: 24px 20px 8px; scroll-behavior: smooth; }
-  .inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .thread { overflow-y: auto; padding: 22px 20px 8px; scroll-behavior: smooth; }
+  .inner { max-width: 740px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 
   .row { display: flex; gap: 10px; align-items: flex-start; }
   .row.user { flex-direction: row-reverse; }
   .avatar {
     width: 28px; height: 28px; flex: none; border-radius: 8px;
-    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+    display: grid; place-items: center; font-size: 10.5px; font-weight: 700;
   }
-  .avatar.bot { background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%); }
+  .avatar.bot { background: linear-gradient(160deg, var(--brand-hi) 0%, var(--brand) 100%); }
   .avatar.bot svg { width: 15px; height: 15px; fill: #fff; }
   .avatar.me { background: var(--brand-soft); color: var(--brand); }
 
@@ -125,10 +133,10 @@
   @keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
 
   /* ---------- empty state ---------- */
-  .welcome { text-align: center; padding: 6vh 0 0; }
+  .welcome { text-align: center; padding: 5vh 0 0; }
   .welcome .bigmark {
-    width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 16px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%);
+    width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 15px;
+    background: linear-gradient(160deg, var(--brand-hi) 0%, var(--brand) 100%);
     display: grid; place-items: center;
   }
   .welcome .bigmark svg { width: 30px; height: 30px; fill: #fff; }
@@ -137,7 +145,7 @@
 
   .suggestions {
     margin: 22px auto 0; display: grid; gap: 10px;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); max-width: 620px;
+    grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); max-width: 620px;
   }
   .chip {
     text-align: left; padding: 13px 15px; border-radius: 12px;
@@ -149,15 +157,15 @@
   .chip .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
 
   /* ---------- composer ---------- */
-  .composer { border-top: 1px solid var(--border); padding: 14px 20px 18px; background: var(--surface); }
-  .composer form { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; }
+  .composer { border-top: 1px solid var(--border); padding: 14px 20px 16px; }
+  .composer form { max-width: 740px; margin: 0 auto; display: flex; gap: 10px; }
   .composer input {
     flex: 1; font: inherit; font-size: 14.5px; padding: 12px 15px;
     border: 1px solid var(--border); border-radius: 11px;
     background: var(--bg); color: var(--text);
   }
   .composer input:focus { outline: 2px solid var(--brand); outline-offset: -1px; background: var(--surface); }
-  .footnote { max-width: 760px; margin: 8px auto 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+  .footnote { max-width: 740px; margin: 9px auto 0; font-size: 11.5px; color: var(--muted); text-align: center; }
 
   /* ---------- login ---------- */
   .login-screen { height: 100dvh; display: grid; place-items: center; padding: 24px; }
@@ -166,8 +174,8 @@
     background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
   }
   .login-card .bigmark {
-    width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%);
+    width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 15px;
+    background: linear-gradient(160deg, var(--brand-hi) 0%, var(--brand) 100%);
     display: grid; place-items: center;
   }
   .login-card .bigmark svg { width: 30px; height: 30px; fill: #fff; }
@@ -179,32 +187,30 @@
   @media (max-width: 560px) {
     .msg { max-width: 88%; }
     .thread { padding: 16px 14px 4px; }
-    .composer { padding: 12px 14px 16px; }
-    .tagline, .who .sub { display: none; }
+    .composer { padding: 12px 14px 14px; }
+    .tagline, .who .sub, .strip .hide-sm { display: none; }
   }
 </style>
 </head>
 <body>
 
-<!-- login -->
 <div id="login-view" class="login-screen hidden">
   <div class="login-card">
-    <div class="bigmark"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></div>
-    <h1 id="login-title">O2 Airlines Support</h1>
-    <p>Sign in to view your bookings and chat with our support agent.</p>
-    <button class="primary" id="login-btn">Sign in</button>
+    <div class="bigmark"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.05 3.84 9.77 9 11 5.16-1.23 9-5.95 9-11V5l-9-4zm-1.2 15.3-3.5-3.5 1.4-1.4 2.1 2.1 5-5 1.4 1.4-6.4 6.4z"/></svg></div>
+    <h1 id="login-title">O2 Insurance Support</h1>
+    <p>Sign in to view your policies and claims.</p>
+    <button type="button" class="primary" id="login-btn">Sign in</button>
     <div class="login-err" id="login-error"></div>
   </div>
 </div>
 
-<!-- chat -->
 <div id="app-view" class="app hidden">
   <div class="topbar">
     <div class="logo">
-      <div class="mark"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></div>
+      <div class="mark"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.05 3.84 9.77 9 11 5.16-1.23 9-5.95 9-11V5l-9-4zm-1.2 15.3-3.5-3.5 1.4-1.4 2.1 2.1 5-5 1.4 1.4-6.4 6.4z"/></svg></div>
       <div>
-        <div class="wordmark" id="brand-name">O2 Airlines <span>Support</span></div>
-        <div class="tagline" id="brand-tag">Bookings, flights and seats</div>
+        <div class="wordmark" id="brand-name">O2 Insurance <span>Support</span></div>
+        <div class="tagline">Policies, claims and cover</div>
       </div>
     </div>
     <div class="spacer"></div>
@@ -212,8 +218,15 @@
       <div class="name" id="greeting">Hello</div>
       <div class="sub" id="subtitle"></div>
     </div>
-    <button id="new-chat">New chat</button>
-    <button id="logout" class="hidden">Sign out</button>
+    <button type="button" id="new-chat">New chat</button>
+    <button type="button" id="logout" class="hidden">Sign out</button>
+  </div>
+
+  <div class="strip">
+    <span><span class="dot"></span> Adviser online</span>
+    <span class="hide-sm">Claims line <b>0800 111 222</b></span>
+    <span class="hide-sm">Mon-Sat, 8am-8pm</span>
+    <span class="hide-sm">Ref <b id="ref-code">—</b></span>
   </div>
 
   <div class="thread" id="thread">
@@ -222,10 +235,10 @@
 
   <div class="composer">
     <form id="composer">
-      <input type="text" id="message" placeholder="Ask about a booking, flight or seat..." autocomplete="off">
+      <input type="text" id="message" placeholder="Ask about a policy, a claim or what you're covered for..." autocomplete="off">
       <button class="primary" id="send" type="submit">Send</button>
     </form>
-    <div class="footnote">Demo data only. This agent cannot book, cancel or take payment.</div>
+    <div class="footnote">Demo data only. This agent cannot approve claims, change a premium or take payment.</div>
   </div>
 </div>
 
@@ -234,15 +247,15 @@
 const CFG = window.APP_CONFIG || {};
 const AUTH_ENABLED = Boolean(CFG.clientId && CFG.issuer);
 const REDIRECT_URI = window.location.origin + '/';
-const AIRLINE = CFG.airlineName || 'O2 Airlines';
+const COMPANY = CFG.companyName || 'O2 Insurance';
 
-const PLANE = '<svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>';
+const SHIELD = '<svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.05 3.84 9.77 9 11 5.16-1.23 9-5.95 9-11V5l-9-4zm-1.2 15.3-3.5-3.5 1.4-1.4 2.1 2.1 5-5 1.4 1.4-6.4 6.4z"/></svg>';
 
 const SUGGESTIONS = [
-  { q: 'What can you do?', hint: 'See everything this agent handles' },
-  { q: 'What are my bookings?', hint: 'List every booking on file' },
-  { q: 'What flights are available?', hint: 'Browse the full schedule' },
-  { q: 'Move booking O2K7QT to seat 12C', hint: 'Change a seat assignment' },
+  { q: 'What can you do?', hint: 'See everything this adviser handles' },
+  { q: 'What policies do I have?', hint: 'Cover, premiums and renewal dates' },
+  { q: 'What is happening with my claims?', hint: 'Status and next steps' },
+  { q: 'What am I covered for on OZ-AUTO-4417?', hint: 'Full cover on one policy' },
 ];
 
 const els = {
@@ -252,6 +265,7 @@ const els = {
   loginTitle: document.getElementById('login-title'),
   appView: document.getElementById('app-view'),
   brandName: document.getElementById('brand-name'),
+  refCode: document.getElementById('ref-code'),
   greeting: document.getElementById('greeting'),
   subtitle: document.getElementById('subtitle'),
   thread: document.getElementById('thread'),
@@ -382,7 +396,7 @@ function addRow(kind, node) {
     avatar.textContent = 'You';
   } else {
     avatar.className = 'avatar bot';
-    avatar.innerHTML = PLANE;
+    avatar.innerHTML = SHIELD;
   }
 
   const msg = document.createElement('div');
@@ -408,9 +422,9 @@ function showWelcome() {
   const wrap = document.createElement('div');
   wrap.className = 'welcome';
   wrap.innerHTML =
-    '<div class="bigmark">' + PLANE + '</div>' +
-    '<h2>How can we help?</h2>' +
-    '<p>Ask about your bookings, flight times or seat changes.</p>';
+    '<div class="bigmark">' + SHIELD + '</div>' +
+    '<h2>How can we help today?</h2>' +
+    '<p>Ask about your cover, check a claim, or start a new one.</p>';
 
   const grid = document.createElement('div');
   grid.className = 'suggestions';
@@ -434,6 +448,7 @@ function showWelcome() {
 
 function resetTranscript() {
   sessionId = crypto.randomUUID();
+  els.refCode.textContent = sessionId.slice(0, 8).toUpperCase();
   showWelcome();
   els.message.focus();
 }
@@ -484,7 +499,7 @@ async function send(text) {
 
 function showChat(claims) {
   const name = claims.given_name || claims.name || claims.preferred_username || claims.email;
-  els.brandName.innerHTML = AIRLINE + ' <span>Support</span>';
+  els.brandName.innerHTML = COMPANY + ' <span>Support</span>';
   els.greeting.textContent = name ? 'Hello, ' + name : 'Hello';
   els.subtitle.textContent = AUTH_ENABLED ? 'Signed in' : 'No login configured';
   els.logout.classList.toggle('hidden', !AUTH_ENABLED);
@@ -494,7 +509,7 @@ function showChat(claims) {
 }
 
 function showLogin(error) {
-  els.loginTitle.textContent = AIRLINE + ' Support';
+  els.loginTitle.textContent = COMPANY + ' Support';
   els.loginError.textContent = error || '';
   els.appView.classList.add('hidden');
   els.loginView.classList.remove('hidden');
@@ -515,7 +530,7 @@ els.composer.addEventListener('submit', (e) => {
 });
 
 (async function start() {
-  document.title = AIRLINE + ' — Support';
+  document.title = COMPANY + ' — Support';
 
   if (!AUTH_ENABLED) {
     showChat({});
