@@ -22,7 +22,7 @@ class Config:
     openai_api_key: str
     openai_base_url: str
     openai_model: str
-    airline_name: str
+    company_name: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -30,5 +30,5 @@ class Config:
             openai_api_key=_env("OPENAI_API_KEY"),
             openai_base_url=_env("OPENAI_BASE_URL", ""),
             openai_model=_env("OPENAI_MODEL", "gpt-4o-mini"),
-            airline_name=_env("AIRLINE_NAME", "O2 Airlines"),
+            company_name=_env("COMPANY_NAME", "O2 Insurance"),
         )

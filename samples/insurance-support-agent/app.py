@@ -16,12 +16,12 @@ from agent import build_agent
 from config import Config
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("airline-support")
+log = logging.getLogger("insurance-support")
 
 CONFIG = Config.from_env()
 SESSIONS: dict[str, Agent] = {}
 
-app = FastAPI(title="Airline Support Agent", version="1.0.0")
+app = FastAPI(title="Insurance Support Agent", version="1.0.0")
 
 # Off unless set: deployed agents get CORS from the gateway, and a second set of
 # headers from here would make browsers reject the response.
@@ -54,7 +54,7 @@ def _agent_for(session_id: str) -> Agent:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "airline": CONFIG.airline_name}
+    return {"status": "ok", "company": CONFIG.company_name}
 
 
 @app.post("/chat", response_model=ChatResponse)

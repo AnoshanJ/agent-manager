@@ -1,4 +1,4 @@
-"""Entrypoint for the airline support agent. AM run command: ``python main.py``."""
+"""Entrypoint for the insurance support agent. AM run command: ``python main.py``."""
 
 from __future__ import annotations
 
