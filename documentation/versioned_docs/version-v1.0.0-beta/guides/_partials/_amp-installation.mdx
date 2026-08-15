@@ -163,6 +163,8 @@ helm install amp \
   --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
+  --set agentManagerService.config.thunder.baseURL="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.thunder.resolveToHost="${THUNDER_INTERNAL_URL#http://}" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --timeout 1800s
 ```
@@ -217,6 +219,8 @@ helm install amp \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set agentManagerService.config.oidc.clientSecret="${AMP_API_CLIENT_SECRET}" \
+  --set agentManagerService.config.thunder.baseURL="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.thunder.resolveToHost="${THUNDER_INTERNAL_URL#http://}" \
   --set agentManagerService.config.thunder.clientSecret="${AMP_SYSTEM_CLIENT_SECRET}" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --set agentManagerService.config.tlsEnabled=true \
@@ -285,6 +289,20 @@ resource metadata is derived from it, so
 must differ. Likewise the MCP audience entry is derived from
 `serverPublicURL` above, so `keyManager.audience` only needs setting to change
 the accepted client IDs.
+
+`thunder.baseURL` must also be the public Thunder URL, for a related but
+separate reason: every admin identity call (users, roles, groups) requests a
+token scoped to Thunder's System resource server via an RFC 8707 `resource`
+parameter derived from this value, and Thunder only recognizes the public URL
+as that resource server's registered identifier — anything else fails with
+`invalid_target`. Since the API runs in-cluster and the public hostname often
+doesn't resolve there, `thunder.resolveToHost` tells it which address to
+actually connect to while still presenting `thunder.baseURL` on the wire; set
+it to the in-cluster Thunder service (as above) whenever the public hostname
+isn't directly dialable from this cluster. Leaving `thunder.baseURL` at the
+chart default (or omitting `resolveToHost` when the public hostname can't
+resolve in-cluster) breaks every admin identity call with `invalid_target` or
+a DNS lookup failure, while the rest of the platform looks healthy.
 :::
 
 :::tip Verify
