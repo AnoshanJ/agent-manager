@@ -21,10 +21,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
@@ -41,6 +45,7 @@ import (
 
 type AgentManagerService interface {
 	ListAgents(ctx context.Context, ouID string, projName string, labelFilter map[string]string, limit int32, offset int32) ([]*models.AgentResponse, int32, error)
+	ListOrgAgents(ctx context.Context, ouID string) ([]*models.AgentSummary, error)
 	CreateAgent(ctx context.Context, ouID string, projectName string, req *spec.CreateAgentRequest) error
 	UpdateAgentBasicInfo(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBasicInfoRequest) (*models.AgentResponse, error)
 	UpdateAgentBuildParameters(ctx context.Context, ouID string, projectName string, agentName string, req *spec.UpdateAgentBuildParametersRequest) (*models.AgentResponse, error)
@@ -1113,6 +1118,94 @@ func (s *agentManagerService) ListAgents(ctx context.Context, ouID string, projN
 	return paginatedAgents, total, nil
 }
 
+// ListOrgAgents returns every agent across all projects in the organization, unpaginated,
+// with each agent's project name and display name attached.
+func (s *agentManagerService) ListOrgAgents(ctx context.Context, ouID string) ([]*models.AgentSummary, error) {
+	s.logger.Info("Listing all agents in organization", "ouID", ouID)
+
+	// Validate organization exists
+	if _, err := s.ocClient.GetOrganization(ctx, ouID); err != nil {
+		s.logger.Error("Failed to find organization", "ouID", ouID, "error", err)
+		return nil, translateOrgError(err)
+	}
+
+	projects, err := listOrgProjects(ctx, s.ocClient, ouID)
+	if err != nil {
+		s.logger.Error("Failed to list projects", "ouID", ouID, "error", err)
+		return nil, err
+	}
+
+	agents, err := fetchAcrossOrgProjects(ctx, projects, ouID, s.ocClient.ListComponents)
+	if err != nil {
+		s.logger.Error("Failed to list agents across projects", "ouID", ouID, "error", err)
+		return nil, err
+	}
+
+	// The project list is already in hand from the fan-out above, so attaching each
+	// agent's project display name costs an in-memory lookup, not another round trip.
+	projectDisplayNames := make(map[string]string, len(projects))
+	for _, p := range projects {
+		projectDisplayNames[p.Name] = p.DisplayName
+	}
+	summaries := make([]*models.AgentSummary, len(agents))
+	for i, a := range agents {
+		summaries[i] = &models.AgentSummary{
+			Name:               a.Name,
+			DisplayName:        a.DisplayName,
+			ProjectName:        a.ProjectName,
+			ProjectDisplayName: projectDisplayNames[a.ProjectName],
+		}
+	}
+
+	s.logger.Info("Listed org agents successfully", "ouID", ouID, "totalAgents", len(summaries))
+	return summaries, nil
+}
+
+// listOrgProjects fetches every project in the org, wrapping the error consistently for
+// the two org-wide listings that need the project list itself (not just the fan-out
+// over it): ListOrgAgents (for project display names) and ListKindAgents (as the
+// fan-out target list).
+func listOrgProjects(ctx context.Context, ocClient client.OpenChoreoClient, ouID string) ([]*models.ProjectResponse, error) {
+	projects, err := ocClient.ListProjects(ctx, ouID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+	return projects, nil
+}
+
+// fetchAcrossOrgProjects concurrently invokes fetch for each of the given projects and
+// aggregates the results. Shared by any org-wide listing that fans out per-project (see
+// also AgentKindService.ListKindAgents).
+func fetchAcrossOrgProjects(
+	ctx context.Context,
+	projects []*models.ProjectResponse,
+	ouID string,
+	fetch func(ctx context.Context, ouID, projectName string) ([]*models.AgentResponse, error),
+) ([]*models.AgentResponse, error) {
+	results := make([][]*models.AgentResponse, len(projects))
+	g, gctx := errgroup.WithContext(ctx)
+	for i, p := range projects {
+		i, projectName := i, p.Name
+		g.Go(func() error {
+			agents, err := fetch(gctx, ouID, projectName)
+			if err != nil {
+				return err
+			}
+			results[i] = agents
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("failed to list agents: %w", err)
+	}
+
+	all := make([]*models.AgentResponse, 0, len(projects))
+	for _, agents := range results {
+		all = append(all, agents...)
+	}
+	return all, nil
+}
+
 // paginateSlice returns items[offset:offset+limit], clamping both bounds defensively so
 // negative values or out-of-range offsets never panic the slice expression.
 func paginateSlice[T any](items []T, offset, limit int32) []T {
@@ -1641,7 +1734,10 @@ func convertConfiguration(cfg spec.EnvProviderConfiguration) models.EnvProviderC
 			Paths:   paths,
 		})
 	}
-	return models.EnvProviderConfiguration{Policies: policies}
+	return models.EnvProviderConfiguration{
+		Policies:   policies,
+		Resilience: utils.ConvertSpecToModelResilience(cfg.Resilience),
+	}
 }
 
 func convertEnvVars(specVars []spec.EnvironmentVariableConfig) []models.EnvironmentVariableConfig {
@@ -2396,7 +2492,24 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	// LLM config cleanup happens after a confirmed DeleteComponent so a transient OC
 	// failure leaves the system fully intact and the delete can be retried cleanly.
 	s.logger.Debug("Deleting oc agent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+
+	// Deletion is irreversible and cascades into configs, identities and
+	// monitors, so it is refused when it cannot be recorded.
+	deleteAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentDelete,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agentName, agentName),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to delete agent: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return auditErr
+	}
+
 	err = s.ocClient.DeleteComponent(ctx, ouID, projectName, agentName)
+	deleteAttempt.Complete(ctx, err)
 	if err != nil {
 		translatedErr := translateAgentError(err)
 		if errors.Is(translatedErr, utils.ErrAgentNotFound) {
@@ -2558,7 +2671,19 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, proje
 	}
 	// Trigger build in OpenChoreo
 	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
+	// Builds are frequent and produce no credential, so this is recorded after
+	// the fact rather than refusing the build when the trail is unavailable.
 	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId)
+	audit.Record(
+		ctx, audit.ActionAgentBuild,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Detail("agentName", agentName),
+		audit.Detail("commitId", commitId),
+		audit.Detail("buildName", buildNameOf(build)),
+		audit.Result(err),
+	)
 	if err != nil {
 		s.logger.Error("Failed to trigger build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return nil, translateBuildError(err)
@@ -2593,6 +2718,17 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	if lowestEnv == "" {
 		s.logger.Error("No environment found in deployment pipeline", "projectName", projectName)
 		return "", fmt.Errorf("no environment found in deployment pipeline")
+	}
+
+	// The cell namespace for (project, environment) is owned by a
+	// ProjectReleaseBinding. Without one the release binding this deploy creates
+	// fails to apply with `namespaces "dp-..." not found`. Ensure it here rather
+	// than only at project creation, so projects created before this existed and
+	// environments added after the project was created are both covered.
+	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, lowestEnv); err != nil {
+		s.logger.Error("Failed to ensure project release binding before deploy",
+			"ouID", ouID, "projectName", projectName, "environment", lowestEnv, "error", err)
+		return "", fmt.Errorf("failed to prepare environment %q for deployment: %w", lowestEnv, err)
 	}
 
 	// Convert to deploy request with user-provided env vars
@@ -2878,10 +3014,33 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
+	// The permission gating this route is agent:deploy-non-production whatever
+	// the pipeline's lowest environment actually is, so the record has to carry
+	// the real target and whether it is production. Without that the trail
+	// cannot distinguish a sandbox push from a production one.
+	deployAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentDeploy,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Environment(lowestEnv),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", lowestEnv),
+		audit.Detail("isProduction", targetEnv != nil && targetEnv.IsProduction),
+		audit.Detail("imageId", req.ImageId),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to deploy: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return "", auditErr
+	}
+
 	if err := s.ocClient.Deploy(ctx, ouID, projectName, agentName, deployReq); err != nil {
+		deployAttempt.Complete(ctx, err)
 		s.logger.Error("Failed to deploy agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
 		return "", err
 	}
+	deployAttempt.Complete(ctx, nil)
 
 	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
 	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
@@ -3562,6 +3721,27 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		return fmt.Errorf("%w for agent %s in environment %s", utils.ErrDeploymentInProgress, agentName, req.TargetEnvironment)
 	}
 
+	// The target environment's cell namespace is owned by a ProjectReleaseBinding.
+	// A project promoted into an environment for the first time — or into one
+	// added after the project was created — has no binding there yet, and the
+	// promoted release binding would fail to apply with `namespaces "dp-..." not
+	// found`.
+	//
+	// This runs before the first write to the target environment (AgentID
+	// provisioning, the API key, the persisted agent config), so a promotion
+	// that cannot get a namespace leaves no half-provisioned target behind. It
+	// runs after the request-shape guards above so a promotion they already
+	// reject does not create a binding for an environment nothing was promoted
+	// into. The configuration guards below still run after it, so a promotion
+	// they reject can leave an unused binding behind — a binding is an empty,
+	// reusable namespace claim, and the next promotion into that environment
+	// adopts it.
+	if err := s.ocClient.EnsureProjectReleaseBinding(ctx, ouID, projectName, req.TargetEnvironment); err != nil {
+		s.logger.Error("Failed to ensure project release binding before promote",
+			"ouID", ouID, "projectName", projectName, "environment", req.TargetEnvironment, "error", err)
+		return fmt.Errorf("failed to prepare environment %q for promotion: %w", req.TargetEnvironment, err)
+	}
+
 	// System-managed env vars (LLM provider URL/key, MCP, etc.) live per-environment in
 	// agent_env_config_variables_mapping. Promotion must enforce this invariant: if the
 	// SOURCE environment has any system-managed vars, the TARGET environment must also
@@ -3580,6 +3760,16 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	if len(srcSystemKeys) > 0 && len(tgtSystemKeys) == 0 {
 		return fmt.Errorf("%w: agent %q has LLM/system configuration in source environment %q but none in target environment %q — configure system variables in the target environment before promoting",
 			utils.ErrInvalidInput, agentName, req.SourceEnvironment, req.TargetEnvironment)
+	}
+
+	// The key-presence check above cannot see a connection that is present but dead: an MCP
+	// connection configured for the target environment still has its env var rows there, so
+	// tgtSystemKeys is non-empty, yet its URL and API key resolve to empty strings when the
+	// proxy has no endpoint bound to that environment. Promoting anyway produces an agent
+	// that starts and fails on every tool call. Compare against the source so a connection
+	// that is unbound in both environments (deliberately not offered there) still promotes.
+	if err := s.assertMCPBindingsSurvivePromotion(ctx, agentName, ouID, projectName, req.SourceEnvironment, req.TargetEnvironment); err != nil {
+		return err
 	}
 
 	// Build the target environment's system-managed env vars from the DB. We always
@@ -3858,13 +4048,74 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// guaranteed to exist and be COMPLETED at this point — the pre-promote
 	// hard block above returns before reaching here otherwise — so there is
 	// nothing left to provision for it after a successful promote.
+	// A promotion is how an agent reaches production, so the record names both
+	// ends of the move rather than just the resource.
+	//
+	// isProduction is deliberately not recorded here: the target environment is
+	// only fetched inside a conditional branch above, and adding a round-trip
+	// to OpenChoreo just to enrich a record would put a network call on the
+	// promotion path. The environment name identifies the target, and the org's
+	// environment list resolves whether it is production.
+	promoteAttempt, auditErr := audit.Begin(
+		ctx, audit.ActionAgentPromote,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgent, agent.UUID, agentName),
+		audit.Project(projectName),
+		audit.Environment(req.TargetEnvironment),
+		audit.Detail("agentName", agentName),
+		audit.Detail("sourceEnv", req.SourceEnvironment),
+		audit.Detail("targetEnv", req.TargetEnvironment),
+		audit.Detail("environment", req.TargetEnvironment),
+	)
+	if auditErr != nil {
+		s.logger.Error("Refusing to promote: audit record could not be written",
+			"agentName", agentName, "error", auditErr)
+		return auditErr
+	}
+
 	if err := s.ocClient.PromoteComponent(ctx, ouID, projectName, agentName, req.SourceEnvironment, req.TargetEnvironment, envOverrides, fileOverrides, traitEnvConfigs, promoteCTConfigs); err != nil {
+		promoteAttempt.Complete(ctx, err)
 		s.logger.Error("Failed to promote agent", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment, "error", err)
 		return fmt.Errorf("failed to promote agent: %w", err)
 	}
+	promoteAttempt.Complete(ctx, nil)
 
 	s.logger.Info("Agent promoted successfully", "agentName", agentName, "sourceEnvironment", req.SourceEnvironment, "targetEnvironment", req.TargetEnvironment)
 	return nil
+}
+
+// assertMCPBindingsSurvivePromotion rejects a promotion that would carry an MCP connection
+// working in sourceEnv into targetEnv as a dead one — variables injected, but empty, because
+// the proxy has no endpoint bound to the target. A connection already unresolved in the
+// source is left alone: it is unbound everywhere, not broken by this promotion.
+func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
+	ctx context.Context, agentName, ouID, projectName, sourceEnv, targetEnv string,
+) error {
+	targetUnresolved, err := s.agentConfigurationService.ListUnresolvedMCPBindings(ctx, agentName, ouID, projectName, targetEnv)
+	if err != nil {
+		return fmt.Errorf("failed to check MCP bindings in target environment %q: %w", targetEnv, err)
+	}
+	if len(targetUnresolved) == 0 {
+		return nil
+	}
+	sourceUnresolved, err := s.agentConfigurationService.ListUnresolvedMCPBindings(ctx, agentName, ouID, projectName, sourceEnv)
+	if err != nil {
+		return fmt.Errorf("failed to check MCP bindings in source environment %q: %w", sourceEnv, err)
+	}
+
+	var brokenByPromotion []string
+	for name := range targetUnresolved {
+		if _, alsoUnresolvedInSource := sourceUnresolved[name]; !alsoUnresolvedInSource {
+			brokenByPromotion = append(brokenByPromotion, name)
+		}
+	}
+	if len(brokenByPromotion) == 0 {
+		return nil
+	}
+	sort.Strings(brokenByPromotion)
+
+	return fmt.Errorf("%w: agent %q uses MCP connection(s) %s, which work in environment %q but have no endpoint in %q — promoting would deploy the agent with an empty MCP URL and API key. Bind those MCP proxies to an endpoint in %q, then promote",
+		utils.ErrInvalidInput, agentName, strings.Join(brokenByPromotion, ", "), sourceEnv, targetEnv, targetEnv)
 }
 
 // promotionIdentityPollInterval/promotionIdentityPollBudget bound
@@ -4993,4 +5244,13 @@ func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName s
 		Visibility: []string{"external"},
 	}
 	return []client.InputInterfaceEndpoint{ep}
+}
+
+// buildNameOf returns a triggered build's name for an audit record, tolerating
+// a nil response so the audit path cannot panic on a failed build.
+func buildNameOf(build *models.BuildResponse) string {
+	if build == nil {
+		return ""
+	}
+	return build.Name
 }

@@ -37,6 +37,11 @@ vm_host() {
 # these functions have just moved. So both this function and
 # observability_helm_args below restate the derived values explicitly. Commas
 # stay escaped or helm's --set splits the value into a list.
+#
+# "urn:wso2:amp" is the amp resource server's identifier — see
+# 60-amp-resource-server.yaml in the Thunder extension chart. If a future
+# AMP_VERSION changes that identifier again, this value needs to move with it,
+# same as the hostnames above.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
   local k
@@ -45,9 +50,15 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.keyManager.audience=amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
+      "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
       "--set" "${k}.config.tlsEnabled=true" \
-      "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}"
+      "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+      "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
+      "--set" "${k}.config.agentsHttpPort=443" \
+      "--set" "${k}.config.agentsHttpsPort=443" \
+      "--set" "${k}.config.gatewayBaseDomain=${AMP_HOST_GATEWAY}" \
+      "--set" "${k}.config.gatewayVhostScheme=https" \
+      "--set" "${k}.config.gatewayVhostPort=443"
   done
 
   printf '%s\n' \
@@ -77,12 +88,13 @@ amp_helm_args() {
 # build_amp_helm_args <ip> <external_gateways:true|false> — sslip.io-from-IP wrapper.
 build_amp_helm_args() {
   local ip="$1" external_gateways="${2:-true}"
-  local AMP_HOST_API AMP_HOST_THUNDER AMP_HOST_CONSOLE AMP_HOST_OBSERVER AMP_HOST_GATEWAY AMP_HOST_CP
+  local AMP_HOST_API AMP_HOST_THUNDER AMP_HOST_CONSOLE AMP_HOST_OBSERVER AMP_HOST_GATEWAY AMP_HOST_CP AMP_AGENTS_BASE
   AMP_HOST_API="$(vm_host api "$ip")"
   AMP_HOST_THUNDER="$(vm_host thunder "$ip")"
   AMP_HOST_CONSOLE="$(vm_host console "$ip")"
   AMP_HOST_OBSERVER="$(vm_host observer "$ip")"
   AMP_HOST_GATEWAY="$(vm_host gateway "$ip")"
+  AMP_AGENTS_BASE="agents.${ip}.sslip.io"
   AMP_HOST_CP=""; [[ "$external_gateways" == "true" ]] && AMP_HOST_CP="$(vm_host cp "$ip")"
   amp_helm_args
 }
@@ -136,8 +148,9 @@ build_gateway_helm_args() {
 # AMP_HOST_OBSERVER.
 #
 # authorizationServers/audience are restated for the version-skew reason noted
-# above amp_helm_args. The last audience entry is the observer MCP token's `aud`
-# (publicUrl plus a trailing slash); the first three cover console/amctl tokens.
+# above amp_helm_args (including the "urn:wso2:amp" identifier value). The last
+# audience entry is the observer MCP token's `aud` (publicUrl plus a trailing
+# slash); the first three cover console/amctl tokens.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
@@ -145,7 +158,7 @@ observability_helm_args() {
     "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}" \
-    "--set" "amObserver.auth.audience=amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
+    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.
@@ -476,6 +489,11 @@ caddyfile() {
   # URL. (Agent OTel ingestion is unaffected: it goes in-cluster to the runtime
   # ClusterIP, not through this host.)
   _site "$AMP_HOST_GATEWAY"  19080  # api-platform gateway via kgateway (LLM proxy)
+
+  # Per-environment gateways (<env>-<org>.$AMP_HOST_GATEWAY, added post-install) share
+  # the listener above; on-demand TLS since TLS-ALPN-01 cannot issue a wildcard cert.
+  printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:19080\n}\n\n' \
+    "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_GATEWAY" "$addr_suffix" "$agent_tls"
 
   if [[ -n "$AMP_HOST_CP" ]]; then
     # Gateway control plane rides the OC control-plane kgateway (host-routed;

@@ -126,6 +126,15 @@ export const InternalAgentForm = ({
     );
   }, [buildOptions, formData.languageVersion]);
 
+  // Version suffix for the sample `pip install` command. Falls back to an
+  // unpinned install rather than a placeholder when build options haven't
+  // resolved — `amp-instrumentation==latest` is not a valid pip specifier.
+  const pipVersionSpecifier = useMemo(() => {
+    const version =
+      formData.instrumentationVersion ?? buildOptions?.instrumentation.defaultVersion;
+    return version ? `==${version}` : '';
+  }, [formData.instrumentationVersion, buildOptions]);
+
   // Seed defaults when build options arrive, and normalise any value
   // that's no longer in the refreshed set (the catalog can change
   // mid-session if React Query refetches after a helm upgrade).
@@ -602,7 +611,7 @@ export const InternalAgentForm = ({
                   Docker-based agents require OTEL instrumentation to export traces.
                   For Python, use{' '}
                   <Typography component="code" sx={{ bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5 }}>
-                    {`pip install amp-instrumentation==${formData.instrumentationVersion ?? buildOptions?.instrumentation.defaultVersion ?? 'latest'}`}
+                    {`pip install amp-instrumentation${pipVersionSpecifier}`}
                   </Typography>
                   {' '}and run with{' '}
                   <Typography component="code" sx={{ bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5 }}>

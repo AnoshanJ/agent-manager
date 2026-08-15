@@ -563,8 +563,17 @@ func (c *llmController) UpdateLLMProvider(w http.ResponseWriter, r *http.Request
 	providerReq.Policies = req.Policies
 	providerReq.RateLimiting = req.RateLimiting
 	providerReq.Security = req.Security
+	// Resilience is not part of CreateLLMProviderRequest's field set on the request struct
+	// itself (it's applied to the model after conversion) so an omitted value in the update
+	// request preserves the existing setting rather than wiping it.
+	if req.Resilience != nil {
+		providerReq.Resilience = req.Resilience
+	}
 
 	provider := utils.ConvertSpecToModelLLMProvider(providerReq, ouID)
+	if req.Resilience == nil {
+		provider.Configuration.Resilience = existing.Configuration.Resilience
+	}
 
 	// Preserve upstream directly from the stored model to avoid the spec converter
 	// masking credentials with "***REDACTED***" (H-3). If the request supplies a new

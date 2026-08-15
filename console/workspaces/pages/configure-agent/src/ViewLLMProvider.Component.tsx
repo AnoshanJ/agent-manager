@@ -26,6 +26,7 @@ import {
 import {
   CodeBlock,
   PolicyListSection,
+  ResilienceTimeoutFields,
   usePipelineEnvironmentsState,
   type PolicySelection as GuardrailSelection,
 } from "@agent-management-platform/shared-component";
@@ -35,6 +36,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   Divider,
   Form,
   FormLabel,
@@ -50,7 +52,7 @@ import {
 } from "@wso2/oxygen-ui";
 import { AlertTriangle, BookOpen, Edit, Plus } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, useLocation, useNavigate, useParams } from "react-router-dom";
-import { absoluteRouteMap } from "@agent-management-platform/types";
+import { absoluteRouteMap, type CatalogLLMProviderEntry } from "@agent-management-platform/types";
 import {
   useGetAgent,
   useGetAgentModelConfig,
@@ -65,6 +67,13 @@ import { EmptyConfigCard } from "./Configure/subComponents/EmptyConfigCard";
 import { EnvironmentVariablesGuideDrawer } from "./Configure/subComponents/EnvironmentVariablesGuideDrawer";
 import { LLMProxyAPIKeysSection } from "./Configure/subComponents/LLMProxyAPIKeysSection";
 import { CONFIGURE_TAB_PARAM } from "./configureTabs";
+
+const DURATION_PATTERN = /^\d+(ms|s|m|h)$/;
+
+function validateResilienceDuration(value: string): string | null {
+  if (value.trim() === "" || DURATION_PATTERN.test(value.trim())) return null;
+  return "Enter a duration like 5s, 500ms, or 1m";
+}
 
 function generateDisplayName(key: string): string {
   switch (key) {
@@ -178,6 +187,12 @@ export const ViewLLMProviderComponent: React.FC = () => {
   const [selectedEnvIndex, setSelectedEnvIndex] = useState(0);
   const [guardrailsByEnv, setGuardrailsByEnv] = useState<
     Record<string, GuardrailSelection[]>
+  >({});
+  const [resilienceByEnv, setResilienceByEnv] = useState<
+    Record<string, { timeout: string; idleTimeout: string }>
+  >({});
+  const [resilienceErrorsByEnv, setResilienceErrorsByEnv] = useState<
+    Record<string, { timeout?: string | null; idleTimeout?: string | null }>
   >({});
   const [envVarNames, setEnvVarNames] = useState<Record<string, string>>({});
   const [snippetTab, setSnippetTab] = useState(0);
@@ -300,6 +315,16 @@ export const ViewLLMProviderComponent: React.FC = () => {
       nextByEnv[envName] = envGuardrails;
     }
     setGuardrailsByEnv(nextByEnv);
+
+    const nextResilienceByEnv: Record<string, { timeout: string; idleTimeout: string }> = {};
+    for (const [envName, m] of Object.entries(config.envMappings ?? {})) {
+      nextResilienceByEnv[envName] = {
+        timeout: m.configuration?.resilience?.timeout ?? "",
+        idleTimeout: m.configuration?.resilience?.idleTimeout ?? "",
+      };
+    }
+    setResilienceByEnv(nextResilienceByEnv);
+    setResilienceErrorsByEnv({});
   }, [config]);
 
   const selectedEnvName = useMemo(
@@ -313,6 +338,37 @@ export const ViewLLMProviderComponent: React.FC = () => {
   );
 
   const providerConfig = envMapping?.configuration;
+
+  // Guardrails configured on the LLM provider itself (org level), shown
+  // read-only alongside the per-agent-config guardrails edited below. When the
+  // user has picked a new (not-yet-saved) provider for this env, show that
+  // provider's own guardrails instead of the previously saved one's.
+  const orgGuardrails = useMemo(() => {
+    const pendingUuid = pendingProviderByEnv[selectedEnvName];
+    const pendingCatalogProvider = pendingUuid
+      ? catalogData?.entries?.find((e: CatalogLLMProviderEntry) => e.uuid === pendingUuid)
+      : undefined;
+
+    const seen = new Set<string>();
+    const list: { key: string; label: string }[] = [];
+
+    if (pendingCatalogProvider) {
+      for (const name of pendingCatalogProvider.policies ?? []) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        list.push({ key: name, label: guardrailDisplayNames.get(name) ?? name });
+      }
+      return list;
+    }
+
+    for (const policy of providerConfig?.providerPolicies ?? []) {
+      const key = `${policy.name}@${policy.version}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ key, label: guardrailDisplayNames.get(policy.name) ?? policy.name });
+    }
+    return list;
+  }, [providerConfig, guardrailDisplayNames, pendingProviderByEnv, selectedEnvName, catalogData]);
 
   const catalogProvider = useMemo(() => {
     if (!providerConfig?.providerName || !catalogData?.entries)
@@ -379,8 +435,17 @@ export const ViewLLMProviderComponent: React.FC = () => {
       }
     }
 
+    // Check resilience overrides
+    for (const [envName, m] of Object.entries(config.envMappings ?? {})) {
+      const origTimeout = m.configuration?.resilience?.timeout ?? "";
+      const origIdleTimeout = m.configuration?.resilience?.idleTimeout ?? "";
+      const edited = resilienceByEnv[envName];
+      if ((edited?.timeout ?? "").trim() !== origTimeout) return true;
+      if ((edited?.idleTimeout ?? "").trim() !== origIdleTimeout) return true;
+    }
+
     return false;
-  }, [config, envVarNames, guardrailsByEnv, pendingProviderByEnv]);
+  }, [config, envVarNames, guardrailsByEnv, resilienceByEnv, pendingProviderByEnv]);
 
   const handleAddGuardrail = useCallback(
     (guardrail: GuardrailSelection) => {
@@ -431,8 +496,59 @@ export const ViewLLMProviderComponent: React.FC = () => {
     [selectedEnvName],
   );
 
+  const handleResilienceTimeoutChange = useCallback(
+    (value: string) => {
+      setResilienceByEnv((prev) => ({
+        ...prev,
+        [selectedEnvName]: { ...prev[selectedEnvName], timeout: value, idleTimeout: prev[selectedEnvName]?.idleTimeout ?? "" },
+      }));
+    },
+    [selectedEnvName],
+  );
+
+  const handleResilienceIdleTimeoutChange = useCallback(
+    (value: string) => {
+      setResilienceByEnv((prev) => ({
+        ...prev,
+        [selectedEnvName]: { ...prev[selectedEnvName], idleTimeout: value, timeout: prev[selectedEnvName]?.timeout ?? "" },
+      }));
+    },
+    [selectedEnvName],
+  );
+
+  const handleResilienceTimeoutBlur = useCallback(() => {
+    const value = resilienceByEnv[selectedEnvName]?.timeout ?? "";
+    setResilienceErrorsByEnv((prev) => ({
+      ...prev,
+      [selectedEnvName]: { ...prev[selectedEnvName], timeout: validateResilienceDuration(value) },
+    }));
+  }, [selectedEnvName, resilienceByEnv]);
+
+  const handleResilienceIdleTimeoutBlur = useCallback(() => {
+    const value = resilienceByEnv[selectedEnvName]?.idleTimeout ?? "";
+    const idleTimeout = validateResilienceDuration(value);
+    setResilienceErrorsByEnv((prev) => ({
+      ...prev,
+      [selectedEnvName]: { ...prev[selectedEnvName], idleTimeout },
+    }));
+  }, [selectedEnvName, resilienceByEnv]);
+
   const handleSave = useCallback(() => {
     if (!orgId || !projectId || !agentId || !configId || !config) return;
+
+    // Validate all environments' resilience fields before saving, not just the visible tab.
+    const nextResilienceErrors: typeof resilienceErrorsByEnv = {};
+    let hasResilienceError = false;
+    for (const [envName, r] of Object.entries(resilienceByEnv)) {
+      const timeoutError = validateResilienceDuration(r.timeout);
+      const idleTimeoutError = validateResilienceDuration(r.idleTimeout);
+      if (timeoutError || idleTimeoutError) hasResilienceError = true;
+      nextResilienceErrors[envName] = { timeout: timeoutError, idleTimeout: idleTimeoutError };
+    }
+    if (hasResilienceError) {
+      setResilienceErrorsByEnv(nextResilienceErrors);
+      return;
+    }
 
     const envMappings: Record<
       string,
@@ -448,6 +564,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
               params: Record<string, unknown>;
             }[];
           }[];
+          resilience?: { timeout?: string; idleTimeout?: string };
         };
       }
     > = {};
@@ -478,6 +595,23 @@ export const ViewLLMProviderComponent: React.FC = () => {
       // Skip environments that have neither an existing nor a newly picked provider.
       if (!resolvedProviderName) continue;
 
+      // Resolve resilience overrides: edited value if the env was touched this
+      // session, else preserve the originally stored override. Blank fields are
+      // omitted so the gateway's own default timeout applies.
+      const editedResilience = resilienceByEnv[envName];
+      const resolvedResilience = editedResilience !== undefined
+        ? {
+          timeout: editedResilience.timeout.trim() || undefined,
+          idleTimeout: editedResilience.idleTimeout.trim() || undefined,
+        }
+        : {
+          timeout: pConfig?.resilience?.timeout,
+          idleTimeout: pConfig?.resilience?.idleTimeout,
+        };
+      const resilience = resolvedResilience.timeout || resolvedResilience.idleTimeout
+        ? resolvedResilience
+        : undefined;
+
       const envGuardrails = guardrailsByEnv[envName];
       if (envGuardrails !== undefined) {
         // Environment was edited — build policies from edited guardrails
@@ -497,7 +631,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
             : undefined;
         envMappings[envName] = {
           providerName: resolvedProviderName,
-          configuration: { policies: envPolicies },
+          configuration: { policies: envPolicies, resilience },
         };
       } else {
         // Environment not loaded — preserve original policies intact
@@ -513,6 +647,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
                 params: pp.params ?? {},
               })),
             })),
+            resilience,
           },
         };
       }
@@ -549,6 +684,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
     configId,
     config,
     guardrailsByEnv,
+    resilienceByEnv,
     envVarNames,
     pendingProviderByEnv,
     providers,
@@ -701,7 +837,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
     isExternal && providerConfig ? (
       <DrawerWrapper
         open={panelOpen}
-        onClose={(_, reason) => { if (reason === "backdropClick") return; setPanelOpen(false); }}
+        onClose={() => setPanelOpen(false)}
         minWidth={640}
         maxWidth={640}
       >
@@ -998,6 +1134,39 @@ export const ViewLLMProviderComponent: React.FC = () => {
               onEdit={handleEditGuardrail}
               onRemove={handleRemoveGuardrail}
             />
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                Provider Guardrails
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Configured on the LLM provider itself, applied in addition to the guardrails above.
+              </Typography>
+              {orgGuardrails.length > 0 ? (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {orgGuardrails.map((g) => (
+                    <Chip key={g.key} label={g.label} variant="outlined" />
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No org-level guardrails configured.
+                </Typography>
+              )}
+            </Box>
+
+            <Stack spacing={1}>
+              <ResilienceTimeoutFields
+                requestTimeout={resilienceByEnv[selectedEnvName]?.timeout ?? ""}
+                onRequestTimeoutChange={handleResilienceTimeoutChange}
+                onRequestTimeoutBlur={handleResilienceTimeoutBlur}
+                requestTimeoutError={resilienceErrorsByEnv[selectedEnvName]?.timeout}
+                idleTimeout={resilienceByEnv[selectedEnvName]?.idleTimeout ?? ""}
+                onIdleTimeoutChange={handleResilienceIdleTimeoutChange}
+                onIdleTimeoutBlur={handleResilienceIdleTimeoutBlur}
+                idleTimeoutError={resilienceErrorsByEnv[selectedEnvName]?.idleTimeout}
+              />
+            </Stack>
 
             {isDirty && (
               <Stack direction="row" spacing={1} justifyContent="flex-end">

@@ -1634,6 +1634,19 @@ type AgentRevokeSecretResponse struct {
 	WorkloadRefreshWarning *string `json:"workloadRefreshWarning,omitempty"`
 }
 
+// AgentSummary defines model for AgentSummary.
+type AgentSummary struct {
+	DisplayName        string `json:"displayName"`
+	Name               string `json:"name"`
+	ProjectDisplayName string `json:"projectDisplayName"`
+	ProjectName        string `json:"projectName"`
+}
+
+// AgentSummaryListResponse defines model for AgentSummaryListResponse.
+type AgentSummaryListResponse struct {
+	Agents []AgentSummary `json:"agents"`
+}
+
 // AgentThunderStatus Provisioning status of one AgentID binding. Goes from `pending` to
 // `in_progress` to `completed`, or to `failed` if it runs out of
 // retries (5 attempts over about 15 minutes).
@@ -2300,9 +2313,6 @@ type CreateGroupRequest struct {
 
 	// Name Group name
 	Name string `json:"name"`
-
-	// OuId Organization unit ID
-	OuId *string `json:"ouId,omitempty"`
 }
 
 // CreateLLMAPIKeyRequest defines model for CreateLLMAPIKeyRequest.
@@ -2364,6 +2374,9 @@ type CreateLLMProviderRequest struct {
 	// Policies List of policies applied to this provider
 	Policies     *[]LLMPolicy           `json:"policies,omitempty"`
 	RateLimiting *LLMRateLimitingConfig `json:"rateLimiting,omitempty"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 
 	// Security Security configuration. Exactly one variant is active: apiKey or identity (both omitted / enabled=false means no security).
 	Security *SecurityConfig `json:"security,omitempty"`
@@ -2474,18 +2487,12 @@ type CreateRoleRequest struct {
 
 	// Name Role name
 	Name string `json:"name"`
-
-	// OuId Organization unit ID
-	OuId *string `json:"ouId,omitempty"`
 }
 
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
 	// Attributes User attributes map (include password when creating credentials)
 	Attributes map[string]string `json:"attributes"`
-
-	// OuId Organization unit ID (optional; resolved from org context when omitted)
-	OuId *string `json:"ouId,omitempty"`
 
 	// Type User type
 	Type string `json:"type"`
@@ -2710,6 +2717,9 @@ type EnvProviderConfigMappings struct {
 // EnvProviderConfiguration defines model for EnvProviderConfiguration.
 type EnvProviderConfiguration struct {
 	Policies *[]LLMPolicy `json:"policies,omitempty"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 }
 
 // Environment defines model for Environment.
@@ -3529,6 +3539,9 @@ type LLMProviderResponse struct {
 	Policies     *[]LLMPolicy           `json:"policies,omitempty"`
 	RateLimiting *LLMRateLimitingConfig `json:"rateLimiting,omitempty"`
 
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
+
 	// Security Security configuration. Exactly one variant is active: apiKey or identity (both omitted / enabled=false means no security).
 	Security *SecurityConfig `json:"security,omitempty"`
 
@@ -3635,6 +3648,9 @@ type LLMProxyConfig struct {
 	// Provider Provider reference
 	Provider *string `json:"provider,omitempty"`
 
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
+
 	// Security Security configuration. Exactly one variant is active: apiKey or identity (both omitted / enabled=false means no security).
 	Security *SecurityConfig `json:"security,omitempty"`
 
@@ -3712,9 +3728,6 @@ type ListBranchesRequest struct {
 	// IncludeDefault Whether to include default branch information in the response
 	IncludeDefault *bool `json:"includeDefault,omitempty"`
 
-	// OrgName Organization name for resolving the secret reference
-	OrgName *string `json:"orgName,omitempty"`
-
 	// Owner Repository owner (organization or user)
 	Owner string `json:"owner"`
 
@@ -3747,9 +3760,6 @@ type ListCommitsRequest struct {
 
 	// Branch Branch name or SHA to list commits from (defaults to repository's default branch)
 	Branch *string `json:"branch,omitempty"`
-
-	// OrgName Organization name for resolving the secret reference
-	OrgName *string `json:"orgName,omitempty"`
 
 	// Owner Repository owner (organization or user)
 	Owner string `json:"owner"`
@@ -3883,6 +3893,9 @@ type MCPProxyEndpoint struct {
 	// Name Human-readable endpoint name
 	Name     *string      `json:"name,omitempty"`
 	Policies *[]MCPPolicy `json:"policies,omitempty"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 
 	// Security Security configuration. Exactly one variant is active: apiKey or identity (both omitted / enabled=false means no security).
 	Security *SecurityConfig `json:"security,omitempty"`
@@ -4448,6 +4461,12 @@ type ProviderConfig struct {
 	// ProviderName Name of the llm provider
 	ProviderName string `json:"providerName"`
 
+	// ProviderPolicies Guardrails configured on the org-level LLM provider this config is based on; applied in addition to the config's own policies
+	ProviderPolicies *[]LLMPolicy `json:"providerPolicies,omitempty"`
+
+	// ProviderUuid UUID of the org-level LLM provider this config is based on
+	ProviderUuid *openapi_types.UUID `json:"providerUuid,omitempty"`
+
 	// ProxyId ID/handle of the MCP proxy
 	ProxyId *string `json:"proxyId,omitempty"`
 
@@ -4456,6 +4475,9 @@ type ProviderConfig struct {
 
 	// ProxyUuid UUID of the proxy created
 	ProxyUuid openapi_types.UUID `json:"proxyUuid"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 
 	// Status Status of the proxy
 	Status *string `json:"status,omitempty"`
@@ -4605,6 +4627,15 @@ type RequestRateLimit struct {
 	// Enabled Whether request rate limiting is enabled
 	Enabled bool                 `json:"enabled"`
 	Reset   RateLimitResetWindow `json:"reset"`
+}
+
+// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+type Resilience struct {
+	// IdleTimeout Per-route stream idle timeout. "0s" disables it; omit to use the gateway's default.
+	IdleTimeout *string `json:"idleTimeout,omitempty"`
+
+	// Timeout Max duration for the whole request→upstream-response. "0s" disables it; omit to use the gateway's default.
+	Timeout *string `json:"timeout,omitempty"`
 }
 
 // ResourceConfig defines model for ResourceConfig.
@@ -5186,6 +5217,9 @@ type UpdateLLMProviderRequest struct {
 	// Policies Updated list of policies
 	Policies     *[]LLMPolicy           `json:"policies,omitempty"`
 	RateLimiting *LLMRateLimitingConfig `json:"rateLimiting,omitempty"`
+
+	// Resilience Route-level request/idle timeouts applied at the API level (no per-operation override for LLM providers, LLM proxies, or MCP proxies).
+	Resilience *Resilience `json:"resilience,omitempty"`
 
 	// Security Security configuration. Exactly one variant is active: apiKey or identity (both omitted / enabled=false means no security).
 	Security *SecurityConfig `json:"security,omitempty"`
@@ -6031,14 +6065,14 @@ type CreateLLMProxyAPIKeyJSONRequestBody = CreateLLMAPIKeyRequest
 // RotateLLMProxyAPIKeyJSONRequestBody defines body for RotateLLMProxyAPIKey for application/json ContentType.
 type RotateLLMProxyAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
 
-// GetNameByDisplayNameJSONRequestBody defines body for GetNameByDisplayName for application/json ContentType.
-type GetNameByDisplayNameJSONRequestBody = ResourceNameRequest
-
 // ListRepositoryBranchesJSONRequestBody defines body for ListRepositoryBranches for application/json ContentType.
 type ListRepositoryBranchesJSONRequestBody = ListBranchesRequest
 
 // ListRepositoryCommitsJSONRequestBody defines body for ListRepositoryCommits for application/json ContentType.
 type ListRepositoryCommitsJSONRequestBody = ListCommitsRequest
+
+// GetNameByDisplayNameJSONRequestBody defines body for GetNameByDisplayName for application/json ContentType.
+type GetNameByDisplayNameJSONRequestBody = ResourceNameRequest
 
 // AsBuildpackBuild returns the union data inside the Build as a BuildpackBuild
 func (t Build) AsBuildpackBuild() (BuildpackBuild, error) {

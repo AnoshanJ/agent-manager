@@ -207,6 +207,8 @@ export function endpointToDraft(endpoint: MCPProxyEndpoint): EndpointDraft {
     url: endpoint.upstream?.main?.url ?? "",
     authHeader: endpoint.upstream?.main?.auth?.header ?? "",
     authValue: "",
+    resilienceTimeout: endpoint.resilience?.timeout ?? "",
+    resilienceIdleTimeout: endpoint.resilience?.idleTimeout ?? "",
     environments: (endpoint.environments ?? []).map(
       (env) => env.environmentUuid,
     ),
@@ -408,10 +410,26 @@ export function draftToEndpoint(
     id = deriveEndpointHandle(draft, index, usedHandles);
   }
 
+  const trimmedResilienceTimeout = draft.resilienceTimeout.trim();
+  const trimmedResilienceIdleTimeout = draft.resilienceIdleTimeout.trim();
+
   return {
     id,
     name: name || undefined,
-    upstream: { ...existing?.upstream, main: { url: draft.url, auth } },
+    upstream: {
+      ...existing?.upstream,
+      main: {
+        url: draft.url,
+        auth,
+      },
+    },
+    resilience:
+      trimmedResilienceTimeout || trimmedResilienceIdleTimeout
+        ? {
+            timeout: trimmedResilienceTimeout || undefined,
+            idleTimeout: trimmedResilienceIdleTimeout || undefined,
+          }
+        : undefined,
     capabilities,
     policies: prunePoliciesForCapabilities(existing?.policies, capabilities),
     security: existing?.security ?? DEFAULT_ENDPOINT_SECURITY,

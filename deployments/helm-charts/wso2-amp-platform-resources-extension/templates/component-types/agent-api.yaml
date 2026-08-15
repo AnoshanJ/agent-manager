@@ -232,6 +232,13 @@ spec:
                   # AMP_OTEL_ENDPOINT / LLM and MCP proxy URLs injected on agent pods.
                   - port: 22893
                     protocol: TCP
+              # Agents always call the gateway's public MCP/LLM URL, even in-cluster
+              # (it must match the AgentID resource/audience). On local k3d, that
+              # hostname resolves via CoreDNS to the Docker host, not a namespaced
+              # pod, so it can't be scoped by namespaceSelector like the rule above.
+              - ports:
+                  - port: 19080
+                    protocol: TCP
               - ports:
                   - port: 443
                     protocol: TCP

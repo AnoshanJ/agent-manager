@@ -23,7 +23,6 @@ import {
   useListAgentIdentityAgents,
 } from "@agent-management-platform/api-client";
 import {
-  CollapsibleSection,
   OverviewSectionCard,
   useAgentRolesAndGroups,
 } from "@agent-management-platform/shared-component";
@@ -53,13 +52,13 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     orgId, projectId, agentId, envId,
   });
 
-  const { roles, groups, isLoading } = useAgentRolesAndGroups({
+  const { roles, groups, isLoading, isError: isRolesGroupsError } = useAgentRolesAndGroups({
     orgId, projectId, agentId, envId, enabled: provisioned,
   });
 
   // Same lookup the agent-id page uses: the Thunder Agent ID is a field on the
   // per-env identity-agents list, matched by agent + project name.
-  const { data: identityAgentsData } = useListAgentIdentityAgents({
+  const { data: identityAgentsData, isError: isAgentsError } = useListAgentIdentityAgents({
     orgName: orgId, envName: envId,
   });
   const thunderAgentId = useMemo(
@@ -79,78 +78,88 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
 
   const hasTags = roles.length > 0 || groups.length > 0;
 
-  const show = !isLoadingIdentity && provisioned;
-
   return (
-    <CollapsibleSection show={show}>
-      <OverviewSectionCard
-        title="Agent ID"
-        actionHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
-        sx={{ height: "100%" }}
-      >
-        <Box display="flex" gap={2} alignItems="center">
-          <Avatar
-            variant="rounded"
-            sx={{
-              width: 48,
-              height: 48,
-              flexShrink: 0,
-              bgcolor: "primary.main",
-              color: "primary.contrastText",
-            }}
-          >
-            <Fingerprint size={24} />
-          </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            {thunderAgentId ? (
-              <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
-                <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-                  Agent ID:
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ fontFamily: "monospace" }}
-                >
-                  {thunderAgentId}
-                </Typography>
-                <Tooltip title={copied ? "Copied" : "Copy Agent ID"}>
-                  <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25, flexShrink: 0 }}>
-                    <Copy size={14} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
+    <OverviewSectionCard
+      title="Agent ID"
+      actionHref={buildAgentIdHref(orgId, projectId, agentId, envId)}
+      sx={{ height: "100%" }}
+    >
+      <Box display="flex" gap={2} alignItems="center">
+        <Avatar
+          variant="rounded"
+          sx={{
+            width: 48,
+            height: 48,
+            flexShrink: 0,
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+          }}
+        >
+          <Fingerprint size={24} />
+        </Avatar>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {isLoadingIdentity ? (
+            <Skeleton variant="text" width={160} height={20} />
+          ) : thunderAgentId ? (
+            <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
+              <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+                Agent ID:
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                noWrap
+                sx={{ fontFamily: "monospace" }}
+              >
+                {thunderAgentId}
+              </Typography>
+              <Tooltip title={copied ? "Copied" : "Copy Agent ID"}>
+                <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25, flexShrink: 0 }}>
+                  <Copy size={14} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ) : isAgentsError ? (
+            <Typography variant="body2" color="error">
+              Unable to load Agent ID. Try again later.
+            </Typography>
+          ) : provisioned ? (
+            <Typography variant="body2" color="text.disabled">
+              Provisioning identity…
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.disabled">
+              Agent ID not available
+            </Typography>
+          )}
+          <Box mt={0.5}>
+            {isLoading ? (
+              <Skeleton variant="text" width={180} height={16} />
+            ) : isRolesGroupsError ? (
+              <Typography variant="caption" color="error">
+                Unable to load roles/groups. Try again later.
+              </Typography>
+            ) : hasTags ? (
+              <>
+                {roles.length > 0 && (
+                  <Typography variant="caption" color="text.disabled" display="block">
+                    Roles: {roles.map((role) => role.name).join(", ")}
+                  </Typography>
+                )}
+                {groups.length > 0 && (
+                  <Typography variant="caption" color="text.disabled" display="block">
+                    Groups: {groups.map((group) => group.name).join(", ")}
+                  </Typography>
+                )}
+              </>
             ) : (
-              <Typography variant="body2" color="text.disabled">
-                Provisioning identity…
+              <Typography variant="caption" color="text.disabled">
+                No roles or groups assigned
               </Typography>
             )}
-            <Box mt={0.5}>
-              {isLoading ? (
-                <Skeleton variant="text" width={180} height={16} />
-              ) : hasTags ? (
-                <>
-                  {roles.length > 0 && (
-                    <Typography variant="caption" color="text.disabled" display="block">
-                      Roles: {roles.map((role) => role.name).join(", ")}
-                    </Typography>
-                  )}
-                  {groups.length > 0 && (
-                    <Typography variant="caption" color="text.disabled" display="block">
-                      Groups: {groups.map((group) => group.name).join(", ")}
-                    </Typography>
-                  )}
-                </>
-              ) : (
-                <Typography variant="caption" color="text.disabled">
-                  No roles or groups assigned
-                </Typography>
-              )}
-            </Box>
           </Box>
         </Box>
-      </OverviewSectionCard>
-    </CollapsibleSection>
+      </Box>
+    </OverviewSectionCard>
   );
 };

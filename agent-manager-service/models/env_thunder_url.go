@@ -25,7 +25,7 @@ import (
 // EnvThunderURL is an unguessable handle (user-chosen or server-generated)
 // that forms an environment's externally-reachable env-Thunder hostname
 // ("<handle>.<baseDomain>"), keyed by (OUID, EnvName). ThunderHandle is
-// additionally globally unique across all orgs/envs — see migration041's doc
+// additionally globally unique across all orgs/envs — see migration042's doc
 // comment for why.
 type EnvThunderURL struct {
 	ID            uuid.UUID `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`

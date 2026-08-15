@@ -108,6 +108,9 @@ func parseSpan(source map[string]interface{}) Span {
 		} else if code, ok := status["code"].(float64); ok {
 			span.Status = fmt.Sprintf("%d", int(code))
 		}
+		if message, ok := status["message"].(string); ok {
+			span.StatusMessage = message
+		}
 	}
 
 	// Parse attributes
@@ -149,7 +152,7 @@ func parseSpan(source map[string]interface{}) Span {
 	}
 
 	// Extract error status for all span types
-	ampAttrs.Status = extractSpanStatus(span.Attributes, span.Status)
+	ampAttrs.Status = extractSpanStatus(span.Attributes, span.Status, span.StatusMessage)
 	span.AmpAttributes = ampAttrs
 
 	return span
@@ -457,10 +460,13 @@ func extractAgentSystemPrompt(attrs map[string]interface{}) string {
 	return ""
 }
 
-// extractSpanStatus determines the error status of a span
-func extractSpanStatus(attrs map[string]interface{}, spanStatus string) *SpanStatus {
+// extractSpanStatus determines the error status of a span. statusMessage is the
+// developer-facing message from the span's OTel status (OpenChoreo 1.2.0+); it is
+// carried through verbatim so the console can surface it (typically set on error).
+func extractSpanStatus(attrs map[string]interface{}, spanStatus, statusMessage string) *SpanStatus {
 	status := &SpanStatus{
-		Error: false,
+		Error:   false,
+		Message: statusMessage,
 	}
 
 	if attrs != nil {
@@ -803,7 +809,7 @@ func ExtractTraceStatus(spans []Span) *TraceStatus {
 
 	for _, span := range spans {
 		// Use extractSpanStatus to check for errors
-		spanStatus := extractSpanStatus(span.Attributes, span.Status)
+		spanStatus := extractSpanStatus(span.Attributes, span.Status, span.StatusMessage)
 		if spanStatus.Error {
 			errorCount++
 		}
@@ -2297,7 +2303,7 @@ func ProcessSpan(span Span) Span {
 			populateChainAttributes(ampAttrs, span.Attributes)
 		}
 	}
-	ampAttrs.Status = extractSpanStatus(span.Attributes, span.Status)
+	ampAttrs.Status = extractSpanStatus(span.Attributes, span.Status, span.StatusMessage)
 	span.AmpAttributes = ampAttrs
 	return span
 }

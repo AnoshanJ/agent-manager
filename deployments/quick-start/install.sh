@@ -17,7 +17,7 @@ set -euo pipefail
 # Configuration
 CLUSTER_NAME="amp-local"
 CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
-OPENCHOREO_VERSION="1.1.1"
+OPENCHOREO_VERSION="1.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K3D_CONFIG="${K3D_CONFIG:-${SCRIPT_DIR}/k3d-config.yaml}"
 
@@ -37,7 +37,7 @@ else
 fi
 
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.10.1"
+GATEWAY_OPERATOR_VERSION="0.11.0"
 # gateway-controller/gateway-runtime 1.1.x reject every RestApi/LlmProvider
 # deployment with a bare 404 despite correctly-configured basic auth (confirmed
 # via a live tcpdump of the operator's request — same 404 across 1.1.0 and
@@ -45,16 +45,16 @@ GATEWAY_OPERATOR_VERSION="0.10.1"
 # reaches Programmed=True). Chart *version* and container *image tag* are
 # pinned separately below — setting chartVersion alone still runs an older
 # default image, so GATEWAY_IMAGE_VERSION must also be threaded through.
-GATEWAY_CHART_VERSION="1.2.0-beta"
-GATEWAY_IMAGE_VERSION="1.2.0-beta"
+GATEWAY_CHART_VERSION="1.2.0"
+GATEWAY_IMAGE_VERSION="1.2.0"
 
-# The 1.2.0-beta gateway chart requires an encryption key to be mounted from a Kubernetes Secret
+# The gateway chart (1.2.0-beta+) requires an encryption key to be mounted from a Kubernetes Secret
 GATEWAY_ENCRYPTION_SECRET_NAME="gateway-encryption-keys"
 GATEWAY_ENCRYPTION_SECRET_KEY="default-aesgcm256-v1.bin"
 
 # OpenChoreo community module versions compatible with OpenChoreo ${OPENCHOREO_VERSION}
-OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.4.1"
-OBSERVABILITY_TRACING_OPENSEARCH_VERSION="0.4.1"
+OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.5.3"
+OBSERVABILITY_TRACING_OPENSEARCH_VERSION="0.6.0"
 OBSERVABILITY_METRICS_PROMETHEUS_VERSION="0.6.1"
 
 # Source AMP installation helpers
@@ -895,7 +895,8 @@ else
     log_info "Installing openchoreo-control-plane..."
     log_info "This may take several minutes..."
     CP_INSTALL_OUTPUT=""
-    if ! CP_INSTALL_OUTPUT=$(helm install "openchoreo-control-plane" \
+    # instead of demanding clean state reconcile from a stale state or fresh install
+    if ! CP_INSTALL_OUTPUT=$(helm upgrade --install "openchoreo-control-plane" \
         "oci://ghcr.io/openchoreo/helm-charts/openchoreo-control-plane" \
         --namespace "openchoreo-control-plane" \
         --create-namespace \

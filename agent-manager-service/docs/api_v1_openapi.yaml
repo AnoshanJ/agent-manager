@@ -580,6 +580,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /orgs/{orgName}/agents:
+    get:
+      summary: List all agents in an organization
+      description: >-
+        Returns a lightweight, unpaginated list of every agent in the
+        organization across all projects, containing each agent's name,
+        display name, and the name and display name of the project it
+        belongs to.
+      operationId: listOrgAgents
+      parameters:
+        - name: orgName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of agents in the organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSummaryListResponse"
+        "404":
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /orgs/{orgName}/projects/{projName}/agents/{agentName}:
     get:
       summary: Get agent details
@@ -4982,7 +5017,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/branches:
+  /orgs/{orgName}/repositories/branches:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List branches for a repository
       description: |
@@ -5045,7 +5091,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /repositories/commits:
+  /orgs/{orgName}/repositories/commits:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+
     post:
       summary: List commits for a repository
       description: |
@@ -11690,6 +11747,31 @@ components:
         - total
         - limit
         - offset
+    AgentSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        displayName:
+          type: string
+        projectName:
+          type: string
+        projectDisplayName:
+          type: string
+      required:
+        - name
+        - displayName
+        - projectName
+        - projectDisplayName
+    AgentSummaryListResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSummary"
+      required:
+        - agents
     BuildsListResponse:
       type: object
       properties:
@@ -13838,9 +13920,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListBranchesResponse:
       type: object
@@ -13926,9 +14005,6 @@ components:
         secretRef:
           type: string
           description: Secret reference name for private repository Git credentials
-        orgName:
-          type: string
-          description: Organization name for resolving the secret reference
 
     ListCommitsResponse:
       type: object
@@ -15041,6 +15117,8 @@ components:
           example: openai
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -15089,6 +15167,8 @@ components:
           description: Updated template identifier
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -15213,6 +15293,8 @@ components:
           description: Template identifier
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         accessControl:
           $ref: "#/components/schemas/LLMAccessControl"
         policies:
@@ -15397,6 +15479,8 @@ components:
         provider:
           type: string
           description: Provider reference
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         policies:
           type: array
           items:
@@ -15607,6 +15691,8 @@ components:
           description: Human-readable endpoint name
         upstream:
           $ref: "#/components/schemas/UpstreamConfig"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         policies:
           type: array
           items:
@@ -15872,6 +15958,27 @@ components:
           description: Reference to endpoint configuration
         auth:
           $ref: "#/components/schemas/UpstreamAuth"
+
+    Resilience:
+      type: object
+      description: >-
+        Route-level request/idle timeouts applied at the API level (no
+        per-operation override for LLM providers, LLM proxies, or MCP proxies).
+      properties:
+        timeout:
+          type: string
+          pattern: '^\d+(ms|s|m|h)$'
+          description: >-
+            Max duration for the whole request→upstream-response. "0s"
+            disables it; omit to use the gateway's default.
+          example: 15s
+        idleTimeout:
+          type: string
+          pattern: '^\d+(ms|s|m|h)$'
+          description: >-
+            Per-route stream idle timeout. "0s" disables it; omit to use the
+            gateway's default.
+          example: 20s
 
     UpstreamAuth:
       type: object
@@ -16812,6 +16919,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
 
     UpdateAgentModelConfigRequest:
       type: object
@@ -16832,7 +16941,11 @@ components:
             $ref: "#/components/schemas/EnvModelConfigRequest"
           example:
             development:
-              providerUuid: "550e8400-e29b-41d4-a716-446655440000"
+              providerName: "openai-gpt4"
+              configuration:
+                policies:
+                  - name: "retry"
+                    enabled: true
         environmentVariables:
           type: array
           description: >
@@ -16946,6 +17059,11 @@ components:
           type: string
           format: uuid
           description: UUID of the proxy created
+        providerUuid:
+          type: string
+          format: uuid
+          readOnly: true
+          description: UUID of the org-level LLM provider this config is based on
         proxyName:
           type: string
           description: Name/handle of the MCP proxy
@@ -16972,6 +17090,14 @@ components:
           description: Provider-specific policy configurations
           items:
             $ref: "#/components/schemas/LLMPolicy"
+        providerPolicies:
+          type: array
+          readOnly: true
+          description: Guardrails configured on the org-level LLM provider this config is based on; applied in addition to the config's own policies
+          items:
+            $ref: "#/components/schemas/LLMPolicy"
+        resilience:
+          $ref: "#/components/schemas/Resilience"
         status:
           type: string
           description: Status of the proxy
@@ -17811,10 +17937,6 @@ components:
         - attributes
         - type
       properties:
-        ouId:
-          type: string
-          description: Organization unit ID (optional; resolved from org context when omitted)
-          example: "ou-456"
         type:
           type: string
           description: User type
@@ -17896,10 +18018,6 @@ components:
           description: Group name
           minLength: 1
           example: "developers"
-        ouId:
-          type: string
-          description: Organization unit ID
-          example: "ou-456"
         description:
           type: string
           description: Group description
@@ -17990,10 +18108,6 @@ components:
           description: Role name
           minLength: 1
           example: "developer"
-        ouId:
-          type: string
-          description: Organization unit ID
-          example: "ou-456"
         description:
           type: string
           description: Role description
