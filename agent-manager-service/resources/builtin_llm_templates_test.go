@@ -56,6 +56,19 @@ func TestAWSBedrockTemplateDeclaresAPIKeyAuth(t *testing.T) {
 	}
 }
 
+// The console keys the SigV4 credential modes off this declaration rather than
+// hardcoding the awsbedrock handle, so any future signing provider can opt in.
+func TestAWSBedrockTemplateDeclaresAWSAuthenticationPolicy(t *testing.T) {
+	tmpl := templateByHandle(t, "awsbedrock")
+
+	if tmpl.Metadata == nil || tmpl.Metadata.Auth == nil {
+		t.Fatal("awsbedrock template has no auth block")
+	}
+	if got := tmpl.Metadata.Auth.Policy; got != "aws-authentication" {
+		t.Errorf("auth policy = %q, want %q", got, "aws-authentication")
+	}
+}
+
 // Every built-in template must use the one upstream auth type the gateway
 // accepts. See llm_transformer.go: any other value hits the default branch and
 // fails the whole deployment.

@@ -577,8 +577,8 @@ func (s *LLMProxyDeploymentService) generateLLMProxyDeploymentYAML(proxy *models
 		ID: provider.Artifact.Handle,
 	}
 
-	// Add upstream auth if configured
-	if proxy.Configuration.UpstreamAuth != nil {
+	// Add upstream auth if configured, unless it is delegated to a policy.
+	if proxy.Configuration.UpstreamAuth != nil && !isUpstreamAuthDelegated(proxy.Configuration.UpstreamAuth) {
 		providerRef.Auth = proxy.Configuration.UpstreamAuth
 	}
 

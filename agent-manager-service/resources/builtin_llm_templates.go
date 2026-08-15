@@ -109,6 +109,7 @@ var BuiltInLLMProviderTemplates = []*models.LLMProviderTemplate{
 				Type:        "api-key",
 				Header:      "Authorization",
 				ValuePrefix: "Bearer ",
+				Policy:      "aws-authentication",
 			},
 			LogoURL:        "https://raw.githubusercontent.com/nomadxd/openapi-connectors/main/openapi/aws.bedrock/icon.png",
 			OpenapiSpecURL: "https://raw.githubusercontent.com/nomadxd/openapi-connectors/main/openapi/aws.bedrock/openapi.yaml",

@@ -526,9 +526,11 @@ func (s *LLMProviderDeploymentService) generateLLMProviderDeploymentYAML(provide
 
 	// Transform upstream from nested (main/sandbox) to flat structure expected by gateway.
 	gatewayUpstream := GatewayUpstream{
-		URL:  main.URL,
-		Ref:  main.Ref,
-		Auth: main.Auth,
+		URL: main.URL,
+		Ref: main.Ref,
+	}
+	if !isUpstreamAuthDelegated(main.Auth) {
+		gatewayUpstream.Auth = main.Auth
 	}
 
 	// Ensure access control has a valid mode with default
@@ -1048,6 +1050,22 @@ func normalizePolicyVersionToMajor(version string) string {
 	}
 
 	return "v" + majorVersion
+}
+
+// upstreamAuthTypeOther means auth to the upstream is handled entirely by
+// user-attached policies (e.g. aws-authentication for SigV4 signing).
+const upstreamAuthTypeOther = "other"
+
+// isUpstreamAuthDelegated reports whether the auth block must be left out of the
+// deployment artifact. The gateway maps upstream.auth to a static set-headers
+// policy and errors on any type but "api-key", so a delegated block must never
+// reach it — SigV4 is signed by a policy instead.
+func isUpstreamAuthDelegated(auth *models.UpstreamAuth) bool {
+	if auth == nil || auth.Type == nil {
+		return false
+	}
+	normalized := strings.ToLower(strings.TrimSpace(*auth.Type))
+	return normalized == upstreamAuthTypeOther
 }
 
 // addOrAppendPolicyPath adds a new policy or appends a path to an existing policy
