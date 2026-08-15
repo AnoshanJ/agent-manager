@@ -121,16 +121,16 @@ export function buildCreateLLMProviderRequest(
           }
         : undefined,
     description: values.description?.trim() || undefined,
-    security: values.apiKey
-      ? {
-          enabled: true,
-          apiKey: {
-            enabled: true,
-            key: "X-API-Key",
-            in: "header",
-          },
-        }
-      : undefined,
+    // Independent of the upstream credential: this guards callers of the
+    // provider, and a provider authenticating upstream by SigV4 has no api key.
+    security: {
+      enabled: true,
+      apiKey: {
+        enabled: true,
+        key: "X-API-Key",
+        in: "header",
+      },
+    },
     policies,
     gateways:
       values.gatewayIds && values.gatewayIds.length > 0
