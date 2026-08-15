@@ -512,6 +512,15 @@ export const MCPProxySection: React.FC<MCPProxySectionProps> = ({
               ...entry.selectedProxyByEnv,
               [drawerEnvName]: { id: proxyId, name: proxyName },
             },
+            // The new proxy's security hasn't resolved yet. Carrying over the
+            // previous proxy's authenticationType/apikeyVarName would let
+            // hasUnresolvedMCPSecurity — which keys off authenticationType
+            // being undefined — miss this resolve window, and a submit during
+            // it could carry the old proxy's api key name onto a proxy that
+            // may not use one (issue #1597). EntryCard's effect repopulates
+            // both once the newly selected proxy's security resolves.
+            authenticationType: undefined,
+            apikeyVarName: undefined,
           };
           return updated;
         }

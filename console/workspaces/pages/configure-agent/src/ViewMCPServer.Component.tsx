@@ -666,7 +666,20 @@ export const ViewMCPServerComponent = () => {
           onClose={() => setPanelOpen(false)}
         />
         <DrawerContent>
-          {usesIdentitySecurity ? (
+          {isMCPSecurityUnresolved ? (
+            isLoadingProxyDetails ? (
+              <Skeleton variant="rounded" height={160} />
+            ) : (
+              <Alert severity="error" icon={<AlertTriangle size={18} />}>
+                <Typography variant="body2">
+                  Couldn&apos;t load this MCP server&apos;s security settings, so
+                  the connection details shown here may not match how this tool
+                  is actually secured. Reload the page or try again once the
+                  server is reachable.
+                </Typography>
+              </Alert>
+            )
+          ) : usesIdentitySecurity ? (
             <Stack spacing={3}>
               <Alert severity="info">
                 <Typography variant="body2">
@@ -739,7 +752,7 @@ export const ViewMCPServerComponent = () => {
                 </Form.Section>
               )}
             </Stack>
-          ) : (() => {
+          ) : usesAPIKeySecurity ? (() => {
             const authEntry =
               authInfoByEnv?.[selectedEnvName] ?? providerConfig.authInfo;
             const headerName = apiKeyHeaderName || authEntry?.name || "api-key";
@@ -816,7 +829,40 @@ export const ViewMCPServerComponent = () => {
                 </Form.Section>
               </Stack>
             );
-          })()}
+          })() : (
+            // Unsecured endpoint: no header, no key, and no "the key was only
+            // shown at creation" copy — that phrasing implies a credential that
+            // was never minted, since this server takes none (issue #1597).
+            <Stack spacing={3}>
+              <Alert severity="info">
+                <Typography variant="body2">
+                  This tool has no security configured. Call the endpoint
+                  directly — no header or API key is required.
+                </Typography>
+              </Alert>
+              <Form.Section>
+                <Form.Subheader>Connection</Form.Subheader>
+                {Boolean(providerConfig.url) && (
+                  <TextInput
+                    label="Endpoint URL"
+                    value={providerConfig.url ?? ""}
+                    copyable
+                    copyTooltipText="Copy Endpoint URL"
+                    slotProps={{ input: { readOnly: true } }}
+                    size="small"
+                  />
+                )}
+              </Form.Section>
+              <Form.Section>
+                <Form.Subheader>Example cURL</Form.Subheader>
+                <CodeBlock
+                  code={`curl -N ${providerConfig.url || "<endpoint-url>"}`}
+                  language="bash"
+                  fieldId="mcp-curl"
+                />
+              </Form.Section>
+            </Stack>
+          )}
         </DrawerContent>
       </DrawerWrapper>
     ) : (

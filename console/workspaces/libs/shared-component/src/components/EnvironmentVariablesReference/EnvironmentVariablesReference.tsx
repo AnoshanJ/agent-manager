@@ -27,7 +27,7 @@ interface EnvironmentVariablesReferenceProps {
   title?: string;
   /** Explanatory text rendered under the heading. */
   description: ReactNode;
-  rows: EnvVarReferenceRow[];
+  rows: readonly EnvVarReferenceRow[];
   /** Render in an info alert by default, or as plain drawer/page content. */
   variant?: "alert" | "plain";
   /**
