@@ -2086,3 +2086,57 @@ func TestExtractTraceInputOutputSkipsContentFreeLeaf(t *testing.T) {
 		t.Errorf("output = %v, want the final assistant turn", output)
 	}
 }
+
+func TestExtractTokenUsagePrefersOutermostReport(t *testing.T) {
+	usage := ExtractTokenUsage(strandsTrace(time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)))
+	if usage == nil {
+		t.Fatal("expected token usage, got nil")
+	}
+	// Summing every reporting span would give 84+4*42 = 252 input tokens.
+	if usage.InputTokens != 84 || usage.OutputTokens != 24 {
+		t.Errorf("got %d/%d, want 84/24 (the turn total, counted once)",
+			usage.InputTokens, usage.OutputTokens)
+	}
+}
+
+func TestExtractTokenUsageKeepsAggregateWhenChildrenPartiallyReport(t *testing.T) {
+	base := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	spans := []Span{
+		{
+			SpanID: "agent", Name: "invoke_agent Strands Agents", StartTime: base,
+			Attributes: map[string]interface{}{
+				"gen_ai.usage.input_tokens":  float64(100),
+				"gen_ai.usage.output_tokens": float64(40),
+			},
+		},
+		{
+			SpanID: "reported", ParentSpanID: "agent", Name: "openai.chat", StartTime: base.Add(time.Millisecond),
+			Attributes: map[string]interface{}{
+				"gen_ai.usage.input_tokens":  float64(40),
+				"gen_ai.usage.output_tokens": float64(15),
+			},
+		},
+		// A streamed call that never emitted gen_ai.usage.*.
+		{SpanID: "silent", ParentSpanID: "agent", Name: "openai.chat", StartTime: base.Add(2 * time.Millisecond)},
+	}
+	usage := ExtractTokenUsage(spans)
+	if usage == nil {
+		t.Fatal("expected token usage, got nil")
+	}
+	if usage.InputTokens != 100 || usage.OutputTokens != 40 {
+		t.Errorf("got %d/%d, want the agent aggregate 100/40 — dropping it would under-count the silent call",
+			usage.InputTokens, usage.OutputTokens)
+	}
+}
+
+func TestExtractTokenUsageSurvivesParentCycle(t *testing.T) {
+	spans := []Span{
+		{SpanID: "a", ParentSpanID: "b", Name: "openai.chat", Attributes: map[string]interface{}{
+			"gen_ai.usage.input_tokens": float64(10), "gen_ai.usage.output_tokens": float64(5),
+		}},
+		{SpanID: "b", ParentSpanID: "a", Name: "chat"},
+	}
+	if usage := ExtractTokenUsage(spans); usage == nil || usage.InputTokens != 10 {
+		t.Errorf("expected 10 input tokens without hanging, got %+v", usage)
+	}
+}

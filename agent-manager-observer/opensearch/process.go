@@ -609,11 +609,46 @@ func extractTokenUsageFromAttributes(attrs map[string]interface{}) *LLMTokenUsag
 func ExtractTokenUsage(spans []Span) *TokenUsage {
 	var inputTokens, outputTokens int
 
+	// Count a span only when no ancestor reports usage. Frameworks report the same
+	// tokens at several depths — Strands puts a turn's usage on its "chat" wrapper,
+	// Traceloop repeats it on the "openai.chat" beneath, and Strands repeats the
+	// turn total again on "invoke_agent" — so summing every reporting span trebles
+	// the trace. Preferring the outermost report also keeps aggregates whose
+	// children only partially report (streaming calls that carry no usage, or a
+	// truncated span set) from being under-counted.
+	reportsUsage := make(map[string]bool, len(spans))
+	parentOf := make(map[string]string, len(spans))
+	for i := range spans {
+		if spans[i].Attributes != nil && extractTokenUsageFromAttributes(spans[i].Attributes) != nil {
+			reportsUsage[spans[i].SpanID] = true
+		}
+		parentOf[spans[i].SpanID] = spans[i].ParentSpanID
+	}
+
+	// Walks up the parent chain; the seen set keeps malformed data (a parent cycle,
+	// or a span parented to itself) from looping forever.
+	hasReportingAncestor := func(id string) bool {
+		seen := map[string]bool{id: true}
+		for p := parentOf[id]; p != ""; p = parentOf[p] {
+			if seen[p] {
+				return false
+			}
+			seen[p] = true
+			if reportsUsage[p] {
+				return true
+			}
+		}
+		return false
+	}
+
 	for _, span := range spans {
 		// Check if this is a GenAI span by looking for gen_ai.* attributes
 		if span.Attributes != nil {
 			// Use the helper method to extract token usage from attributes
 			if usage := extractTokenUsageFromAttributes(span.Attributes); usage != nil {
+				if hasReportingAncestor(span.SpanID) {
+					continue
+				}
 				inputTokens += usage.InputTokens
 				outputTokens += usage.OutputTokens
 			}
@@ -1046,9 +1081,9 @@ func ExtractTraceInputOutputWithFallback(rootSpan *Span, spans []Span) (input in
 	}
 	if len(leaves) > 0 {
 		slices.SortFunc(leaves, func(a, b *Span) int { return a.StartTime.Compare(b.StartTime) })
-		// Scan past content-free leaves rather than giving up on the first one.
-		// Frameworks that wrap the provider call in their own LLM span (Strands opens
-		// "chat" around "openai.chat") would otherwise lose the trace input preview
+		// Scan outward past content-free leaves rather than giving up on the first
+		// one. Frameworks that wrap the provider call in their own LLM span (Strands
+		// opens "chat" around "openai.chat") would otherwise lose the trace preview
 		// to the empty wrapper, which sorts first.
 		if input == nil {
 			for _, leaf := range leaves {
