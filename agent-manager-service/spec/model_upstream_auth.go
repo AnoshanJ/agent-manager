@@ -19,7 +19,7 @@ var _ MappedNullable = &UpstreamAuth{}
 
 // UpstreamAuth struct for UpstreamAuth
 type UpstreamAuth struct {
-	// Authentication type
+	// Authentication type. \"other\" delegates upstream auth to an attached policy (e.g. aws-authentication for AWS SigV4 signing) and omits the auth block from the gateway deployment artifact.
 	Type string `json:"type"`
 	// Authentication header name
 	Header *string `json:"header,omitempty"`

@@ -65,6 +65,9 @@ type LLMProviderTemplateAuth struct {
 	Type        string `json:"type,omitempty"`
 	Header      string `json:"header,omitempty"`
 	ValuePrefix string `json:"valuePrefix,omitempty"`
+	// Policy names a gateway policy that can authenticate upstream instead of a
+	// header, e.g. aws-authentication. Signals the console to offer its modes.
+	Policy string `json:"policy,omitempty"`
 }
 
 // ExtractionIdentifier represents an extraction identifier for LLM metadata

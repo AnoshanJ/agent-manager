@@ -1029,6 +1029,7 @@ const (
 	UpstreamAuthTypeBasic  UpstreamAuthType = "basic"
 	UpstreamAuthTypeBearer UpstreamAuthType = "bearer"
 	UpstreamAuthTypeNone   UpstreamAuthType = "none"
+	UpstreamAuthTypeOther  UpstreamAuthType = "other"
 )
 
 // Valid indicates whether the value is a known member of the UpstreamAuthType enum.
@@ -1041,6 +1042,8 @@ func (e UpstreamAuthType) Valid() bool {
 	case UpstreamAuthTypeBearer:
 		return true
 	case UpstreamAuthTypeNone:
+		return true
+	case UpstreamAuthTypeOther:
 		return true
 	default:
 		return false
@@ -3570,6 +3573,9 @@ type LLMProviderTemplateAuth struct {
 	// Header Header name for authentication
 	Header *string `json:"header,omitempty"`
 
+	// Policy Gateway policy this provider can use for upstream auth instead of a header, e.g. aws-authentication. Signals the console to offer the policy's credential modes.
+	Policy *string `json:"policy,omitempty"`
+
 	// Type Authentication type
 	Type *string `json:"type,omitempty"`
 
@@ -5335,14 +5341,14 @@ type UpstreamAuth struct {
 	// Header Authentication header name
 	Header *string `json:"header,omitempty"`
 
-	// Type Authentication type
+	// Type Authentication type. "other" delegates upstream auth to an attached policy (e.g. aws-authentication for AWS SigV4 signing) and omits the auth block from the gateway deployment artifact.
 	Type UpstreamAuthType `json:"type"`
 
 	// Value Authentication value/token
 	Value *string `json:"value,omitempty"`
 }
 
-// UpstreamAuthType Authentication type
+// UpstreamAuthType Authentication type. "other" delegates upstream auth to an attached policy (e.g. aws-authentication for AWS SigV4 signing) and omits the auth block from the gateway deployment artifact.
 type UpstreamAuthType string
 
 // UpstreamConfig defines model for UpstreamConfig.

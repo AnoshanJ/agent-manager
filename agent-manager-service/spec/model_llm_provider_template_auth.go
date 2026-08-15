@@ -25,6 +25,8 @@ type LLMProviderTemplateAuth struct {
 	Header *string `json:"header,omitempty"`
 	// Prefix for the authentication value
 	ValuePrefix *string `json:"valuePrefix,omitempty"`
+	// Gateway policy this provider can use for upstream auth instead of a header, e.g. aws-authentication. Signals the console to offer the policy's credential modes.
+	Policy *string `json:"policy,omitempty"`
 }
 
 // NewLLMProviderTemplateAuth instantiates a new LLMProviderTemplateAuth object
@@ -140,6 +142,38 @@ func (o *LLMProviderTemplateAuth) SetValuePrefix(v string) {
 	o.ValuePrefix = &v
 }
 
+// GetPolicy returns the Policy field value if set, zero value otherwise.
+func (o *LLMProviderTemplateAuth) GetPolicy() string {
+	if o == nil || IsNil(o.Policy) {
+		var ret string
+		return ret
+	}
+	return *o.Policy
+}
+
+// GetPolicyOk returns a tuple with the Policy field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *LLMProviderTemplateAuth) GetPolicyOk() (*string, bool) {
+	if o == nil || IsNil(o.Policy) {
+		return nil, false
+	}
+	return o.Policy, true
+}
+
+// HasPolicy returns a boolean if a field has been set.
+func (o *LLMProviderTemplateAuth) HasPolicy() bool {
+	if o != nil && !IsNil(o.Policy) {
+		return true
+	}
+
+	return false
+}
+
+// SetPolicy gets a reference to the given string and assigns it to the Policy field.
+func (o *LLMProviderTemplateAuth) SetPolicy(v string) {
+	o.Policy = &v
+}
+
 func (o LLMProviderTemplateAuth) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -158,6 +192,9 @@ func (o LLMProviderTemplateAuth) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ValuePrefix) {
 		toSerialize["valuePrefix"] = o.ValuePrefix
+	}
+	if !IsNil(o.Policy) {
+		toSerialize["policy"] = o.Policy
 	}
 	return toSerialize, nil
 }
