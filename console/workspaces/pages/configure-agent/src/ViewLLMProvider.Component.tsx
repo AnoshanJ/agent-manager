@@ -382,7 +382,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
       return list;
     }
 
-    for (const policy of providerConfig?.policies ?? []) {
+    for (const policy of providerConfig?.providerPolicies ?? []) {
       const key = `${policy.name}@${policy.version}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1053,6 +1053,13 @@ export const ViewLLMProviderComponent: React.FC = () => {
                 setPendingProviderByEnv((prev) => ({
                   ...prev,
                   [selectedEnvName]: uuid,
+                }));
+                // A different provider's gateways may not support the guardrails
+                // already selected for this env — clear them so only guardrails
+                // valid for the newly-picked provider can be re-added and saved.
+                setGuardrailsByEnv((prev) => ({
+                  ...prev,
+                  [selectedEnvName]: [],
                 }));
               }}
             />

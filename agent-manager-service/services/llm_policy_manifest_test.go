@@ -280,6 +280,29 @@ func TestIntersectActiveGatewayLLMPolicies_VersionMismatchUsesSemverComparison(t
 	assert.Contains(t, available, "pii-filter\x00"+"1.9.0")
 }
 
+func TestIntersectActiveGatewayLLMPolicies_VersionMismatchStripsVPrefixForSemverComparison(t *testing.T) {
+	repo := &repomocks.GatewayRepositoryMock{
+		ListWithFiltersFunc: func(_ repositories.GatewayFilterOptions) ([]*models.Gateway, error) {
+			return []*models.Gateway{
+				gatewayWithLLMPolicyManifest(
+					map[string]interface{}{"name": "pii-filter", "version": "v2"},
+				),
+				gatewayWithLLMPolicyManifest(
+					map[string]interface{}{"name": "pii-filter", "version": "v10"},
+				),
+			}, nil
+		},
+	}
+
+	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+
+	require.NoError(t, err)
+	// A plain string compare of "v10" vs "v2" would wrongly rank "v10" lower.
+	// Stripping the leading "v" before numeric comparison must pick v2 as lower.
+	require.Len(t, available, 1)
+	assert.Contains(t, available, "pii-filter\x00"+"v2")
+}
+
 func TestIntersectActiveGatewayLLMPolicies_OnlyActiveGatewaysQueried(t *testing.T) {
 	var capturedFilters repositories.GatewayFilterOptions
 	repo := &repomocks.GatewayRepositoryMock{

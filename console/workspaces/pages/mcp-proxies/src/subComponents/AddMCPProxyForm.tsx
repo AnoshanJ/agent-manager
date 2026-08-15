@@ -43,6 +43,8 @@ import { draftToEndpoint } from "./mcpEndpoints";
 import { MCP_SPEC_VERSION } from "../constants";
 
 const DEFAULT_PROXY_VERSION = "1.0.0";
+// Matches the service's handle length limit (agent-manager-service/services/mcp_proxy_service.go).
+const MAX_HANDLE_LENGTH = 100;
 
 const SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
@@ -83,6 +85,14 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
 
   const { errors, validateField, validateForm, setFieldError } =
     useFormValidation<AddMCPProxyFormValues>(addMCPProxySchema);
+
+  // Derived from the handle actually submitted (toHandle(handle || name)), so a handle
+  // auto-generated from a long name is caught too, not just a manually-typed one.
+  const effectiveHandle = toHandle(handle || proxyName);
+  const handleLengthError =
+    effectiveHandle.length > MAX_HANDLE_LENGTH
+      ? `Handle must be at most ${MAX_HANDLE_LENGTH} characters (currently ${effectiveHandle.length}).`
+      : undefined;
 
   const isCreating = createMCPProxy.isPending;
 
@@ -181,6 +191,7 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
     Boolean(handle.trim()) &&
     Boolean(proxyVersion.trim()) &&
     !errors.version &&
+    !handleLengthError &&
     endpoints.length > 0 &&
     !isCreating;
 
@@ -216,15 +227,20 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
             </FormControl>
           </Form.Stack>
 
-          <FormControl fullWidth>
+          <FormControl fullWidth error={Boolean(handleLengthError)}>
             <FormLabel required>Handle</FormLabel>
             <TextField
               fullWidth
               value={handle}
               onChange={(event) => handleHandleChange(event.target.value)}
+              error={Boolean(handleLengthError)}
             />
-            <Typography variant="caption" color="text.secondary">
-              Unique, immutable identifier for the MCP Server.
+            <Typography
+              variant="caption"
+              color={handleLengthError ? "error" : "text.secondary"}
+            >
+              {handleLengthError ??
+                "Unique, immutable identifier for the MCP Server."}
             </Typography>
           </FormControl>
 

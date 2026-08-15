@@ -5571,6 +5571,12 @@ type ListLLMProvidersParams struct {
 	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListAvailableLLMPoliciesParams defines parameters for ListAvailableLLMPolicies.
+type ListAvailableLLMPoliciesParams struct {
+	// ProviderId When set, scope the result to the gateways this LLM provider is deployed to, instead of every active gateway in the organization.
+	ProviderId *openapi_types.UUID `form:"providerId,omitempty" json:"providerId,omitempty"`
+}
+
 // GetLLMProviderDeploymentsParams defines parameters for GetLLMProviderDeployments.
 type GetLLMProviderDeploymentsParams struct {
 	// GatewayId Filter by gateway ID

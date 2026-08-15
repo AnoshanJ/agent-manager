@@ -193,11 +193,12 @@ func lowestVersionLLMPolicy(sightings []llmPolicyManifestItem) llmPolicyManifest
 
 // compareVersions compares two dot-separated version strings segment by segment,
 // numerically where possible (so "1.10.0" > "1.9.0", unlike a plain string compare).
-// If either version has a non-numeric segment, it falls back to a plain string compare
-// of the full version string.
+// A single optional leading "v"/"V" is stripped from each side first, so "v10" and
+// "v2" also compare numerically. If either version has a non-numeric segment, it
+// falls back to a plain string compare of the full (original, unstripped) version.
 func compareVersions(a, b string) int {
-	segmentsA := strings.Split(a, ".")
-	segmentsB := strings.Split(b, ".")
+	segmentsA := strings.Split(strings.TrimPrefix(strings.TrimPrefix(a, "v"), "V"), ".")
+	segmentsB := strings.Split(strings.TrimPrefix(strings.TrimPrefix(b, "v"), "V"), ".")
 
 	for i := 0; i < len(segmentsA) && i < len(segmentsB); i++ {
 		numA, errA := strconv.Atoi(segmentsA[i])
