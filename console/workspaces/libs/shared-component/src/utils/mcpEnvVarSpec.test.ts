@@ -23,6 +23,7 @@ import {
   resolveMCPEndpointForEnvironment,
   resolveMCPEnvVarSpec,
   resolveProxyAuthenticationType,
+  resolveProxyEnvVarSpec,
 } from "./mcpEnvVarSpec";
 
 // The three options the MCP Servers Security tab offers, in the exact shape it
@@ -128,6 +129,25 @@ describe("resolveMCPEnvVarSpec", () => {
       "AMP_AGENTID_SCOPES",
     ]);
   });
+
+  // The rows are frozen, not just re-spread per call: a shared row object one
+  // caller mutated would silently corrupt every other caller's constant. This
+  // is a stronger guarantee than cloning, which still leaves each clone open to
+  // drifting from the source independently.
+  it("freezes the AgentID rows so a returned row cannot be mutated", () => {
+    const [firstRow] = resolveMCPEnvVarSpec("identity").referenceRows;
+
+    expect(() => {
+      firstRow.name = "MUTATED";
+    }).toThrow();
+
+    expect(resolveMCPEnvVarSpec("identity").referenceRows[0]).toEqual(
+      AGENTID_ENV_VAR_ROWS[0],
+    );
+    expect(resolveMCPEnvVarSpec("identity").referenceRows[0].name).toBe(
+      "AMP_AGENTID_CLIENT_ID",
+    );
+  });
 });
 
 describe("resolveMCPEndpointForEnvironment", () => {
@@ -206,5 +226,66 @@ describe("resolveProxyAuthenticationType", () => {
     expect(resolveProxyAuthenticationType(proxyWith([]))).toBe("");
     expect(resolveProxyAuthenticationType(null)).toBe("");
     expect(resolveProxyAuthenticationType(undefined)).toBe("");
+  });
+});
+
+describe("resolveProxyEnvVarSpec", () => {
+  it("offers both keys and no reference rows when every endpoint is apiKey", () => {
+    const spec = resolveProxyEnvVarSpec(
+      proxyWith([{ id: "a", security: apiKey }, { id: "b", security: apiKey }]),
+    );
+    expect(spec.editableKeys).toEqual(["url", "apikey"]);
+    expect(spec.referenceRows).toEqual([]);
+  });
+
+  it("drops the api key and shows the AgentID rows when every endpoint is identity", () => {
+    const spec = resolveProxyEnvVarSpec(
+      proxyWith([{ id: "a", security: identity }, { id: "b", security: identity }]),
+    );
+    expect(spec.editableKeys).toEqual(["url"]);
+    expect(spec.referenceRows).toEqual(AGENTID_ENV_VAR_ROWS);
+  });
+
+  // The bug resolveProxyEnvVarSpec exists to fix: resolveProxyAuthenticationType
+  // collapses this same proxy to "apiKey" alone (so the field stays nameable),
+  // but the OAuth endpoint still needs its reference rows shown. Deriving the
+  // spec from that single collapsed label would silently drop them.
+  it("keeps both the api key field and the AgentID rows for a mixed apiKey+identity proxy", () => {
+    const spec = resolveProxyEnvVarSpec(
+      proxyWith([{ id: "a", security: apiKey }, { id: "b", security: identity }]),
+    );
+    expect(spec.editableKeys).toEqual(["url", "apikey"]);
+    expect(spec.referenceRows).toEqual(AGENTID_ENV_VAR_ROWS);
+  });
+
+  it("offers only the url when every endpoint is unsecured", () => {
+    const spec = resolveProxyEnvVarSpec(
+      proxyWith([{ id: "a", security: none }, { id: "b", security: none }]),
+    );
+    expect(spec.editableKeys).toEqual(["url"]);
+    expect(spec.referenceRows).toEqual([]);
+  });
+
+  it("shows the AgentID rows for a mix of unsecured and identity, with no api key field", () => {
+    const spec = resolveProxyEnvVarSpec(
+      proxyWith([{ id: "a", security: none }, { id: "b", security: identity }]),
+    );
+    expect(spec.editableKeys).toEqual(["url"]);
+    expect(spec.referenceRows).toEqual(AGENTID_ENV_VAR_ROWS);
+  });
+
+  it("offers only the url when the proxy has no endpoints", () => {
+    expect(resolveProxyEnvVarSpec(proxyWith([]))).toEqual({
+      editableKeys: ["url"],
+      referenceRows: [],
+    });
+    expect(resolveProxyEnvVarSpec(null)).toEqual({
+      editableKeys: ["url"],
+      referenceRows: [],
+    });
+    expect(resolveProxyEnvVarSpec(undefined)).toEqual({
+      editableKeys: ["url"],
+      referenceRows: [],
+    });
   });
 });
