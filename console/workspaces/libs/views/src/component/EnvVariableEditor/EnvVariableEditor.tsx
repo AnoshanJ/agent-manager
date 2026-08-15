@@ -185,9 +185,13 @@ export function EnvVariableEditor({
       </InputAdornment>
     ) : undefined;
 
+  // Extra breathing room below rows whose helper text would otherwise crowd
+  // the next row; compact rows (no error) keep the default tight spacing.
+  const hasError = !!keyError || !!valueError;
+
   return (
-    <Stack key={index} direction="column" gap={1}>
-      <Stack direction="row" gap={2} alignItems="end">
+    <Stack key={index} direction="column" gap={1} mb={hasError ? 0.5 : 0}>
+      <Stack direction="row" gap={2} alignItems="flex-start">
         <Box flex={1} minWidth={0}>
           <TextInput
             label={keyLabel}
@@ -222,6 +226,7 @@ export function EnvVariableEditor({
             the Key/Value column alignment across rows. */}
         <Box
           mr={4}
+          pt={1}
           sx={{
             visibility: onSensitiveChange ? 'visible' : 'hidden',
             pointerEvents: onSensitiveChange ? 'auto' : 'none',
@@ -240,7 +245,7 @@ export function EnvVariableEditor({
             sx={{ whiteSpace: 'nowrap', marginRight: 0 }}
           />
         </Box>
-        <Box pb={1} display="flex" alignItems="center">
+        <Box pt={1} display="flex" alignItems="center">
           {/* Always reserve this slot so the delete/lock icons stay aligned across
               rows. Existing secrets toggle between Edit (locked) and Cancel
               (editing); other fields keep the slot hidden. Cancel stays visible
