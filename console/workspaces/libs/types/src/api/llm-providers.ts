@@ -122,7 +122,13 @@ export interface LLMModel {
   description?: string;
 }
 
-export type UpstreamAuthType = "api-key" | "bearer" | "basic" | "none";
+/** "other" delegates upstream auth to an attached gateway policy, e.g. aws-authentication. */
+export type UpstreamAuthType =
+  | "api-key"
+  | "bearer"
+  | "basic"
+  | "none"
+  | "other";
 
 export interface UpstreamAuth {
   type: UpstreamAuthType;

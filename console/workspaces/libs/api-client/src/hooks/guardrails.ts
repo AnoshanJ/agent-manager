@@ -47,6 +47,9 @@ const NON_GUARDRAIL_POLICY_EXCLUDELIST = new Set([
   "api-key-auth",
   "basic-auth",
   "jwt-auth",
+  // Signs upstream requests with AWS SigV4; configured from the provider's
+  // connection settings, not the guardrail picker.
+  "aws-authentication",
   "cors",
   "advanced-ratelimit",
   "basic-ratelimit",
