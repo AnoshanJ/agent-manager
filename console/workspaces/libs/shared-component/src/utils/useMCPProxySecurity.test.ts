@@ -173,7 +173,7 @@ describe("useMCPProxySecurity", () => {
     expect(result.current.isResolved).toBe(true);
   });
 
-  it("is not resolved when the proxy came back with no endpoints to judge", () => {
+  it("is not resolved when the fetch returned no data at all", () => {
     query({ data: undefined });
 
     const { result } = renderHook(() =>
@@ -181,5 +181,21 @@ describe("useMCPProxySecurity", () => {
     );
 
     expect(result.current.isResolved).toBe(false);
+  });
+
+  // A proxy record that fetched successfully but has zero endpoints is not a
+  // state this hook can make a security determination from — a truthy `proxy`
+  // alone is not proof the answer is real.
+  it("is not resolved when the proxy fetched successfully but has no endpoints", () => {
+    query({ data: proxy([]) });
+
+    const { result } = renderHook(() =>
+      useMCPProxySecurity({ orgName: "acme", proxyId: "proxy-1" }),
+    );
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isError).toBe(false);
+    expect(result.current.isResolved).toBe(false);
+    expect(result.current.authenticationType).toBe("");
   });
 });

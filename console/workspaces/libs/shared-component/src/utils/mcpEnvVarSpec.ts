@@ -48,28 +48,29 @@ export type EnvVarKey = (typeof ENV_VAR_KEYS)[number];
  * endpoint. Their names are fixed — only their values vary per environment — so
  * they are reference-only and never user-editable.
  */
-export const AGENTID_ENV_VAR_ROWS: EnvVarReferenceRow[] = [
-  {
+export const AGENTID_ENV_VAR_ROWS: readonly EnvVarReferenceRow[] = [
+  Object.freeze({
     key: "clientId",
     name: "AMP_AGENTID_CLIENT_ID",
     description: "This agent's OAuth2 client ID for this environment",
-  },
-  {
+  }),
+  Object.freeze({
     key: "clientSecret",
     name: "AMP_AGENTID_CLIENT_SECRET",
     description: "This agent's OAuth2 client secret for this environment",
-  },
-  {
+  }),
+  Object.freeze({
     key: "tokenEndpoint",
     name: "AMP_AGENTID_TOKEN_ENDPOINT",
     description: "Token endpoint to call with a client_credentials grant",
-  },
-  {
+  }),
+  Object.freeze({
     key: "scopes",
     name: "AMP_AGENTID_SCOPES",
     description: "Space-separated scopes to request for this tool's actions",
-  },
+  }),
 ];
+Object.freeze(AGENTID_ENV_VAR_ROWS);
 
 /**
  * The endpoint bound to `environmentUuid`, or undefined when the proxy has none.
@@ -144,4 +145,33 @@ export function resolveMCPEnvVarSpec(
     default:
       return { editableKeys: ["url"], referenceRows: [] };
   }
+}
+
+/**
+ * The env var spec for a proxy considered across *all* of its endpoints at
+ * once — used by the agent-configuration flow, which binds every environment
+ * to the same proxy in a single call.
+ *
+ * Deriving this from {@link resolveProxyAuthenticationType} would collapse a
+ * mixed proxy to one label first and lose information: a proxy with one
+ * API-key endpoint and one OAuth endpoint resolves to `"apiKey"` (so the field
+ * stays nameable), but feeding that single label into
+ * {@link resolveMCPEnvVarSpec} would then drop the AgentID reference rows the
+ * OAuth endpoint still needs. This resolver unions each endpoint's actual
+ * requirement instead: the API key field is offered if any endpoint needs one,
+ * and the AgentID rows are shown if any endpoint uses OAuth — independently of
+ * each other.
+ */
+export function resolveProxyEnvVarSpec(
+  proxy: Pick<MCPProxy, "endpoints"> | null | undefined,
+): MCPEnvVarSpec {
+  const types = (proxy?.endpoints ?? []).map((endpoint) =>
+    resolveAuthenticationType(endpoint),
+  );
+  const needsAPIKey = types.some((type) => type === "apiKey");
+  const needsIdentity = types.some((type) => type === "identity");
+  return {
+    editableKeys: needsAPIKey ? [...ENV_VAR_KEYS] : ["url"],
+    referenceRows: needsIdentity ? [...AGENTID_ENV_VAR_ROWS] : [],
+  };
 }

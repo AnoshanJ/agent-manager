@@ -21,6 +21,7 @@ import {
   resolveMCPEndpointForEnvironment,
   resolveMCPEnvVarSpec,
   resolveProxyAuthenticationType,
+  resolveProxyEnvVarSpec,
   type MCPEnvVarSpec,
 } from "./mcpEnvVarSpec";
 import {
@@ -87,22 +88,39 @@ export function useMCPProxySecurity({
     proxyId: proxyId ?? "",
   });
 
+  // Resolved once, then reused: authenticationType needs it to derive one
+  // label, and — for the fallback case — spec needs the whole proxy anyway to
+  // union each endpoint's requirement rather than derive from that one label.
+  const scopedEndpoint = useMemo(
+    () =>
+      proxyId && proxy
+        ? resolveMCPEndpointForEnvironment(proxy, environmentUuid)
+        : undefined,
+    [proxy, proxyId, environmentUuid],
+  );
+
   const authenticationType = useMemo<AuthenticationType>(() => {
     if (!proxyId || !proxy) return "";
-    const scopedEndpoint = resolveMCPEndpointForEnvironment(proxy, environmentUuid);
-    if (scopedEndpoint) {
-      return resolveAuthenticationType(scopedEndpoint);
-    }
+    if (scopedEndpoint) return resolveAuthenticationType(scopedEndpoint);
     return resolveProxyAuthenticationType(proxy);
-  }, [proxy, proxyId, environmentUuid]);
+  }, [proxy, proxyId, scopedEndpoint]);
 
-  const spec = useMemo(
-    () => resolveMCPEnvVarSpec(authenticationType),
-    [authenticationType],
-  );
+  const spec = useMemo<MCPEnvVarSpec>(() => {
+    if (!proxyId || !proxy) return resolveMCPEnvVarSpec("");
+    // Scoped to one endpoint: a single label is the whole answer.
+    if (scopedEndpoint) return resolveMCPEnvVarSpec(authenticationType);
+    // Environment-agnostic: union every endpoint's requirement instead of
+    // collapsing to one label first, or a proxy mixing an API-key endpoint
+    // with an OAuth endpoint would lose the OAuth reference rows.
+    return resolveProxyEnvVarSpec(proxy);
+  }, [proxy, proxyId, scopedEndpoint, authenticationType]);
 
   // No proxy selected yet means nothing to wait for, whatever the query says.
   const hasProxy = Boolean(proxyId);
+  // A proxy that fetched successfully but reports zero endpoints is not a
+  // state this hook can make a security determination from — treat it the
+  // same as an unresolved fetch rather than silently defaulting to None.
+  const hasEndpoints = Boolean(proxy?.endpoints?.length);
 
   return {
     authenticationType,
@@ -111,7 +129,8 @@ export function useMCPProxySecurity({
     isLoading: hasProxy && isLoading,
     isError: hasProxy && isError,
     // React Query reports isLoading false once a fetch errors, so `proxy` being
-    // present is the only thing that proves the answer is real.
-    isResolved: !hasProxy || Boolean(proxy),
+    // present (with endpoints to judge) is the only thing that proves the
+    // answer is real.
+    isResolved: !hasProxy || hasEndpoints,
   };
 }
