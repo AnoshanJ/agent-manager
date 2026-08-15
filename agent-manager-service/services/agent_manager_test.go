@@ -768,6 +768,11 @@ func promoteAgentTestFixture(t *testing.T, tgtIdentityEnvVars []client.EnvVar, t
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
+		// Default: the component reconciles normally, so the promote pre-flight lets
+		// it through. Tests covering the pre-flight override this directly.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		GetEnvironmentFunc:              nonProductionEnvStub(),
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
@@ -1021,6 +1026,78 @@ func TestPromoteAgent_ListsBrokenMCPConnectionsInStableOrder(t *testing.T) {
 	assert.Contains(t, ve.Message, "booking, payments")
 }
 
+// PromoteComponent's writes land on the Component whether or not OpenChoreo can reconcile
+// it, but a blocked component never gets a new release cut for the target environment. The
+// promote must be refused up front instead of returning 202 for a no-op.
+func TestPromoteAgent_BlocksWhenComponentNotReconcilable(t *testing.T) {
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	ocMock, ok := s.ocClient.(*clientmocks.OpenChoreoClientMock)
+	require.True(t, ok)
+	ocMock.GetComponentReconcileBlockFunc = func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+		return &client.ComponentReconcileBlock{
+			Reason:  "WorkloadInvalid",
+			Message: "workload references a missing secret",
+		}, nil
+	}
+
+	err := s.PromoteAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrComponentNotReconcilable)
+	assert.Contains(t, err.Error(), "WorkloadInvalid")
+	assert.Contains(t, err.Error(), "workload references a missing secret")
+	assert.False(t, *promoteCalled,
+		"promotion must be refused before PromoteComponent — otherwise the caller gets a success for a promote the controller silently discarded")
+}
+
+// The pre-flight is an extra safety net, not a dependency: if the conditions cannot be read,
+// a promote that would otherwise succeed must still go through rather than being held hostage
+// to a transient OpenChoreo read failure.
+func TestPromoteAgent_ReconcileLookupFails_PromotesAnyway(t *testing.T) {
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	ocMock, ok := s.ocClient.(*clientmocks.OpenChoreoClientMock)
+	require.True(t, ok)
+	ocMock.GetComponentReconcileBlockFunc = func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+		return nil, errors.New("openchoreo unavailable")
+	}
+
+	err := s.PromoteAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, *promoteCalled)
+}
+
+// The block is checked before the pipeline is fetched, so a blocked component is rejected
+// for the reason that actually applies rather than failing later on unrelated validation.
+func TestPromoteAgent_ReconcileBlockCheckedBeforePipelineLookup(t *testing.T) {
+	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	ocMock, ok := s.ocClient.(*clientmocks.OpenChoreoClientMock)
+	require.True(t, ok)
+	ocMock.GetComponentReconcileBlockFunc = func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+		return &client.ComponentReconcileBlock{Reason: "WorkloadInvalid", Message: "bad workload"}, nil
+	}
+	pipelineCalled := false
+	ocMock.GetProjectDeploymentPipelineFunc = func(_ context.Context, _, _ string) (*models.DeploymentPipelineResponse, error) {
+		pipelineCalled = true
+		return nil, errors.New("pipeline lookup must not be reached")
+	}
+
+	err := s.PromoteAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrComponentNotReconcilable)
+	assert.False(t, pipelineCalled)
+}
+
 // The block reports what was actually checked — that the configuration has no
 // MCP server bound in the target — rather than asserting the server has no
 // endpoint there. Only the absent mapping row is observed; the server may well
@@ -1181,6 +1258,11 @@ func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *te
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
+		// Default: the component reconciles normally, so the promote pre-flight lets
+		// it through. Tests covering the pre-flight override this directly.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, envOverrides []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
@@ -1280,6 +1362,11 @@ func TestPromoteAgent_PollSucceedsWithinBudget_PromotesOnFirstCall(t *testing.T)
 			return &models.DeploymentPipelineResponse{PromotionPaths: []models.PromotionPath{
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
+		},
+		// Default: the component reconciles normally, so the promote pre-flight lets
+		// it through. Tests covering the pre-flight override this directly.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
 		},
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
@@ -1571,6 +1658,11 @@ func TestPromoteAgent_ProvisioningDisabled_SkipsIdentityCheckAndPromotes(t *test
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
+		// Default: the component reconciles normally, so the promote pre-flight lets
+		// it through. Tests covering the pre-flight override this directly.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
@@ -1635,6 +1727,11 @@ func TestPromoteAgent_ProvisioningDisabledButLowestEnvHasRealCredential_StillBlo
 			return &models.DeploymentPipelineResponse{PromotionPaths: []models.PromotionPath{
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
+		},
+		// Default: the component reconciles normally, so the promote pre-flight lets
+		// it through. Tests covering the pre-flight override this directly.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
 		},
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
