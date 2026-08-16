@@ -85,13 +85,14 @@ func TestResolveThunderHandle(t *testing.T) {
 		assert.Equal(t, "prod", upserted.EnvName)
 	})
 
-	t.Run("still resolves to the computed value even if persisting the grandfathered handle fails", func(t *testing.T) {
+	t.Run("propagates a transient error persisting the grandfathered handle", func(t *testing.T) {
+		boom := errors.New("transient db error")
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				return nil, gorm.ErrRecordNotFound
 			},
 			InsertFunc: func(context.Context, *models.EnvThunderURL) error {
-				return errors.New("transient db error")
+				return boom
 			},
 		}
 		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
@@ -100,9 +101,38 @@ func TestResolveThunderHandle(t *testing.T) {
 			},
 		}
 
+		_, err := ResolveThunderHandle(context.Background(), urlRepo, systemClientRepo, "ou-1", "prod")
+		require.Error(t, err, "a failed backfill write must propagate — the caller retries the whole resolution")
+		assert.ErrorIs(t, err, boom)
+	})
+
+	t.Run("adopts the winning handle when a concurrent grandfather attempt for the SAME environment wins the race", func(t *testing.T) {
+		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+			InsertFunc: func(context.Context, *models.EnvThunderURL) error {
+				return utils.ErrEnvThunderURLAlreadyClaimed
+			},
+		}
+		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderSystemClient, error) {
+				return &models.EnvThunderSystemClient{}, nil
+			},
+		}
+		// A second Get call (after the losing Insert) returns the winner's row.
+		callCount := 0
+		urlRepo.GetFunc = func(context.Context, string, string) (*models.EnvThunderURL, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return &models.EnvThunderURL{ThunderHandle: "winning-handle"}, nil
+		}
+
 		handle, err := ResolveThunderHandle(context.Background(), urlRepo, systemClientRepo, "ou-1", "prod")
-		require.NoError(t, err, "a failed backfill write must not fail resolution — the next call just retries the write")
-		assert.Equal(t, thundersvc.LegacyThunderHandleLabel(ThunderOrgNamespace(), "prod"), handle)
+		require.NoError(t, err)
+		assert.Equal(t, "winning-handle", handle)
 	})
 
 	t.Run("reports not-provisioned when neither a url row nor a system-client credential exists", func(t *testing.T) {
@@ -160,7 +190,7 @@ func TestResolveThunderHandle(t *testing.T) {
 		assert.ErrorIs(t, err, boom)
 	})
 
-	t.Run("propagates a genuine cross-environment handle collision from the backfill write", func(t *testing.T) {
+	t.Run("propagates a genuine cross-environment handle collision from the backfill write instead of adopting another environment's handle", func(t *testing.T) {
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				return nil, gorm.ErrRecordNotFound
@@ -175,8 +205,8 @@ func TestResolveThunderHandle(t *testing.T) {
 			},
 		}
 
-		handle, err := ResolveThunderHandle(context.Background(), urlRepo, systemClientRepo, "ou-1", "prod")
-		require.NoError(t, err, "a handle-taken conflict on the backfill write is best-effort — still resolves, doesn't fail the caller")
-		assert.Equal(t, thundersvc.LegacyThunderHandleLabel(ThunderOrgNamespace(), "prod"), handle)
+		_, err := ResolveThunderHandle(context.Background(), urlRepo, systemClientRepo, "ou-1", "prod")
+		require.Error(t, err, "a handle already owned by a different (ouID, envName) must never be silently adopted — that's a cross-tenant identity collision")
+		assert.ErrorIs(t, err, utils.ErrThunderHandleTaken)
 	})
 }

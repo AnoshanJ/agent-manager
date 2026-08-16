@@ -26,6 +26,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // ResolveThunderHandle is the SINGLE place every caller resolves an
@@ -67,20 +68,32 @@ func ResolveThunderHandle(
 
 	// legacy is a pure function of (org namespace, envName), so it's identical
 	// no matter which concurrent caller computes it — Insert (never an upsert,
-	// see its doc comment) is still used rather than a blind write, but every
-	// one of its outcomes converges on the same answer here:
-	//   - nil: this call persisted it.
+	// see its doc comment) is still used rather than a blind write:
+	//   - nil: this call won the claim; legacy is now the persisted value.
 	//   - ErrEnvThunderURLAlreadyClaimed: a concurrent grandfather attempt for
-	//     this SAME environment already persisted the identical value first.
-	//   - ErrThunderHandleTaken / any other error: best-effort — still resolve
-	//     to the correct value even though persisting it didn't stick (a
-	//     transient DB error retries on the next call; a collision with a
-	//     different environment's explicitly-chosen handle is an unresolvable,
-	//     astronomically rare edge case — this environment's real Thunder
-	//     instance answers at `legacy` regardless of what got recorded).
+	//     this SAME environment already persisted first — read back and adopt
+	//     whatever it wrote (a self-race, not a real conflict).
+	//   - ErrThunderHandleTaken: a DIFFERENT (ouID, envName) already owns this
+	//     exact string. ThunderOrgNamespace() is config-pinned (not per-OU), so
+	//     two different orgs each grandfathering a same-named environment (e.g.
+	//     both have a "production") compute the identical legacy value — this
+	//     is a real cross-tenant collision, not a rare edge case. Propagate the
+	//     error rather than handing this caller another org's Thunder issuer,
+	//     token, and JWKS endpoints.
+	//   - any other error: a transient failure (e.g. the DB is down) —
+	//     propagate it; the next call retries the whole resolution from scratch.
 	legacy := thundersvc.LegacyThunderHandleLabel(ThunderOrgNamespace(), envName)
 	grandfathered := &models.EnvThunderURL{OUID: ouID, EnvName: envName, ThunderHandle: legacy}
-	_ = urlRepo.Insert(ctx, grandfathered)
+	if err := urlRepo.Insert(ctx, grandfathered); err != nil {
+		if errors.Is(err, utils.ErrEnvThunderURLAlreadyClaimed) {
+			winner, getErr := urlRepo.Get(ctx, ouID, envName)
+			if getErr != nil {
+				return "", fmt.Errorf("read env-thunder url handle for %s/%s after a grandfather claim race: %w", ouID, envName, getErr)
+			}
+			return winner.ThunderHandle, nil
+		}
+		return "", fmt.Errorf("failed to persist grandfathered thunder url handle for %s/%s: %w", ouID, envName, err)
+	}
 	return legacy, nil
 }
 
