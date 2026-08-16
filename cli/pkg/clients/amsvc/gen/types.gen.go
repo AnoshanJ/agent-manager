@@ -4849,6 +4849,39 @@ type ThunderSystemClientRequest struct {
 	ClientSecret string `json:"clientSecret"`
 }
 
+// ThunderUrlAvailabilityResponse Whether a candidate env-Thunder URL handle passes format validation
+// and is not already registered to any environment. Advisory only — see
+// checkThunderUrlAvailability.
+type ThunderUrlAvailabilityResponse struct {
+	// Available True if the handle is well-formed and not currently taken.
+	Available bool `json:"available"`
+}
+
+// ThunderUrlRequest An unguessable handle to register for an environment's env-Thunder
+// URL, replacing the predictable "<org>-<env>" pattern. Optional — omit
+// it (or send an empty string) to have the server generate one.
+type ThunderUrlRequest struct {
+	// Handle DNS-label-safe handle (lowercase alphanumeric with hyphens, no
+	// leading/trailing hyphen) that replaces "<org>-<env>" in
+	// "<handle>.<baseDomain>". Must be globally unique across
+	// all orgs/environments, and at least 10 characters (matching what
+	// the server itself generates — anything shorter is trivially
+	// guessable). Omit to auto-generate a 10-character handle.
+	Handle *string `json:"handle,omitempty"`
+}
+
+// ThunderUrlResponse The env-Thunder URL handle registered for an environment — either the
+// caller-supplied value, the value the server generated when the caller
+// left it blank, or (for an environment that predates this handle
+// feature) a value reproducing its pre-existing hostname exactly. Unlike
+// ThunderUrlRequest, this is NOT always a bare DNS label: a grandfathered
+// environment's handle can contain a dot and exceed 63 characters (up to
+// 80), so no pattern/length constraint is declared here — see
+// thundersvc.LegacyThunderHandleLabel.
+type ThunderUrlResponse struct {
+	Handle string `json:"handle"`
+}
+
 // TimeRange defines model for TimeRange.
 type TimeRange struct {
 	// End End time of the range
@@ -5849,6 +5882,12 @@ type ListRepositoryCommitsParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// CheckThunderUrlAvailabilityParams defines parameters for CheckThunderUrlAvailability.
+type CheckThunderUrlAvailabilityParams struct {
+	// Handle The candidate env-Thunder URL handle to check.
+	Handle string `form:"handle" json:"handle"`
+}
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 
@@ -5872,6 +5911,9 @@ type UpdateEnvironmentJSONRequestBody = UpdateEnvironmentRequest
 
 // SetEnvironmentThunderSystemClientJSONRequestBody defines body for SetEnvironmentThunderSystemClient for application/json ContentType.
 type SetEnvironmentThunderSystemClientJSONRequestBody = ThunderSystemClientRequest
+
+// SetEnvironmentThunderUrlJSONRequestBody defines body for SetEnvironmentThunderUrl for application/json ContentType.
+type SetEnvironmentThunderUrlJSONRequestBody = ThunderUrlRequest
 
 // CreateAgentIdentityGroupJSONRequestBody defines body for CreateAgentIdentityGroup for application/json ContentType.
 type CreateAgentIdentityGroupJSONRequestBody = AgentIdentityGroupRequest

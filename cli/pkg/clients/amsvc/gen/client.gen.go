@@ -193,6 +193,17 @@ type ClientInterface interface {
 
 	SetEnvironmentThunderSystemClient(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderSystemClientJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteEnvironmentThunderUrl request
+	DeleteEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetEnvironmentThunderUrl request
+	GetEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetEnvironmentThunderUrlWithBody request with any body
+	SetEnvironmentThunderUrlWithBody(ctx context.Context, orgName string, envID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderUrlJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListAgentIdentityAgents request
 	ListAgentIdentityAgents(ctx context.Context, orgName AgentIdentityOrgName, envName AgentIdentityEnvName, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -875,6 +886,9 @@ type ClientInterface interface {
 
 	ListRepositoryCommits(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CheckThunderUrlAvailability request
+	CheckThunderUrlAvailability(ctx context.Context, orgName string, params *CheckThunderUrlAvailabilityParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetNameByDisplayNameWithBody request with any body
 	GetNameByDisplayNameWithBody(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1315,6 +1329,54 @@ func (c *Client) SetEnvironmentThunderSystemClientWithBody(ctx context.Context, 
 
 func (c *Client) SetEnvironmentThunderSystemClient(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderSystemClientJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetEnvironmentThunderSystemClientRequest(c.Server, orgName, envID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteEnvironmentThunderUrlRequest(c.Server, orgName, envID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnvironmentThunderUrlRequest(c.Server, orgName, envID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetEnvironmentThunderUrlWithBody(ctx context.Context, orgName string, envID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetEnvironmentThunderUrlRequestWithBody(c.Server, orgName, envID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetEnvironmentThunderUrl(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderUrlJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetEnvironmentThunderUrlRequest(c.Server, orgName, envID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4325,6 +4387,18 @@ func (c *Client) ListRepositoryCommits(ctx context.Context, orgName string, para
 	return c.Client.Do(req)
 }
 
+func (c *Client) CheckThunderUrlAvailability(ctx context.Context, orgName string, params *CheckThunderUrlAvailabilityParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckThunderUrlAvailabilityRequest(c.Server, orgName, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetNameByDisplayNameWithBody(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetNameByDisplayNameRequestWithBody(c.Server, orgName, contentType, body)
 	if err != nil {
@@ -5749,6 +5823,142 @@ func NewSetEnvironmentThunderSystemClientRequestWithBody(server string, orgName 
 	}
 
 	operationPath := fmt.Sprintf("/orgs/%s/environments/%s/thunder-system-client", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteEnvironmentThunderUrlRequest generates requests for DeleteEnvironmentThunderUrl
+func NewDeleteEnvironmentThunderUrlRequest(server string, orgName string, envID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "envID", envID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/environments/%s/thunder-url", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetEnvironmentThunderUrlRequest generates requests for GetEnvironmentThunderUrl
+func NewGetEnvironmentThunderUrlRequest(server string, orgName string, envID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "envID", envID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/environments/%s/thunder-url", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetEnvironmentThunderUrlRequest calls the generic SetEnvironmentThunderUrl builder with application/json body
+func NewSetEnvironmentThunderUrlRequest(server string, orgName string, envID string, body SetEnvironmentThunderUrlJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetEnvironmentThunderUrlRequestWithBody(server, orgName, envID, "application/json", bodyReader)
+}
+
+// NewSetEnvironmentThunderUrlRequestWithBody generates requests for SetEnvironmentThunderUrl with any type of body
+func NewSetEnvironmentThunderUrlRequestWithBody(server string, orgName string, envID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "envID", envID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/environments/%s/thunder-url", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -16441,6 +16651,58 @@ func NewListRepositoryCommitsRequestWithBody(server string, orgName string, para
 	return req, nil
 }
 
+// NewCheckThunderUrlAvailabilityRequest generates requests for CheckThunderUrlAvailability
+func NewCheckThunderUrlAvailabilityRequest(server string, orgName string, params *CheckThunderUrlAvailabilityParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/thunder-url-availability", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "handle", params.Handle, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetNameByDisplayNameRequest calls the generic GetNameByDisplayName builder with application/json body
 func NewGetNameByDisplayNameRequest(server string, orgName string, body GetNameByDisplayNameJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -16633,6 +16895,17 @@ type ClientWithResponsesInterface interface {
 	SetEnvironmentThunderSystemClientWithBodyWithResponse(ctx context.Context, orgName string, envID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderSystemClientResp, error)
 
 	SetEnvironmentThunderSystemClientWithResponse(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderSystemClientJSONRequestBody, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderSystemClientResp, error)
+
+	// DeleteEnvironmentThunderUrlWithResponse request
+	DeleteEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*DeleteEnvironmentThunderUrlResp, error)
+
+	// GetEnvironmentThunderUrlWithResponse request
+	GetEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*GetEnvironmentThunderUrlResp, error)
+
+	// SetEnvironmentThunderUrlWithBodyWithResponse request with any body
+	SetEnvironmentThunderUrlWithBodyWithResponse(ctx context.Context, orgName string, envID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderUrlResp, error)
+
+	SetEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderUrlJSONRequestBody, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderUrlResp, error)
 
 	// ListAgentIdentityAgentsWithResponse request
 	ListAgentIdentityAgentsWithResponse(ctx context.Context, orgName AgentIdentityOrgName, envName AgentIdentityEnvName, reqEditors ...RequestEditorFn) (*ListAgentIdentityAgentsResp, error)
@@ -17315,6 +17588,9 @@ type ClientWithResponsesInterface interface {
 	ListRepositoryCommitsWithBodyWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
 
 	ListRepositoryCommitsWithResponse(ctx context.Context, orgName string, params *ListRepositoryCommitsParams, body ListRepositoryCommitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListRepositoryCommitsResp, error)
+
+	// CheckThunderUrlAvailabilityWithResponse request
+	CheckThunderUrlAvailabilityWithResponse(ctx context.Context, orgName string, params *CheckThunderUrlAvailabilityParams, reqEditors ...RequestEditorFn) (*CheckThunderUrlAvailabilityResp, error)
 
 	// GetNameByDisplayNameWithBodyWithResponse request with any body
 	GetNameByDisplayNameWithBodyWithResponse(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetNameByDisplayNameResp, error)
@@ -18025,6 +18301,83 @@ func (r SetEnvironmentThunderSystemClientResp) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SetEnvironmentThunderSystemClientResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteEnvironmentThunderUrlResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteEnvironmentThunderUrlResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteEnvironmentThunderUrlResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetEnvironmentThunderUrlResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ThunderUrlResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetEnvironmentThunderUrlResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetEnvironmentThunderUrlResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type SetEnvironmentThunderUrlResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ThunderUrlResponse
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r SetEnvironmentThunderUrlResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetEnvironmentThunderUrlResp) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -22579,6 +22932,32 @@ func (r ListRepositoryCommitsResp) StatusCode() int {
 	return 0
 }
 
+type CheckThunderUrlAvailabilityResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ThunderUrlAvailabilityResponse
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r CheckThunderUrlAvailabilityResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CheckThunderUrlAvailabilityResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetNameByDisplayNameResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -22926,6 +23305,41 @@ func (c *ClientWithResponses) SetEnvironmentThunderSystemClientWithResponse(ctx 
 		return nil, err
 	}
 	return ParseSetEnvironmentThunderSystemClientResp(rsp)
+}
+
+// DeleteEnvironmentThunderUrlWithResponse request returning *DeleteEnvironmentThunderUrlResp
+func (c *ClientWithResponses) DeleteEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*DeleteEnvironmentThunderUrlResp, error) {
+	rsp, err := c.DeleteEnvironmentThunderUrl(ctx, orgName, envID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteEnvironmentThunderUrlResp(rsp)
+}
+
+// GetEnvironmentThunderUrlWithResponse request returning *GetEnvironmentThunderUrlResp
+func (c *ClientWithResponses) GetEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, reqEditors ...RequestEditorFn) (*GetEnvironmentThunderUrlResp, error) {
+	rsp, err := c.GetEnvironmentThunderUrl(ctx, orgName, envID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetEnvironmentThunderUrlResp(rsp)
+}
+
+// SetEnvironmentThunderUrlWithBodyWithResponse request with arbitrary body returning *SetEnvironmentThunderUrlResp
+func (c *ClientWithResponses) SetEnvironmentThunderUrlWithBodyWithResponse(ctx context.Context, orgName string, envID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderUrlResp, error) {
+	rsp, err := c.SetEnvironmentThunderUrlWithBody(ctx, orgName, envID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetEnvironmentThunderUrlResp(rsp)
+}
+
+func (c *ClientWithResponses) SetEnvironmentThunderUrlWithResponse(ctx context.Context, orgName string, envID string, body SetEnvironmentThunderUrlJSONRequestBody, reqEditors ...RequestEditorFn) (*SetEnvironmentThunderUrlResp, error) {
+	rsp, err := c.SetEnvironmentThunderUrl(ctx, orgName, envID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetEnvironmentThunderUrlResp(rsp)
 }
 
 // ListAgentIdentityAgentsWithResponse request returning *ListAgentIdentityAgentsResp
@@ -25110,6 +25524,15 @@ func (c *ClientWithResponses) ListRepositoryCommitsWithResponse(ctx context.Cont
 	return ParseListRepositoryCommitsResp(rsp)
 }
 
+// CheckThunderUrlAvailabilityWithResponse request returning *CheckThunderUrlAvailabilityResp
+func (c *ClientWithResponses) CheckThunderUrlAvailabilityWithResponse(ctx context.Context, orgName string, params *CheckThunderUrlAvailabilityParams, reqEditors ...RequestEditorFn) (*CheckThunderUrlAvailabilityResp, error) {
+	rsp, err := c.CheckThunderUrlAvailability(ctx, orgName, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckThunderUrlAvailabilityResp(rsp)
+}
+
 // GetNameByDisplayNameWithBodyWithResponse request with arbitrary body returning *GetNameByDisplayNameResp
 func (c *ClientWithResponses) GetNameByDisplayNameWithBodyWithResponse(ctx context.Context, orgName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetNameByDisplayNameResp, error) {
 	rsp, err := c.GetNameByDisplayNameWithBody(ctx, orgName, contentType, body, reqEditors...)
@@ -26353,6 +26776,161 @@ func ParseSetEnvironmentThunderSystemClientResp(rsp *http.Response) (*SetEnviron
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteEnvironmentThunderUrlResp parses an HTTP response from a DeleteEnvironmentThunderUrlWithResponse call
+func ParseDeleteEnvironmentThunderUrlResp(rsp *http.Response) (*DeleteEnvironmentThunderUrlResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteEnvironmentThunderUrlResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetEnvironmentThunderUrlResp parses an HTTP response from a GetEnvironmentThunderUrlWithResponse call
+func ParseGetEnvironmentThunderUrlResp(rsp *http.Response) (*GetEnvironmentThunderUrlResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetEnvironmentThunderUrlResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ThunderUrlResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetEnvironmentThunderUrlResp parses an HTTP response from a SetEnvironmentThunderUrlWithResponse call
+func ParseSetEnvironmentThunderUrlResp(rsp *http.Response) (*SetEnvironmentThunderUrlResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetEnvironmentThunderUrlResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ThunderUrlResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
@@ -34866,6 +35444,60 @@ func ParseListRepositoryCommitsResp(rsp *http.Response) (*ListRepositoryCommitsR
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCheckThunderUrlAvailabilityResp parses an HTTP response from a CheckThunderUrlAvailabilityWithResponse call
+func ParseCheckThunderUrlAvailabilityResp(rsp *http.Response) (*CheckThunderUrlAvailabilityResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckThunderUrlAvailabilityResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ThunderUrlAvailabilityResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
