@@ -101,11 +101,7 @@ func (r *envThunderURLRepo) Insert(ctx context.Context, rec *models.EnvThunderUR
 		case "uq_env_thunder_urls_handle":
 			return utils.ErrThunderHandleTaken
 		default:
-			// Schema drift (an unexpected constraint name) — still a genuine
-			// conflict either way; report the caller-facing one so a caller
-			// that doesn't check for ErrEnvThunderURLAlreadyClaimed still gets
-			// a sensible, mapped error instead of a raw 500.
-			return utils.ErrThunderHandleTaken
+			return err
 		}
 	}
 	return err
