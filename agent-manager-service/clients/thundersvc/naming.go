@@ -70,37 +70,38 @@ func ThunderReleaseName(org, env string) string {
 	return fmt.Sprintf("%s-%s", prefix, hash)
 }
 
-// LegacyThunderHandleLabel reproduces, byte-for-byte, the "<org>-<env>"
-// hostname label: truncated to 56 chars with a 6-char hash suffix appended
-// once the natural label would exceed the 63-char DNS label limit.
+// LegacyThunderHandleLabel reproduces, byte-for-byte, the FULL "<org>-<env>.thunder"
+// prefix every environment's hostname was built from before this handle feature
+// existed (see the pre-this-PR ThunderHost: "<org>-<env>.thunder.<baseDomain>",
+// unconditionally, for every environment — there was no other pattern). The
+// "<org>-<env>" portion is truncated to 56 chars with a 6-char hash suffix once it
+// would exceed the 63-char DNS label limit on its own; ".thunder" is a separate
+// label after the dot, so it is never counted against that budget.
 //
-// Used ONLY to grandfather environments that predate the handle feature: such
-// an environment's Thunder Helm release already has this exact string baked
-// into its immutable issuer/publicUrl (see services.ResolveThunderHandle), so
-// treating it as the environment's handle keeps it reachable at the address
-// it's actually still answering on, with zero re-provisioning. Never used for
-// newly provisioned environments — those always get an explicit or generated
-// handle via SetThunderURL.
+// Used ONLY to grandfather environments that predate the handle feature: such an
+// environment's Thunder Helm release already has this exact hostname baked into
+// its immutable issuer/publicUrl (see services.ResolveThunderHandle), so treating
+// it as the environment's handle keeps it reachable at the address it's actually
+// still answering on, with zero re-provisioning. Never used for newly provisioned
+// environments — those always get an explicit or generated handle via
+// SetThunderURL, and thunderExternalOrigin builds "<handle>.<baseDomain>" for
+// those with no ".thunder" segment at all.
 //
-// This assumes thunderExternalOrigin's CURRENT hostname shape
-// ("<handle>.<baseDomain>"). An environment old enough to predate the handle
-// feature AND old enough to have been deployed while thunderExternalOrigin
-// still inserted a fixed "thunder." segment would grandfather to the wrong
-// address here; such an environment fails the reachability probe and is
-// reported as not-provisioned rather than shown at an incorrect URL (the same
-// fail-closed behavior as a real "never provisioned" environment) — it needs
-// re-provisioning through add-environment-thunder.sh to get a real, correctly
-// registered handle.
+// The ".thunder" suffix means this value is NOT always a bare DNS label (it can
+// contain a dot) — it deliberately bypasses validateThunderHandle's DNS-label-only
+// pattern (that check only ever applies to a caller-supplied handle in
+// SetThunderURL, never to this grandfathered value), and env_thunder_urls.thunder_handle
+// is sized wider than a single 63-char label to fit it (see migration042's comment).
 func LegacyThunderHandleLabel(org, env string) string {
 	org = strings.ToLower(org)
 	env = strings.ToLower(env)
 	label := fmt.Sprintf("%s-%s", org, env)
 	if len(label) <= 63 {
-		return strings.TrimSuffix(label, "-")
+		return strings.TrimSuffix(label, "-") + ".thunder"
 	}
 	hash := thunderSHA6(org + "/" + env)
 	prefix := strings.TrimSuffix(label[:56], "-")
-	return fmt.Sprintf("%s-%s", prefix, hash)
+	return fmt.Sprintf("%s-%s.thunder", prefix, hash)
 }
 
 // ThunderNamespace returns the Kubernetes namespace for an env-Thunder instance.

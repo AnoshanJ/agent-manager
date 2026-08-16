@@ -49,7 +49,7 @@ var migration042 = migration{
 				id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 				ou_id          VARCHAR(255) NOT NULL,
 				env_name       VARCHAR(255) NOT NULL,
-				thunder_handle VARCHAR(63) NOT NULL,
+				thunder_handle VARCHAR(80) NOT NULL,
 				created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

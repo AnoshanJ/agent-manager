@@ -26,7 +26,8 @@ import (
 // that forms an environment's externally-reachable env-Thunder hostname
 // ("<handle>.<baseDomain>"), keyed by (OUID, EnvName). ThunderHandle is
 // additionally globally unique across all orgs/envs — see migration042's doc
-// comment for why.
+// comment for why. A grandfathered environment's ThunderHandle contains a dot
+// (see thundersvc.LegacyThunderHandleLabel) — it is not always a bare DNS label.
 type EnvThunderURL struct {
 	ID            uuid.UUID `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
 	OUID          string    `gorm:"column:ou_id;not null;uniqueIndex:uq_env_thunder_urls_ou_env"`
