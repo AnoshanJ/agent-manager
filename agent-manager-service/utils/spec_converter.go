@@ -171,6 +171,7 @@ func ConvertSpecToModelLLMProviderTemplateMetadata(meta *spec.LLMProviderTemplat
 			Type:        ptrToString(meta.Auth.Type),
 			Header:      ptrToString(meta.Auth.Header),
 			ValuePrefix: ptrToString(meta.Auth.ValuePrefix),
+			Policy:      ptrToString(meta.Auth.Policy),
 		}
 	}
 	return metadata
@@ -191,6 +192,7 @@ func ConvertModelToSpecLLMProviderTemplateMetadata(meta *models.LLMProviderTempl
 			Type:        stringToPtr(meta.Auth.Type),
 			Header:      stringToPtr(meta.Auth.Header),
 			ValuePrefix: stringToPtr(meta.Auth.ValuePrefix),
+			Policy:      stringToPtr(meta.Auth.Policy),
 		}
 	}
 	return metadata
@@ -797,7 +799,7 @@ func ConvertSpecToModelLLMPolicy(policy spec.LLMPolicy) models.LLMPolicy {
 			modelPolicy.Paths[i] = models.LLMPolicyPath{
 				Path:    p.Path,
 				Methods: p.Methods,
-				Params:  p.Params,
+				Params:  dropRedactedPolicyParams(p.Params),
 			}
 		}
 	}
@@ -818,12 +820,57 @@ func ConvertModelToSpecLLMPolicy(policy models.LLMPolicy) spec.LLMPolicy {
 			specPolicy.Paths[i] = spec.LLMPolicyPath{
 				Path:    p.Path,
 				Methods: p.Methods,
-				Params:  p.Params,
+				Params:  maskSecretPolicyParams(p.Params),
 			}
 		}
 	}
 
 	return specPolicy
+}
+
+// secretPolicyParams are policy parameters that carry a live credential and must
+// never be returned by the read API, matching how upstream auth values are masked.
+var secretPolicyParams = map[string]struct{}{
+	"awsSecretAccessKey": {},
+	"awsSessionToken":    {},
+}
+
+// dropRedactedPolicyParams removes credential params whose value came back as the
+// redaction marker, so an update built from a masked read leaves the stored secret
+// in place instead of overwriting it with the marker.
+func dropRedactedPolicyParams(params map[string]interface{}) map[string]interface{} {
+	if params == nil {
+		return nil
+	}
+	cleaned := make(map[string]interface{}, len(params))
+	for key, value := range params {
+		if _, secret := secretPolicyParams[key]; secret {
+			if str, ok := value.(string); ok && str == redactedMarker {
+				continue
+			}
+		}
+		cleaned[key] = value
+	}
+	return cleaned
+}
+
+// maskSecretPolicyParams copies params, replacing credential values with the
+// redaction marker. The source map is left untouched — it is the stored config.
+func maskSecretPolicyParams(params map[string]interface{}) map[string]interface{} {
+	if params == nil {
+		return nil
+	}
+	masked := make(map[string]interface{}, len(params))
+	for key, value := range params {
+		if _, secret := secretPolicyParams[key]; secret {
+			if str, ok := value.(string); ok && str != "" {
+				masked[key] = redactedMarker
+				continue
+			}
+		}
+		masked[key] = value
+	}
+	return masked
 }
 
 // ConvertSpecToModelSecurityConfig converts spec to model SecurityConfig

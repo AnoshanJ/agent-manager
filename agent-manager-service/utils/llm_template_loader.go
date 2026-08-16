@@ -36,6 +36,7 @@ type llmProviderTemplateAuthYAML struct {
 	Type        string `yaml:"type"`
 	Header      string `yaml:"header"`
 	ValuePrefix string `yaml:"valuePrefix"`
+	Policy      string `yaml:"policy"`
 }
 
 type llmProviderTemplateMetadataYAML struct {
@@ -139,6 +140,7 @@ func mapTemplateMetadata(in *llmProviderTemplateMetadataYAML) *models.LLMProvide
 			Type:        strings.TrimSpace(in.Auth.Type),
 			Header:      strings.TrimSpace(in.Auth.Header),
 			ValuePrefix: in.Auth.ValuePrefix,
+			Policy:      strings.TrimSpace(in.Auth.Policy),
 		}
 	}
 	out := &models.LLMProviderTemplateMetadata{
