@@ -301,6 +301,23 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
     (field: keyof AddLLMProviderFormValues, value: string | string[]) => {
       setFormData((prev) => {
         const next = { ...prev, [field]: value } as AddLLMProviderFormValues;
+        // SigV4 signs over the region, so a region left behind from the template
+        // default fails at AWS with an opaque signature error.
+        if (field === "upstreamUrl" && typeof value === "string") {
+          const derived = regionFromEndpoint(value);
+          if (derived) next.awsRegion = derived;
+        }
+        // Clear credentials that do not belong to the newly selected source:
+        // the policy schema sets additionalProperties:false, and a stale value
+        // would otherwise be submitted invisibly.
+        if (field === "awsCredentialSource") {
+          next.awsAccessKeyId = "";
+          next.awsSecretAccessKey = "";
+          next.awsSessionToken = "";
+          next.awsRoleArn = "";
+          next.awsRoleExternalId = "";
+          next.awsRoleSessionName = "";
+        }
         const fieldError = validateField(field, next[field], next);
         setFieldError(field, fieldError);
         return next;

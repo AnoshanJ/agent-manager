@@ -59,6 +59,7 @@ import {
   type ResourceItem,
 } from "../utils/openapiResources";
 import { formatPolicyVersion } from "../utils/formatPolicyVersion";
+import { AWS_AUTHENTICATION_POLICY } from "../utils/llmProviderPayload";
 import { z } from "zod";
 
 const PolicyPathSchema = z.object({
@@ -214,6 +215,10 @@ export function LLMProviderGuardrailsTab({
   const globalEntries = useMemo(() => {
     const entries: PolicyEntry[] = [];
     policies.forEach((policy, pi) => {
+      // aws-authentication is the provider's upstream credential, managed from
+      // the Connection tab. Listing it here lets a user delete it and leave the
+      // provider deploying with no upstream auth at all.
+      if (policy.name === AWS_AUTHENTICATION_POLICY) return;
       (policy.paths ?? []).forEach((path, pathIdx) => {
         if (isGlobalPath(path)) {
           entries.push({ policyIndex: pi, pathIndex: pathIdx, policy, path });
@@ -227,6 +232,7 @@ export function LLMProviderGuardrailsTab({
     (resource: ResourceItem) => {
       const entries: PolicyEntry[] = [];
       policies.forEach((policy, pi) => {
+        if (policy.name === AWS_AUTHENTICATION_POLICY) return;
         (policy.paths ?? []).forEach((path, pathIdx) => {
           if (pathMatchesResource(path, resource.path, resource.method)) {
             entries.push({ policyIndex: pi, pathIndex: pathIdx, policy, path });
