@@ -57,6 +57,13 @@ spec:
       properties:
         resources:
           $ref: "#/$defs/ResourceRequirements"
+        routePath:
+          type: string
+          description: >-
+            Public URL path segment for this agent's external route, without a
+            leading slash. Absent or empty preserves the legacy
+            "<componentName>-<endpointName>" path, so agents created before this
+            field existed keep the URLs they were deployed with.
 
   environmentConfigs:
     openAPIV3Schema:
@@ -333,7 +340,7 @@ spec:
           - matches:
             - path:
                 type: PathPrefix
-                value: /${metadata.componentName}-${endpoint}
+                value: '${has(parameters.routePath) && parameters.routePath != "" ? "/" + parameters.routePath : "/" + metadata.componentName + "-" + endpoint}'
             filters:
               - type: URLRewrite
                 urlRewrite:
@@ -369,7 +376,7 @@ spec:
           - matches:
             - path:
                 type: PathPrefix
-                value: /${metadata.componentName}-${endpoint}
+                value: '${has(parameters.routePath) && parameters.routePath != "" ? "/" + parameters.routePath : "/" + metadata.componentName + "-" + endpoint}'
             filters:
               - type: URLRewrite
                 urlRewrite:
