@@ -482,7 +482,7 @@ export function CreateEnvironmentDrawer({
               fullWidth
               error={Boolean(errors.thunderHandle) || thunderHandleTaken}
             >
-              <FormLabel>Identity Service Handle (optional)</FormLabel>
+              <FormLabel>Identity Service Handle</FormLabel>
               <TextField
                 size="small"
                 fullWidth
@@ -505,7 +505,7 @@ export function CreateEnvironmentDrawer({
                     ? "This handle is already in use — choose a different one."
                     : checkingThunderHandle && thunderHandleFormatValid
                       ? "Checking availability…"
-                      : "Please provide a private, hard-to-guess label for this environment's identity service address — avoid your company or team name. Leave it blank and one will be generated for you automatically.")}
+                      : "Used as the handle in this environment's Thunder identity URL - leave blank to auto-generate.")}
               </Typography>
               <Typography
                 variant="caption"
