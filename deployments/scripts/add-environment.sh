@@ -473,11 +473,25 @@ if [ "${PROVISION_THUNDER:-true}" = "true" ]; then
       # one itself when THUNDER_HANDLE is unset (see register_thunder_url). Step 2b
       # below learns whichever handle actually got stored, since this process has no
       # other way to find out.
+      # THUNDER_HOST_BASE_DOMAIN/TLS_ENABLED/PLATFORM_THUNDER_* must ALSO be forwarded
+      # on any non-local-dev deployment (see add-environment-thunder.sh's own doc
+      # comment) — a VM install sets all five together, deployment-wide, when it
+      # provisions the default environment (deployments/vm/lib-vm.sh), but this
+      # add-environment.sh call is a SEPARATE process from that one, so without
+      # forwarding them explicitly here every environment created afterward would
+      # silently fall back to add-environment-thunder.sh's own local-dev defaults
+      # (amp.localhost, TLS disabled) regardless of what this deployment actually
+      # uses. Empty is fine when unset — same fallback either way, just explicit.
       if ENV_NAME="${ENV_NAME}" DISPLAY_NAME="${DISPLAY_NAME}" ORG_NAME="${ORG_NAME}" \
           DATAPLANE_REF="${DATAPLANE_REF}" THUNDER_CHART="${THUNDER_CHART:-}" \
           THUNDER_HANDLE="${THUNDER_HANDLE:-}" \
           CHART_VERSION="${THUNDER_CHART_VERSION:-}" SCRIPT_BASE_URL="${SCRIPT_BASE_URL}" \
           AMP_API_URL="${AGENT_MANAGER_API_URL}" AGENT_MANAGER_TOKEN="${AGENT_MANAGER_TOKEN}" \
+          THUNDER_HOST_BASE_DOMAIN="${THUNDER_HOST_BASE_DOMAIN:-}" \
+          TLS_ENABLED="${TLS_ENABLED:-}" \
+          PLATFORM_THUNDER_ISSUER="${PLATFORM_THUNDER_ISSUER:-}" \
+          PLATFORM_THUNDER_JWKS_URL="${PLATFORM_THUNDER_JWKS_URL:-}" \
+          PLATFORM_THUNDER_TOKEN_AUDIENCE="${PLATFORM_THUNDER_TOKEN_AUDIENCE:-}" \
           bash "$script_tmp"; then
         echo "✅ Thunder ID instance provisioned"
         THUNDER_PROVISIONED=true

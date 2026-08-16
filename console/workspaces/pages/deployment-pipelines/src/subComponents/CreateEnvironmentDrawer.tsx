@@ -40,7 +40,10 @@ import {
   useFormValidation,
 } from "@agent-management-platform/views";
 import { useAuthHooks } from "@agent-management-platform/auth";
-import { useListDataPlanes } from "@agent-management-platform/api-client";
+import {
+  useListDataPlanes,
+  useCheckThunderUrlAvailability,
+} from "@agent-management-platform/api-client";
 import { globalConfig, type DataPlane } from "@agent-management-platform/types";
 import {
   getAgentManagerUrl,
@@ -135,6 +138,13 @@ function buildScript(
   // base URL itself, so we only need to pipe these two values through.
   const internalBase = globalConfig.agentManagerInternalBaseUrl?.trim();
   const internalCp = globalConfig.agentManagerInternalCpHost?.trim();
+  // Base domain env-Thunder instances are hosted under, and whether this
+  // deployment serves them over TLS. Without these, add-environment.sh falls
+  // back to its own "amp.localhost"/non-TLS defaults regardless of the actual
+  // deployment, producing a broken env-Thunder URL for any non-local-dev
+  // install (e.g. a VM/production deployment with its own base domain).
+  const thunderHostBaseDomain = globalConfig.thunderHostBaseDomain?.trim();
+  const tlsEnabled = globalConfig.tlsEnabled;
   // Required by add-environment.sh: the gateway chart version, pinned to the
   // platform release version so an added environment runs the same gateway chart.
 
@@ -158,6 +168,10 @@ function buildScript(
       ? [`    AGENT_MANAGER_INTERNAL_BASE_URL=${internalBase} \\`]
       : []),
     ...(internalCp ? [`    AGENT_MANAGER_INTERNAL_CP=${internalCp} \\`] : []),
+    ...(thunderHostBaseDomain
+      ? [`    THUNDER_HOST_BASE_DOMAIN=${thunderHostBaseDomain} \\`]
+      : []),
+    ...(tlsEnabled !== undefined ? [`    TLS_ENABLED=${tlsEnabled} \\`] : []),
     `    THUNDER_SCRIPT_URL=${getRawScriptUrl("add-environment-thunder.sh")} \\`,
     // THUNDER_HANDLE replaces the guessable <org>-<env> segment of this
     // environment's env-Thunder URL with an unguessable, user-chosen label —
@@ -171,10 +185,11 @@ function buildScript(
 
 // amp.localhost is the local-dev default base domain (config.ThunderHostBaseDomain /
 // THUNDER_HOST_BASE_DOMAIN) — the handle sits directly under it, with no fixed
-// subdomain segment in between. VM/production deployments override the base
-// domain deployment-wide, so this preview is illustrative of the pattern, not a
-// guaranteed exact match for every deployment.
-const THUNDER_HOST_PREVIEW_DOMAIN = "amp.localhost";
+// subdomain segment in between. Deployments (VM/production) publish their own
+// base domain via globalConfig.thunderHostBaseDomain; this is only the
+// fallback for deployments that haven't set it.
+const THUNDER_HOST_PREVIEW_DOMAIN =
+  globalConfig.thunderHostBaseDomain?.trim() || "amp.localhost";
 
 export function CreateEnvironmentDrawer({
   open,
@@ -194,12 +209,39 @@ export function CreateEnvironmentDrawer({
   const { data: dataPlanes } = useListDataPlanes({ orgName: orgId });
   const planes = dataPlanes ?? [];
 
+  // Debounced so the availability check fires once typing pauses, not on
+  // every keystroke — it only ever runs once the value already passes local
+  // format validation (see the `enabled` gate below), so this never fires on
+  // an obviously-invalid handle.
+  const [debouncedThunderHandle, setDebouncedThunderHandle] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedThunderHandle(formData.thunderHandle ?? ""),
+      400,
+    );
+    return () => clearTimeout(timer);
+  }, [formData.thunderHandle]);
+
+  const thunderHandleFormatValid =
+    !!formData.thunderHandle && !errors.thunderHandle;
+  const { data: thunderHandleAvailability, isFetching: checkingThunderHandle } =
+    useCheckThunderUrlAvailability(
+      { orgName: orgId },
+      { handle: debouncedThunderHandle },
+      { enabled: thunderHandleFormatValid && debouncedThunderHandle === formData.thunderHandle },
+    );
+  const thunderHandleTaken =
+    thunderHandleFormatValid &&
+    debouncedThunderHandle === formData.thunderHandle &&
+    thunderHandleAvailability?.available === false;
+
   useEffect(() => {
     if (open) {
       setFormData(DEFAULT_FORM);
       setShowToken(false);
       setResolvedToken(null);
       setCopied(false);
+      setDebouncedThunderHandle("");
     }
   }, [open]);
 
@@ -436,7 +478,10 @@ export function CreateEnvironmentDrawer({
               </Typography>
             </FormControl>
 
-            <FormControl fullWidth error={Boolean(errors.thunderHandle)}>
+            <FormControl
+              fullWidth
+              error={Boolean(errors.thunderHandle) || thunderHandleTaken}
+            >
               <FormLabel>Identity Service Handle (optional)</FormLabel>
               <TextField
                 size="small"
@@ -444,15 +489,23 @@ export function CreateEnvironmentDrawer({
                 value={formData.thunderHandle ?? ""}
                 onChange={(e) => handleThunderHandleChange(e.target.value)}
                 placeholder="Leave blank to auto-generate"
-                error={Boolean(errors.thunderHandle)}
+                error={Boolean(errors.thunderHandle) || thunderHandleTaken}
               />
               <Typography
                 variant="caption"
-                color={errors.thunderHandle ? "error" : "text.secondary"}
+                color={
+                  errors.thunderHandle || thunderHandleTaken
+                    ? "error"
+                    : "text.secondary"
+                }
                 sx={{ mt: 0.5 }}
               >
                 {errors.thunderHandle ??
-                  "Please provide a private, hard-to-guess label for this environment's identity service address — avoid your company or team name. Leave it blank and one will be generated for you automatically."}
+                  (thunderHandleTaken
+                    ? "This handle is already in use — choose a different one."
+                    : checkingThunderHandle && thunderHandleFormatValid
+                      ? "Checking availability…"
+                      : "Please provide a private, hard-to-guess label for this environment's identity service address — avoid your company or team name. Leave it blank and one will be generated for you automatically.")}
               </Typography>
               <Typography
                 variant="caption"

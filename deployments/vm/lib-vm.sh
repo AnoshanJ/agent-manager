@@ -67,7 +67,9 @@ amp_helm_args() {
     "--set" "console.config.auth.signOutRedirectURL=https://${AMP_HOST_CONSOLE}/login" \
     "--set" "console.config.apiBaseUrl=https://${AMP_HOST_API}" \
     "--set" "agentManagerService.config.amObserverPublicURL=https://${AMP_HOST_OBSERVER}" \
-    "--set" "console.config.instrumentationUrl=https://${AMP_HOST_GATEWAY}/otel"
+    "--set" "console.config.instrumentationUrl=https://${AMP_HOST_GATEWAY}/otel" \
+    "--set" "console.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+    "--set" "console.config.tlsEnabled=true"
 
   # Console and API are ClusterIP behind the OC control-plane kgateway; their
   # HTTPRoutes must match the public hosts Caddy forwards (Host is preserved).
@@ -471,7 +473,7 @@ caddyfile() {
   # observer/gateway/cp) still win for their own hostnames; only a handle that
   # doesn't match any of those falls through to here — which
   # reservedThunderHandles (environment_service.go) prevents a handle from ever
-  # being equal to in the first place. A real wildcard cert can't be issued via
+  # equalling one of those reserved site names in the first place. A real wildcard cert can't be issued via
   # TLS-ALPN-01, so — like the agents site below — this needs on-demand TLS (one
   # concrete cert per hostname, issued the first time it's actually requested).
   printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
