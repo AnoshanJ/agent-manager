@@ -81,6 +81,10 @@ func MakeHTTPHandler(params *wiring.AppParams, extraAPIRoutes func(*http.ServeMu
 	// Register service-configuration discovery endpoint at root level (no authentication required)
 	registerConfigRoutes(mux)
 
+	// Register Caddy's on-demand TLS ask endpoint at root level (no authentication
+	// required — see registerThunderAskRoute's doc comment)
+	registerThunderAskRoute(mux, params.EnvironmentService)
+
 	// Register MCP at root level.
 	//
 	// MCP does not go through the route registrar, so the recorder is installed

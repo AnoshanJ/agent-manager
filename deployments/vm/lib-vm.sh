@@ -437,7 +437,7 @@ caddyfile() {
       agent_tls=$'\ttls {\n\t\ton_demand\n\t\tissuer acme {\n\t\t\tdisable_http_challenge\n\t\t}\n\t}\n'
       [[ -n "$email" ]] && gopts+=$'\temail '"$email"$'\n'
       gopts+=$'\tauto_https disable_redirects\n'
-      gopts+=$'\ton_demand_tls {\n\t\task http://127.0.0.1:9753\n\t}\n'
+      gopts+=$'\ton_demand_tls {\n\t\task http://127.0.0.1:9753/internal/thunder-ask\n\t}\n'
       ;;
     byoc)
       # Serve the operator-supplied cert/key on every site (incl. the agent wildcard,
@@ -514,10 +514,24 @@ caddyfile() {
     _site "$AMP_HOST_CP" 8080
   fi
 
-  # On-demand TLS ask endpoint exists only in letsencrypt mode (always-allow; Caddy
-  # only triggers on-demand for SNI matching a wildcard site — both the *.agents
-  # wildcard below and the env-Thunder base-domain wildcard above).
-  [[ "$tls_mode" == letsencrypt ]] && printf 'http://127.0.0.1:9753 {\n\trespond 200\n}\n\n'
+  # On-demand TLS ask endpoint exists only in letsencrypt mode. Caddy triggers
+  # on-demand for SNI matching any wildcard site — the *.agents and per-env
+  # gateway wildcards below, AND the env-Thunder base-domain wildcard above —
+  # so this one shared endpoint has to answer for all three tiers.
+  #
+  # Proxied straight to AMS's own /internal/thunder-ask (agent-manager-service/api/thunder_ask_routes.go)
+  # via the SAME kgateway listener every other site already uses, with the Host
+  # header rewritten to AMP_HOST_API so kgateway's Host-based routing lands on
+  # AMS rather than whatever Caddy's on-demand-tls client itself sent (no new
+  # container/process — this is just another Caddy site, like every _site above).
+  # AMS validates the env-Thunder wildcard's requests against registered handles
+  # and returns its own always-allow default for the gateway/agents wildcards, so
+  # this preserves today's behavior for those two while closing the env-Thunder
+  # gap (previously: any unregistered *.<base> subdomain could trigger real ACME
+  # issuance, burning quota and letting an attacker squat a would-be handle).
+  if [[ "$tls_mode" == letsencrypt ]]; then
+    printf 'http://127.0.0.1:9753 {\n\treverse_proxy 127.0.0.1:8080 {\n\t\theader_up Host %s\n\t}\n}\n\n' "$AMP_HOST_API"
+  fi
 
   # Deployed-agent endpoints: <org>-<project>.<AGENTS_BASE> (one host per org/project,
   # dynamic), proxied to the data-plane gateway + CORS (the gateway adds none);
