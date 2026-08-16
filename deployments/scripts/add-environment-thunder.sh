@@ -375,7 +375,12 @@ register_thunder_url() {
     if [ -n "$handle" ]; then
       echo "🔐 Registered thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
     else
-      echo "🔐 Generated and registered thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
+      # Not necessarily freshly generated: an empty HANDLE also resolves here when
+      # agent-manager-service reuses an already-registered row, including one
+      # grandfathered in from a pre-existing environment's system-client credential
+      # (see ResolveThunderHandle) — the response has no way to distinguish "new" from
+      # "reused", so this message must not claim "generated" when it may not have been.
+      echo "🔐 Resolved thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
     fi
     printf '%s' "$resolved"
     return 0
@@ -391,7 +396,7 @@ register_thunder_url() {
       ;;
     400)
       echo "❌ Thunder url handle '${handle}' was rejected as invalid by agent-manager-service." >&2
-      echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), <=63 chars." >&2
+      echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), 10-63 chars." >&2
       ;;
     *)
       echo "⚠️  Could not register the thunder url handle in agent-manager-service (HTTP ${http_code})." >&2
@@ -715,10 +720,15 @@ main() {
   # fast. Release name and namespace are UNAFFECTED (see below) — they never
   # honored THUNDER_HANDLE, since they're internal-only.
   local requested_handle="${THUNDER_HANDLE:-}"
-  if [ -n "$requested_handle" ] && ! validate_name "$requested_handle"; then
-    echo "❌ Invalid THUNDER_HANDLE '${requested_handle}'"
-    echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), <=63 chars."
-    exit 1
+  if [ -n "$requested_handle" ]; then
+    # Length bounds mirror agent-manager-service's minThunderHandleLen/
+    # maxThunderHandleLen — checked here too so a bad length fails fast
+    # locally instead of a round trip that only fails at the 400 above.
+    if ! validate_name "$requested_handle" || [ "${#requested_handle}" -lt 10 ] || [ "${#requested_handle}" -gt 63 ]; then
+      echo "❌ Invalid THUNDER_HANDLE '${requested_handle}'"
+      echo "   Must be lowercase alphanumeric with hyphens (no leading/trailing hyphen), 10-63 chars."
+      exit 1
+    fi
   fi
   local handle
   if ! handle="$(register_thunder_url "$org" "$ENV_NAME" "$requested_handle")"; then
