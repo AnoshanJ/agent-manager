@@ -150,6 +150,18 @@ spec:
                   key: thunder-client-secret
               {{- end }}
             {{- end }}
+            {{- if or .Values.agentManagerService.config.gatewayManifestCache.redis.password .Values.agentManagerService.config.gatewayManifestCache.redis.existingSecret }}
+            - name: GATEWAY_MANIFEST_CACHE_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.agentManagerService.config.gatewayManifestCache.redis.existingSecret }}
+                  name: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.existingSecret }}
+                  key: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.existingSecretKey | default "gateway-manifest-cache-redis-password" }}
+                  {{- else }}
+                  name: {{ include "agent-management-platform.agentManagerService.fullname" . }}
+                  key: gateway-manifest-cache-redis-password
+                  {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "agent-management-platform.agentManagerService.fullname" . }}

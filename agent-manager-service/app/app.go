@@ -109,6 +109,16 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 	// Get the raw DB instance without context - repositories will add context per-operation
 	database := db.GetDB()
 
+	// Select the gateway-manifest cache backend before anything reads or writes it —
+	// see services.SetGatewayManifestCacheBackend's doc comment for why this is a
+	// direct call rather than part of the wire dependency graph below.
+	manifestCacheBackend, err := wiring.ProvideGatewayManifestCacheBackend(*cfg)
+	if err != nil {
+		slog.Error("failed to initialize gateway manifest cache backend", "error", err)
+		os.Exit(1)
+	}
+	services.SetGatewayManifestCacheBackend(manifestCacheBackend)
+
 	// Deployment-specific AgentID provisioning; nil disables it.
 	var agentThunderProvisioning services.AgentThunderProvisioningService
 	if opts.AgentThunderProvisioning != nil {

@@ -98,4 +98,11 @@ data:
   AUDIT_BUFFER_SIZE: {{ .Values.agentManagerService.config.audit.bufferSize | default 4096 | quote }}
   AUDIT_BATCH_SIZE: {{ .Values.agentManagerService.config.audit.batchSize | default 200 | quote }}
   AUDIT_FLUSH_INTERVAL_MS: {{ .Values.agentManagerService.config.audit.flushIntervalMs | default 1000 | quote }}
+  # Gateway manifest cache backend. Must be "redis" whenever replicaCount > 1 — see
+  # the gatewayManifestCache note in values.yaml.
+  GATEWAY_MANIFEST_CACHE_BACKEND: {{ .Values.agentManagerService.config.gatewayManifestCache.backend | default "memory" | quote }}
+  GATEWAY_MANIFEST_CACHE_REDIS_HOST: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.host | default "" | quote }}
+  GATEWAY_MANIFEST_CACHE_REDIS_PORT: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.port | default 6379 | quote }}
+  GATEWAY_MANIFEST_CACHE_REDIS_DB: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.db | default 0 | quote }}
+  GATEWAY_MANIFEST_CACHE_REDIS_TLS_ENABLED: {{ .Values.agentManagerService.config.gatewayManifestCache.redis.tlsEnabled | default false | quote }}
 {{- end }}

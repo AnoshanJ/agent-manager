@@ -185,6 +185,20 @@ func loadEnvs() {
 	config.GitHub = GitHubConfig{
 		Token: r.readOptionalString("GITHUB_TOKEN", ""),
 	}
+
+	// Gateway manifest cache backend. "memory" (default) is process-local and only
+	// safe for a single replica; HA deployments must set this to "redis" so every
+	// replica reads and writes the same cached manifest.
+	config.GatewayManifestCache = GatewayManifestCacheConfig{
+		Backend: r.readOptionalString("GATEWAY_MANIFEST_CACHE_BACKEND", "memory"),
+		Redis: GatewayManifestCacheRedisConfig{
+			Host:       r.readOptionalString("GATEWAY_MANIFEST_CACHE_REDIS_HOST", ""),
+			Port:       int(r.readOptionalInt64("GATEWAY_MANIFEST_CACHE_REDIS_PORT", 6379)),
+			Password:   r.readOptionalString("GATEWAY_MANIFEST_CACHE_REDIS_PASSWORD", ""),
+			DB:         int(r.readOptionalInt64("GATEWAY_MANIFEST_CACHE_REDIS_DB", 0)),
+			TLSEnabled: r.readOptionalBool("GATEWAY_MANIFEST_CACHE_REDIS_TLS_ENABLED", false),
+		},
+	}
 	config.OpenChoreo = OpenChoreoConfig{
 		BaseURL:          r.readRequiredString("OPEN_CHOREO_BASE_URL"),
 		DefaultNamespace: r.readOptionalString("OPEN_CHOREO_DEFAULT_NAMESPACE", "default"),
@@ -298,6 +312,7 @@ func loadEnvs() {
 	validatePostgresTLSConfig(config, r)
 	validateSecretManagerConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
+	validateGatewayManifestCacheConfig(config, r)
 
 	r.logAndExitIfErrorsFound()
 
@@ -330,6 +345,35 @@ func validateSecretManagerConfig(cfg *Config, r *configReader) {
 	case d <= 0:
 		r.errors = append(r.errors, fmt.Errorf(
 			"AGENT_IDENTITY_REFRESH_INTERVAL must be a positive duration, got %q", cfg.SecretManager.AgentIdentityRefreshInterval,
+		))
+	}
+}
+
+// validGatewayManifestCacheBackends is the set of backends services.ProvideGatewayManifestCacheBackend
+// (wiring) knows how to construct. Kept as an explicit allowlist so a typo fails config
+// load with a clear message instead of silently falling back to "memory" in an HA
+// deployment that meant to opt into "redis".
+var validGatewayManifestCacheBackends = map[string]bool{
+	"memory": true,
+	"redis":  true,
+}
+
+func validateGatewayManifestCacheConfig(cfg *Config, r *configReader) {
+	backend := strings.TrimSpace(cfg.GatewayManifestCache.Backend)
+	if !validGatewayManifestCacheBackends[backend] {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_MANIFEST_CACHE_BACKEND %q is not valid (must be \"memory\" or \"redis\")", cfg.GatewayManifestCache.Backend,
+		))
+		return
+	}
+	if backend != "redis" {
+		return
+	}
+	// Only the host is mandatory: port/DB/TLS all have workable zero-value defaults,
+	// and an empty password is a legitimate (if unusual) Redis deployment.
+	if strings.TrimSpace(cfg.GatewayManifestCache.Redis.Host) == "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_MANIFEST_CACHE_REDIS_HOST is required when GATEWAY_MANIFEST_CACHE_BACKEND=redis",
 		))
 	}
 }
