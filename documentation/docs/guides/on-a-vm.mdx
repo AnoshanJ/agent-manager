@@ -143,7 +143,7 @@ Two of these tiers are **dynamic**: a new host appears the first time you deploy
 | `https://console.amp.<IP>.sslip.io` | Console UI |
 | `https://api.amp.<IP>.sslip.io` | Agent Manager API (used by `amctl`) |
 | `https://thunder.amp.<IP>.sslip.io` | Thunder OAuth (login) |
-| `https://<handle>.<IP>.sslip.io` | Per-environment Thunder (one unguessable host per environment, created on demand) |
+| `https://<handle>.amp.<IP>.sslip.io` | Per-environment Thunder (one unguessable host per environment, created on demand) |
 | `https://observer.amp.<IP>.sslip.io` | Agent Manager Observer |
 | `https://gateway.amp.<IP>.sslip.io/otel` | OTel trace ingest for **externally-hosted** agents (see below) |
 | `https://<org>-<project>.agents.<IP>.sslip.io/...` | Deployed-agent invocation endpoints (one wildcard host per org/project) |
@@ -165,7 +165,7 @@ When you deploy an agent, its endpoint is published on a per-project host `<org>
 
 Because issuance is on demand and uses TLS-ALPN-01 (the challenge runs inside the `:443` handshake), the **very first request to a newly-deployed agent host can fail with a one-time certificate error**. That first connection is consumed by Caddy answering the ACME challenge, so the client briefly sees the challenge certificate instead of the real one. Every client hits this; only the wording differs. Chromium-based browsers (Chrome, Edge, Brave) report `ERR_CERTIFICATE_TRANSPARENCY_REQUIRED`, while other browsers and command-line clients report their own untrusted-certificate error. Issuance completes within a second or two; reload the page (or open it in a fresh tab) and it serves the trusted Let's Encrypt certificate. This only affects the first hit per new agent host; the certificate is then cached in the `amp-caddy-data` volume.
 
-The same applies to the per-environment Thunder hosts (`<handle>.<IP>.sslip.io`): they are created when you add an environment and get their certificates on demand the same way, so the first request to a brand-new environment's Thunder can show the same one-time error.
+The same applies to the per-environment Thunder hosts (`<handle>.amp.<IP>.sslip.io`): they are created when you add an environment and get their certificates on demand the same way, so the first request to a brand-new environment's Thunder can show the same one-time error.
 
 amp-api advertises each agent endpoint with the `https://` scheme (the installer sets `tlsEnabled` on the service), so the console (and any other caller) invokes it over TLS directly through the wildcard site.
 
