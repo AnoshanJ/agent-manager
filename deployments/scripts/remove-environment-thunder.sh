@@ -191,7 +191,10 @@ main() {
   # a non-existent handle is a no-op on the server side.
   echo ""
   echo "🗑️  Removing thunder url handle from agent-manager-service (best-effort)..."
-  if access_token="$(get_ams_token 3)"; then
+  # Reuse Step 3's token when it already has one — same OU, same call shape,
+  # no reason to pay for a second token round trip. Only re-acquire if Step 3
+  # itself failed to get one (still worth a fresh attempt here).
+  if [ -n "$access_token" ] || access_token="$(get_ams_token 3)"; then
     local url_http_code
     url_http_code="$(curl -s -o /dev/null -w "%{http_code}" \
       --max-time 30 --retry 3 --retry-delay 5 \
