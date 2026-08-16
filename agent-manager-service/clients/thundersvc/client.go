@@ -108,12 +108,12 @@ type thunderClient struct {
 
 const httpClientTimeout = 30 * time.Second
 
-// systemResourceIdentifier returns the System resource server identifier ("<issuer>/mcp")
+// SystemResourceIdentifier returns the System resource server identifier ("<issuer>/mcp")
 // for a Thunder instance reachable at the given public/issuer URL. This mirrors the
 // identifier set by the bootstrap resource (deployments/.../70-fix-thunder-system-rs-identifier.yaml
 // and add-environment-thunder.sh's render_system_rs_identifier_fix), both of which use
 // "<publicUrl>/mcp".
-func systemResourceIdentifier(issuerURL string) string {
+func SystemResourceIdentifier(issuerURL string) string {
 	return strings.TrimRight(issuerURL, "/") + "/mcp"
 }
 
@@ -127,24 +127,26 @@ func NewThunderClient(baseURL, clientID, clientSecret string) ThunderClient {
 		baseURL:        baseURL,
 		clientID:       clientID,
 		clientSecret:   clientSecret,
-		systemResource: systemResourceIdentifier(baseURL),
+		systemResource: SystemResourceIdentifier(baseURL),
 		httpClient:     &http.Client{Timeout: httpClientTimeout},
 	}
 }
 
-// newThunderClientWithDialOverride creates a Thunder API client that connects to
+// NewThunderClientWithDialOverride creates a Thunder API client that connects to
 // resolveToHost instead of baseURL's own host, while every request still carries
 // baseURL's host as the HTTP Host header — so Kgateway's host-based routing still
 // selects the right env-Thunder backend. Used by EnvThunderResolver when the
 // direct base URL (cluster-internal DNS or the public ingress hostname) isn't
 // dialable from the caller's network, e.g. a docker-compose container that can't
-// resolve either. An empty resolveToHost behaves exactly like NewThunderClient.
+// resolve either — and, for platform Thunder, when agent-manager-service itself
+// runs in-cluster while Thunder's public/issuer URL only resolves on the host
+// machine. An empty resolveToHost behaves exactly like NewThunderClient.
 //
 // systemResource is passed explicitly (rather than derived from baseURL) because the
-// selected baseURL may be the cluster-internal DNS name, which differs from the
+// selected baseURL may be a cluster-internal DNS name, which differs from the
 // instance's issuer. The System RS identifier is always "<issuer>/mcp", so callers
-// derive it from the env-Thunder issuer URL, not the dialable base URL.
-func newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource string) ThunderClient {
+// derive it from the instance's issuer URL, not the dialable base URL.
+func NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource string) ThunderClient {
 	httpClient := &http.Client{Timeout: httpClientTimeout}
 	if resolveToHost != "" {
 		httpClient.Transport = &http.Transport{
@@ -153,6 +155,16 @@ func newThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveTo
 				return d.DialContext(ctx, network, resolveToHost)
 			},
 		}
+		// Thunder never terminates TLS itself — it always runs its own listener
+		// plain HTTP and relies on whatever fronts it publicly (Caddy, an
+		// HTTPRoute, ...) to add TLS. baseURL may still be an https:// public/
+		// issuer URL (required for the resource-identifier derivation above), but
+		// the dialed connection itself must speak plain HTTP, or the TLS
+		// handshake this client attempts gets rejected by the plain-HTTP backend
+		// ("server gave HTTP response to HTTPS client"). Only the scheme changes
+		// here — baseURL's host is untouched, so the Host header Kgateway's
+		// host-based routing relies on is unaffected.
+		baseURL = "http://" + strings.TrimPrefix(strings.TrimPrefix(baseURL, "https://"), "http://")
 	}
 	return &thunderClient{
 		baseURL:        baseURL,

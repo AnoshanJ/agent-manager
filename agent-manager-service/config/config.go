@@ -130,6 +130,31 @@ type Config struct {
 
 	// Audit configures the audit trail.
 	Audit AuditConfig
+
+	// GatewayManifestCache configures where the gateway-reported policy manifest
+	// cache lives. The default in-memory backend is process-local and therefore
+	// inconsistent across replicas — set Backend to "redis" in HA deployments.
+	GatewayManifestCache GatewayManifestCacheConfig
+}
+
+// GatewayManifestCacheConfig selects and configures the backend for the
+// gateway-manifest cache (see services.GatewayManifestCacheBackend).
+type GatewayManifestCacheConfig struct {
+	// Backend is "memory" (default, single-replica only) or "redis" (required for
+	// HA — a per-replica in-memory cache would leave replicas disagreeing on which
+	// policies gateways report, since each only sees the manifest pushes routed to it).
+	Backend string
+	Redis   GatewayManifestCacheRedisConfig
+}
+
+// GatewayManifestCacheRedisConfig configures the Redis backend. Only read/validated
+// when GatewayManifestCacheConfig.Backend == "redis".
+type GatewayManifestCacheRedisConfig struct {
+	Host       string
+	Port       int
+	Password   string `json:"-"`
+	DB         int
+	TLSEnabled bool
 }
 
 // AuditConfig controls the audit trail.
@@ -358,12 +383,24 @@ type InternalServerConfig struct {
 
 // ThunderConfig holds Thunder admin API configuration for provisioning OAuth apps
 type ThunderConfig struct {
-	// BaseURL is the Thunder API base URL (if empty, provisioner uses static defaults)
+	// BaseURL is the Thunder API base URL (if empty, provisioner uses static defaults).
+	// Must be Thunder's public/issuer URL: it also derives the System resource server
+	// identifier (RFC 8707) admin API tokens are scoped to — see
+	// thundersvc.systemResourceIdentifier. It does NOT need to be directly dialable
+	// from this process; see ResolveToHost below.
 	BaseURL string
 	// ClientID is the OAuth2 client ID of the system app (with Administrator role)
 	ClientID string
 	// ClientSecret is the OAuth2 client secret of the system app
 	ClientSecret string `json:"-"`
+	// ResolveToHost, if set, is the host:port this process actually dials for every
+	// Thunder request, while requests still carry BaseURL's host as the HTTP Host
+	// header and BaseURL still derives the System resource server identifier. Set
+	// this when BaseURL isn't directly dialable from here — e.g. agent-manager-service
+	// running in-cluster while Thunder's public URL only resolves via the host
+	// machine's own DNS/hosts setup (typically the in-cluster Thunder service's own
+	// cluster-DNS address). Leave empty when BaseURL is already directly dialable.
+	ResolveToHost string
 }
 
 // WebSocketConfig holds WebSocket-specific configuration

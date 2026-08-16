@@ -247,11 +247,44 @@ export const ViewLLMProviderComponent: React.FC = () => {
     orgName: orgId,
   });
 
+  const selectedEnvName = useMemo(
+    () => environments[selectedEnvIndex]?.name ?? "",
+    [environments, selectedEnvIndex],
+  );
+
+  const envMapping = useMemo(
+    () => config?.envMappings?.[selectedEnvName],
+    [config, selectedEnvName],
+  );
+
+  const providerConfig = envMapping?.configuration;
+
+  const catalogProvider = useMemo(() => {
+    if (!providerConfig?.providerName || !catalogData?.entries)
+      return undefined;
+    return catalogData.entries.find(
+      (e) => e.handle === providerConfig.providerName,
+    );
+  }, [providerConfig?.providerName, catalogData]);
+
+  // The provider whose guardrail catalog should be shown for the selected env:
+  // a not-yet-saved pending selection takes priority over the previously saved
+  // one. providerConfig.providerUuid is the saved mapping's own UUID — more
+  // direct than re-resolving it via a catalog name/handle lookup.
+  const selectedProviderUuid = useMemo(() => {
+    const pendingUuid = pendingProviderByEnv[selectedEnvName];
+    return pendingUuid ?? providerConfig?.providerUuid ?? catalogProvider?.uuid;
+  }, [pendingProviderByEnv, selectedEnvName, providerConfig?.providerUuid, catalogProvider]);
+
   // Friendly-name lookup for guardrails. Same gateway-manifest + hub-enriched
   // catalog the picker uses (react-query dedupes this with the drawer's own
   // fetch), consulted only to label already-saved guardrails — which persist as
   // name/version/params and so carry no displayName of their own.
-  const { data: guardrailCatalog } = useLLMPoliciesCatalog(orgId);
+  const { data: guardrailCatalog } = useLLMPoliciesCatalog(
+    orgId,
+    true,
+    selectedProviderUuid,
+  );
   const guardrailDisplayNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const policy of guardrailCatalog?.data ?? []) {
@@ -327,18 +360,6 @@ export const ViewLLMProviderComponent: React.FC = () => {
     setResilienceErrorsByEnv({});
   }, [config]);
 
-  const selectedEnvName = useMemo(
-    () => environments[selectedEnvIndex]?.name ?? "",
-    [environments, selectedEnvIndex],
-  );
-
-  const envMapping = useMemo(
-    () => config?.envMappings?.[selectedEnvName],
-    [config, selectedEnvName],
-  );
-
-  const providerConfig = envMapping?.configuration;
-
   // Guardrails configured on the LLM provider itself (org level), shown
   // read-only alongside the per-agent-config guardrails edited below. When the
   // user has picked a new (not-yet-saved) provider for this env, show that
@@ -369,14 +390,6 @@ export const ViewLLMProviderComponent: React.FC = () => {
     }
     return list;
   }, [providerConfig, guardrailDisplayNames, pendingProviderByEnv, selectedEnvName, catalogData]);
-
-  const catalogProvider = useMemo(() => {
-    if (!providerConfig?.providerName || !catalogData?.entries)
-      return undefined;
-    return catalogData.entries.find(
-      (e) => e.handle === providerConfig.providerName,
-    );
-  }, [providerConfig?.providerName, catalogData]);
 
   const templateLogo = useMemo(() => {
     if (!catalogProvider?.template || !templatesData?.templates)
@@ -1041,6 +1054,13 @@ export const ViewLLMProviderComponent: React.FC = () => {
                   ...prev,
                   [selectedEnvName]: uuid,
                 }));
+                // A different provider's gateways may not support the guardrails
+                // already selected for this env — clear them so only guardrails
+                // valid for the newly-picked provider can be re-added and saved.
+                setGuardrailsByEnv((prev) => ({
+                  ...prev,
+                  [selectedEnvName]: [],
+                }));
               }}
             />
 
@@ -1115,6 +1135,7 @@ export const ViewLLMProviderComponent: React.FC = () => {
             })()}
 
             <PolicyListSection
+              providerId={selectedProviderUuid}
               title="Guardrails"
               description="Add safety policies to enforce consistent protections."
               addButtonLabel="Add Guardrail"

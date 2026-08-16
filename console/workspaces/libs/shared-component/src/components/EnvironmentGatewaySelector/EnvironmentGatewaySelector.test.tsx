@@ -237,9 +237,12 @@ describe("EnvironmentGatewaySelectorView", () => {
     expect(onChangeSpy).not.toHaveBeenCalled();
   });
 
-  it("auto-hides a single locked environment — nothing left to decide", () => {
+  it("still reports single-choice for a locked environment, but renders the deployed row instead of hiding it", () => {
+    // Unlike the unlocked single-candidate case, a locked row is an existing
+    // fact ("this is deployed here") rather than an unmade choice, so it must
+    // stay visible even though there's nothing left to decide.
     const onSingleChoiceChange = vi.fn();
-    const { container } = renderWithTheme(
+    renderWithTheme(
       <ControlledSelector
         environments={[makeEnvironment("env-a", "Alpha")]}
         gateways={[
@@ -252,7 +255,42 @@ describe("EnvironmentGatewaySelectorView", () => {
       />,
     );
     expect(onSingleChoiceChange).toHaveBeenLastCalledWith(true);
-    expect(container).toBeEmptyDOMElement();
+    expect(getCheckbox("Alpha")).toBeChecked();
+    expect(screen.getByText("Gateway gw-1")).toBeInTheDocument();
+    expect(screen.getByText("Deployed")).toBeInTheDocument();
+    // Another candidate (gw-2) exists for this environment, so the caption
+    // must offer switching to it rather than the sole-candidate wording.
+    expect(
+      screen.getByText(/select the new gateway and save again/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a locked sole-candidate row as a fixed fact — no caption, no undeploy affordance", () => {
+    // A sole candidate has nowhere to switch to, and undeploying it would
+    // strand the provider: re-deploying to the same sole gateway would
+    // immediately auto-hide again (see the "auto-selects and renders
+    // nothing" test above), leaving no way back into this row. So unlike the
+    // 2+-candidate case, this row is purely informational.
+    const onChangeSpy = vi.fn();
+    renderWithTheme(
+      <ControlledSelector
+        environments={[makeEnvironment("env-a", "Alpha")]}
+        gateways={[makeGateway("gw-1", "env-a")]}
+        initialValue={["gw-1"]}
+        lockedGatewayIds={["gw-1"]}
+        onChangeSpy={onChangeSpy}
+      />,
+    );
+    expect(getCheckbox("Alpha")).toBeChecked();
+    expect(getCheckbox("Alpha")).toBeDisabled();
+    expect(screen.getByText("Gateway gw-1")).toBeInTheDocument();
+    expect(screen.getByText("Deployed")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Placement is fixed once deployed/),
+    ).not.toBeInTheDocument();
+    fireEvent.click(getCheckbox("Alpha"));
+    expect(onChangeSpy).not.toHaveBeenCalled();
+    expect(getCheckbox("Alpha")).toBeChecked();
   });
 
   it("renders a locked row checked with the deployed gateway name and a Deployed chip, and drops it when unchecked, when it's one of several environments", () => {

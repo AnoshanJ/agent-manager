@@ -19,7 +19,9 @@
 import {
   Box,
   Checkbox,
+  FormControl,
   FormControlLabel,
+  FormLabel,
   IconButton,
   InputAdornment,
   Stack,
@@ -185,9 +187,13 @@ export function EnvVariableEditor({
       </InputAdornment>
     ) : undefined;
 
+  // Extra breathing room below rows whose helper text would otherwise crowd
+  // the next row; compact rows (no error) keep the default tight spacing.
+  const hasError = !!keyError || !!valueError;
+
   return (
-    <Stack key={index} direction="column" gap={1}>
-      <Stack direction="row" gap={2} alignItems="end">
+    <Stack key={index} direction="column" gap={1} mb={hasError ? 0.5 : 0}>
+      <Stack direction="row" gap={2} alignItems="flex-start">
         <Box flex={1} minWidth={0}>
           <TextInput
             label={keyLabel}
@@ -227,62 +233,78 @@ export function EnvVariableEditor({
             pointerEvents: onSensitiveChange ? 'auto' : 'none',
           }}
         >
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                checked={isSensitive}
-                disabled={isSystem}
-                onChange={(e) => onSensitiveChange?.(e.target.checked)}
-              />
-            }
-            label="Mark as Secret"
-            sx={{ whiteSpace: 'nowrap', marginRight: 0 }}
-          />
-        </Box>
-        <Box pb={1} display="flex" alignItems="center">
-          {/* Always reserve this slot so the delete/lock icons stay aligned across
-              rows. Existing secrets toggle between Edit (locked) and Cancel
-              (editing); other fields keep the slot hidden. Cancel stays visible
-              for the whole edit session even after typing clears the stored
-              secret flag upstream. System rows are excluded outright, even when
-              they happen to be an existing secret — they're never editable. */}
-          <Tooltip title={isEditing ? 'Cancel edit' : 'Edit value'}>
-            <IconButton
-              size="small"
-              aria-label={isEditing ? 'Cancel edit' : 'Edit value'}
-              onClick={isEditing ? handleCancelEdit : handleStartEdit}
-              sx={
-                isEditing
-                  ? undefined
-                  : {
-                      visibility: isSecretLocked && !isSystem ? 'visible' : 'hidden',
-                      pointerEvents: isSecretLocked && !isSystem ? 'auto' : 'none',
-                    }
+          {/* The Key/Value labels are static FormLabels stacked above their
+              TextInput, not MUI's floating label, so their input boxes start
+              below a full label's height. An invisible FormLabel of the same
+              height (rather than a guessed padding value) is what keeps this
+              checkbox's top edge flush with the Key/Value inputs' top edge. */}
+          <FormControl>
+            <FormLabel sx={{ visibility: 'hidden' }}>{' '}</FormLabel>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={isSensitive}
+                  disabled={isSystem}
+                  onChange={(e) => onSensitiveChange?.(e.target.checked)}
+                />
               }
-            >
-              {isEditing ? <X size={16} /> : <Edit size={16} />}
-            </IconButton>
-          </Tooltip>
-          {isSystem ? (
-            // Same slot/size as the delete button below, so system rows line up
-            // pixel-for-pixel with editable rows instead of drifting left.
-            <Tooltip title="System-injected variable — managed by the platform, not editable">
-              <IconButton
-                size="small"
-                disableRipple
-                tabIndex={-1}
-                aria-label="System-injected variable — managed by the platform, not editable"
-                sx={{ cursor: 'default' }}
-              >
-                <Lock size={16} />
-              </IconButton>
-            </Tooltip>
-          ) : (
-            <IconButton size="small" color="error" onClick={onRemove}>
-              <DeleteOutline size={16} />
-            </IconButton>
-          )}
+              label="Mark as Secret"
+              sx={{ whiteSpace: 'nowrap', marginRight: 0 }}
+            />
+          </FormControl>
+        </Box>
+        <Box>
+          {/* Same reasoning as the "Mark as Secret" slot above: an invisible
+              FormLabel matches the Key/Value labels' height so the icons'
+              top edge lines up with the inputs' top edge instead of the labels'. */}
+          <FormControl>
+            <FormLabel sx={{ visibility: 'hidden' }}>{' '}</FormLabel>
+            <Box display="flex" alignItems="center">
+              {/* Always reserve this slot so the delete/lock icons stay aligned across
+                  rows. Existing secrets toggle between Edit (locked) and Cancel
+                  (editing); other fields keep the slot hidden. Cancel stays visible
+                  for the whole edit session even after typing clears the stored
+                  secret flag upstream. System rows are excluded outright, even when
+                  they happen to be an existing secret — they're never editable. */}
+              <Tooltip title={isEditing ? 'Cancel edit' : 'Edit value'}>
+                <IconButton
+                  size="small"
+                  aria-label={isEditing ? 'Cancel edit' : 'Edit value'}
+                  onClick={isEditing ? handleCancelEdit : handleStartEdit}
+                  sx={
+                    isEditing
+                      ? undefined
+                      : {
+                          visibility: isSecretLocked && !isSystem ? 'visible' : 'hidden',
+                          pointerEvents: isSecretLocked && !isSystem ? 'auto' : 'none',
+                        }
+                  }
+                >
+                  {isEditing ? <X size={16} /> : <Edit size={16} />}
+                </IconButton>
+              </Tooltip>
+              {isSystem ? (
+                // Same slot/size as the delete button below, so system rows line up
+                // pixel-for-pixel with editable rows instead of drifting left.
+                <Tooltip title="System-injected variable — managed by the platform, not editable">
+                  <IconButton
+                    size="small"
+                    disableRipple
+                    tabIndex={-1}
+                    aria-label="System-injected variable — managed by the platform, not editable"
+                    sx={{ cursor: 'default' }}
+                  >
+                    <Lock size={16} />
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <IconButton size="small" color="error" onClick={onRemove}>
+                  <DeleteOutline size={16} />
+                </IconButton>
+              )}
+            </Box>
+          </FormControl>
         </Box>
       </Stack>
     </Stack>
