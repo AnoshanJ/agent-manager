@@ -575,20 +575,25 @@ func (c *environmentController) DeleteThunderURL(w http.ResponseWriter, r *http.
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
-	// Best-effort: read the handle being freed so the record names it. A miss
-	// here (already gone, or a transient read error) must never block the
-	// delete itself — Delete is idempotent and the record still names the
-	// environment either way.
-	existing, _ := c.environmentService.GetThunderURL(ctx, ouID, envName)
-
 	attempt, ok := beginAuditOrFail(
 		w, r, "DeleteThunderURL", "Failed to delete thunder url handle", audit.ActionThunderURLDelete,
 		audit.Org(ouID),
 		audit.ResourceNamed(audit.ResourceThunderURL, envName, envName),
 		audit.Environment(envName),
-		audit.Detail("handle", existing),
 	)
 	if !ok {
+		return
+	}
+
+	// Read the handle being freed so the success record below names it. A
+	// genuinely missing handle is not an error — Delete is idempotent — but any
+	// other read failure must abort before the delete: silently ignoring it
+	// would risk deleting a row the record can no longer identify.
+	existing, err := c.environmentService.GetThunderURL(ctx, ouID, envName)
+	if err != nil && !errors.Is(err, utils.ErrThunderHandleNotFound) {
+		attempt.Complete(ctx, err)
+		log.Error("DeleteThunderURL: failed to read handle before delete", "ouID", ouID, "envName", envName, "error", err)
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete thunder url handle")
 		return
 	}
 
@@ -602,7 +607,7 @@ func (c *environmentController) DeleteThunderURL(w http.ResponseWriter, r *http.
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete thunder url handle")
 		return
 	}
-	attempt.Complete(ctx, nil)
+	attempt.Complete(ctx, nil, audit.Detail("handle", existing))
 
 	utils.WriteSuccessResponse(w, http.StatusNoContent, "")
 }
