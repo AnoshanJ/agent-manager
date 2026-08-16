@@ -194,7 +194,7 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 		return nil, fmt.Errorf("failed to check MCP proxy existence: %w", err)
 	}
 	if exists {
-		return nil, utils.ErrMCPProxyExists
+		return nil, fmt.Errorf("%w: proxy id %q is already in use", utils.ErrMCPProxyExists, handle)
 	}
 
 	proxy := &models.MCPProxy{
@@ -216,7 +216,7 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 		}
 		return s.persistMCPEndpoints(ctx, tx, proxy.UUID, handle, version, endpoints, orgUUID)
 	}); err != nil {
-		if mapped := mapMCPProxyWriteError(err); mapped != nil {
+		if mapped := s.mapMCPProxyWriteError(err, handle, orgUUID); mapped != nil {
 			return nil, mapped
 		}
 		return nil, fmt.Errorf("failed to create MCP proxy: %w", err)
@@ -506,7 +506,7 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 		if errors.Is(err, utils.ErrMCPProxyNotFound) || errors.Is(err, utils.ErrInvalidInput) {
 			return nil, err
 		}
-		if mapped := mapMCPProxyWriteError(err); mapped != nil {
+		if mapped := s.mapMCPProxyWriteError(err, handle, orgUUID); mapped != nil {
 			return nil, mapped
 		}
 		return nil, fmt.Errorf("failed to update MCP proxy: %w", err)
@@ -1591,10 +1591,16 @@ func (s *MCPProxyService) persistMCPEndpoints(ctx context.Context, tx *gorm.DB, 
 }
 
 // mapMCPProxyWriteError maps Postgres unique-violation errors from the write path to
-// friendly sentinels. It distinguishes the proxy-handle collision (23505 on the proxy
-// artifact) from the environment-already-bound collision (23505 on uq_proxy_env_single /
-// uq_endpoint_env). Returns nil when err is not a recognized unique violation.
-func mapMCPProxyWriteError(err error) error {
+// friendly sentinels. It distinguishes the proxy-handle collision (uq_artifact_handle_ou_id)
+// from the name+version collision (uq_artifact_name_version_ou_id) and the
+// environment-already-bound collision (uq_proxy_env_single / uq_endpoint_env). Returns nil
+// when err is not a recognized unique violation, so the caller falls back to a generic error.
+//
+// uq_artifact_handle_ou_id is a table-wide constraint shared by every artifact kind (LLM
+// providers, MCP proxies, ...), not just MCP proxies — a handle collision with a
+// differently-kinded artifact must not be reported as "MCP proxy already exists". handle
+// and orgUUID let it resolve the conflicting artifact's actual kind before deciding.
+func (s *MCPProxyService) mapMCPProxyWriteError(err error, handle, orgUUID string) error {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
 		return nil
@@ -1604,9 +1610,16 @@ func mapMCPProxyWriteError(err error) error {
 		return fmt.Errorf("%w", utils.ErrMCPEnvAlreadyBound)
 	case "uq_mcp_endpoint_handle":
 		return fmt.Errorf("%w: duplicate endpoint id", utils.ErrInvalidInput)
+	case "uq_artifact_handle_ou_id":
+		if conflicting, getErr := s.artifactRepo.GetByHandle(handle, orgUUID); getErr == nil &&
+			conflicting != nil && conflicting.Kind != models.KindMCPProxy {
+			return fmt.Errorf("%w: handle already in use by another artifact", utils.ErrArtifactExists)
+		}
+		return fmt.Errorf("%w: handle already in use", utils.ErrMCPProxyExists)
+	case "uq_artifact_name_version_ou_id":
+		return fmt.Errorf("%w: another artifact already uses this name and version", utils.ErrInvalidInput)
 	default:
-		// Any other unique violation on this path is the proxy handle/artifact collision.
-		return utils.ErrMCPProxyExists
+		return nil
 	}
 }
 
