@@ -155,6 +155,7 @@ main() {
   echo "🗑️  Removing system-client credential from agent-manager-service (best-effort)..."
   local amp_api_url="${AMP_API_URL:-http://localhost:9000/api/v1}"
   local access_token
+  local system_client_deleted=false
   if access_token="$(get_ams_token 3)"; then
     # AMS looks the credential up by this token's own OU ID (not org_name, and
     # never overridable) — see add-environment-thunder.sh's store_via_ams. The
@@ -165,13 +166,14 @@ main() {
     http_code="$(curl -s -o /dev/null -w "%{http_code}" \
       --max-time 30 --retry 3 --retry-delay 5 \
       -X DELETE "${amp_api_url}/orgs/${org}/environments/${ENV_NAME}/thunder-system-client" \
-      -H "Authorization: Bearer ${access_token}" 2>/dev/null)"
+      -H "Authorization: Bearer ${access_token}" 2>/dev/null || true)"
     # curl's own -w already writes "000" when no response is received; falling
     # back with `|| echo "000"` on top of that double-appends into "000000".
     http_code="${http_code:-000}"
     case "$http_code" in
       200|204)
         echo "✅ Removed system-client credential from agent-manager-service"
+        system_client_deleted=true
         ;;
       *)
         echo "⚠️  Could not remove the system-client credential from agent-manager-service (HTTP ${http_code})."
@@ -189,17 +191,28 @@ main() {
   # claim it — see add-environment-thunder.sh's register_thunder_url. Always
   # attempted even if THUNDER_HANDLE was never set for this environment: deleting
   # a non-existent handle is a no-op on the server side.
+  #
+  # Only runs once Step 3 has actually succeeded. If the system-client credential
+  # is still there but the handle gets freed anyway, the next
+  # ResolveThunderHandle call (services/env_thunder_url_reader.go) sees "a
+  # credential exists but no handle row" and grandfathers the environment back
+  # onto the guessable <org>-<env> pattern — silently undoing the whole point of
+  # a registered handle. Skipping here just leaves both rows for a retry.
   echo ""
-  echo "🗑️  Removing thunder url handle from agent-manager-service (best-effort)..."
-  # Reuse Step 3's token when it already has one — same OU, same call shape,
-  # no reason to pay for a second token round trip. Only re-acquire if Step 3
-  # itself failed to get one (still worth a fresh attempt here).
-  if [ -n "$access_token" ] || access_token="$(get_ams_token 3)"; then
+  if [ "$system_client_deleted" != true ]; then
+    echo "⚠️  Skipping thunder url handle cleanup — the system-client credential"
+    echo "   was not confirmed deleted, so freeing the handle now could let a"
+    echo "   future lookup fall back to the guessable <org>-<env> pattern."
+    echo "   Re-run this script once the credential cleanup above succeeds."
+  else
+    echo "🗑️  Removing thunder url handle from agent-manager-service (best-effort)..."
+    # Reuse Step 3's token — same OU, same call shape, already known-good since
+    # Step 3 just succeeded with it.
     local url_http_code
     url_http_code="$(curl -s -o /dev/null -w "%{http_code}" \
       --max-time 30 --retry 3 --retry-delay 5 \
       -X DELETE "${amp_api_url}/orgs/${org}/environments/${ENV_NAME}/thunder-url" \
-      -H "Authorization: Bearer ${access_token}" 2>/dev/null)"
+      -H "Authorization: Bearer ${access_token}" 2>/dev/null || true)"
     url_http_code="${url_http_code:-000}"
     case "$url_http_code" in
       200|204)
@@ -210,9 +223,6 @@ main() {
         echo "   Harmless to skip — continuing."
         ;;
     esac
-  else
-    echo "⚠️  Could not obtain a token to clean up the thunder url handle in agent-manager-service."
-    echo "   Harmless to skip — continuing."
   fi
 
   echo ""
