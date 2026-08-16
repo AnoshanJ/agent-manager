@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 
 def _env(name: str, default: str | None = None) -> str:
-    val = os.environ.get(name, default)
+    val = os.environ.get(name) or default
     if val is None:
         raise RuntimeError(f"Missing required env var: {name}")
     return val

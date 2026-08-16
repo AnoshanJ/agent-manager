@@ -4,13 +4,18 @@ import os
 os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
 
 import logging
+import threading
 import uuid
+from collections import OrderedDict
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from strands import Agent
+
+load_dotenv()
 
 from agent import build_agent
 from config import Config
@@ -19,7 +24,13 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("insurance-support")
 
 CONFIG = Config.from_env()
-SESSIONS: dict[str, Agent] = {}
+
+# Demo-grade conversation store. Sessions are keyed on the caller-supplied
+# session_id alone, so anyone who knows an id can resume that conversation —
+# a real deployment must key on the authenticated subject instead.
+MAX_SESSIONS = 500
+SESSIONS: "OrderedDict[str, Agent]" = OrderedDict()
+_sessions_lock = threading.Lock()
 
 app = FastAPI(title="Insurance Support Agent", version="1.0.0")
 
@@ -47,9 +58,18 @@ class ChatResponse(BaseModel):
 
 
 def _agent_for(session_id: str) -> Agent:
-    if session_id not in SESSIONS:
-        SESSIONS[session_id] = build_agent(CONFIG)
-    return SESSIONS[session_id]
+    # FastAPI runs this sync endpoint on a threadpool, so the lookup, the insert
+    # and the eviction all have to happen under one lock.
+    with _sessions_lock:
+        agent = SESSIONS.get(session_id)
+        if agent is None:
+            agent = build_agent(CONFIG)
+            SESSIONS[session_id] = agent
+            while len(SESSIONS) > MAX_SESSIONS:
+                SESSIONS.popitem(last=False)
+        else:
+            SESSIONS.move_to_end(session_id)
+        return agent
 
 
 @app.get("/health")
@@ -67,7 +87,9 @@ def chat(req: ChatRequest) -> ChatResponse:
     try:
         result = _agent_for(session_id)(req.message)
     except Exception as exc:
+        # Upstream errors can carry gateway URLs and provider payloads; log them,
+        # do not return them.
         log.exception("agent invocation failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="agent invocation failed") from exc
 
     return ChatResponse(response=str(result), session_id=session_id)

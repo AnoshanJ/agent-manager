@@ -4,6 +4,7 @@ and the Args section of the docstring."""
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from strands import tool
 
@@ -81,7 +82,7 @@ def file_claim(policy_number: str, description: str, amount_claimed: float) -> s
         "description": description,
         "amount_claimed": round(float(amount_claimed), 2),
         "status": "submitted",
-        "filed_on": "2026-08-15",
+        "filed_on": date.today().isoformat(),
         "next_step": f"A handler will be assigned within 2 working days. Excess is £{policy['excess']}.",
     }
     CLAIMS[claim["claim_number"]] = claim

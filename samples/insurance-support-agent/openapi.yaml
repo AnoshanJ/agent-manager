@@ -8,7 +8,9 @@ info:
   version: 1.0.0
 servers:
   - url: http://localhost:8000
-    description: Local development server
+    description: Default port, and the port platform-hosted agents are routed to
+  - url: http://localhost:10150
+    description: Local development, when PORT is overridden as the README shows
 paths:
   /chat:
     post:

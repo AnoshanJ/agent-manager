@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import itertools
+import threading
+
 POLICIES: dict[str, dict] = {
     "OZ-AUTO-4417": {
         "policy_number": "OZ-AUTO-4417",
@@ -61,10 +64,10 @@ CLAIMS: dict[str, dict] = {
     },
 }
 
-_NEXT_CLAIM_SEQ = [10901]
+_NEXT_CLAIM_SEQ = itertools.count(10901)
+_SEQ_LOCK = threading.Lock()
 
 
 def next_claim_number() -> str:
-    number = f"CLM-{_NEXT_CLAIM_SEQ[0]}"
-    _NEXT_CLAIM_SEQ[0] += 1
-    return number
+    with _SEQ_LOCK:
+        return f"CLM-{next(_NEXT_CLAIM_SEQ)}"

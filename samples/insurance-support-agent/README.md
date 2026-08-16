@@ -165,6 +165,16 @@ curl -i -X POST https://<your-agent-url>/chat \
 
 This should return `401`.
 
+### What this sample deliberately leaves out
+
+Conversation history is kept in memory, keyed on the `session_id` the caller
+sends. The gateway authenticates the caller, but the agent never reads the token,
+so it cannot tell one signed-in customer from another — anyone holding a valid
+token who knows a `session_id` could resume that conversation. A real deployment
+should key sessions on the authenticated subject (and move them out of process
+memory). The store here is capped and evicts oldest-first, which is enough for a
+demo and nothing more.
+
 ### With another provider (Asgardeo, Okta, ...)
 
 The UI is provider-agnostic — it reads the issuer's
