@@ -107,7 +107,7 @@ Pick a base domain you control (a delegated subdomain like `amp.yourdomain.com` 
 | `traces.<base>` | Agent Manager Observer | observability-plane gateway LB |
 | `*.agents.<base>` | Deployed-agent invocation endpoints (wildcard) | data-plane gateway LB |
 
-Concretely: `console`/`api-amp`/`thunder`/`cp` all point at the control-plane gateway (four records, or a single `*.<base>` wildcard), `traces` points at the observability-plane gateway, and `*.agents.<base>` plus the `agents.<base>` apex point at the data-plane gateway. [Step 10](#step-10-publish-dns-records) lists the exact records once the LoadBalancer addresses exist.
+Concretely: `console`/`api-amp`/`thunder`/`cp` all point at the control-plane gateway — via a single required `*.<base>` wildcard, not four separate records (per-environment Thunder hostnames are created after install and are only reachable through that wildcard) — `traces` points at the observability-plane gateway, and `*.agents.<base>` plus the `agents.<base>` apex point at the data-plane gateway. [Step 10](#step-10-publish-dns-records) lists the exact records once the LoadBalancer addresses exist.
 
 ```bash
 export VERSION="1.0.0-beta"
@@ -1318,11 +1318,11 @@ done
 
 | Record | Type | Points to |
 |---|---|---|
-| `console`, `api-amp`, `thunder`, `cp` `.${BASE_DOMAIN}` (or `*.${BASE_DOMAIN}`) | A / CNAME | control-plane gateway address |
+| `*.${BASE_DOMAIN}` | A / CNAME | control-plane gateway address |
 | `traces.${BASE_DOMAIN}` | A / CNAME | observability-plane gateway address |
 | `*.agents.${BASE_DOMAIN}` and `agents.${BASE_DOMAIN}` | A / CNAME | data-plane gateway address |
 
-`*.${BASE_DOMAIN}` also covers the per-environment Thunder instances provisioned in Phase 2 — their hostnames (`<handle>.${BASE_DOMAIN}`) sit directly under `BASE_DOMAIN` with no fixed subdomain segment in between, so no separate record is needed for them.
+The `*.${BASE_DOMAIN}` wildcard is **required**, not an alternative to four explicit `console`/`api-amp`/`thunder`/`cp` records. Per-environment Thunder hostnames (`<handle>.${BASE_DOMAIN}`) are created after install and are not known up front, so only the wildcard resolves them. Four explicit records leave every environment's Thunder unreachable while the console and API keep working.
 
 Use A records for IPs (GKE, AKS) and CNAME records for hostnames (EKS). Verify resolution before continuing:
 
