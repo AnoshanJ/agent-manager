@@ -175,7 +175,10 @@ func (r *envThunderResolver) Resolve(ctx context.Context, ouID, orgNamespace, en
 		// system-client secret above — so it gets the same ErrThunderNotProvisioned,
 		// not a degraded/guessed address.
 		handle, err := r.readThunderHandle(ctx, ouID, envName)
-		if err != nil || handle == "" {
+		if err != nil {
+			return nil, fmt.Errorf("failed to read env-thunder url handle for %s/%s: %w", ouID, envName, err)
+		}
+		if handle == "" {
 			return nil, ErrThunderNotProvisioned
 		}
 

@@ -274,18 +274,17 @@ func TestEnvThunderResolver_Resolve_NoHandleRegistered(t *testing.T) {
 	assert.False(t, resolveBaseURLCalled, "must short-circuit before ever attempting to resolve a base URL")
 }
 
-// TestEnvThunderResolver_Resolve_HandleReadErrorTreatedAsNotProvisioned locks
-// in a fail-closed choice: a genuine handle-lookup failure (e.g. a transient
-// DB error) is treated the SAME as "no handle" — degraded availability for
-// that one resolve, never a guessed address.
-func TestEnvThunderResolver_Resolve_HandleReadErrorTreatedAsNotProvisioned(t *testing.T) {
+func TestEnvThunderResolver_Resolve_HandleReadErrorPropagates(t *testing.T) {
+	dbErr := errors.New("db unavailable")
 	readHandle := func(context.Context, string, string) (string, error) {
-		return "", errors.New("db unavailable")
+		return "", dbErr
 	}
 	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), readHandle, fakeResolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
-	assert.True(t, errors.Is(err, ErrThunderNotProvisioned))
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrThunderNotProvisioned), "database read error must propagate and not be misclassified as ErrThunderNotProvisioned")
+	assert.True(t, errors.Is(err, dbErr), "underlying db error must be wrapped in error chain")
 }
 
 func TestEnvThunderResolver_Resolve_ReadErrorPropagates(t *testing.T) {
