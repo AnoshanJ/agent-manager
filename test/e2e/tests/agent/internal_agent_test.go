@@ -106,6 +106,10 @@ var _ = Describe("Internal chat agent in default environment:", Label("agent", "
 		// The path is the agent name alone. It used to be
 		// "<agent>-<agent>-endpoint", because the ComponentType prefixed the
 		// component name onto an endpoint name that already carried it.
+		// This assumes the shared agent above was created (not merely reused)
+		// by a service version that writes routePath at create time; against a
+		// long-lived local environment whose shared agent predates that change,
+		// this assertion fails even though the code under test is correct.
 		parsed, err := url.Parse(endpointURL)
 		Expect(err).NotTo(HaveOccurred(), "endpoint URL should parse")
 		Expect(parsed.Path).To(Equal("/"+agentName),

@@ -46,7 +46,7 @@ const legacyComponentJSON = `{
 func TestUpdateComponentBuildParameters_DoesNotIntroduceRoutePath(t *testing.T) {
 	var putParameters map[string]any
 
-	srv := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
 			_, err := w.Write([]byte(legacyComponentJSON))
@@ -67,7 +67,7 @@ func TestUpdateComponentBuildParameters_DoesNotIntroduceRoutePath(t *testing.T) 
 		require.NoError(t, err)
 	}))
 
-	err := srv.UpdateComponentBuildParameters(context.Background(), "acme", "proj", "legacy-agent",
+	err := client.UpdateComponentBuildParameters(context.Background(), "acme", "proj", "legacy-agent",
 		UpdateComponentBuildParametersRequest{
 			AgentType:      AgentTypeConfig{Type: "agent-api", SubType: "custom-api"},
 			InputInterface: &InputInterfaceConfig{Type: "HTTP", Port: 9090, BasePath: "/new"},
