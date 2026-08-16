@@ -1733,7 +1733,11 @@ if [[ "${ENV_THUNDER_PROVISIONED}" == "true" ]]; then
     -n "${default_ns}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)"
   if [[ -n "${ENV_THUNDER_ADMIN_PASSWORD}" ]]; then
     log_step "Default Environment Thunder ID Console"
-    log_info "URL:      http://${default_org}-${default_env}.thunder.amp.localhost:8080/console"
+    # thunder_issuer() honours THUNDER_HOST_BASE_DOMAIN/TLS_ENABLED, which is what
+    # env-Thunder was actually provisioned with — a hardcoded amp.localhost:8080
+    # printed an unreachable host on wrapper installs (the VM installers export both
+    # of those, so the instance answers on https://<org>-<env>.thunder.<base>).
+    log_info "URL:      $(thunder_issuer "${default_org}" "${default_env}")/console"
     log_info "Username: admin"
     log_info "Password: ${ENV_THUNDER_ADMIN_PASSWORD}"
   fi
@@ -1742,9 +1746,18 @@ fi
 echo ""
 echo ""
 log_info "To check status: kubectl get pods -A"
-echo ""
-log_step "Uninstall Options"
-log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
-log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
-log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+
+# These hints point at ./uninstall.sh, a sibling of this script in the repo
+# checkout. Wrappers that source install.sh from a bundle (e.g. the VM installer)
+# have no such sibling left on disk — bootstrap.sh deletes the unpacked bundle on
+# exit — and tear down extra host state of their own, so they suppress these lines
+# and document their own teardown. Defaults to SHOW_LOCALHOST_URLS: both answer
+# "is this the plain local quick-start?".
+if [[ "${SHOW_UNINSTALL_HINTS:-${SHOW_LOCALHOST_URLS:-true}}" == "true" ]]; then
+  echo ""
+  log_step "Uninstall Options"
+  log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
+  log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
+  log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+fi
 echo ""
