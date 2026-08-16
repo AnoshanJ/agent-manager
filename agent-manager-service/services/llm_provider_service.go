@@ -467,6 +467,10 @@ func (s *LLMProviderService) Update(ctx context.Context, providerID, ouID string
 		slog.Warn("LLMProviderService.Update: provider not found", "ouID", ouID, "providerID", providerID)
 		return nil, utils.ErrLLMProviderNotFound
 	}
+	// Secret policy params are masked on read, so an update assembled from one
+	// arrives without them; carry the stored values forward.
+	preserveOmittedPolicySecrets(updates.Configuration.Policies, existing.Configuration.Policies)
+
 	apiKeyAuthWasEnabled := isAPIKeyAuthEnabled(existing.Configuration.Security)
 
 	// Update provider
