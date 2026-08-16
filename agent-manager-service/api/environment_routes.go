@@ -49,4 +49,11 @@ func registerEnvironmentRoutes(rr *middleware.RouteRegistrar, ctrl controllers.E
 		rbac.OrgManageServiceAccount, ctrl.GetThunderURL)
 	rr.HandleFuncWithValidationAndAuthz("DELETE /orgs/{orgName}/environments/{envID}/thunder-url",
 		rbac.OrgManageServiceAccount, ctrl.DeleteThunderURL)
+	// Advisory pre-flight check for the console's Create Environment drawer —
+	// same permission as actually creating an environment, since it's the
+	// browser (not a bootstrap script) calling this one. The handle is
+	// globally unique, not scoped to a single environment, so this route
+	// intentionally has no {envID}.
+	rr.HandleFuncWithValidationAndAuthz("GET /orgs/{orgName}/thunder-url-availability",
+		rbac.EnvironmentCreate, ctrl.CheckThunderURLAvailability)
 }

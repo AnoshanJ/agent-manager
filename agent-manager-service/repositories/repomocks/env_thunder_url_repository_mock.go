@@ -19,6 +19,9 @@ import (
 //			DeleteFunc: func(ctx context.Context, ouID string, envName string) error {
 //				panic("mock out the Delete method")
 //			},
+//			ExistsByHandleFunc: func(ctx context.Context, handle string) (bool, error) {
+//				panic("mock out the ExistsByHandle method")
+//			},
 //			GetFunc: func(ctx context.Context, ouID string, envName string) (*models.EnvThunderURL, error) {
 //				panic("mock out the Get method")
 //			},
@@ -34,6 +37,9 @@ import (
 type EnvThunderURLRepositoryMock struct {
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(ctx context.Context, ouID string, envName string) error
+
+	// ExistsByHandleFunc mocks the ExistsByHandle method.
+	ExistsByHandleFunc func(ctx context.Context, handle string) (bool, error)
 
 	// GetFunc mocks the Get method.
 	GetFunc func(ctx context.Context, ouID string, envName string) (*models.EnvThunderURL, error)
@@ -52,6 +58,13 @@ type EnvThunderURLRepositoryMock struct {
 			// EnvName is the envName argument value.
 			EnvName string
 		}
+		// ExistsByHandle holds details about calls to the ExistsByHandle method.
+		ExistsByHandle []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Handle is the handle argument value.
+			Handle string
+		}
 		// Get holds details about calls to the Get method.
 		Get []struct {
 			// Ctx is the ctx argument value.
@@ -69,9 +82,10 @@ type EnvThunderURLRepositoryMock struct {
 			Rec *models.EnvThunderURL
 		}
 	}
-	lockDelete sync.RWMutex
-	lockGet    sync.RWMutex
-	lockInsert sync.RWMutex
+	lockDelete         sync.RWMutex
+	lockExistsByHandle sync.RWMutex
+	lockGet            sync.RWMutex
+	lockInsert         sync.RWMutex
 }
 
 // Delete calls DeleteFunc.
@@ -111,6 +125,42 @@ func (mock *EnvThunderURLRepositoryMock) DeleteCalls() []struct {
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
 	mock.lockDelete.RUnlock()
+	return calls
+}
+
+// ExistsByHandle calls ExistsByHandleFunc.
+func (mock *EnvThunderURLRepositoryMock) ExistsByHandle(ctx context.Context, handle string) (bool, error) {
+	if mock.ExistsByHandleFunc == nil {
+		panic("EnvThunderURLRepositoryMock.ExistsByHandleFunc: method is nil but EnvThunderURLRepository.ExistsByHandle was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Handle string
+	}{
+		Ctx:    ctx,
+		Handle: handle,
+	}
+	mock.lockExistsByHandle.Lock()
+	mock.calls.ExistsByHandle = append(mock.calls.ExistsByHandle, callInfo)
+	mock.lockExistsByHandle.Unlock()
+	return mock.ExistsByHandleFunc(ctx, handle)
+}
+
+// ExistsByHandleCalls gets all the calls that were made to ExistsByHandle.
+// Check the length with:
+//
+//	len(mockedEnvThunderURLRepository.ExistsByHandleCalls())
+func (mock *EnvThunderURLRepositoryMock) ExistsByHandleCalls() []struct {
+	Ctx    context.Context
+	Handle string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Handle string
+	}
+	mock.lockExistsByHandle.RLock()
+	calls = mock.calls.ExistsByHandle
+	mock.lockExistsByHandle.RUnlock()
 	return calls
 }
 

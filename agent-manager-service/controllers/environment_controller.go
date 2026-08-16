@@ -45,6 +45,7 @@ type EnvironmentController interface {
 	SetThunderURL(w http.ResponseWriter, r *http.Request)
 	GetThunderURL(w http.ResponseWriter, r *http.Request)
 	DeleteThunderURL(w http.ResponseWriter, r *http.Request)
+	CheckThunderURLAvailability(w http.ResponseWriter, r *http.Request)
 }
 
 type environmentController struct {
@@ -568,4 +569,30 @@ func (c *environmentController) DeleteThunderURL(w http.ResponseWriter, r *http.
 	}
 
 	utils.WriteSuccessResponse(w, http.StatusNoContent, "")
+}
+
+// CheckThunderURLAvailability reports whether a candidate env-Thunder URL
+// handle passes format validation and is not already registered to any
+// environment. Advisory only — used by the console's Create Environment
+// drawer to reject an obviously-taken handle before the user ever runs the
+// generated add-environment.sh command; SetThunderURL's atomic insert remains
+// the real enforcement.
+func (c *environmentController) CheckThunderURLAvailability(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	handle := r.URL.Query().Get("handle")
+
+	available, err := c.environmentService.IsThunderHandleAvailable(ctx, handle)
+	if err != nil {
+		if errors.Is(err, utils.ErrInvalidThunderHandle) {
+			utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Error("CheckThunderURLAvailability: failed to check handle availability", "error", err)
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to check thunder url handle availability")
+		return
+	}
+
+	utils.WriteSuccessResponse(w, http.StatusOK, spec.ThunderUrlAvailabilityResponse{Available: available})
 }

@@ -22,6 +22,179 @@ import (
 // EnvironmentsAPIService EnvironmentsAPI service
 type EnvironmentsAPIService service
 
+type ApiCheckThunderUrlAvailabilityRequest struct {
+	ctx        context.Context
+	ApiService *EnvironmentsAPIService
+	orgName    string
+	handle     *string
+}
+
+// The candidate env-Thunder URL handle to check.
+func (r ApiCheckThunderUrlAvailabilityRequest) Handle(handle string) ApiCheckThunderUrlAvailabilityRequest {
+	r.handle = &handle
+	return r
+}
+
+func (r ApiCheckThunderUrlAvailabilityRequest) Execute() (*ThunderUrlAvailabilityResponse, *http.Response, error) {
+	return r.ApiService.CheckThunderUrlAvailabilityExecute(r)
+}
+
+/*
+CheckThunderUrlAvailability Check whether an env-Thunder URL handle is available
+
+Advisory pre-flight check used by the console's Create Environment
+drawer to reject an obviously-taken or invalid handle before the user
+ever runs the generated add-environment.sh command — this is NOT
+authoritative. The handle is globally unique across every
+org/environment (see setEnvironmentThunderUrl), so this check is not
+scoped to any single environment; a handle can be taken by a
+completely different org. The real enforcement remains
+setEnvironmentThunderUrl's atomic insert: a handle reported available
+here could still be claimed by someone else before this caller
+actually registers it.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param orgName Organization name/handle
+	@return ApiCheckThunderUrlAvailabilityRequest
+*/
+func (a *EnvironmentsAPIService) CheckThunderUrlAvailability(ctx context.Context, orgName string) ApiCheckThunderUrlAvailabilityRequest {
+	return ApiCheckThunderUrlAvailabilityRequest{
+		ApiService: a,
+		ctx:        ctx,
+		orgName:    orgName,
+	}
+}
+
+// Execute executes the request
+//
+//	@return ThunderUrlAvailabilityResponse
+func (a *EnvironmentsAPIService) CheckThunderUrlAvailabilityExecute(r ApiCheckThunderUrlAvailabilityRequest) (*ThunderUrlAvailabilityResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *ThunderUrlAvailabilityResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "EnvironmentsAPIService.CheckThunderUrlAvailability")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/orgs/{orgName}/thunder-url-availability"
+	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.orgName) < 1 {
+		return localVarReturnValue, nil, reportError("orgName must have at least 1 elements")
+	}
+	if strlen(r.orgName) > 64 {
+		return localVarReturnValue, nil, reportError("orgName must have less than 64 elements")
+	}
+	if r.handle == nil {
+		return localVarReturnValue, nil, reportError("handle is required and must be specified")
+	}
+
+	parameterAddToHeaderOrQuery(localVarQueryParams, "handle", r.handle, "")
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 500 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiCreateEnvironmentRequest struct {
 	ctx                      context.Context
 	ApiService               *EnvironmentsAPIService
@@ -1464,10 +1637,13 @@ handle collides with a different environment's, this returns 409. A
 collision on a GENERATED handle is retried internally with a fresh
 value and never surfaces as a 409.
 
-Idempotent for the SAME environment: re-registering updates the
-handle in place. Keyed by OU ID, always taken from the caller's own
-token (never client-supplied), not orgName — same rationale as
-thunder-system-client.
+Idempotent for the SAME environment, but never changes an
+already-registered handle: a blank or matching re-registration is a
+no-op that reports the existing handle; an explicit DIFFERENT handle
+is rejected with 409 (Thunder's issuer is immutable once minted — call
+DELETE first to free the handle before registering a new one). Keyed
+by OU ID, always taken from the caller's own token (never
+client-supplied), not orgName — same rationale as thunder-system-client.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle

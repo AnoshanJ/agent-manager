@@ -52,6 +52,14 @@ type EnvThunderURLRepository interface {
 	// Delete removes the handle record for (ouID, envName). Deleting a
 	// non-existent row is not an error.
 	Delete(ctx context.Context, ouID, envName string) error
+	// ExistsByHandle reports whether handle is already registered to ANY
+	// (ouID, envName) — the handle is globally unique across the whole
+	// platform (see uq_env_thunder_urls_handle), so this is deliberately not
+	// scoped to a single environment. Used for a pre-flight availability
+	// check so a caller can be told a handle is taken before ever attempting
+	// to claim it (Insert already enforces this atomically; this is a
+	// non-authoritative, racy-by-nature read for UX purposes only).
+	ExistsByHandle(ctx context.Context, handle string) (bool, error)
 }
 
 type envThunderURLRepo struct {
@@ -106,4 +114,13 @@ func (r *envThunderURLRepo) Insert(ctx context.Context, rec *models.EnvThunderUR
 func (r *envThunderURLRepo) Delete(ctx context.Context, ouID, envName string) error {
 	return r.db.WithContext(ctx).Where("ou_id = ? AND env_name = ?", ouID, envName).
 		Delete(&models.EnvThunderURL{}).Error
+}
+
+func (r *envThunderURLRepo) ExistsByHandle(ctx context.Context, handle string) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.EnvThunderURL{}).
+		Where("thunder_handle = ?", handle).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

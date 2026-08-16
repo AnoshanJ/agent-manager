@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"regexp"
 	"sync"
 
@@ -60,6 +61,17 @@ type EnvironmentService interface {
 	GetThunderURL(ctx context.Context, ouID, envName string) (string, error)
 	// DeleteThunderURL removes the handle (idempotent), freeing it for reuse.
 	DeleteThunderURL(ctx context.Context, ouID, envName string) error
+	// IsThunderHandleAvailable checks whether handle passes format validation
+	// and is not already registered to ANY environment. This is a UX
+	// convenience for the console's Create Environment drawer, letting it
+	// reject an obviously-taken handle before the user ever runs the
+	// generated script — it is NOT authoritative: SetThunderURL's atomic
+	// insert (via the DB's unique constraint) remains the only real
+	// enforcement, since a handle could be claimed by someone else between
+	// this check and the actual registration. Returns a validation error
+	// (wrapping utils.ErrInvalidThunderHandle) if handle's format itself is
+	// invalid, distinct from "valid but taken" (available=false, err=nil).
+	IsThunderHandleAvailable(ctx context.Context, handle string) (bool, error)
 }
 
 type environmentService struct {
@@ -591,7 +603,7 @@ const minThunderHandleLen = generatedThunderHandleLen
 // namespace, or Kubernetes-reserved name — allowing a handle to equal one risks
 // hijacking or confusion once that component sits at the same hostname level
 // (<handle>.<baseDomain>). Mirrored on the console side by
-// CreateEnvironmentDrawer.tsx's RESTRICTED_THUNDER_HANDLES; keep both in sync.
+// environmentSchema.ts's RESTRICTED_THUNDER_HANDLES; keep both in sync.
 //
 // Every entry here must be >= minThunderHandleLen characters, or it can never
 // actually be submitted as a handle and the check is dead code (the platform's
@@ -649,13 +661,18 @@ const maxGenerateThunderHandleAttempts = 5
 // generateThunderHandle returns a random, generatedThunderHandleLen-character
 // handle drawn from thunderHandleAlphabet.
 func generateThunderHandle() (string, error) {
-	buf := make([]byte, generatedThunderHandleLen)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate thunder url handle: %w", err)
-	}
+	// rand.Int, not a byte-mod-len(alphabet) reduction: 256 isn't a multiple of
+	// len(thunderHandleAlphabet), so reducing a random byte mod 36 would make
+	// the alphabet's first 4 characters slightly likelier than the rest —
+	// avoidable bias in a value whose whole point is being unguessable.
+	alphabetLen := big.NewInt(int64(len(thunderHandleAlphabet)))
 	out := make([]byte, generatedThunderHandleLen)
-	for i, b := range buf {
-		out[i] = thunderHandleAlphabet[int(b)%len(thunderHandleAlphabet)]
+	for i := range out {
+		n, err := rand.Int(rand.Reader, alphabetLen)
+		if err != nil {
+			return "", fmt.Errorf("generate thunder url handle: %w", err)
+		}
+		out[i] = thunderHandleAlphabet[n.Int64()]
 	}
 	return string(out), nil
 }
@@ -797,14 +814,47 @@ func (s *environmentService) DeleteThunderURL(ctx context.Context, ouID, envName
 	return nil
 }
 
+// IsThunderHandleAvailable validates handle's format, then checks it against
+// every currently-registered handle (not just this caller's own environment —
+// the handle is globally unique, see migration042). See the interface doc
+// comment for why this is advisory, not authoritative.
+func (s *environmentService) IsThunderHandleAvailable(ctx context.Context, handle string) (bool, error) {
+	if err := validateThunderHandle(handle); err != nil {
+		return false, err
+	}
+	exists, err := s.envThunderURLRepo.ExistsByHandle(ctx, handle)
+	if err != nil {
+		return false, fmt.Errorf("failed to check thunder url handle availability for %q: %w", handle, err)
+	}
+	return !exists, nil
+}
+
 // SetThunderSystemClientSecret encrypts and upserts the env-Thunder system-client
 // credential, keyed by ouID.
+//
+// Provisions a URL handle (auto-generating one if none is registered yet) BEFORE
+// ever storing the credential — never the other way around. ResolveThunderHandle
+// treats "a system-client credential exists but no handle row does" as "this
+// environment predates the handle feature", and grandfathers in the old
+// guessable <org>-<env> pattern. That's the correct call for environments that
+// really do predate this feature, but it must never be able to fire for an
+// environment that's simply being provisioned for the first time — which is
+// only guaranteed if a credential can never exist without a handle already
+// existing first. add-environment-thunder.sh happens to call register_thunder_url
+// before store_via_ams today, but that's an external, unenforced ordering; this
+// call makes the invariant hold by construction for every caller, present and
+// future, not just today's one script. SetThunderURL with an empty handle is
+// already an idempotent no-op when one is already registered, so this changes
+// nothing for an environment that already has one.
 func (s *environmentService) SetThunderSystemClientSecret(ctx context.Context, ouID, envName, clientID, clientSecret string) error {
 	if clientSecret == "" {
 		return fmt.Errorf("%w: clientSecret is required", utils.ErrInvalidInput)
 	}
 	if ouID == "" {
 		return fmt.Errorf("%w: ouID is required", utils.ErrInvalidInput)
+	}
+	if _, err := s.SetThunderURL(ctx, ouID, envName, ""); err != nil {
+		return fmt.Errorf("failed to ensure a thunder url handle exists for %s/%s: %w", ouID, envName, err)
 	}
 	encrypted, err := utils.EncryptBytes([]byte(clientSecret), s.encryptionKey)
 	if err != nil {

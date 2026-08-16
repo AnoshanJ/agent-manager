@@ -2091,10 +2091,13 @@ paths:
         collision on a GENERATED handle is retried internally with a fresh
         value and never surfaces as a 409.
 
-        Idempotent for the SAME environment: re-registering updates the
-        handle in place. Keyed by OU ID, always taken from the caller's own
-        token (never client-supplied), not orgName — same rationale as
-        thunder-system-client.
+        Idempotent for the SAME environment, but never changes an
+        already-registered handle: a blank or matching re-registration is a
+        no-op that reports the existing handle; an explicit DIFFERENT handle
+        is rejected with 409 (Thunder's issuer is immutable once minted — call
+        DELETE first to free the handle before registering a new one). Keyed
+        by OU ID, always taken from the caller's own token (never
+        client-supplied), not orgName — same rationale as thunder-system-client.
       operationId: setEnvironmentThunderUrl
       requestBody:
         required: false
@@ -2128,7 +2131,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: Conflict - handle already registered to a different environment
+          description: >-
+            Conflict - handle is already registered to a different
+            environment, or this environment already has a different handle
+            registered (call DELETE first to change it)
           content:
             application/json:
               schema:
@@ -2154,6 +2160,74 @@ paths:
       responses:
         "204":
           description: Handle deleted (or already absent)
+        "401":
+          description: Unauthorized - invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orgs/{orgName}/thunder-url-availability:
+    parameters:
+      - name: orgName
+        in: path
+        required: true
+        description: Organization name/handle
+        schema:
+          type: string
+          pattern: "^[a-z0-9-]+$"
+          minLength: 1
+          maxLength: 64
+      - name: handle
+        in: query
+        required: true
+        description: The candidate env-Thunder URL handle to check.
+        schema:
+          type: string
+
+    get:
+      tags:
+        - Environments
+      summary: Check whether an env-Thunder URL handle is available
+      description: |
+        Advisory pre-flight check used by the console's Create Environment
+        drawer to reject an obviously-taken or invalid handle before the user
+        ever runs the generated add-environment.sh command — this is NOT
+        authoritative. The handle is globally unique across every
+        org/environment (see setEnvironmentThunderUrl), so this check is not
+        scoped to any single environment; a handle can be taken by a
+        completely different org. The real enforcement remains
+        setEnvironmentThunderUrl's atomic insert: a handle reported available
+        here could still be claimed by someone else before this caller
+        actually registers it.
+      operationId: checkThunderUrlAvailability
+      responses:
+        "200":
+          description: >-
+            Whether the handle passes format validation and is not already
+            registered to any environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThunderUrlAvailabilityResponse"
+        "400":
+          description: Bad request - invalid handle format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Unauthorized - invalid or missing authentication
           content:
@@ -14268,14 +14342,33 @@ components:
       type: object
       description: |
         The env-Thunder URL handle registered for an environment — either the
-        caller-supplied value, or the value the server generated when the
-        caller left it blank.
+        caller-supplied value, the value the server generated when the caller
+        left it blank, or (for an environment that predates this handle
+        feature) a value reproducing its pre-existing hostname exactly. Unlike
+        ThunderUrlRequest, this is NOT always a bare DNS label: a grandfathered
+        environment's handle can contain a dot and exceed 63 characters (up to
+        80), so no pattern/length constraint is declared here — see
+        thundersvc.LegacyThunderHandleLabel.
       required:
         - handle
       properties:
         handle:
           type: string
-          example: x7f2q9kz
+          example: x7f2q9kzab
+
+    ThunderUrlAvailabilityResponse:
+      type: object
+      description: |
+        Whether a candidate env-Thunder URL handle passes format validation
+        and is not already registered to any environment. Advisory only — see
+        checkThunderUrlAvailability.
+      required:
+        - available
+      properties:
+        available:
+          type: boolean
+          description: True if the handle is well-formed and not currently taken.
+          example: true
 
     GatewaySpec:
       type: object

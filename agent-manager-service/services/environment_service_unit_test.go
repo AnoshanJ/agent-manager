@@ -68,9 +68,28 @@ func newEnvService(repo *repomocks.GatewayRepositoryMock, oc *clientmocks.OpenCh
 
 // newEnvServiceWithThunderRepo wires the service with a configured env-Thunder
 // repo + encryption key, for the SetThunderSystemClientSecret tests.
+//
+// SetThunderSystemClientSecret now provisions a handle as a precondition of
+// storing a credential (see its own doc comment), so this also wires a default
+// env-Thunder URL repo (no row yet, insert succeeds) and gives the system-client
+// repo a default "not found" Get if the caller didn't already set one —
+// ResolveThunderHandle reads both repos before a credential can be stored.
 func newEnvServiceWithThunderRepo(repo *repomocks.EnvThunderSystemClientRepositoryMock) EnvironmentService {
+	if repo.GetFunc == nil {
+		repo.GetFunc = func(context.Context, string, string) (*models.EnvThunderSystemClient, error) {
+			return nil, gorm.ErrRecordNotFound
+		}
+	}
+	urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+		GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		InsertFunc: func(context.Context, *models.EnvThunderURL) error {
+			return nil
+		},
+	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, repo, nil, envTestKey)
+	return NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, repo, urlRepo, envTestKey)
 }
 
 // newEnvServiceWithThunderURLRepo wires the service with a configured env-Thunder
@@ -1056,6 +1075,82 @@ func TestEnvironmentService_SetThunderSystemClientSecret(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom)
 	})
+
+	// A credential must never be storable without a handle already existing —
+	// see SetThunderSystemClientSecret's own doc comment for why: this is the
+	// invariant ResolveThunderHandle's grandfathering relies on to tell "predates
+	// the handle feature" apart from "newly provisioned".
+	t.Run("provisions a thunder url handle before storing a credential, when none is registered yet", func(t *testing.T) {
+		var urlInserted *models.EnvThunderURL
+		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+			InsertFunc: func(_ context.Context, rec *models.EnvThunderURL) error {
+				urlInserted = rec
+				return nil
+			},
+		}
+		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderSystemClient, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+			UpsertFunc: func(context.Context, *models.EnvThunderSystemClient) error { return nil },
+		}
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		svc := NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, systemClientRepo, urlRepo, envTestKey)
+
+		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
+
+		require.NoError(t, err)
+		require.NotNil(t, urlInserted, "a handle must be provisioned before a credential is ever stored")
+		assert.Equal(t, "ou-123", urlInserted.OUID)
+		assert.Equal(t, "staging", urlInserted.EnvName)
+		assert.Len(t, urlInserted.ThunderHandle, generatedThunderHandleLen)
+	})
+
+	t.Run("reuses an already-registered handle instead of claiming a new one", func(t *testing.T) {
+		existing := &models.EnvThunderURL{OUID: "ou-123", EnvName: "staging", ThunderHandle: "already-registered-handle"}
+		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+				return existing, nil
+			},
+			InsertFunc: func(context.Context, *models.EnvThunderURL) error {
+				t.Fatal("must not claim a new handle when one is already registered")
+				return nil
+			},
+		}
+		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
+			UpsertFunc: func(context.Context, *models.EnvThunderSystemClient) error { return nil },
+		}
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		svc := NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, systemClientRepo, urlRepo, envTestKey)
+
+		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("does not store the credential when handle provisioning fails", func(t *testing.T) {
+		boom := errors.New("db down")
+		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+				return nil, boom
+			},
+		}
+		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
+			UpsertFunc: func(context.Context, *models.EnvThunderSystemClient) error {
+				t.Fatal("must not store the credential when handle provisioning fails")
+				return nil
+			},
+		}
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		svc := NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, systemClientRepo, urlRepo, envTestKey)
+
+		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
+
+		require.Error(t, err)
+	})
 }
 
 func TestEnvironmentService_DeleteThunderSystemClientSecret(t *testing.T) {
@@ -1607,6 +1702,77 @@ func TestEnvironmentService_DeleteThunderURL(t *testing.T) {
 		svc := newEnvServiceWithThunderURLRepo(repo)
 
 		err := svc.DeleteThunderURL(context.Background(), "ou-123", "prod")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, boom)
+	})
+}
+
+func TestEnvironmentService_IsThunderHandleAvailable(t *testing.T) {
+	t.Run("available when well-formed and not registered to anyone", func(t *testing.T) {
+		var gotHandle string
+		repo := &repomocks.EnvThunderURLRepositoryMock{
+			ExistsByHandleFunc: func(_ context.Context, handle string) (bool, error) {
+				gotHandle = handle
+				return false, nil
+			},
+		}
+		svc := newEnvServiceWithThunderURLRepo(repo)
+
+		available, err := svc.IsThunderHandleAvailable(context.Background(), "abc123defg")
+		require.NoError(t, err)
+		assert.True(t, available)
+		assert.Equal(t, "abc123defg", gotHandle)
+	})
+
+	t.Run("unavailable when already registered to someone", func(t *testing.T) {
+		repo := &repomocks.EnvThunderURLRepositoryMock{
+			ExistsByHandleFunc: func(context.Context, string) (bool, error) { return true, nil },
+		}
+		svc := newEnvServiceWithThunderURLRepo(repo)
+
+		available, err := svc.IsThunderHandleAvailable(context.Background(), "abc123defg")
+		require.NoError(t, err)
+		assert.False(t, available)
+	})
+
+	t.Run("rejects a handle that's too short without ever querying the repo", func(t *testing.T) {
+		repo := &repomocks.EnvThunderURLRepositoryMock{
+			ExistsByHandleFunc: func(context.Context, string) (bool, error) {
+				t.Fatal("must not query the repo for an invalid handle")
+				return false, nil
+			},
+		}
+		svc := newEnvServiceWithThunderURLRepo(repo)
+
+		available, err := svc.IsThunderHandleAvailable(context.Background(), "short")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, utils.ErrInvalidThunderHandle)
+		assert.False(t, available)
+	})
+
+	t.Run("rejects a reserved word", func(t *testing.T) {
+		repo := &repomocks.EnvThunderURLRepositoryMock{
+			ExistsByHandleFunc: func(context.Context, string) (bool, error) {
+				t.Fatal("must not query the repo for a reserved handle")
+				return false, nil
+			},
+		}
+		svc := newEnvServiceWithThunderURLRepo(repo)
+
+		available, err := svc.IsThunderHandleAvailable(context.Background(), "kubernetes")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, utils.ErrInvalidThunderHandle)
+		assert.False(t, available)
+	})
+
+	t.Run("wraps a repo error", func(t *testing.T) {
+		boom := errors.New("db down")
+		repo := &repomocks.EnvThunderURLRepositoryMock{
+			ExistsByHandleFunc: func(context.Context, string) (bool, error) { return false, boom },
+		}
+		svc := newEnvServiceWithThunderURLRepo(repo)
+
+		_, err := svc.IsThunderHandleAvailable(context.Background(), "abc123defg")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom)
 	})
