@@ -472,8 +472,18 @@ func (c *TracingController) aggregateFromLeafLLMSpans(
 		tokens.Partial = true
 	}
 
-	// Input preview from the first leaf, output preview from the last.
-	input = opensearch.ExtractInputPreviewFromLeaf(&validLeaves[0])
+	// Input preview from the first leaf that actually carries messages. A
+	// framework that wraps the provider call in its own LLM span (Strands opens
+	// "chat" around "openai.chat") puts a content-free span first, and reading
+	// only validLeaves[0] leaves the trace list's Input column blank.
+	for i := range validLeaves {
+		if v := opensearch.ExtractInputPreviewFromLeaf(&validLeaves[i]); v != nil {
+			input = v
+			break
+		}
+	}
+	// Output stays pinned to the last leaf: it is the turn's final model call,
+	// and walking backwards would surface an earlier turn's answer instead.
 	output = opensearch.ExtractOutputPreviewFromLeaf(&validLeaves[len(validLeaves)-1])
 	return input, output, tokens
 }
