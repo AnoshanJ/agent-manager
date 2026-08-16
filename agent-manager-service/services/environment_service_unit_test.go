@@ -881,6 +881,36 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 		assert.Empty(t, resp.ThunderInstances)
 	})
 
+	t.Run("fails loudly instead of silently omitting an environment on a real handle-read error", func(t *testing.T) {
+		// Contrast with "skips environments with no registered handle" above: a
+		// genuine DB error reading the handle must never look like "not
+		// provisioned" to the caller — the console must see a failure, not a
+		// silently truncated list.
+		boom := errors.New("db down")
+		oc := &clientmocks.OpenChoreoClientMock{
+			ListEnvironmentsFunc: func(_ context.Context, _ string) ([]*models.EnvironmentResponse, error) {
+				return []*models.EnvironmentResponse{
+					{UUID: "u1", Name: "dev", DisplayName: "Dev", IsProduction: false},
+				}, nil
+			},
+			ListOrganizationsFunc: func(_ context.Context) ([]*models.OrganizationResponse, error) {
+				return []*models.OrganizationResponse{{Namespace: org}}, nil
+			},
+		}
+		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
+			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
+				return nil, boom
+			},
+		}
+		svc := NewEnvironmentService(discardLogger(), &repomocks.GatewayRepositoryMock{}, oc, &clientmocks.ThunderProberMock{}, nil, nil, urlRepo, nil)
+
+		resp, err := svc.ListThunderInstances(context.Background(), org)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, boom)
+		assert.Nil(t, resp)
+	})
+
 	t.Run("skips nil and empty-name environments", func(t *testing.T) {
 		// newEnvService's prober is unconfigured (panics if called) — proving the
 		// nil/empty-name guard skips these entries before ever probing them.

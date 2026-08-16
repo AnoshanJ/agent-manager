@@ -516,10 +516,18 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 	// skipped without even trying. Probing is fanned out across goroutines (bounded
 	// by maxThunderProbeConcurrency) rather than run sequentially, since each probe
 	// can take a couple of seconds in the worst case.
+	//
+	// A real handle-read error (as opposed to "genuinely never provisioned", which
+	// readThunderHandle returns as ("", nil)) must fail the whole call rather than
+	// silently drop that one environment from the response — a transient DB hiccup
+	// must never look identical to "this environment has no Thunder instance" on
+	// the console's Identity page.
 	reachable := make([]bool, len(envs))
 	handles := make([]string, len(envs))
 	sem := make(chan struct{}, maxThunderProbeConcurrency)
 	var wg sync.WaitGroup
+	var readErrOnce sync.Once
+	var readErr error
 	for i, env := range envs {
 		if env == nil || env.Name == "" {
 			continue
@@ -529,7 +537,11 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 		go func(idx int, envName string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			handle := s.readThunderHandle(ctx, ouID, envName)
+			handle, err := s.readThunderHandle(ctx, ouID, envName)
+			if err != nil {
+				readErrOnce.Do(func() { readErr = fmt.Errorf("read thunder url handle for env %s: %w", envName, err) })
+				return
+			}
 			handles[idx] = handle
 			if handle == "" {
 				return // not provisioned — reachable[idx] stays false, no probe needed
@@ -538,6 +550,9 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 		}(i, env.Name)
 	}
 	wg.Wait()
+	if readErr != nil {
+		return nil, readErr
+	}
 
 	instances := make([]models.ThunderInstanceResponse, 0, len(envs))
 	for i, env := range envs {
@@ -571,16 +586,12 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 }
 
 // readThunderHandle looks up envName's env-Thunder URL handle via
-// ResolveThunderHandle. A read failure and "genuinely never provisioned" both
-// collapse to "" here — callers (ListThunderInstances) treat that as the
-// not-provisioned signal, not as an error to propagate from a transient hiccup.
-func (s *environmentService) readThunderHandle(ctx context.Context, ouID, envName string) string {
-	handle, err := ResolveThunderHandle(ctx, s.envThunderURLRepo, s.envThunderRepo, ouID, envName)
-	if err != nil {
-		s.logger.Error("failed to resolve env-thunder url handle", "ouID", ouID, "envName", envName, "error", err)
-		return ""
-	}
-	return handle
+// ResolveThunderHandle, which already distinguishes "genuinely never
+// provisioned" (returns "", nil) from a real read failure (returns a wrapped
+// error) — this just widens that same distinction to environmentService's
+// caller instead of collapsing it.
+func (s *environmentService) readThunderHandle(ctx context.Context, ouID, envName string) (string, error) {
+	return ResolveThunderHandle(ctx, s.envThunderURLRepo, s.envThunderRepo, ouID, envName)
 }
 
 // thunderHandlePattern matches a DNS-label-safe handle: lowercase alphanumeric,
