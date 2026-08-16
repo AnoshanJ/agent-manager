@@ -1638,6 +1638,7 @@ func TestEnvironmentService_GetThunderURL(t *testing.T) {
 		repo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				t.Fatal("must not read when ouID is empty")
+				//nolint:nilnil // unreachable: t.Fatal stops execution
 				return nil, nil
 			},
 		}
