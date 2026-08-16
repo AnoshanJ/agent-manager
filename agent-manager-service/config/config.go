@@ -130,6 +130,31 @@ type Config struct {
 
 	// Audit configures the audit trail.
 	Audit AuditConfig
+
+	// GatewayManifestCache configures where the gateway-reported policy manifest
+	// cache lives. The default in-memory backend is process-local and therefore
+	// inconsistent across replicas — set Backend to "redis" in HA deployments.
+	GatewayManifestCache GatewayManifestCacheConfig
+}
+
+// GatewayManifestCacheConfig selects and configures the backend for the
+// gateway-manifest cache (see services.GatewayManifestCacheBackend).
+type GatewayManifestCacheConfig struct {
+	// Backend is "memory" (default, single-replica only) or "redis" (required for
+	// HA — a per-replica in-memory cache would leave replicas disagreeing on which
+	// policies gateways report, since each only sees the manifest pushes routed to it).
+	Backend string
+	Redis   GatewayManifestCacheRedisConfig
+}
+
+// GatewayManifestCacheRedisConfig configures the Redis backend. Only read/validated
+// when GatewayManifestCacheConfig.Backend == "redis".
+type GatewayManifestCacheRedisConfig struct {
+	Host       string
+	Port       int
+	Password   string `json:"-"`
+	DB         int
+	TLSEnabled bool
 }
 
 // AuditConfig controls the audit trail.

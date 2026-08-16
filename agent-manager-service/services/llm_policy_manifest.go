@@ -128,7 +128,7 @@ func intersectLLMPolicies(gateways []*models.Gateway) map[string]llmPolicyManife
 		gatewayCount++
 		gatewayPolicies := map[string]llmPolicyManifestItem{}
 		namesOnThisGateway := map[string]struct{}{}
-		for _, policy := range extractLLMPolicyManifestItems(gateway.Manifest) {
+		for _, policy := range extractLLMPolicyManifestItems(gatewayManifest(gateway)) {
 			if policy.Name == "" || policy.Version == "" {
 				continue
 			}
