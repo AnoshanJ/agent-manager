@@ -189,6 +189,7 @@ type AutoScalingConfig struct {
 type ComponentParameters struct {
 	Exposed   bool            `json:"exposed"`
 	Resources *ResourceConfig `json:"resources,omitempty"`
+	RoutePath string          `json:"routePath,omitempty"`
 }
 
 // EnvOverrideParameters represents environment-specific overrides (must match agent-api.yaml envOverrides schema)

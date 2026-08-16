@@ -106,6 +106,7 @@ func buildInternalAgentFromKindComponentRequestBody(namespaceName, projectName s
 	defaultParams := ComponentParameters{
 		Exposed:   true,
 		Resources: resourceParams,
+		RoutePath: req.Name,
 	}
 	parameters, err := structToMap(defaultParams)
 	if err != nil {
@@ -224,6 +225,7 @@ func buildInternalAgentFromSourceComponentRequestBody(namespaceName, projectName
 	defaultParams := ComponentParameters{
 		Exposed:   true,
 		Resources: resourceParams,
+		RoutePath: req.Name,
 	}
 
 	// Convert struct to map for OpenChoreo API
