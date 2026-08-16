@@ -51,9 +51,15 @@ func publishScoresRequest() *models.PublishScoresRequest {
 	}
 }
 
-// Every ScoreRepository Func is left nil: a write attempt panics and fails the test.
-func newScoresServiceForOwnership(monitorRepo repositories.MonitorRepository) *MonitorScoresService {
-	return NewMonitorScoresService(&repomocks.ScoreRepositoryMock{}, monitorRepo, discardLogger())
+func newScoresServiceForOwnership(t *testing.T, monitorRepo repositories.MonitorRepository) *MonitorScoresService {
+	t.Helper()
+	scoreRepo := &repomocks.ScoreRepositoryMock{
+		RunInTransactionFunc: func(_ func(repositories.ScoreRepository) error) error {
+			t.Fatal("score repository must not be reached for a rejected publish")
+			return nil
+		},
+	}
+	return NewMonitorScoresService(scoreRepo, monitorRepo, discardLogger())
 }
 
 func TestPublishScoresRejectsMonitorOwnedByAnotherOrg(t *testing.T) {
@@ -65,7 +71,7 @@ func TestPublishScoresRejectsMonitorOwnedByAnotherOrg(t *testing.T) {
 		},
 	}
 
-	err := newScoresServiceForOwnership(monitorRepo).
+	err := newScoresServiceForOwnership(t, monitorRepo).
 		PublishScores(monitorID, runID, "attacker-org", publishScoresRequest())
 
 	require.Error(t, err)
@@ -85,7 +91,7 @@ func TestPublishScoresRejectsRunBelongingToAnotherMonitor(t *testing.T) {
 		},
 	}
 
-	err := newScoresServiceForOwnership(monitorRepo).
+	err := newScoresServiceForOwnership(t, monitorRepo).
 		PublishScores(monitorID, runID, "acme", publishScoresRequest())
 
 	require.Error(t, err)
@@ -99,7 +105,7 @@ func TestPublishScoresRejectsUnknownMonitor(t *testing.T) {
 		},
 	}
 
-	err := newScoresServiceForOwnership(monitorRepo).
+	err := newScoresServiceForOwnership(t, monitorRepo).
 		PublishScores(uuid.New(), uuid.New(), "acme", publishScoresRequest())
 
 	require.Error(t, err)
@@ -114,7 +120,7 @@ func TestPublishScoresRejectsEmptyCallerOrg(t *testing.T) {
 		},
 	}
 
-	err := newScoresServiceForOwnership(monitorRepo).
+	err := newScoresServiceForOwnership(t, monitorRepo).
 		PublishScores(uuid.New(), uuid.New(), "", publishScoresRequest())
 
 	require.Error(t, err)
@@ -130,7 +136,7 @@ func TestPublishScoresPropagatesMonitorLookupFailure(t *testing.T) {
 		},
 	}
 
-	err := newScoresServiceForOwnership(monitorRepo).
+	err := newScoresServiceForOwnership(t, monitorRepo).
 		PublishScores(uuid.New(), uuid.New(), "acme", publishScoresRequest())
 
 	require.Error(t, err)
