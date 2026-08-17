@@ -32,6 +32,10 @@ Thunder (identity provider) must be installed before proceeding — see the Thun
 
 Install these in order — each depends on the one before it.
 
+:::warning Upgrading an existing installation? Reverse Steps 2 and 4
+The order above is for a fresh install, where no agents exist yet and the order is harmless. When upgrading an already-running platform, upgrade `wso2-amp-platform-resources-extension` (Step 4) at or before `wso2-agent-manager` (Step 2), not after: the service writes component parameters that the chart must already know how to read, so an agent created in the window between the two upgrades can have its live invoke URL change on the later chart upgrade.
+:::
+
 #### Step 1: Gateway Operator
 
 Manages API Gateway resources and enables secure, authenticated trace ingestion into the Observability Plane.

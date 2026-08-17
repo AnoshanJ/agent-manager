@@ -189,6 +189,9 @@ type AutoScalingConfig struct {
 type ComponentParameters struct {
 	Exposed   bool            `json:"exposed"`
 	Resources *ResourceConfig `json:"resources,omitempty"`
+	// RoutePath is a bare path segment with no leading slash: the chart template
+	// supplies the "/" when it renders the HTTPRoute path from this parameter.
+	RoutePath string `json:"routePath,omitempty"`
 }
 
 // EnvOverrideParameters represents environment-specific overrides (must match agent-api.yaml envOverrides schema)

@@ -201,3 +201,50 @@ func TestConvertComponentFromTyped_Labels(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"env": "prod", "team": "ml"}, agent.Labels)
 }
+
+func TestBuildInternalAgentFromKindComponentRequestBody_RoutePath(t *testing.T) {
+	req := CreateComponentRequest{
+		Name:        "agent-1",
+		DisplayName: "Agent 1",
+		AgentType:   AgentTypeConfig{Type: "agent-api", SubType: "chat-api"},
+		AgentKind:   &AgentKindRef{Name: "kind-1", Version: "v1"},
+		Build:       &BuildConfig{Type: "buildpack", Buildpack: &BuildpackConfig{Language: "python"}},
+	}
+	body, err := buildInternalAgentFromKindComponentRequestBody("ns", "proj", req)
+	require.NoError(t, err)
+	require.NotNil(t, body.Spec)
+	require.NotNil(t, body.Spec.Parameters)
+	// The chart prefixes the slash, so the parameter carries a bare segment.
+	assert.Equal(t, "agent-1", (*body.Spec.Parameters)["routePath"])
+}
+
+func TestBuildInternalAgentFromSourceComponentRequestBody_RoutePath(t *testing.T) {
+	req := CreateComponentRequest{
+		Name:             "agent-1",
+		DisplayName:      "Agent 1",
+		ProvisioningType: "internal",
+		AgentType:        AgentTypeConfig{Type: "agent-api", SubType: "chat-api"},
+		Build:            &BuildConfig{Type: "buildpack", Buildpack: &BuildpackConfig{Language: "python", LanguageVersion: "3.11"}},
+		InputInterface:   &InputInterfaceConfig{BasePath: "/"},
+	}
+	body, err := buildInternalAgentFromSourceComponentRequestBody("ns", "proj", req)
+	require.NoError(t, err)
+	require.NotNil(t, body.Spec)
+	require.NotNil(t, body.Spec.Parameters)
+	assert.Equal(t, "agent-1", (*body.Spec.Parameters)["routePath"])
+}
+
+func TestBuildExternalAgentComponentRequestBody_NoRoutePath(t *testing.T) {
+	// External agents render no HTTPRoute at all (external-agent-api.yaml), so a
+	// routePath would be a parameter nothing reads.
+	req := CreateComponentRequest{
+		Name:             "agent-1",
+		DisplayName:      "Agent 1",
+		ProvisioningType: "external",
+		AgentType:        AgentTypeConfig{Type: "external-agent-api", SubType: "custom-api"},
+	}
+	body, err := buildExternalAgentComponentRequestBody("ns", "proj", req)
+	require.NoError(t, err)
+	require.NotNil(t, body.Spec)
+	assert.Nil(t, body.Spec.Parameters)
+}

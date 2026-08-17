@@ -57,6 +57,19 @@ spec:
       properties:
         resources:
           $ref: "#/$defs/ResourceRequirements"
+        routePath:
+          type: string
+          description: >-
+            Public URL path segment for this agent's external and internal
+            routes alike, without a leading slash. Absent or empty preserves
+            the legacy "<componentName>-<endpointName>" path, so agents
+            created before this field existed keep the URLs they were
+            deployed with. This parameter is component-scoped while the
+            HTTPRoute rendering is per-endpoint, so a component with more than
+            one exposed HTTP endpoint would render duplicate hostname+path
+            routes instead of the distinct paths the legacy expression gave
+            each; today every code path produces exactly one endpoint, so this
+            is unreachable in practice.
 
   environmentConfigs:
     openAPIV3Schema:
@@ -333,7 +346,11 @@ spec:
           - matches:
             - path:
                 type: PathPrefix
-                value: /${metadata.componentName}-${endpoint}
+                # The false branch is load-bearing, not a defensive default: agents created
+                # before routePath existed have no such parameter, and must keep resolving to
+                # the exact "<componentName>-<endpoint>" path they were deployed with. Do not
+                # simplify this ternary to the routePath expression alone.
+                value: '${has(parameters.routePath) && parameters.routePath != "" ? "/" + parameters.routePath : "/" + metadata.componentName + "-" + endpoint}'
             filters:
               - type: URLRewrite
                 urlRewrite:
@@ -369,7 +386,11 @@ spec:
           - matches:
             - path:
                 type: PathPrefix
-                value: /${metadata.componentName}-${endpoint}
+                # The false branch is load-bearing, not a defensive default: agents created
+                # before routePath existed have no such parameter, and must keep resolving to
+                # the exact "<componentName>-<endpoint>" path they were deployed with. Do not
+                # simplify this ternary to the routePath expression alone.
+                value: '${has(parameters.routePath) && parameters.routePath != "" ? "/" + parameters.routePath : "/" + metadata.componentName + "-" + endpoint}'
             filters:
               - type: URLRewrite
                 urlRewrite:
