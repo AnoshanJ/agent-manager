@@ -1044,6 +1044,59 @@ data:
     value:
       allowedOrigins: {{ .Values.thunder.configuration.cors.allowedOrigins | toJson }}
 
+  73-amp-csp-config.yaml: |
+    # Content Security Policy (CSP) server_config resource for ThunderID 1.0.0 GA.
+    # ThunderID 1.0.0 enforces a deny-first CSP policy with img-src 'self' data: by default.
+    # This bootstrap document relaxes img-src and font-src for /gate/ and /console/ paths
+    # to allow external branding assets (e.g. wso2.cachefly.net, gstatic, wikimedia).
+    resource_type: server_config
+    name: csp
+    value:
+      reportOnly: false
+      paths:
+        - location: "/gate/"
+          directives:
+            style-src-elem:
+              - "'self'"
+              - "'unsafe-inline'"
+            style-src-attr:
+              - "'self'"
+              - "'unsafe-inline'"
+            img-src:
+              - "'self'"
+              - "data:"
+              - "https://wso2.cachefly.net"
+              - "https://www.gstatic.com"
+              - "https://upload.wikimedia.org"
+            font-src:
+              - "'self'"
+              - "data:"
+              - "https://fonts.gstatic.com"
+        - location: "/console/"
+          directives:
+            style-src-elem:
+              - "'self'"
+              - "'unsafe-inline'"
+            style-src-attr:
+              - "'self'"
+              - "'unsafe-inline'"
+            img-src:
+              - "'self'"
+              - "data:"
+              - "https://wso2.cachefly.net"
+              - "https://www.gstatic.com"
+              - "https://upload.wikimedia.org"
+            font-src:
+              - "'self'"
+              - "data:"
+              - "https://fonts.gstatic.com"
+            connect-src:
+              - "'self'"
+              - "https://thunderid.dev"
+            worker-src:
+              - "'self'"
+              - "blob:"
+
   72-am-observer-client.yaml: |
     # No "scopes" key on purpose: this client's authority comes from its OpenChoreo
     # ClusterAuthzRoleBinding (amp-observer-reader-binding), not from AMP scopes.
