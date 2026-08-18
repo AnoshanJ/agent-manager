@@ -240,6 +240,8 @@ export interface ProvisionAgentIdentityQuery {
 
 export type RegenerateAgentIdentitySecretPathParams = AgentPathParams;
 
+export type RetryAgentIdentityProvisioningPathParams = AgentPathParams;
+
 export type RevokeAgentIdentitySecretPathParams = AgentPathParams;
 export interface RevokeAgentIdentitySecretQuery {
   environment: string;

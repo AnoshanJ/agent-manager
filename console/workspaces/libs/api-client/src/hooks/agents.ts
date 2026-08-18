@@ -21,7 +21,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   createAgent, deleteAgent, getAgent, listAgents, listOrgAgents, generateAgentToken, updateAgent,
   updateAgentBuildParameters, getAgentRoles, getAgentGroups, getAgentIdentity,
-  provisionAgentIdentity, regenerateAgentIdentitySecret, revokeAgentIdentitySecret,
+  provisionAgentIdentity, regenerateAgentIdentitySecret, retryAgentIdentityProvisioning,
+  revokeAgentIdentitySecret,
 } from "../apis";
 import { SLOW_POLL_INTERVAL } from "../utils";
 import type {
@@ -56,6 +57,7 @@ import type {
   ProvisionAgentIdentityPathParams,
   ProvisionAgentIdentityQuery,
   RegenerateAgentIdentitySecretPathParams,
+  RetryAgentIdentityProvisioningPathParams,
   AgentIdentityActionRequest,
   AgentRegenerateSecretResponse,
   RevokeAgentIdentitySecretPathParams,
@@ -340,6 +342,22 @@ export function useRegenerateAgentIdentitySecret() {
   >({
     action: { verb: 'rotate', target: 'agent identity secret' },
     mutationFn: ({ params, body }) => regenerateAgentIdentitySecret(params, body, getToken),
+    onSuccess: (_data, { params }) => {
+      queryClient.invalidateQueries({ queryKey: ['agent-identity', params] });
+    },
+  });
+}
+
+export function useRetryAgentIdentityProvisioning() {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  return useApiMutation<
+    AgentIdentityEnvironmentView,
+    unknown,
+    { params: RetryAgentIdentityProvisioningPathParams; body: AgentIdentityActionRequest }
+  >({
+    action: { verb: 'rerun', target: 'agent identity provisioning' },
+    mutationFn: ({ params, body }) => retryAgentIdentityProvisioning(params, body, getToken),
     onSuccess: (_data, { params }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-identity', params] });
     },

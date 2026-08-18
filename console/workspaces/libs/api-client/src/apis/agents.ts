@@ -49,6 +49,7 @@ import type {
   ProvisionAgentIdentityPathParams,
   ProvisionAgentIdentityQuery,
   RegenerateAgentIdentitySecretPathParams,
+  RetryAgentIdentityProvisioningPathParams,
   AgentIdentityActionRequest,
   AgentRegenerateSecretResponse,
   RevokeAgentIdentitySecretPathParams,
@@ -323,6 +324,22 @@ export async function regenerateAgentIdentitySecret(
   const { orgName = "default", projName = "default", agentName } = params;
   const token = getToken ? await getToken() : undefined;
   const res = await httpPOST(identityBase(orgName, projName, agentName ?? ""), body, { token });
+  if (!res.ok) throw await res.json();
+  return res.json();
+}
+
+// Resets a binding stuck in "failed" status back to "pending" and
+// re-attempts provisioning. Only valid while the binding is currently
+// failed — a 409 means it moved on (or was never failed) before this call
+// landed.
+export async function retryAgentIdentityProvisioning(
+  params: RetryAgentIdentityProvisioningPathParams,
+  body: AgentIdentityActionRequest,
+  getToken?: () => Promise<string>,
+): Promise<AgentIdentityEnvironmentView> {
+  const { orgName = "default", projName = "default", agentName } = params;
+  const token = getToken ? await getToken() : undefined;
+  const res = await httpPOST(`${identityBase(orgName, projName, agentName ?? "")}/retry`, body, { token });
   if (!res.ok) throw await res.json();
   return res.json();
 }
