@@ -447,6 +447,33 @@ func TestValidateGatewayManifestCacheConfig(t *testing.T) {
 	}
 }
 
+// TestLoadEnvs_GatewayManifestCacheBackendIsTrimmed is the regression test for the
+// trim asymmetry between validateGatewayManifestCacheConfig (which used to trim only a
+// local copy for its own check) and wire.go's backend switch (which never trimmed):
+// a trailing-space typo like "redis " used to pass validation but still hit wire.go's
+// "unknown backend" error. Trimming once, at load, means the value config actually
+// stores is what both validation and wire.go agree on.
+func TestLoadEnvs_GatewayManifestCacheBackendIsTrimmed(t *testing.T) {
+	requiredEnv := map[string]string{
+		"OPEN_CHOREO_BASE_URL": "http://localhost/api/v1",
+		"DB_HOST":              "localhost",
+		"DB_USER":              "unit",
+		"DB_PASSWORD":          "unit",
+		"DB_NAME":              "unit",
+	}
+	for k, v := range requiredEnv {
+		t.Setenv(k, v)
+	}
+	t.Setenv("GATEWAY_MANIFEST_CACHE_BACKEND", "redis ")
+	t.Setenv("GATEWAY_MANIFEST_CACHE_REDIS_HOST", "redis.internal")
+
+	loadEnvs()
+
+	if got := config.GatewayManifestCache.Backend; got != "redis" {
+		t.Errorf("GatewayManifestCache.Backend = %q, want %q (trimmed)", got, "redis")
+	}
+}
+
 func TestLoadEnvs_ObserverConfig(t *testing.T) {
 	requiredEnv := map[string]string{
 		"OPEN_CHOREO_BASE_URL": "http://localhost/api/v1",
