@@ -609,11 +609,46 @@ func extractTokenUsageFromAttributes(attrs map[string]interface{}) *LLMTokenUsag
 func ExtractTokenUsage(spans []Span) *TokenUsage {
 	var inputTokens, outputTokens int
 
+	// Count a span only when no ancestor reports usage. Frameworks report the same
+	// tokens at several depths — Strands puts a turn's usage on its "chat" wrapper,
+	// Traceloop repeats it on the "openai.chat" beneath, and Strands repeats the
+	// turn total again on "invoke_agent" — so summing every reporting span trebles
+	// the trace. Preferring the outermost report also keeps aggregates whose
+	// children only partially report (streaming calls that carry no usage, or a
+	// truncated span set) from being under-counted.
+	reportsUsage := make(map[string]bool, len(spans))
+	parentOf := make(map[string]string, len(spans))
+	for i := range spans {
+		if spans[i].Attributes != nil && extractTokenUsageFromAttributes(spans[i].Attributes) != nil {
+			reportsUsage[spans[i].SpanID] = true
+		}
+		parentOf[spans[i].SpanID] = spans[i].ParentSpanID
+	}
+
+	// Walks up the parent chain; the seen set keeps malformed data (a parent cycle,
+	// or a span parented to itself) from looping forever.
+	hasReportingAncestor := func(id string) bool {
+		seen := map[string]bool{id: true}
+		for p := parentOf[id]; p != ""; p = parentOf[p] {
+			if seen[p] {
+				return false
+			}
+			seen[p] = true
+			if reportsUsage[p] {
+				return true
+			}
+		}
+		return false
+	}
+
 	for _, span := range spans {
 		// Check if this is a GenAI span by looking for gen_ai.* attributes
 		if span.Attributes != nil {
 			// Use the helper method to extract token usage from attributes
 			if usage := extractTokenUsageFromAttributes(span.Attributes); usage != nil {
+				if hasReportingAncestor(span.SpanID) {
+					continue
+				}
 				inputTokens += usage.InputTokens
 				outputTokens += usage.OutputTokens
 			}
@@ -1046,9 +1081,21 @@ func ExtractTraceInputOutputWithFallback(rootSpan *Span, spans []Span) (input in
 	}
 	if len(leaves) > 0 {
 		slices.SortFunc(leaves, func(a, b *Span) int { return a.StartTime.Compare(b.StartTime) })
+		// Scan outward past content-free leaves rather than giving up on the first
+		// one. Frameworks that wrap the provider call in their own LLM span (Strands
+		// opens "chat" around "openai.chat") would otherwise lose the trace preview
+		// to the empty wrapper, which sorts first.
 		if input == nil {
-			input = ExtractInputPreviewFromLeaf(leaves[0])
+			for _, leaf := range leaves {
+				if v := ExtractInputPreviewFromLeaf(leaf); v != nil {
+					input = v
+					break
+				}
+			}
 		}
+		// Not scanned backwards: the last leaf is the turn's final model call, and
+		// falling back to an earlier one would export a previous turn's answer as
+		// the trace response for evaluators to score.
 		if output == nil {
 			output = ExtractOutputPreviewFromLeaf(leaves[len(leaves)-1])
 		}
@@ -1900,8 +1947,12 @@ func ExtractEmbeddingDocuments(attrs map[string]interface{}) []string {
 
 // DetermineSpanType analyzes a span's attributes to determine its semantic type
 func DetermineSpanType(span Span) SpanType {
+	// Fall through to the name, not straight to unknown: a span can be
+	// classifiable by name alone, and returning unknown here made this disagree
+	// with DetermineSpanKindFromName, so the same span drew a different icon in
+	// the trace list than in the detail view.
 	if span.Attributes == nil {
-		return SpanTypeUnknown
+		return determineSpanTypeFromName(span.Name)
 	}
 
 	// Check for CrewAI Task operations (must come before generic task check)
@@ -1981,6 +2032,12 @@ func determineSpanTypeFromName(name string) SpanType {
 		return SpanTypeUnknown
 	}
 
+	// Strands opens one of these per agent reasoning iteration. Matched before the
+	// "."-segment switch below, which would otherwise see the whole undotted name.
+	if strings.HasPrefix(strings.ToLower(name), "execute_event_loop_cycle") {
+		return SpanTypeChain
+	}
+
 	// Split by "." and get the last segment
 	parts := strings.Split(name, ".")
 	if len(parts) == 0 {
@@ -2028,6 +2085,9 @@ func DetermineSpanKindFromName(name string) SpanType {
 	case strings.HasPrefix(lower, "execute_tool"):
 		return SpanTypeTool
 	case strings.HasPrefix(lower, "execute_task"):
+		return SpanTypeChain
+	// Strands opens one of these per agent reasoning iteration.
+	case strings.HasPrefix(lower, "execute_event_loop_cycle"):
 		return SpanTypeChain
 	}
 

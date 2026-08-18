@@ -103,6 +103,16 @@ type AgentThunderProvisioningService interface {
 	// best-effort background attempt.
 	ProvisionForEnvironmentIfMissing(ctx context.Context, ouID, projectName, agentName, envName string, ownership models.AgentProvisioningType, requestedBy string) (alreadyExisted bool, err error)
 
+	// RetryProvisioning resets a FAILED binding back to PENDING — clearing its
+	// attempt budget and last error — and re-attempts provisioning in the
+	// background, for both Internal and External agents. Returns
+	// utils.ErrAgentIdentityNotProvisioned if no binding exists for this agent
+	// in this environment, or utils.ErrAgentIdentityRetryNotAllowed if the
+	// binding exists but its current status is not FAILED — completed,
+	// pending, and in-progress bindings already have their own path forward
+	// and are rejected rather than silently no-oped.
+	RetryProvisioning(ctx context.Context, ouID, projectName, agentName, envName string) (models.AgentIdentityEnvironmentView, error)
+
 	// RegenerateSecret rotates the secret for one binding and returns the
 	// binding's ownership type, client ID, and the new secret. The caller (the
 	// HTTP layer) decides whether to expose the secret in the response based on
@@ -627,6 +637,49 @@ func (s *agentThunderProvisioningService) ProvisionForEnvironmentIfMissing(
 
 	s.ProvisionForAgent(ctx, ouID, projectName, agentName, ownership, []string{envName}, requestedBy)
 	return false, nil
+}
+
+func (s *agentThunderProvisioningService) RetryProvisioning(ctx context.Context, ouID, projectName, agentName, envName string) (models.AgentIdentityEnvironmentView, error) {
+	binding, err := s.repo.Get(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		if errors.Is(err, repositories.ErrAgentThunderClientNotFound) {
+			return models.AgentIdentityEnvironmentView{}, fmt.Errorf("%w: %s in %s", utils.ErrAgentIdentityNotProvisioned, agentName, envName)
+		}
+		return models.AgentIdentityEnvironmentView{}, err
+	}
+	if binding.Status != models.AgentThunderStatusFailed {
+		return models.AgentIdentityEnvironmentView{}, fmt.Errorf("%w: %s in %s is %s", utils.ErrAgentIdentityRetryNotAllowed, agentName, envName, binding.Status)
+	}
+
+	reset, err := s.repo.ResetFailedForRetry(ctx, binding.ID)
+	if err != nil {
+		return models.AgentIdentityEnvironmentView{}, fmt.Errorf("reset agent thunder binding for retry: %w", err)
+	}
+	if !reset {
+		// Lost a race with something else that moved the binding out of FAILED
+		// between the read above and this conditional update (another retry,
+		// or the reconciler) — same outward signal as "not currently failed."
+		return models.AgentIdentityEnvironmentView{}, fmt.Errorf("%w: %s in %s changed state concurrently", utils.ErrAgentIdentityRetryNotAllowed, agentName, envName)
+	}
+
+	binding.Status = models.AgentThunderStatusPending
+	binding.AttemptCount = 0
+	binding.LastError = ""
+	binding.LastAttemptedAt = nil
+	binding.NextRetryAt = nil
+
+	// Detach from the request context so the background attempt survives the
+	// HTTP handler returning, mirroring ProvisionForAgent's own attemptAll call.
+	go s.AttemptProvision(context.WithoutCancel(ctx), *binding)
+
+	return models.AgentIdentityEnvironmentView{
+		EnvironmentName:  binding.EnvironmentName,
+		ProvisioningType: binding.ProvisioningType,
+		Status:           models.AgentThunderStatusPending,
+		AgentID:          binding.ThunderAgentID,
+		ClientID:         binding.ThunderClientID,
+		RequestedBy:      binding.RequestedBy,
+	}, nil
 }
 
 func (s *agentThunderProvisioningService) AttemptProvision(ctx context.Context, binding models.AgentThunderClient) {

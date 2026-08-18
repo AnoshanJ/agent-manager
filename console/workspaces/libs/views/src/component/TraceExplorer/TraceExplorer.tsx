@@ -344,6 +344,12 @@ const SpanRow = memo(function SpanRow({
                     <XCircle size={16} />
                   </Stack>
                 )}
+                <Chip
+                  icon={<Clock size={16} />}
+                  label={formatDuration(node.span.durationInNanos)}
+                  size="small"
+                  variant="outlined"
+                />
                 {(() => {
                   const tokenUsage = getTokenUsage(node.span);
                   return (
@@ -361,12 +367,6 @@ const SpanRow = memo(function SpanRow({
                     )
                   );
                 })()}
-                <Chip
-                  icon={<Clock size={16} />}
-                  label={formatDuration(node.span.durationInNanos)}
-                  size="small"
-                  variant="outlined"
-                />
               </Stack>
             </Stack>
           </Stack>

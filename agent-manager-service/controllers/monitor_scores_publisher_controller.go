@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -82,13 +83,9 @@ func (c *monitorScoresPublisherController) PublishScores(w http.ResponseWriter, 
 		return
 	}
 
-	// Publish scores via service.
-	//
-	// This route carries no rbac.Permission — it is gated only by a publisher
-	// audience check — so this record is the sole account of who wrote scores
-	// for a run. The actor is the machine client from the token audience, not a
-	// user.
-	publishErr := c.scoresService.PublishScores(monitorID, runID, &req)
+	// This route carries no rbac.Permission, so this record is the sole account of
+	// who wrote scores for a run. The actor is a machine client, not a user.
+	publishErr := c.scoresService.PublishScores(monitorID, runID, publisherOUID(r.Context()), &req)
 	audit.Record(
 		r.Context(), audit.ActionMonitorScorePublish,
 		audit.ResourceNamed("monitor-run", runID.String(), runID.String()),
@@ -102,7 +99,14 @@ func (c *monitorScoresPublisherController) PublishScores(w http.ResponseWriter, 
 	)
 	if publishErr != nil {
 		log.Error("Failed to publish scores", "monitorId", monitorID, "runId", runID, "error", publishErr)
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to publish scores")
+		switch {
+		case errors.Is(publishErr, utils.ErrForbidden):
+			utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
+		case errors.Is(publishErr, utils.ErrNotFound):
+			utils.WriteErrorResponse(w, http.StatusNotFound, "Monitor run not found")
+		default:
+			utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to publish scores")
+		}
 		return
 	}
 
@@ -111,6 +115,15 @@ func (c *monitorScoresPublisherController) PublishScores(w http.ResponseWriter, 
 	if _, err := w.Write([]byte(`{"message":"scores published successfully"}`)); err != nil {
 		log.Error("Failed to write response", "error", err)
 	}
+}
+
+// publisherOUID returns the token's organization; empty is rejected downstream.
+func publisherOUID(ctx context.Context) string {
+	claims := jwtassertion.GetTokenClaims(ctx)
+	if claims == nil {
+		return ""
+	}
+	return claims.OuId
 }
 
 // publisherAudience returns the publisher client identity behind a score

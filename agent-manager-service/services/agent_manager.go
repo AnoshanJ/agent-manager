@@ -72,6 +72,7 @@ type AgentManagerService interface {
 	RegenerateAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error)
 	RevokeAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error)
 	ProvisionAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (view models.AgentIdentityEnvironmentView, alreadyExisted bool, err error)
+	RetryAgentIdentityProvisioning(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, error)
 	GetAgentRoles(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderRole, error)
 	GetAgentGroups(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderGroup, error)
 }
@@ -331,6 +332,7 @@ func mapInputInterface(specInterface *spec.InputInterface) *client.InputInterfac
 	}
 	if specInterface.Schema != nil {
 		config.SchemaPath = utils.StrPointerAsStr(specInterface.Schema.Path, "")
+		config.SchemaContent = utils.StrPointerAsStr(specInterface.Schema.Content, "")
 	}
 
 	return config
@@ -1290,6 +1292,20 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 			}
 			if sourceComponent.InputInterface.Schema != nil && sourceComponent.InputInterface.Schema.Path != "" {
 				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &sourceComponent.InputInterface.Schema.Path}
+				// Kind-sourced agents deploy from a stored image with no git checkout/build step,
+				// so the schema path above can never be resolved into content for them. Resolve the
+				// source agent's already-built OpenAPI content here so the Swagger UI has something
+				// to render instead of "No API schema available for this endpoint".
+				if endpoints, epErr := s.ocClient.GetComponentEndpoints(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, ""); epErr != nil {
+					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation",
+						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName, "error", epErr)
+				} else if sourceEndpoint, ok := endpoints[kindVersion.Kind.AgentName+"-endpoint"]; ok && sourceEndpoint.Schema.Content != "" {
+					content := sourceEndpoint.Schema.Content
+					req.InputInterface.Schema.Content = &content
+				} else {
+					s.logger.Debug("No resolved OpenAPI schema content found for source agent's endpoint during kind instantiation",
+						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName)
+				}
 			}
 		}
 		imageID = kindVersion.ImageId
@@ -3680,6 +3696,15 @@ func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, ouID s
 	return models.AgentIdentityEnvironmentView{}, alreadyExisted, fmt.Errorf("agent thunder binding for %s/%s vanished immediately after being provisioned", agentName, environmentName)
 }
 
+// RetryAgentIdentityProvisioning resets a failed AgentID binding and
+// re-attempts provisioning, for both Internal and External agents.
+func (s *agentManagerService) RetryAgentIdentityProvisioning(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, error) {
+	if s.agentThunderProvisioning == nil {
+		return models.AgentIdentityEnvironmentView{}, utils.ErrAgentIdentityNotProvisioned
+	}
+	return s.agentThunderProvisioning.RetryProvisioning(ctx, ouID, projectName, agentName, environmentName)
+}
+
 // PromoteAgent promotes an agent from one environment to another.
 func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, projectName string, agentName string, req *spec.PromoteAgentRequest) error {
 	s.logger.Info("Promoting agent", "agentName", agentName, "ouID", ouID, "projectName", projectName,
@@ -5229,9 +5254,9 @@ func modelBuildToSpecBuild(b *models.Build) *spec.Build {
 }
 
 // inputInterfaceToEndpoints converts an InputInterfaceConfig to the slice expected by CreateInternalAgentFromKindWorkload.
-// Note: Workload CRs require inline schema content, not a file path. Since the schema path originates
-// from the git repository of the source agent, schema is intentionally omitted here — it is already
-// configured at the Component level via CreateComponent.
+// Note: Workload CRs require inline schema content, not a file path. Kind-sourced agents have no git
+// checkout/build step to resolve a schema path into content themselves, so CreateAgent must resolve
+// the source agent's schema content up front and pass it in via cfg.SchemaContent.
 func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName string) []client.InputInterfaceEndpoint {
 	if cfg == nil {
 		return nil
@@ -5242,6 +5267,9 @@ func inputInterfaceToEndpoints(cfg *client.InputInterfaceConfig, componentName s
 		Type:       cfg.Type,
 		BasePath:   cfg.BasePath,
 		Visibility: []string{"external"},
+	}
+	if cfg.SchemaContent != "" {
+		ep.Schema = &client.EndpointSchema{Content: cfg.SchemaContent, Type: client.SchemaTypeOpenAPI}
 	}
 	return []client.InputInterfaceEndpoint{ep}
 }

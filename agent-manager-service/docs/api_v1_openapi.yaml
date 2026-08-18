@@ -3808,6 +3808,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/retry:
+    post:
+      tags:
+        - Agent Identity
+      summary: Retry a failed AgentID provisioning attempt
+      description: |
+        Resets a binding stuck in `failed` status back to `pending` — clearing
+        its attempt budget and last error — and re-attempts provisioning in
+        the background, for both platform-hosted and externally hosted
+        agents.
+
+        Only a binding whose current status is `failed` can be retried this
+        way: `completed`, `pending`, and `in_progress` bindings already have
+        their own path forward (nothing to reset, or already retrying) and
+        are rejected with `409`.
+      operationId: retryAgentIdentityProvisioning
+      parameters:
+        - name: orgName
+          in: path
+          required: true
+          description: Organization name
+          schema:
+            type: string
+        - name: projName
+          in: path
+          required: true
+          description: Project name
+          schema:
+            type: string
+        - name: agentName
+          in: path
+          required: true
+          description: Agent name
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentIdentityActionRequest"
+      responses:
+        "202":
+          description: The binding was reset and provisioning was scheduled again
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentIdentityEnvironmentView"
+        "400":
+          description: Missing or invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent identity not yet provisioned for this environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The binding exists but is not currently in `failed` status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /orgs/{orgName}/projects/{projName}/agents/{agentName}/roles:
     parameters:
       - name: orgName
@@ -16033,7 +16112,7 @@ components:
         type:
           type: string
           description: Authentication type
-          example: bearer
+          example: api-key
         header:
           type: string
           description: Header name for authentication
@@ -16095,10 +16174,8 @@ components:
           description: Authentication type
           enum:
             - api-key
-            - bearer
-            - basic
             - none
-          example: bearer
+          example: api-key
         header:
           type: string
           description: Authentication header name

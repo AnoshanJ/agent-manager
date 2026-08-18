@@ -1746,9 +1746,18 @@ fi
 echo ""
 echo ""
 log_info "To check status: kubectl get pods -A"
-echo ""
-log_step "Uninstall Options"
-log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
-log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
-log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+
+# These hints point at ./uninstall.sh, a sibling of this script in the repo
+# checkout. Wrappers that source install.sh from a bundle (e.g. the VM installer)
+# have no such sibling left on disk — bootstrap.sh deletes the unpacked bundle on
+# exit — and tear down extra host state of their own, so they suppress these lines
+# and document their own teardown. Defaults to SHOW_LOCALHOST_URLS: both answer
+# "is this the plain local quick-start?".
+if [[ "${SHOW_UNINSTALL_HINTS:-${SHOW_LOCALHOST_URLS:-true}}" == "true" ]]; then
+  echo ""
+  log_step "Uninstall Options"
+  log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
+  log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
+  log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+fi
 echo ""

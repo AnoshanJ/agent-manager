@@ -153,16 +153,32 @@ export function TraceDetails({
   const panelSpan =
     spanDetail && spanDetail.spanId === selectedSpanId ? spanDetail : null;
 
+  // Span details arrive one selection at a time, but the summaries the tree falls
+  // back to carry no token usage. Without this the token chip of an already-loaded
+  // span disappears as soon as another span is selected.
+  const [loadedSpans, setLoadedSpans] = useState<Record<string, Span>>({});
+
+  useEffect(() => setLoadedSpans({}), [traceId]);
+
+  useEffect(() => {
+    if (!panelSpan) return;
+    setLoadedSpans((prev) =>
+      prev[panelSpan.spanId] === panelSpan
+        ? prev
+        : { ...prev, [panelSpan.spanId]: panelSpan },
+    );
+  }, [panelSpan]);
+
   const spansForExplorer = useMemo(() => {
     if (!traceDetails?.spans?.length) return [];
     return traceDetails.spans.map((s) => {
-      const base = panelSpan?.spanId === s.spanId ? panelSpan : traceSpanSummaryToSpan(s);
+      const base = loadedSpans[s.spanId] ?? traceSpanSummaryToSpan(s);
       // Pin the tree icon to the summary's name-based kind so it never flips on selection.
       return s.spanKind
         ? { ...base, ampAttributes: { ...base.ampAttributes, kind: s.spanKind } }
         : base;
     });
-  }, [traceDetails?.spans, panelSpan]);
+  }, [traceDetails?.spans, loadedSpans]);
 
   const displaySelectedSpan = useMemo(() => {
     if (!selectedSpanId) return null;

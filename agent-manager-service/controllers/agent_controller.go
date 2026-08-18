@@ -62,6 +62,7 @@ type AgentController interface {
 	RegenerateAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	RevokeAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	ProvisionAgentIdentity(w http.ResponseWriter, r *http.Request)
+	RetryAgentIdentityProvisioning(w http.ResponseWriter, r *http.Request)
 	GetAgentRoles(w http.ResponseWriter, r *http.Request)
 	GetAgentGroups(w http.ResponseWriter, r *http.Request)
 }
@@ -1263,6 +1264,72 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	}
 	log.Info("ProvisionAgentIdentity: completed", "orgName", orgName, "agentName", agentName, "envID", envID, "alreadyExisted", alreadyExisted)
 	utils.WriteSuccessResponse(w, status, view)
+}
+
+// RetryAgentIdentityProvisioning handles
+// POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/retry
+//
+// Resets a FAILED AgentID binding back to PENDING and re-attempts
+// provisioning, for both Internal and External agents. The target
+// environment is passed in the request body, matching
+// RegenerateAgentIdentitySecret's convention for POST identity actions.
+func (c *agentController) RetryAgentIdentityProvisioning(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	orgName := middleware.OrgHandleFromRequest(r)
+	ouID := middleware.OUIDFromRequest(r)
+	projName := r.PathValue(utils.PathParamProjName)
+	agentName := r.PathValue(utils.PathParamAgentName)
+
+	var payload models.AgentIdentityActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Error("RetryAgentIdentityProvisioning: failed to decode request body", "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	envID := payload.Environment
+	if envID == "" {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "environment is required in the request body")
+		return
+	}
+
+	log.Info("RetryAgentIdentityProvisioning: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
+
+	attempt, ok := beginAuditOrFail(
+		w, r, "RetryAgentIdentityProvisioning", "Failed to retry agent identity provisioning", audit.ActionAgentIdentityRetryProvisioning,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(envID),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", envID),
+	)
+	if !ok {
+		return
+	}
+
+	view, err := c.agentService.RetryAgentIdentityProvisioning(ctx, ouID, projName, agentName, envID)
+	if err != nil {
+		attempt.Complete(ctx, err)
+		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
+			log.Warn("RetryAgentIdentityProvisioning: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
+			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
+			return
+		}
+		if errors.Is(err, utils.ErrAgentIdentityRetryNotAllowed) {
+			log.Warn("RetryAgentIdentityProvisioning: binding not in a failed state", "orgName", orgName, "agentName", agentName, "envID", envID)
+			utils.WriteErrorResponse(w, http.StatusConflict, "Agent identity binding is not in a failed state and cannot be retried")
+			return
+		}
+		log.Error("RetryAgentIdentityProvisioning: failed to retry provisioning", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
+		handleCommonErrors(w, err, "Failed to retry agent identity provisioning")
+		return
+	}
+
+	attempt.Complete(ctx, nil)
+	log.Info("RetryAgentIdentityProvisioning: retry scheduled", "orgName", orgName, "agentName", agentName, "envID", envID)
+	utils.WriteSuccessResponse(w, http.StatusAccepted, view)
 }
 
 // GetAgentRoles handles

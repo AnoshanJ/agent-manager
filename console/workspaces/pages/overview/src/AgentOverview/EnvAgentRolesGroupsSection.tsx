@@ -16,11 +16,12 @@
  */
 
 import { useMemo, useState } from "react";
-import { Avatar, Box, IconButton, Skeleton, Tooltip, Typography } from "@wso2/oxygen-ui";
-import { Copy, Fingerprint } from "@wso2/oxygen-ui-icons-react";
+import { Alert, Avatar, Box, Button, CircularProgress, IconButton, Skeleton, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { AlertTriangle, Copy, Fingerprint, RefreshCw } from "@wso2/oxygen-ui-icons-react";
 import {
   useAgentIdentityBinding,
   useListAgentIdentityAgents,
+  useRetryAgentIdentityProvisioning,
 } from "@agent-management-platform/api-client";
 import {
   OverviewSectionCard,
@@ -48,9 +49,18 @@ interface EnvAgentRolesGroupsSectionProps {
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
 }) => {
-  const { provisioned, isLoading: isLoadingIdentity } = useAgentIdentityBinding({
+  const { binding, provisioned, isLoading: isLoadingIdentity } = useAgentIdentityBinding({
     orgId, projectId, agentId, envId,
   });
+  const isFailed = binding?.status === "failed";
+
+  const { mutate: retryProvisioning, isPending: isRetrying } = useRetryAgentIdentityProvisioning();
+  const handleRetry = () => {
+    retryProvisioning({
+      params: { orgName: orgId, projName: projectId, agentName: agentId },
+      body: { environment: envId },
+    });
+  };
 
   const { roles, groups, isLoading, isError: isRolesGroupsError } = useAgentRolesAndGroups({
     orgId, projectId, agentId, envId, enabled: provisioned,
@@ -97,10 +107,15 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
         >
           <Fingerprint size={24} />
         </Avatar>
+        {isLoadingIdentity ? (
+          <Skeleton variant="text" width={160} height={20} />
+        ) : isFailed ? (
+          <Typography variant="body2" color="error" fontWeight={600}>
+            Provisioning Status : Failed
+          </Typography>
+        ) : (
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          {isLoadingIdentity ? (
-            <Skeleton variant="text" width={160} height={20} />
-          ) : thunderAgentId ? (
+          {thunderAgentId ? (
             <Box display="flex" alignItems="center" gap={0.5} minWidth={0}>
               <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
                 Agent ID:
@@ -159,7 +174,29 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
             )}
           </Box>
         </Box>
+        )}
       </Box>
+      {isFailed && !isLoadingIdentity && (
+        <Alert
+          severity="error"
+          icon={<AlertTriangle size={18} />}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={handleRetry}
+              disabled={isRetrying}
+              startIcon={isRetrying ? <CircularProgress size={14} color="inherit" /> : <RefreshCw size={14} />}
+              sx={{ whiteSpace: "nowrap" }}
+            >
+              {isRetrying ? "Retrying..." : "Retry"}
+            </Button>
+          }
+          sx={{ mt: 1.5, flexWrap: "wrap", "& .MuiAlert-action": { flexShrink: 0 } }}
+        >
+          Provisioning failed{binding?.lastError ? `: ${binding.lastError}` : ""}
+        </Alert>
+      )}
     </OverviewSectionCard>
   );
 };

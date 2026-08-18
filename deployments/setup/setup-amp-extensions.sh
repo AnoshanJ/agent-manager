@@ -30,7 +30,7 @@ install_thunder_extension() {
 
     # Detect an image mismatch and do a clean uninstall+install so the
     # pre-install setup job re-runs and re-bootstraps the database.
-    local target_image="ghcr.io/thunder-id/thunderid:1.0.0-beta"
+    local target_image="ghcr.io/thunder-id/thunderid:1.0.0"
     local selector="app.kubernetes.io/instance=amp-thunder-extension"
     if helm status amp-thunder-extension -n amp-thunder &>/dev/null; then
         local current_image
@@ -109,7 +109,7 @@ install_evaluation_workflows() {
         --set ampEvaluation.publisher.clientId="amp-publisher-client" \
         --set networkPolicy.evaluationJob.enabled="${network_policy_enabled}" \
         --set networkPolicy.evaluationJob.devEgress.cidr="${node_cidr}" \
-        --set networkPolicy.evaluationJob.devEgress.port=8080 \
+        --set "networkPolicy.evaluationJob.devEgress.ports={8080,19080}" \
         --set "networkPolicy.evaluationJob.apiServer.cidrs[0]=${node_cidr}"
     echo "✅ Evaluation Workflows Extension installed/upgraded successfully"
 }

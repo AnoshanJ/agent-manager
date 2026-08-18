@@ -58,10 +58,9 @@ const resilienceTimeoutSchema = z
 
 const AUTH_TYPE_API_KEY = "api-key";
 
+// "bearer" and "basic" are absent from the gateway's upstream auth enum, so they never deploy.
 const AUTH_TYPE_OPTIONS: { value: UpstreamAuthType; label: string }[] = [
   { value: "api-key", label: "API Key" },
-  { value: "bearer", label: "Bearer" },
-  { value: "basic", label: "Basic" },
   { value: "none", label: "None" },
 ];
 

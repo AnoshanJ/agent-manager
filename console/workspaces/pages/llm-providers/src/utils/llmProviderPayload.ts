@@ -84,15 +84,13 @@ export function buildCreateLLMProviderRequest(
   const contextPath = values.context?.trim() || ``;
 
   const authType: UpstreamAuthType =
-    (selectedTemplate?.authType as UpstreamAuthType) ?? "bearer";
+    (selectedTemplate?.authType as UpstreamAuthType) ?? "api-key";
   const authHeader = selectedTemplate?.authHeader ?? "Authorization";
   const apiKey = values.apiKey?.trim() ?? "";
   const authValue = apiKey
     ? selectedTemplate?.authValuePrefix
       ? `${selectedTemplate.authValuePrefix}${apiKey}`
-      : authType === "bearer"
-        ? `Bearer ${apiKey}`
-        : apiKey
+      : apiKey
     : "";
 
   return {

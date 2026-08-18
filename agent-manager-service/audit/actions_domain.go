@@ -44,9 +44,10 @@ const (
 	ActionAgentTokenMint              Action = "agent-token:mint"
 	ActionAgentTokenRegenerateTracing Action = "agent-token:regenerate-tracing"
 
-	ActionAgentIdentityProvision        Action = "agent-identity:provision"
-	ActionAgentIdentityRegenerateSecret Action = "agent-identity:regenerate-secret"
-	ActionAgentIdentityRevokeSecret     Action = "agent-identity:revoke-secret"
+	ActionAgentIdentityProvision         Action = "agent-identity:provision"
+	ActionAgentIdentityRegenerateSecret  Action = "agent-identity:regenerate-secret"
+	ActionAgentIdentityRevokeSecret      Action = "agent-identity:revoke-secret"
+	ActionAgentIdentityRetryProvisioning Action = "agent-identity:retry-provisioning"
 
 	ActionServiceAccountConfigure Action = "service-account:configure"
 	ActionServiceAccountRemove    Action = "service-account:remove"
@@ -232,6 +233,10 @@ func init() {
 		"agentName":   KindName,
 		"environment": KindName,
 		"clientId":    KindIdentifier,
+	})
+	registerCredential(ActionAgentIdentityRetryProvisioning, map[string]FieldKind{
+		"agentName":   KindName,
+		"environment": KindName,
 	})
 
 	registerCredential(ActionServiceAccountConfigure, map[string]FieldKind{
