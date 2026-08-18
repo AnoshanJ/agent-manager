@@ -2550,6 +2550,9 @@ type DeploymentDetailsResponse struct {
 	// ImageId Container image ID
 	ImageId string `json:"imageId"`
 
+	// KindVersion Agent Kind version this deployment runs, resolved from the deployed image. Per-environment, so it reflects what is actually deployed rather than the version the agent was created from. Absent for source-built agents and when the image matches no published version.
+	KindVersion *string `json:"kindVersion,omitempty"`
+
 	// LastDeployed Timestamp of last deployment
 	LastDeployed *time.Time `json:"lastDeployed,omitempty"`
 

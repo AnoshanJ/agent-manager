@@ -12396,6 +12396,13 @@ components:
         imageId:
           type: string
           description: Container image ID
+        kindVersion:
+          type: string
+          description: >-
+            Agent Kind version this deployment runs, resolved from the deployed
+            image. Per-environment, so it reflects what is actually deployed
+            rather than the version the agent was created from. Absent for
+            source-built agents and when the image matches no published version.
         status:
           type: string
           description: Deployment status

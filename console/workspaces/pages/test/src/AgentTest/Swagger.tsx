@@ -22,6 +22,7 @@ import {
   useGetAgentEndpoints,
   useGetAgentKindVersion,
   useGetBuild,
+  useListAgentDeployments,
   useTestAgentAPIKey,
 } from "@agent-management-platform/api-client";
 import { getErrorMessage } from "@agent-management-platform/shared-component";
@@ -100,14 +101,15 @@ export function Swagger() {
 
   // A kind-sourced agent runs no build of its own, so nothing ever writes an
   // OpenAPI document onto its deployed endpoint. Resolve the spec from the kind
-  // version it was created from instead — kind version -> its source build —
-  // which is how the agent catalogue renders a kind's API spec.
+  // version instead — kind version -> its source build — which is how the agent
+  // catalogue renders a kind's API spec.
   //
-  // kindName is set only for agents instantiated from a kind, so it — not an
-  // empty endpoint schema — is what decides which source to read: waiting for
-  // the endpoints response first would just delay the two lookups behind it.
-  // kindVersion is absent on agents created before it was recorded, and those
-  // can't be tied to a published version.
+  // The version read is the one deployed in THIS environment, not the agent's
+  // creation-time kindVersion: redeploying on a newer version changes what the
+  // endpoint actually serves, and each environment moves independently, so the
+  // creation version would render a spec that no longer matches the running API.
+  // kindName is what identifies a kind agent; waiting on the endpoints response
+  // to notice a missing schema would just delay the lookups behind it.
   const deployedSpec = data?.[endpoint]?.schema?.content;
   const {
     data: agent,
@@ -118,7 +120,14 @@ export function Swagger() {
     projName: projectId,
     agentName: agentId,
   });
-  const needsKindSpec = !!agent?.kindName && !!agent?.kindVersion;
+  const { data: deployments, isLoading: isDeploymentsLoading } =
+    useListAgentDeployments({
+      orgName: orgId,
+      projName: projectId,
+      agentName: agentId,
+    });
+  const deployedKindVersion = deployments?.[envId ?? ""]?.kindVersion;
+  const needsKindSpec = !!agent?.kindName && !!deployedKindVersion;
   const {
     data: kindVersion,
     isLoading: isKindVersionLoading,
@@ -126,7 +135,7 @@ export function Swagger() {
   } = useGetAgentKindVersion({
     orgName: needsKindSpec ? orgId ?? "" : "",
     kindName: needsKindSpec ? agent?.kindName ?? "" : "",
-    versionTag: needsKindSpec ? agent?.kindVersion ?? "" : "",
+    versionTag: needsKindSpec ? deployedKindVersion ?? "" : "",
   });
   const {
     data: kindBuild,
@@ -139,7 +148,8 @@ export function Swagger() {
     buildName: kindVersion?.buildName ?? "",
   });
   const isKindSpecLoading =
-    needsKindSpec && (isKindVersionLoading || isKindBuildLoading);
+    !!agent?.kindName &&
+    (isDeploymentsLoading || (needsKindSpec && (isKindVersionLoading || isKindBuildLoading)));
   // Reading the kind's spec goes through the kind's source project, which the
   // viewer may not have access to, so these can fail on their own.
   const specLookupError = agentError ?? (needsKindSpec ? kindVersionError ?? kindBuildError : null);

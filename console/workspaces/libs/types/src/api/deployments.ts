@@ -99,6 +99,9 @@ export interface PromotionTargetEnvironment {
 
 export interface DeploymentDetailsResponse {
   imageId: string;
+  /** Agent Kind version running in this environment, resolved from the deployed
+   *  image. Absent for source-built agents and unmatched images. */
+  kindVersion?: string;
   status: string;
   lastDeployed: string; // ISO date-time
   endpoints: DeploymentEndpoint[];

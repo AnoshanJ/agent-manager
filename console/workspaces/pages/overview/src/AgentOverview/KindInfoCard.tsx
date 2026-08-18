@@ -38,8 +38,8 @@ import { UppercaseCaptionLabel } from "./SectionHeader";
 interface KindInfoCardProps {
     orgId: string;
     kindName: string;
-    /** The kind version this agent was created from. Absent for agents created
-     *  before the component recorded it. */
+    /** The kind version deployed in the selected environment. Absent when nothing
+     *  is deployed there, or when the deployed image matches no published version. */
     kindVersion?: string;
     framework?: string;
     model?: string;
@@ -55,12 +55,12 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
         { orgId, kindId: kindName },
     );
 
-    // The version shown is the one this agent actually runs — never the kind's
-    // newest, which diverges from it the moment the kind publishes again. An agent
-    // created before the version was recorded has nothing to show, so the chip is
-    // omitted rather than filled in with a version we can't attribute to it.
-    // versionData carries that version's own metadata (its publish date), and is
-    // absent when the version has since been deleted from the kind.
+    // The version shown is the one actually deployed — never the kind's newest,
+    // which diverges from it the moment the kind publishes again. An environment
+    // with nothing deployed has nothing to show, so the chip is omitted rather
+    // than filled in with a version we can't attribute to it. versionData carries
+    // that version's own metadata (its publish date), and is absent when the
+    // version has since been deleted from the kind.
     const versionData = kindVersion
         ? kind?.versions?.find((v) => v.version === kindVersion)
         : undefined;
