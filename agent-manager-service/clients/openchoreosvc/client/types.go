@@ -123,7 +123,11 @@ type InputInterfaceConfig struct {
 	Type       string
 	Port       int32
 	SchemaPath string
-	BasePath   string
+	// SchemaContent holds the resolved OpenAPI spec content, when available up front
+	// (e.g. copied from a source agent when instantiating from an Agent Kind, which
+	// has no git checkout/build step to resolve SchemaPath into content itself).
+	SchemaContent string
+	BasePath      string
 }
 
 // UpdateComponentRequest contains data for updating a component (patch operation)
