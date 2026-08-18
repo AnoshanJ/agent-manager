@@ -136,33 +136,20 @@ func TestThunderAskRoute_EmptyLabelForbidden(t *testing.T) {
 	}
 }
 
-func TestThunderAskRoute_RegisteredLegacyHandleAllowed(t *testing.T) {
-	// LegacyThunderHandleLabel (env_thunder_url_reader.go) grandfathers
-	// pre-existing environments onto "<org>-<env>.thunder" — a genuinely
-	// registered row that contains a "." a newly-generated handle never would.
-	// This must be checked the same as any other registered handle, not
-	// rejected for its shape.
+func TestThunderAskRoute_DottedLabelForbiddenWithoutConsultingRegistry(t *testing.T) {
+	// Every registered handle is a single DNS label (see validateThunderHandle) —
+	// a dotted label is never valid, no matter what the registry says, so it
+	// must be rejected before ever calling ThunderHandleRegistered.
 	svc := &stubThunderAskEnvironmentService{registered: true}
 	mux := setupThunderAskMux(t, svc)
 
 	rec := askThunderRoute(mux, "myorg-myenv.thunder.amp.example.com")
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for a registered legacy handle, got %d", rec.Code)
-	}
-	if svc.calledWith == nil || *svc.calledWith != "myorg-myenv.thunder" {
-		t.Errorf("expected the full dotted legacy label to be checked, got %v", svc.calledWith)
-	}
-}
-
-func TestThunderAskRoute_UnregisteredLegacyShapeForbidden(t *testing.T) {
-	svc := &stubThunderAskEnvironmentService{registered: false}
-	mux := setupThunderAskMux(t, svc)
-
-	rec := askThunderRoute(mux, "never-provisioned.thunder.amp.example.com")
-
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403 for an unregistered legacy-shaped label, got %d", rec.Code)
+		t.Errorf("expected 403 for a dotted label, got %d", rec.Code)
+	}
+	if svc.calledWith != nil {
+		t.Errorf("expected the handle registry not to be consulted for a dotted label, got %v", svc.calledWith)
 	}
 }
 

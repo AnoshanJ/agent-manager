@@ -17,7 +17,7 @@ import (
 // checks if the ThunderUrlResponse type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &ThunderUrlResponse{}
 
-// ThunderUrlResponse The env-Thunder URL handle registered for an environment — either the caller-supplied value, the value the server generated when the caller left it blank, or (for an environment that predates this handle feature) a value reproducing its pre-existing hostname exactly. Unlike ThunderUrlRequest, this is NOT always a bare DNS label: a grandfathered environment's handle can contain a dot and exceed 63 characters (up to 80), so no pattern/length constraint is declared here — see thundersvc.LegacyThunderHandleLabel.
+// ThunderUrlResponse The env-Thunder URL handle registered for an environment — either the caller-supplied value or the value the server generated when the caller left it blank.
 type ThunderUrlResponse struct {
 	Handle string `json:"handle"`
 }

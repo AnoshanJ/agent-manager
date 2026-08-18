@@ -87,49 +87,6 @@ func TestThunderIssuerURL_PanicsOnEmptyHandle(t *testing.T) {
 	ThunderIssuerURL("")
 }
 
-// TestLegacyThunderHandleLabel_ReproducesPreHandleFeatureHostname is the P0
-// regression lock for the grandfathering bug: every environment that predates
-// this handle feature was built by the OLD ThunderHost as
-// "<org>-<env>.thunder.<baseDomain>" — unconditionally, with no exception — so
-// LegacyThunderHandleLabel must reproduce the FULL "<org>-<env>.thunder" prefix,
-// not just "<org>-<env>". Piping the wrong (missing ".thunder") value through
-// thunderExternalOrigin would silently misroute every real pre-existing
-// environment on upgrade, since their actual Thunder Helm release/HTTPRoute is
-// still only reachable at the OLD, ".thunder"-including hostname.
-func TestLegacyThunderHandleLabel_ReproducesPreHandleFeatureHostname(t *testing.T) {
-	t.Run("short org/env", func(t *testing.T) {
-		got := LegacyThunderHandleLabel("acme", "prod")
-		want := "acme-prod.thunder"
-		if got != want {
-			t.Errorf("LegacyThunderHandleLabel(\"acme\", \"prod\"): want %q, got %q", want, got)
-		}
-		// The reconstructed external URL must exactly match what the pre-this-PR
-		// ThunderHost would have built for the same (org, env).
-		if got, want := ThunderIssuerURL(got), "http://acme-prod.thunder.amp.localhost:8080"; got != want {
-			t.Errorf("reconstructed issuer URL: want %q, got %q", want, got)
-		}
-	})
-
-	t.Run("org/env long enough to trigger truncation", func(t *testing.T) {
-		org := strings.Repeat("a", 40)
-		env := strings.Repeat("b", 40)
-		label := org + "-" + env
-		hash := thunderSHA6(org + "/" + env)
-		want := strings.TrimSuffix(label[:56], "-") + "-" + hash + ".thunder"
-
-		got := LegacyThunderHandleLabel(org, env)
-		if got != want {
-			t.Errorf("LegacyThunderHandleLabel with long org/env: want %q, got %q", want, got)
-		}
-		// The "<org>-<env>" portion (everything before ".thunder") must still
-		// respect the 63-char DNS label limit on its own.
-		orgEnvPortion := strings.TrimSuffix(got, ".thunder")
-		if len(orgEnvPortion) > 63 {
-			t.Errorf("org-env portion %q is %d chars, exceeds the 63-char DNS label limit", orgEnvPortion, len(orgEnvPortion))
-		}
-	})
-}
-
 // TestThunderReleaseName_NoHyphenCollapsing locks in that ThunderReleaseName does
 // NOT collapse consecutive hyphens, matching add-environment-thunder.sh exactly.
 // It validates ENV_NAME against ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ (which permits

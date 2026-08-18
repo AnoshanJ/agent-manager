@@ -489,17 +489,6 @@ caddyfile() {
   printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
     "$([[ "$scheme" == http ]] && printf 'http://')" "${AMP_HOST_THUNDER#thunder.}" "$addr_suffix" "$agent_tls"
 
-  # An environment that predates this handle feature was never given a
-  # registered handle and is grandfathered onto LegacyThunderHandleLabel
-  # (env_thunder_url_reader.go) instead — "<org>-<env>.thunder", still nested
-  # one level under "thunder.<base>" the way every env-Thunder host used to be.
-  # The base-domain wildcard above only matches a single label, so that
-  # two-label legacy shape needs its own wildcard site or it stops resolving
-  # on the next Caddyfile re-render — see cert_dns_names in lib-certmanager.sh
-  # for the same fix on the cert-manager (non-VM) install path.
-  printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
-    "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_THUNDER" "$addr_suffix" "$agent_tls"
-
   # Observer is ClusterIP behind the OC observability-plane kgateway
   # (11080), host-routed the same way (observability_helm_args sets the route
   # hostname).

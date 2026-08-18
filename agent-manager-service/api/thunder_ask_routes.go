@@ -91,8 +91,10 @@ func registerThunderAskRoute(mux *http.ServeMux, environmentService services.Env
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if label == "" {
-			// The bare base domain is never a valid handle.
+		if label == "" || strings.Contains(label, ".") {
+			// The bare base domain is never a valid handle, and neither is a
+			// dotted label — every registered handle is a single DNS label
+			// (see validateThunderHandle).
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}

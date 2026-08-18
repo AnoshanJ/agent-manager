@@ -544,10 +544,10 @@ func ProvideEnvThunderSecretReader(repo repositories.EnvThunderSystemClientRepos
 }
 
 // ProvideEnvThunderURLReader looks up an env-Thunder's registered URL handle
-// from AMS's own Postgres — grandfathering it from the legacy <org>-<env>
-// pattern (via systemClientRepo) when a pre-existing environment has none yet.
-func ProvideEnvThunderURLReader(repo repositories.EnvThunderURLRepository, systemClientRepo repositories.EnvThunderSystemClientRepository) thundersvc.ReadThunderHandleFunc {
-	return services.NewEnvThunderURLReader(repo, systemClientRepo)
+// from AMS's own Postgres. A missing row means not provisioned — there is no
+// fallback to a value computed from (org, env).
+func ProvideEnvThunderURLReader(repo repositories.EnvThunderURLRepository) thundersvc.ReadThunderHandleFunc {
+	return services.NewEnvThunderURLReader(repo)
 }
 
 // ProvideEnvThunderResolver maps (org, environment) to an authenticated

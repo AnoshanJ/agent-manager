@@ -376,9 +376,8 @@ register_thunder_url() {
       echo "🔐 Registered thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
     else
       # Not necessarily freshly generated: an empty HANDLE also resolves here when
-      # agent-manager-service reuses an already-registered row, including one
-      # grandfathered in from a pre-existing environment's system-client credential
-      # (see ResolveThunderHandle) — the response has no way to distinguish "new" from
+      # agent-manager-service reuses an already-registered row (see
+      # ResolveThunderHandle) — the response has no way to distinguish "new" from
       # "reused", so this message must not claim "generated" when it may not have been.
       echo "🔐 Resolved thunder url handle '${resolved}' (org=${org}, env=${env_name})" >&2
     fi

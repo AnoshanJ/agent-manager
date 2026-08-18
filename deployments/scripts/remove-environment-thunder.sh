@@ -193,16 +193,17 @@ main() {
   # a non-existent handle is a no-op on the server side.
   #
   # Only runs once Step 3 has actually succeeded. If the system-client credential
-  # is still there but the handle gets freed anyway, the next
-  # ResolveThunderHandle call (services/env_thunder_url_reader.go) sees "a
-  # credential exists but no handle row" and grandfathers the environment back
-  # onto the guessable <org>-<env> pattern — silently undoing the whole point of
-  # a registered handle. Skipping here just leaves both rows for a retry.
+  # is still there but the handle gets freed anyway, a future re-provisioning
+  # attempt for this same environment would claim a NEW handle (SetThunderURL
+  # has no existing row to reuse) while the still-live credential's Thunder
+  # Helm release keeps its OLD, immutable issuer — a mismatch between what AMS
+  # reports and what the instance actually answers on. Skipping here just
+  # leaves both rows in place for a retry.
   echo ""
   if [ "$system_client_deleted" != true ]; then
     echo "⚠️  Skipping thunder url handle cleanup — the system-client credential"
-    echo "   was not confirmed deleted, so freeing the handle now could let a"
-    echo "   future lookup fall back to the guessable <org>-<env> pattern."
+    echo "   was not confirmed deleted, so freeing the handle now could leave a"
+    echo "   future re-provision attempt pointing at a mismatched issuer."
     echo "   Re-run this script once the credential cleanup above succeeds."
   else
     echo "🗑️  Removing thunder url handle from agent-manager-service (best-effort)..."

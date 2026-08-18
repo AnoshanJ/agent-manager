@@ -461,7 +461,7 @@ func DBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secre
 			repositories.NewAgentThunderClientRepo(db),
 			thundersvc.NewEnvThunderResolver(
 				NewEnvThunderSecretReader(envThunderRepo, encryptionKey),
-				NewEnvThunderURLReader(envThunderURLRepo, envThunderRepo),
+				NewEnvThunderURLReader(envThunderURLRepo),
 			),
 			secretMgmtClient,
 			ocClient,

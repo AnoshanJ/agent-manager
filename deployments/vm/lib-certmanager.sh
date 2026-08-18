@@ -67,19 +67,11 @@ cert_dns_names() {
   [[ -n "${AMP_HOST_CP:-}" ]] && printf '%s\n' "$AMP_HOST_CP"
   # and the per-environment api-platform gateways <env>-<org>.<GATEWAY_HOST> that
   # add-environment.sh installs. A wildcard covers each without re-issuing.
-  # New env-Thunder handles sit directly under the base domain (no "thunder."
+  # Every env-Thunder handle sits directly under the base domain (no "thunder."
   # segment — see thunder-naming.sh's thunder_host), covered by the base-domain
-  # wildcard below. An environment that predates this handle feature was never
-  # given one of those and is grandfathered onto LegacyThunderHandleLabel
-  # (env_thunder_url_reader.go) instead — "<org>-<env>.thunder", still nested
-  # one level under "thunder.<base>" the way every env-Thunder host used to be.
-  # That legacy shape needs its OWN wildcard (a single-label wildcard cert
-  # never covers a two-label remainder): drop it and every environment that
-  # hasn't been re-provisioned with a registered handle loses its certificate
-  # on the next renewal.
+  # wildcard below.
   printf '*.%s\n' "$AMP_AGENTS_BASE"
   printf '*.%s\n' "${AMP_HOST_THUNDER#thunder.}"
-  printf '*.%s\n' "$AMP_HOST_THUNDER"
   printf '*.%s\n' "$AMP_HOST_GATEWAY"
 }
 

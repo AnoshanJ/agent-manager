@@ -12,8 +12,7 @@
 #
 # Go can't source bash, so agent-manager-service/clients/thundersvc/naming.go
 # necessarily keeps its OWN implementation of the same algorithm
-# (ThunderReleaseName/ThunderNamespace/ThunderIssuerURL, and — for grandfathering
-# pre-existing environments only — LegacyThunderHandleLabel). Its
+# (ThunderReleaseName/ThunderNamespace/ThunderIssuerURL). Its
 # maxReleaseNameLen/truncatePrefixLen constants (53/46) must stay numerically
 # identical to this file's — that pairing is the one naming duplication that
 # can't be eliminated, only kept in sync by convention.

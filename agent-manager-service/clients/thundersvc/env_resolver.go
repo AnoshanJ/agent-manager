@@ -74,11 +74,9 @@ type (
 	ReadSystemClientFunc func(ctx context.Context, ouID, envName string) (clientID, clientSecret string, err error)
 
 	// ReadThunderHandleFunc reads an env-Thunder's registered URL handle (see
-	// EnvThunderURL) from AMS's own Postgres, keyed by (ouID, envName). The real
-	// implementation (services.ResolveThunderHandle) grandfathers in a computed
-	// value for an environment provisioned before every environment got one, so
-	// a missing row does NOT always mean "no handle" — it returns ("", nil) only
-	// when the environment is genuinely never provisioned at all.
+	// EnvThunderURL) from AMS's own Postgres, keyed by (ouID, envName). A
+	// missing row means this environment was never provisioned — it returns
+	// ("", nil), never a value computed from (ouID, envName).
 	ReadThunderHandleFunc func(ctx context.Context, ouID, envName string) (handle string, err error)
 
 	// resolveBaseURLFunc picks a reachable base URL for an env-Thunder instance —

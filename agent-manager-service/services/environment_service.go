@@ -595,7 +595,7 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 // error) — this just widens that same distinction to environmentService's
 // caller instead of collapsing it.
 func (s *environmentService) readThunderHandle(ctx context.Context, ouID, envName string) (string, error) {
-	return ResolveThunderHandle(ctx, s.envThunderURLRepo, s.envThunderRepo, ouID, envName)
+	return ResolveThunderHandle(ctx, s.envThunderURLRepo, ouID, envName)
 }
 
 // thunderHandlePattern matches a DNS-label-safe handle: lowercase alphanumeric,
@@ -714,7 +714,7 @@ func (s *environmentService) SetThunderURL(ctx context.Context, ouID, envName, h
 		return "", fmt.Errorf("%w: envName is required", utils.ErrInvalidInput)
 	}
 
-	existing, err := ResolveThunderHandle(ctx, s.envThunderURLRepo, s.envThunderRepo, ouID, envName)
+	existing, err := ResolveThunderHandle(ctx, s.envThunderURLRepo, ouID, envName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check for an existing thunder url handle for %s/%s: %w", ouID, envName, err)
 	}
@@ -797,15 +797,13 @@ func (s *environmentService) claimThunderHandle(ctx context.Context, ouID, envNa
 }
 
 // GetThunderURL returns the registered handle for (ouID, envName) — resolved
-// via ResolveThunderHandle, so a pre-existing environment with no row yet but
-// an existing system-client credential is grandfathered in rather than reported
-// as not-provisioned — or utils.ErrThunderHandleNotFound if genuinely none has
-// ever been registered.
+// via ResolveThunderHandle — or utils.ErrThunderHandleNotFound if none has ever
+// been registered.
 func (s *environmentService) GetThunderURL(ctx context.Context, ouID, envName string) (string, error) {
 	if ouID == "" {
 		return "", fmt.Errorf("%w: ouID is required", utils.ErrInvalidInput)
 	}
-	handle, err := ResolveThunderHandle(ctx, s.envThunderURLRepo, s.envThunderRepo, ouID, envName)
+	handle, err := ResolveThunderHandle(ctx, s.envThunderURLRepo, ouID, envName)
 	if err != nil {
 		return "", fmt.Errorf("failed to read thunder url handle for %s/%s: %w", ouID, envName, err)
 	}
@@ -845,12 +843,9 @@ func (s *environmentService) IsThunderHandleAvailable(ctx context.Context, handl
 }
 
 // ThunderHandleRegistered reports whether handle is registered to ANY
-// environment, skipping the DNS-label format check IsThunderHandleAvailable
-// applies. A legacy grandfathered handle (LegacyThunderHandleLabel) contains a
-// literal "." and would never pass that check, but it can still be a genuine,
-// registered row — this is the raw existence question Caddy's on-demand-TLS
-// ask endpoint needs (see api/thunder_ask_routes.go), not the "is this a
-// well-formed new handle" question IsThunderHandleAvailable answers.
+// environment — the raw existence question Caddy's on-demand-TLS ask endpoint
+// needs (see api/thunder_ask_routes.go), not the "is this a well-formed new
+// handle" question IsThunderHandleAvailable answers.
 func (s *environmentService) ThunderHandleRegistered(ctx context.Context, handle string) (bool, error) {
 	exists, err := s.envThunderURLRepo.ExistsByHandle(ctx, handle)
 	if err != nil {
@@ -862,20 +857,17 @@ func (s *environmentService) ThunderHandleRegistered(ctx context.Context, handle
 // SetThunderSystemClientSecret encrypts and upserts the env-Thunder system-client
 // credential, keyed by ouID.
 //
-// Provisions a URL handle (auto-generating one if none is registered yet) BEFORE
-// ever storing the credential — never the other way around. ResolveThunderHandle
-// treats "a system-client credential exists but no handle row does" as "this
-// environment predates the handle feature", and grandfathers in the old
-// guessable <org>-<env> pattern. That's the correct call for environments that
-// really do predate this feature, but it must never be able to fire for an
-// environment that's simply being provisioned for the first time — which is
-// only guaranteed if a credential can never exist without a handle already
-// existing first. add-environment-thunder.sh happens to call register_thunder_url
-// before store_via_ams today, but that's an external, unenforced ordering; this
-// call makes the invariant hold by construction for every caller, present and
-// future, not just today's one script. SetThunderURL with an empty handle is
-// already an idempotent no-op when one is already registered, so this changes
-// nothing for an environment that already has one.
+// Provisions a URL handle (auto-generating one if none is registered yet)
+// BEFORE ever storing the credential — never the other way around. This
+// guarantees every environment with a system-client credential also has a
+// handle row, so ResolveThunderHandle's "not provisioned" answer stays
+// trustworthy: a credential can never exist without a handle already existing
+// first. add-environment-thunder.sh happens to call register_thunder_url
+// before store_via_ams today, but that's an external, unenforced ordering;
+// this call makes the invariant hold by construction for every caller,
+// present and future, not just today's one script. SetThunderURL with an
+// empty handle is already an idempotent no-op when one is already registered,
+// so this changes nothing for an environment that already has one.
 func (s *environmentService) SetThunderSystemClientSecret(ctx context.Context, ouID, envName, clientID, clientSecret string) error {
 	if clientSecret == "" {
 		return fmt.Errorf("%w: clientSecret is required", utils.ErrInvalidInput)

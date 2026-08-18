@@ -89,7 +89,7 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	envThunderSystemClientRepository := ProvideEnvThunderSystemClientRepository(db)
 	readSystemClientFunc := ProvideEnvThunderSecretReader(envThunderSystemClientRepository, v)
 	envThunderURLRepository := ProvideEnvThunderURLRepository(db)
-	readThunderHandleFunc := ProvideEnvThunderURLReader(envThunderURLRepository, envThunderSystemClientRepository)
+	readThunderHandleFunc := ProvideEnvThunderURLReader(envThunderURLRepository)
 	envThunderResolver := ProvideEnvThunderResolver(readSystemClientFunc, readThunderHandleFunc)
 	mcpProxyService := services.NewMCPProxyService(db, mcpProxyRepository, mcpProxyEndpointRepository, deploymentRepository, gatewayRepository, envAgentMCPMappingRepository, agentConfigurationRepository, gatewayEventsService, apiKeyRepository, infraResourceManager, agentIdentityInjectionService, logger, v, mcpProxyScopeRepository, envThunderResolver)
 	llmProxyDeploymentService := services.NewLLMProxyDeploymentService(deploymentRepository, llmProxyRepository, llmProviderRepository, gatewayRepository, gatewayEventsService)
@@ -271,7 +271,7 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	envThunderSystemClientRepository := ProvideEnvThunderSystemClientRepository(db)
 	readSystemClientFunc := ProvideEnvThunderSecretReader(envThunderSystemClientRepository, v)
 	envThunderURLRepository := ProvideEnvThunderURLRepository(db)
-	readThunderHandleFunc := ProvideEnvThunderURLReader(envThunderURLRepository, envThunderSystemClientRepository)
+	readThunderHandleFunc := ProvideEnvThunderURLReader(envThunderURLRepository)
 	envThunderResolver := ProvideEnvThunderResolver(readSystemClientFunc, readThunderHandleFunc)
 	mcpProxyService := services.NewMCPProxyService(db, mcpProxyRepository, mcpProxyEndpointRepository, deploymentRepository, gatewayRepository, envAgentMCPMappingRepository, agentConfigurationRepository, gatewayEventsService, apiKeyRepository, infraResourceManager, agentIdentityInjectionService, logger, v, mcpProxyScopeRepository, envThunderResolver)
 	llmProxyDeploymentService := services.NewLLMProxyDeploymentService(deploymentRepository, llmProxyRepository, llmProviderRepository, gatewayRepository, gatewayEventsService)
@@ -813,10 +813,10 @@ func ProvideEnvThunderSecretReader(repo repositories.EnvThunderSystemClientRepos
 }
 
 // ProvideEnvThunderURLReader looks up an env-Thunder's registered URL handle
-// from AMS's own Postgres — grandfathering it from the legacy <org>-<env>
-// pattern (via systemClientRepo) when a pre-existing environment has none yet.
-func ProvideEnvThunderURLReader(repo repositories.EnvThunderURLRepository, systemClientRepo repositories.EnvThunderSystemClientRepository) thundersvc.ReadThunderHandleFunc {
-	return services.NewEnvThunderURLReader(repo, systemClientRepo)
+// from AMS's own Postgres. A missing row means not provisioned — there is no
+// fallback to a value computed from (org, env).
+func ProvideEnvThunderURLReader(repo repositories.EnvThunderURLRepository) thundersvc.ReadThunderHandleFunc {
+	return services.NewEnvThunderURLReader(repo)
 }
 
 // ProvideEnvThunderResolver maps (org, environment) to an authenticated

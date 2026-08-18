@@ -70,40 +70,6 @@ func ThunderReleaseName(org, env string) string {
 	return fmt.Sprintf("%s-%s", prefix, hash)
 }
 
-// LegacyThunderHandleLabel reproduces, byte-for-byte, the FULL "<org>-<env>.thunder"
-// prefix every environment's hostname was built from before this handle feature
-// existed (see the pre-this-PR ThunderHost: "<org>-<env>.thunder.<baseDomain>",
-// unconditionally, for every environment — there was no other pattern). The
-// "<org>-<env>" portion is truncated to 56 chars with a 6-char hash suffix once it
-// would exceed the 63-char DNS label limit on its own; ".thunder" is a separate
-// label after the dot, so it is never counted against that budget.
-//
-// Used ONLY to grandfather environments that predate the handle feature: such an
-// environment's Thunder Helm release already has this exact hostname baked into
-// its immutable issuer/publicUrl (see services.ResolveThunderHandle), so treating
-// it as the environment's handle keeps it reachable at the address it's actually
-// still answering on, with zero re-provisioning. Never used for newly provisioned
-// environments — those always get an explicit or generated handle via
-// SetThunderURL, and thunderExternalOrigin builds "<handle>.<baseDomain>" for
-// those with no ".thunder" segment at all.
-//
-// The ".thunder" suffix means this value is NOT always a bare DNS label (it can
-// contain a dot) — it deliberately bypasses validateThunderHandle's DNS-label-only
-// pattern (that check only ever applies to a caller-supplied handle in
-// SetThunderURL, never to this grandfathered value), and env_thunder_urls.thunder_handle
-// is sized wider than a single 63-char label to fit it (see migration042's comment).
-func LegacyThunderHandleLabel(org, env string) string {
-	org = strings.ToLower(org)
-	env = strings.ToLower(env)
-	label := fmt.Sprintf("%s-%s", org, env)
-	if len(label) <= 63 {
-		return strings.TrimSuffix(label, "-") + ".thunder"
-	}
-	hash := thunderSHA6(org + "/" + env)
-	prefix := strings.TrimSuffix(label[:56], "-")
-	return fmt.Sprintf("%s-%s.thunder", prefix, hash)
-}
-
 // ThunderNamespace returns the Kubernetes namespace for an env-Thunder instance.
 // The namespace always mirrors the release name.
 func ThunderNamespace(org, env string) string {
@@ -353,8 +319,8 @@ func ThunderProbe(ctx context.Context, org, env, handle string) bool {
 const (
 	maxAgentAppNameLen = 100
 	// agentAppNameTruncatePrefixLen leaves room for "-" + a 6-char thunderSHA6
-	// suffix (7 chars) within maxAgentAppNameLen, mirroring ThunderReleaseName's/
-	// LegacyThunderHandleLabel's truncation scheme above.
+	// suffix (7 chars) within maxAgentAppNameLen, mirroring ThunderReleaseName's
+	// truncation scheme above.
 	agentAppNameTruncatePrefixLen = maxAgentAppNameLen - 7
 )
 
