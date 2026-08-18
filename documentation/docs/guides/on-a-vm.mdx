@@ -121,7 +121,7 @@ flowchart TB
     browser -->|"HTTPS :443"| caddy
     le <-->|"TLS-ALPN-01<br/>inside the :443 handshake"| caddy
     caddy -->|"console.amp.&lt;IP&gt;.sslip.io<br/>api.amp.&lt;IP&gt;.sslip.io<br/>thunder.amp.&lt;IP&gt;.sslip.io<br/>cp.amp.&lt;IP&gt;.sslip.io"| cpgw
-    caddy -->|"*.thunder.amp.&lt;IP&gt;.sslip.io<br/>on-demand TLS"| cpgw
+    caddy -->|"*.amp.&lt;IP&gt;.sslip.io<br/>on-demand TLS"| cpgw
     caddy -->|"observer.amp.&lt;IP&gt;.sslip.io"| opgw
     caddy -->|"gateway.amp.&lt;IP&gt;.sslip.io<br/>*.agents.&lt;IP&gt;.sslip.io<br/>on-demand TLS"| dpgw
     cpgw --> console
@@ -143,7 +143,7 @@ Two of these tiers are **dynamic**: a new host appears the first time you deploy
 | `https://console.amp.<IP>.sslip.io` | Console UI |
 | `https://api.amp.<IP>.sslip.io` | Agent Manager API (used by `amctl`) |
 | `https://thunder.amp.<IP>.sslip.io` | Thunder OAuth (login) |
-| `https://<org>-<env>.thunder.<IP>.sslip.io` | Per-environment Thunder (one host per environment, created on demand) |
+| `https://<handle>.amp.<IP>.sslip.io` | Per-environment Thunder (one unguessable host per environment, created on demand) |
 | `https://observer.amp.<IP>.sslip.io` | Agent Manager Observer |
 | `https://gateway.amp.<IP>.sslip.io/otel` | OTel trace ingest for **externally-hosted** agents (see below) |
 | `https://<org>-<project>.agents.<IP>.sslip.io/...` | Deployed-agent invocation endpoints (one wildcard host per org/project) |
@@ -165,7 +165,7 @@ When you deploy an agent, its endpoint is published on a per-project host `<org>
 
 Because issuance is on demand and uses TLS-ALPN-01 (the challenge runs inside the `:443` handshake), the **very first request to a newly-deployed agent host can fail with a one-time certificate error**. That first connection is consumed by Caddy answering the ACME challenge, so the client briefly sees the challenge certificate instead of the real one. Every client hits this; only the wording differs. Chromium-based browsers (Chrome, Edge, Brave) report `ERR_CERTIFICATE_TRANSPARENCY_REQUIRED`, while other browsers and command-line clients report their own untrusted-certificate error. Issuance completes within a second or two; reload the page (or open it in a fresh tab) and it serves the trusted Let's Encrypt certificate. This only affects the first hit per new agent host; the certificate is then cached in the `amp-caddy-data` volume.
 
-The same applies to the per-environment Thunder hosts (`<org>-<env>.thunder.<IP>.sslip.io`): they are created when you add an environment and get their certificates on demand the same way, so the first request to a brand-new environment's Thunder can show the same one-time error.
+The same applies to the per-environment Thunder hosts (`<handle>.amp.<IP>.sslip.io`): they are created when you add an environment and get their certificates on demand the same way, so the first request to a brand-new environment's Thunder can show the same one-time error.
 
 amp-api advertises each agent endpoint with the `https://` scheme (the installer sets `tlsEnabled` on the service), so the console (and any other caller) invokes it over TLS directly through the wildcard site.
 
@@ -240,9 +240,12 @@ The config file is plain shell, one `KEY=value` assignment per line. Generate an
 | `HOST_CONSOLE`, `HOST_API`, `HOST_THUNDER`, `HOST_OBSERVER`, `HOST_GATEWAY`, `HOST_CP` | no | Override an individual service hostname (default `<svc>.<DOMAIN_BASE>`) |
 | `AGENTS_BASE` | no | Base for deployed-agent hostnames (default `agents.<DOMAIN_BASE>`) |
 
-With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<org>-<env>.thunder.amp.mycompany.com`, and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. A single **wildcard** certificate covers all of them, so there are no per-host certificate steps.
+With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<handle>.amp.mycompany.com` (one unguessable host directly under the base domain per environment — no fixed subdomain segment in between), and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. cert-manager issues one **wildcard** certificate covering all of them, so there are no per-host certificate steps.
 
-Fill in the section below that matches your `TLS_MODE`.
+When you create an environment, you may supply its **Identity Service Handle**;
+otherwise Agent Manager generates one. Treat the `Issuer:` value printed by the
+provisioning command as the source of truth. Do not reconstruct the public
+Thunder hostname from the organization and environment names.
 
 ### DNS provider credentials (`dns01`) {#adv-dns-provider}
 
@@ -298,11 +301,11 @@ The certificate must carry **every** name this install serves as a SAN:
 | `gateway.<DOMAIN_BASE>` | AI Gateway (LLM proxy, OTel ingest) |
 | `cp.<DOMAIN_BASE>` | Gateway control plane (omit if `EXTERNAL_GATEWAYS=false`) |
 | `*.agents.<DOMAIN_BASE>` | Deployed agents |
-| `*.thunder.<DOMAIN_BASE>` | Per-environment Thunder |
+| `*.<DOMAIN_BASE>` | Per-environment Thunder — handles sit directly under the base domain (no fixed subdomain segment), so this broader wildcard is what actually covers them, not a narrower `*.thunder.<DOMAIN_BASE>` |
 | `*.gateway.<DOMAIN_BASE>` | Per-environment API Platform Gateways |
 
-:::warning A `*.<DOMAIN_BASE>` wildcard does **not** cover the three dynamic tiers
-A wildcard matches exactly one label. `*.amp.mycompany.com` therefore covers `console.amp.mycompany.com` but **not** `myorg-myproject.agents.amp.mycompany.com`, which sits one level deeper. The three `*.agents`, `*.thunder`, and `*.gateway` entries must appear in the certificate literally, and unlike the `dns01` path there is no ACME to issue per-host certificates on demand.
+:::warning Three separate wildcards are required — none of them substitute for another
+A wildcard matches exactly one label. `*.amp.mycompany.com` covers `console.amp.mycompany.com` and any single-label host directly under the base domain (including env-Thunder's handle-based hosts) — but it does **not** reach `myorg-myproject.agents.amp.mycompany.com` or `myenv-myorg.gateway.amp.mycompany.com`, which sit one level deeper. All three of `*.agents`, `*.<DOMAIN_BASE>`, and `*.gateway` must appear in the certificate literally, and unlike the `dns01` path there is no ACME to issue per-host certificates on demand.
 
 This is the certificate-side counterpart of the DNS wildcard trap described under [How clients reach the VM](#adv-reachability) — the same one-label rule, biting in a different layer.
 :::
@@ -315,7 +318,7 @@ A self-signed certificate covering every tier, if you are testing or running an 
 D=amp.mycompany.com
 openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
   -keyout privkey.pem -out fullchain.pem -subj "/CN=$D" \
-  -addext "subjectAltName=DNS:console.$D,DNS:api.$D,DNS:thunder.$D,DNS:observer.$D,DNS:gateway.$D,DNS:cp.$D,DNS:*.agents.$D,DNS:*.thunder.$D,DNS:*.gateway.$D"
+  -addext "subjectAltName=DNS:console.$D,DNS:api.$D,DNS:thunder.$D,DNS:observer.$D,DNS:gateway.$D,DNS:cp.$D,DNS:*.agents.$D,DNS:*.$D,DNS:*.gateway.$D"
 ```
 
 Then point the installer at the certificate and key:
@@ -399,15 +402,15 @@ flowchart TB
     cons --> r1
     cons --> r2
     cons --> r3
-    r1 -->|"console · api · thunder · cp<br/>*.thunder (per-environment Thunder)"| cpgw
+    r1 -->|"console · api · thunder · cp<br/>*.&lt;DOMAIN_BASE&gt; (per-environment Thunder)"| cpgw
     r2 -->|"observer"| obsgw
-    r3 -->|"gateway · *.agents (deployed agents)"| dpgw
+    r3 -->|"gateway · *.agents (deployed agents)<br/>*.gateway (per-environment API Platform Gateways)"| dpgw
     cpgw --> cpsvc
     obsgw --> obssvc
     dpgw --> dpsvc
 ```
 
-The wildcard routes matter because those tiers are **dynamic**: deploying into a new org/project adds a `<org>-<project>.agents.<DOMAIN_BASE>` host (agents in an existing project share theirs), and each environment you create adds both a `<org>-<env>.thunder.<DOMAIN_BASE>` host and an `<env>-<org>.gateway.<DOMAIN_BASE>` host for its API Platform Gateway. `*.agents`, `*.thunder`, and `*.gateway` are matched by the front-proxy routes and covered by the wildcard certificate up front, so nothing has to be re-issued or re-attached after install.
+The three wildcard routes matter because those tiers are **dynamic**: deploying into a new org/project adds a `<org>-<project>.agents.<DOMAIN_BASE>` host (agents in an existing project share theirs); each environment you create adds a `<handle>.<DOMAIN_BASE>` host (an unguessable handle, sitting directly under the base domain with no fixed subdomain segment in between); and each API Platform Gateway you register adds a `<env>-<org>.gateway.<DOMAIN_BASE>` host. `*.agents.<DOMAIN_BASE>`, `*.<DOMAIN_BASE>`, and `*.gateway.<DOMAIN_BASE>` are matched by the front-proxy routes and covered by the wildcard certificate up front, so nothing has to be re-issued or re-attached after install.
 
 Note that `gateway.<DOMAIN_BASE>/otel` carries traces only from agents hosted **outside** the platform, which set [`AMP_OTEL_ENDPOINT`](./amp-instrumentation.mdx) themselves. Agents deployed by Agent Manager export straight to the in-cluster gateway runtime, so their traces never reach the `:443` listener at all.
 
@@ -470,26 +473,23 @@ Open inbound **`443/tcp` only** in your cloud security group or firewall. Nothin
 Certificate issuance itself needs **no A records** — in `dns01` mode cert-manager proves control of the zone by writing the `_acme-challenge` TXT record through your provider credential, and `byoc` proves nothing at all. A records exist only so clients can **reach** the services. Point them at the VM's public IP:
 
 ```
-*.amp.mycompany.com          A  <VM_PUBLIC_IP>   # console/api/thunder/observer/gateway/cp
-thunder.amp.mycompany.com    A  <VM_PUBLIC_IP>   # explicit, see the warning below
-*.thunder.amp.mycompany.com  A  <VM_PUBLIC_IP>   # per-environment Thunder
+*.amp.mycompany.com          A  <VM_PUBLIC_IP>   # console/api/thunder/observer/gateway/cp/per-environment Thunder
 gateway.amp.mycompany.com    A  <VM_PUBLIC_IP>   # explicit, see the warning below
 *.gateway.amp.mycompany.com  A  <VM_PUBLIC_IP>   # per-environment API Platform Gateways
 *.agents.amp.mycompany.com   A  <VM_PUBLIC_IP>   # deployed agents
 ```
 
-:::warning `thunder.<DOMAIN_BASE>` and `gateway.<DOMAIN_BASE>` need their own explicit A records
-A DNS wildcard never matches a name that already exists as a node in the zone ([RFC 4592](https://datatracker.ietf.org/doc/html/rfc4592#section-2.2.1)). Creating `*.thunder.amp.mycompany.com` brings `thunder.amp.mycompany.com` into existence as an *empty non-terminal*, which immediately stops `*.amp.mycompany.com` from covering it. Without the explicit record, `thunder.amp.mycompany.com` resolves to nothing and **OAuth login breaks**, even though every other host works.
+:::warning `gateway.<DOMAIN_BASE>` needs its own explicit A record
+A DNS wildcard never matches a name that already exists as a node in the zone ([RFC 4592](https://datatracker.ietf.org/doc/html/rfc4592#section-2.2.1)). Creating `*.gateway.amp.mycompany.com` (needed for the per-environment API Platform Gateway tier) brings `gateway.amp.mycompany.com` into existence as an *empty non-terminal*, which immediately stops the top-level `*.amp.mycompany.com` wildcard from covering it. Without the explicit record, `gateway.amp.mycompany.com` resolves to nothing and OTel ingest for externally-hosted agents breaks, even though every other host works.
 
-`*.gateway.amp.mycompany.com` does exactly the same thing to `gateway.amp.mycompany.com`, which serves OTel ingest for externally-hosted agents. Add the explicit A record whenever you add either deeper wildcard.
+Per-environment Thunder does **not** have this problem: its handles sit directly under the base domain (no fixed `thunder.` segment in between), so the top-level `*.amp.mycompany.com` wildcard already covers them — no separate wildcard, and no explicit record, is needed for Thunder.
 :::
 
-Verify every tier resolves before installing. The `x-y.` names are throwaway probes: they resolve only if the wildcard above them exists.
+Verify the fixed hosts resolve before installing:
 
 ```bash
-for h in console.amp.mycompany.com thunder.amp.mycompany.com \
-         gateway.amp.mycompany.com x-y.agents.amp.mycompany.com \
-         x-y.thunder.amp.mycompany.com x-y.gateway.amp.mycompany.com; do
+for h in console.amp.mycompany.com thunder.amp.mycompany.com gateway.amp.mycompany.com \
+         x-y.agents.amp.mycompany.com x-y.gateway.amp.mycompany.com; do
   printf '%-40s %s\n' "$h" "$(dig +short "$h" A)"
 done
 ```
@@ -552,12 +552,12 @@ Then point every service hostname at the tunnel in your workstation's `/etc/host
 127.0.0.1  observer.amp.mycompany.com gateway.amp.mycompany.com cp.amp.mycompany.com
 ```
 
-:::note Deployed agents need their own `/etc/hosts` entries
-`/etc/hosts` has no wildcard support, so the `*.agents`, `*.thunder`, and `*.gateway` tiers are not covered by the lines above. Each time you deploy an agent or create an environment, add its exact hostname:
+:::note Deployed agents and per-environment tiers need their own `/etc/hosts` entries
+`/etc/hosts` has no wildcard support, so the dynamic `*.agents`, per-environment Thunder, and `*.gateway` tiers are not covered by the lines above. Each time you deploy an agent, create an environment, or add an API Platform Gateway, add its exact hostname:
 
 ```
 127.0.0.1  <org>-<project>.agents.amp.mycompany.com
-127.0.0.1  <org>-<env>.thunder.amp.mycompany.com
+127.0.0.1  <handle>.amp.mycompany.com
 127.0.0.1  <env>-<org>.gateway.amp.mycompany.com
 ```
 
@@ -637,7 +637,7 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
 ## Troubleshooting {#adv-troubleshooting}
 
 - **Config rejected before install.** The installer names the missing/invalid key (e.g. an unsupported `DNS_PROVIDER` or `TLS_MODE`, a missing provider credential, or `byoc` without `TLS_CERT_FILE`). Fix `amp-config.env` and re-run.
-- **Certificate rejected before install (`byoc`).** The pre-flight found that the certificate and key don't match, the certificate has expired, or its SANs don't cover a required name. The message names the specific problem. The most common one is a missing `*.agents`, `*.thunder`, or `*.gateway` wildcard: a `*.<DOMAIN_BASE>` wildcard does not reach those tiers (see [Bring your own certificate](#adv-byoc)). Reissue with the full SAN list.
+- **Certificate rejected before install (`byoc`).** The pre-flight found that the certificate and key don't match, the certificate has expired, or its SANs don't cover a required name. The message names the specific problem. The most common one is a missing `*.agents` or `*.gateway` wildcard: those tiers sit one label deeper than `*.<DOMAIN_BASE>` reaches, so they each need their own explicit wildcard SAN (see [Bring your own certificate](#adv-byoc)). Reissue with the full SAN list.
 - **Certificate never becomes Ready (`dns01`).** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit. Re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
 - **Untrusted-certificate warnings everywhere (`byoc` with a private CA).** Expected on any client that doesn't hold your CA. Import the CA into the client's trust store. If browsers also report the chain as incomplete, `TLS_CERT_FILE` is probably leaf-only — rebuild it as the full chain and rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
 - **Login to an agent environment fails while the console works (`byoc` with a private CA).** That environment's Thunder cannot validate the chain when it fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`. Environment creation reports success regardless, so this only ever surfaces at login. Check whether the CA is published in the cluster:
@@ -649,7 +649,7 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
   If it is **missing**, the install ran without `TLS_CA_FILE`. Create it from your CA using the command under [Certificates from a private CA](#adv-byoc), then re-add the affected environments. If it is **present**, only environments created before it existed are affected; re-add those. Setting `TLS_CA_FILE` at install time covers both cases from the start.
 - **Everything stops working at once (`byoc`).** Check whether the certificate expired — `byoc` certificates are never auto-renewed. `echo | openssl s_client -connect console.<DOMAIN_BASE>:443 -servername console.<DOMAIN_BASE> 2>/dev/null | openssl x509 -noout -dates`, then rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
 - **Cert issued but a host is unreachable.** Confirm the service host's A record points at the VM (public or private IP) and that clients can reach `:443` on it. Issuance does not need this, but client access does.
-- **Login fails but every other host works.** `thunder.<DOMAIN_BASE>` is probably not resolving because the deeper `*.thunder` wildcard shadows it. Check with `dig +short thunder.<DOMAIN_BASE> A` and add the explicit A record (see **DNS records** under [How clients reach the VM](#adv-reachability)).
+- **OTel ingest fails but every other host works.** `gateway.<DOMAIN_BASE>` is probably not resolving because the deeper `*.gateway` wildcard shadows it. Check with `dig +short gateway.<DOMAIN_BASE> A` and add the explicit A record (see **DNS records** under [How clients reach the VM](#adv-reachability)).
 - **A host returns a connection failure rather than an HTTP status.** The front-proxy route for that plane is not bound. List them with `kubectl get httproute -n openchoreo-control-plane` and check that each `amp-frontproxy-*` route reports `Accepted=True` and `ResolvedRefs=True`; a failed `ResolvedRefs` on the observability or data-plane route usually means its ReferenceGrant is missing. Note that a gateway-level `404` is a *healthy* response from an unrouted path: it proves TLS terminated and the request reached the gateway.
 - **Deployed agent unreachable while the console works.** On a public VM, confirm the `*.agents.<DOMAIN_BASE>` A record exists; on a private VM, add the agent's exact hostname to `/etc/hosts` (see the **Private network** tab under [How clients reach the VM](#adv-reachability)), since `/etc/hosts` cannot match wildcards.
 - **Certificate is untrusted after switching to production.** cert-manager will not re-issue into a Secret that still holds a valid staging certificate. Delete the Certificate and its Secret so it re-issues (see [Persistence and teardown](#adv-persistence)).
