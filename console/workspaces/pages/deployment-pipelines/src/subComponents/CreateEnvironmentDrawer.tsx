@@ -512,9 +512,11 @@ export function CreateEnvironmentDrawer({
                 color="text.secondary"
                 sx={{ mt: 0.5, fontFamily: "monospace" }}
               >
-                {`Preview: https://${
+                {/* Matches thunderExternalOrigin (naming.go): TLS deployments serve
+                    on the standard port, local/non-TLS dev serves on 8080. */}
+                {`Preview: ${globalConfig.tlsEnabled ? "https" : "http"}://${
                   formData.thunderHandle || "auto-generated"
-                }.${THUNDER_HOST_PREVIEW_DOMAIN}`}
+                }.${THUNDER_HOST_PREVIEW_DOMAIN}${globalConfig.tlsEnabled ? "" : ":8080"}`}
               </Typography>
             </FormControl>
 
