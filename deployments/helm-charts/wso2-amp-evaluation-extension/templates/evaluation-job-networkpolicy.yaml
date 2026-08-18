@@ -83,14 +83,19 @@ spec:
           protocol: TCP
         {{- end }}
 
-    {{- if .Values.networkPolicy.evaluationJob.devEgress.cidr }}
-    # Local-dev only: agent-manager-service runs outside the cluster, so namespaceSelector can't match it.
+    {{- with .Values.networkPolicy.evaluationJob.devEgress }}
+    {{- if and .cidr .ports }}
+    # Local-dev only: agent-manager-service and the gateway are reached over the node network,
+    # so namespaceSelector can't match them.
     - to:
         - ipBlock:
-            cidr: {{ .Values.networkPolicy.evaluationJob.devEgress.cidr }}
+            cidr: {{ .cidr }}
       ports:
-        - port: {{ .Values.networkPolicy.evaluationJob.devEgress.port }}
+        {{- range .ports }}
+        - port: {{ . }}
           protocol: TCP
+        {{- end }}
+    {{- end }}
     {{- end }}
 
     {{- with .Values.networkPolicy.evaluationJob.apiServer }}
