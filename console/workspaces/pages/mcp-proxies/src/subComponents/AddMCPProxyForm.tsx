@@ -118,19 +118,10 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
     [proxyContext, proxyName, handleEdited],
   );
 
-  // Kept raw while typing: toHandle strips trailing separators, so normalizing on every
-  // keystroke made a hyphen unrecoverable the instant it was typed (it always landed at
-  // the end of the string-so-far). Normalizing happens on blur instead, once the user is
-  // done editing.
   const handleHandleChange = useCallback((value: string) => {
     setHandleEdited(true);
-    setHandle(value);
+    setHandle(toHandle(value));
   }, []);
-
-  const handleHandleBlur = useCallback(() => {
-    if (!handleEdited) return;
-    setHandle((current) => toHandle(current));
-  }, [handleEdited]);
 
   // Convenience: seed the proxy name/version/context from the first fetched
   // server when the user hasn't typed them yet. They remain fully editable.
@@ -242,7 +233,6 @@ export function AddMCPProxyForm({ onCancel }: AddMCPProxyFormProps) {
               fullWidth
               value={handle}
               onChange={(event) => handleHandleChange(event.target.value)}
-              onBlur={handleHandleBlur}
               error={Boolean(handleLengthError)}
             />
             <Typography
