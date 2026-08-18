@@ -119,6 +119,7 @@ export interface AgentResponse {
   inputInterface?: InputInterface;
   uuid?: string;
   kindName?: string;
+  kindVersion?: string;
   labels?: Record<string, string>;
   createdBy?: AgentCreatedBy;
 }

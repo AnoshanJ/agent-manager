@@ -11831,6 +11831,9 @@ components:
         kindName:
           type: string
           description: Name of the Agent Kind this agent was instantiated from (absent for source-built agents)
+        kindVersion:
+          type: string
+          description: Version tag of the Agent Kind this agent was instantiated from (absent for source-built agents, and for kind-sourced agents created before the version was recorded)
         labels:
           $ref: "#/components/schemas/Labels"
         createdBy:
@@ -17947,7 +17950,13 @@ components:
       properties:
         version:
           type: string
-          description: Version tag for this release
+          description: >-
+            Version tag for this release. Stored as a Kubernetes label on every
+            agent created from this version, so it must be at most 63 characters
+            of letters, digits, '.', '_' or '-', starting and ending with a
+            letter or digit.
+          maxLength: 63
+          pattern: "^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$"
           example: "v1.0.0"
         buildName:
           type: string
@@ -17995,7 +18004,13 @@ components:
           $ref: "#/components/schemas/Labels"
         version:
           type: string
-          description: Version tag for this release
+          description: >-
+            Version tag for this release. Stored as a Kubernetes label on every
+            agent created from this version, so it must be at most 63 characters
+            of letters, digits, '.', '_' or '-', starting and ending with a
+            letter or digit.
+          maxLength: 63
+          pattern: "^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$"
           example: "v1.0.0"
         buildName:
           type: string

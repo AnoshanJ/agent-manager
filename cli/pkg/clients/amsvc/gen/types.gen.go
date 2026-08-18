@@ -1220,7 +1220,7 @@ type AddAgentKindVersionRequest struct {
 	// SourceProjectName Project the source agent belongs to
 	SourceProjectName string `json:"sourceProjectName"`
 
-	// Version Version tag for this release
+	// Version Version tag for this release. Stored as a Kubernetes label on every agent created from this version, so it must be at most 63 characters of letters, digits, '.', '_' or '-', starting and ending with a letter or digit.
 	Version string `json:"version"`
 }
 
@@ -1602,6 +1602,9 @@ type AgentResponse struct {
 
 	// KindName Name of the Agent Kind this agent was instantiated from (absent for source-built agents)
 	KindName *string `json:"kindName,omitempty"`
+
+	// KindVersion Version tag of the Agent Kind this agent was instantiated from (absent for source-built agents, and for kind-sourced agents created before the version was recorded)
+	KindVersion *string `json:"kindVersion,omitempty"`
 
 	// Labels User-defined key/value labels. Keys are 1-63 characters of [a-zA-Z0-9._-] starting and ending alphanumeric (not enforceable here as an OpenAPI 3.0 property-name pattern — validated server-side); values follow the same rules but may be empty. At most 10 labels per resource.
 	Labels       *Labels      `json:"labels,omitempty"`
@@ -4524,7 +4527,7 @@ type PublishAgentKindRequest struct {
 	// Metadata Optional interface metadata (e.g. OpenAPI spec)
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
-	// Version Version tag for this release
+	// Version Version tag for this release. Stored as a Kubernetes label on every agent created from this version, so it must be at most 63 characters of letters, digits, '.', '_' or '-', starting and ending with a letter or digit.
 	Version string `json:"version"`
 }
 
