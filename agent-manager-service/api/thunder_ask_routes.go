@@ -19,20 +19,50 @@ package api
 import (
 	"net/http"
 	"strings"
-
-	"golang.org/x/time/rate"
+	"sync"
+	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
 
+// tokenBucketLimiter is a minimal stdlib-only token bucket — deliberately
+// hand-rolled rather than pulling in an external rate-limiting package for
+// this one narrow use.
+type tokenBucketLimiter struct {
+	mu         sync.Mutex
+	tokens     float64
+	max        float64
+	refillRate float64 // tokens per second
+	last       time.Time
+}
+
+func newTokenBucketLimiter(refillPerSecond, burst float64) *tokenBucketLimiter {
+	return &tokenBucketLimiter{tokens: burst, max: burst, refillRate: refillPerSecond, last: time.Now()}
+}
+
+func (l *tokenBucketLimiter) Allow() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if elapsed := now.Sub(l.last).Seconds(); elapsed > 0 {
+		l.tokens = min(l.max, l.tokens+elapsed*l.refillRate)
+		l.last = now
+	}
+	if l.tokens < 1 {
+		return false
+	}
+	l.tokens--
+	return true
+}
+
 // thunderAskRateLimit caps thunder-ask throughput well above anything Caddy's
 // own on-demand-TLS traffic could ever produce (new-cert issuance and renewals
 // are rare events), while bounding how fast this reachable-from-the-public-
 // internet endpoint (routed through the api host's HTTPRoute so Caddy can
 // reach it — see caddyfile()) can be used to enumerate registered handles.
-var thunderAskRateLimit = rate.NewLimiter(rate.Limit(5), 10)
+var thunderAskRateLimit = newTokenBucketLimiter(5, 10)
 
 // registerThunderAskRoute registers the endpoint Caddy's on-demand TLS "ask"
 // mechanism calls before issuing a certificate for any hostname under the

@@ -23,8 +23,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"golang.org/x/time/rate"
-
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
@@ -55,7 +53,7 @@ func setupThunderAskMux(t *testing.T, svc services.EnvironmentService) *http.Ser
 	// production state and would otherwise accumulate hits across every test
 	// in this file, making pass/fail depend on run order and timing.
 	origLimiter := thunderAskRateLimit
-	thunderAskRateLimit = rate.NewLimiter(rate.Limit(1000), 1000)
+	thunderAskRateLimit = newTokenBucketLimiter(1000, 1000)
 	t.Cleanup(func() { thunderAskRateLimit = origLimiter })
 
 	mux := http.NewServeMux()
@@ -172,7 +170,7 @@ func TestThunderAskRoute_RateLimited(t *testing.T) {
 	svc := &stubThunderAskEnvironmentService{registered: true}
 	mux := http.NewServeMux()
 	origLimiter := thunderAskRateLimit
-	thunderAskRateLimit = rate.NewLimiter(rate.Limit(1), 1)
+	thunderAskRateLimit = newTokenBucketLimiter(1, 1)
 	t.Cleanup(func() { thunderAskRateLimit = origLimiter })
 	cfg := config.GetConfig()
 	origDomain := cfg.ThunderHostBaseDomain
