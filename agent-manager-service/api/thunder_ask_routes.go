@@ -17,6 +17,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,6 +27,10 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
+
+// thunderAskSecretHeader is the header Caddy's ask reverse_proxy attaches
+// (see caddyfile() in deployments/vm/lib-vm.sh) carrying ThunderAskSecret.
+const thunderAskSecretHeader = "X-Thunder-Ask-Secret"
 
 // tokenBucketLimiter is a minimal stdlib-only token bucket — deliberately
 // hand-rolled rather than pulling in an external rate-limiting package for
@@ -57,30 +62,49 @@ func (l *tokenBucketLimiter) Allow() bool {
 	return true
 }
 
-// thunderAskRateLimit caps thunder-ask throughput well above anything Caddy's
-// own on-demand-TLS traffic could ever produce (new-cert issuance and renewals
-// are rare events), while bounding how fast this reachable-from-the-public-
-// internet endpoint (routed through the api host's HTTPRoute so Caddy can
+// thunderAskRateLimit bounds how fast this reachable-from-the-public-internet
+// endpoint (routed through the api host's own catch-all HTTPRoute so Caddy can
 // reach it — see caddyfile()) can be used to enumerate registered handles.
+// Applies to every caller that does NOT present a valid ThunderAskSecret —
+// which, when the secret isn't configured at all, means every caller,
+// preserving today's behavior exactly for a deployment that hasn't set one.
 var thunderAskRateLimit = newTokenBucketLimiter(5, 10)
+
+// thunderAskTrustedRateLimit is the separate, much more generous budget for
+// calls presenting a valid ThunderAskSecret (i.e., genuinely from Caddy — see
+// thunderAskSecretHeader). Sharing ONE limiter between Caddy and the public
+// internet let a burst of public requests exhaust the budget and 429 the next
+// legitimate Caddy request, denying TLS issuance for a brand new environment.
+// Still bounded (not skipped outright) as a guard against Caddy itself
+// retry-storming, but high enough to never matter for real usage — new-cert
+// issuance and renewals are rare events.
+var thunderAskTrustedRateLimit = newTokenBucketLimiter(50, 100)
 
 // registerThunderAskRoute registers the endpoint Caddy's on-demand TLS "ask"
 // mechanism calls before issuing a certificate for any hostname under the
-// env-Thunder wildcard, including the legacy "<org>-<env>.thunder" shape
-// LegacyThunderHandleLabel grandfathers pre-existing environments onto (see
-// env_thunder_url_reader.go) — both are genuine registered rows, so neither is
-// rejected for containing a "." the way a newly-generated handle never would.
-// caddyfile() (deployments/vm/lib-vm.sh) matches the per-env gateway and
-// deployed-agent wildcards BEFORE ever proxying here, so every request this
-// handler actually sees is already known to be env-Thunder-shaped.
+// env-Thunder wildcard. A valid handle is always a single DNS label (see
+// validateThunderHandle) — a dotted label is rejected outright, without ever
+// consulting the registry. caddyfile() (deployments/vm/lib-vm.sh) matches the
+// per-env gateway and deployed-agent wildcards BEFORE ever proxying here, so
+// every request this handler actually sees is already known to be
+// env-Thunder-shaped.
 //
-// Unauthenticated by design: Caddy's ask call carries no credentials, and the
-// question answered here ("is this label a registered env-Thunder handle?")
-// leaks nothing beyond what's already inferable by directly dialing the
-// hostname and observing whether it resolves.
+// The route itself stays open to the public internet (Caddy's ask client
+// can't authenticate any other way, and this endpoint is reachable through
+// the api host's own catch-all HTTPRoute) — ThunderAskSecret only shields
+// Caddy's OWN rate-limit budget from that public reachability, it does not
+// gate the answer itself. The question answered here ("is this label a
+// registered env-Thunder handle?") leaks nothing beyond what's already
+// inferable by directly dialing the hostname and observing whether it
+// resolves.
 func registerThunderAskRoute(mux *http.ServeMux, environmentService services.EnvironmentService) {
 	mux.HandleFunc("GET /internal/thunder-ask", func(w http.ResponseWriter, r *http.Request) {
-		if !thunderAskRateLimit.Allow() {
+		limiter := thunderAskRateLimit
+		if secret := config.GetConfig().ThunderAskSecret; secret != "" &&
+			subtle.ConstantTimeCompare([]byte(r.Header.Get(thunderAskSecretHeader)), []byte(secret)) == 1 {
+			limiter = thunderAskTrustedRateLimit
+		}
+		if !limiter.Allow() {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}

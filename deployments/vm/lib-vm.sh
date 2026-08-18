@@ -424,7 +424,7 @@ render_dataplane_external_ingress() {
 # listener differs.
 # shellcheck disable=SC2154  # AMP_HOST_*/AMP_AGENTS_BASE come from the caller's scope.
 caddyfile() {
-  local tls_mode="$1" email="$2" cert_file="$3" key_file="$4" listen_port="${5:-80}" trusted_proxies="${6:-0.0.0.0/0}"
+  local tls_mode="$1" email="$2" cert_file="$3" key_file="$4" listen_port="${5:-80}" trusted_proxies="${6:-0.0.0.0/0}" ask_secret="${7:-}"
   local console_origin="https://${AMP_HOST_CONSOLE}"
 
   # Per-mode building blocks computed once.
@@ -537,8 +537,19 @@ caddyfile() {
   # whatever Caddy's on-demand-tls client itself sent (no new container/process
   # — this is just another Caddy site, like every _site above).
   if [[ "$tls_mode" == letsencrypt ]]; then
-    printf 'http://127.0.0.1:9753 {\n\t@gateway_or_agents expression `{query.domain}.endsWith(".%s") || {query.domain}.endsWith(".%s")`\n\trespond @gateway_or_agents 200\n\treverse_proxy 127.0.0.1:8080 {\n\t\theader_up Host %s\n\t}\n}\n\n' \
-      "$AMP_HOST_GATEWAY" "$AMP_AGENTS_BASE" "$AMP_HOST_API"
+    # ask_secret, when non-empty, is amp-api's own auto-generated
+    # thunder-ask-secret (agent-manager-service/config: THUNDER_ASK_SECRET) —
+    # install-vm.sh reads it back out of the already-deployed amp Secret after
+    # the "amp" Helm release exists (start_caddy runs after run_install's base
+    # installer, so it's always there by this point) and passes it in here.
+    # Empty when unset/unreadable (e.g. an existingSecret override with no
+    # matching key) — the ask call still works either way, it just draws from
+    # AMS's shared public rate-limit budget instead of its own, same as before
+    # this header existed.
+    local ask_secret_header=""
+    [[ -n "$ask_secret" ]] && ask_secret_header=$'\t\theader_up X-Thunder-Ask-Secret '"${ask_secret}"$'\n'
+    printf 'http://127.0.0.1:9753 {\n\t@gateway_or_agents expression `{query.domain}.endsWith(".%s") || {query.domain}.endsWith(".%s")`\n\trespond @gateway_or_agents 200\n\treverse_proxy 127.0.0.1:8080 {\n\t\theader_up Host %s\n%s\t}\n}\n\n' \
+      "$AMP_HOST_GATEWAY" "$AMP_AGENTS_BASE" "$AMP_HOST_API" "$ask_secret_header"
   fi
 
   # Deployed-agent endpoints: <org>-<project>.<AGENTS_BASE> (one host per org/project,
@@ -557,7 +568,7 @@ caddyfile() {
 # byte-for-byte. Prints a complete Caddyfile to stdout: 443-only, every site forces
 # the TLS-ALPN-01 challenge so issuance never needs inbound port 80.
 render_caddyfile() {
-  local ip="$1" email="$2" external_gateways="${3:-true}"
+  local ip="$1" email="$2" external_gateways="${3:-true}" ask_secret="${4:-}"
   local AMP_HOST_CONSOLE AMP_HOST_API AMP_HOST_THUNDER AMP_HOST_OBSERVER AMP_HOST_GATEWAY AMP_HOST_CP AMP_AGENTS_BASE
   AMP_HOST_CONSOLE="$(vm_host console "$ip")"
   AMP_HOST_API="$(vm_host api "$ip")"
@@ -566,5 +577,5 @@ render_caddyfile() {
   AMP_HOST_GATEWAY="$(vm_host gateway "$ip")"
   AMP_HOST_CP=""; [[ "$external_gateways" == "true" ]] && AMP_HOST_CP="$(vm_host cp "$ip")"
   AMP_AGENTS_BASE="agents.${ip}.sslip.io"
-  caddyfile letsencrypt "$email" "" "" ""
+  caddyfile letsencrypt "$email" "" "" "" "" "$ask_secret"
 }

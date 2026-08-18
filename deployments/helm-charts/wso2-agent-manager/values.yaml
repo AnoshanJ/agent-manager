@@ -185,6 +185,16 @@ agentManagerService:
       existingSecret: ""
       existingSecretKey: "encryption-key"
 
+    # Shared secret Caddy presents on the on-demand-TLS ask endpoint
+    # (/internal/thunder-ask) so that trusted Caddy traffic can be told apart
+    # from the public internet, which reaches the same path through the api
+    # host's catch-all route. Auto-generated if not provided; deployments.vm's
+    # install-vm.sh reads the generated value back out to configure Caddy.
+    thunderAskSecret:
+      value: ""
+      existingSecret: ""
+      existingSecretKey: "thunder-ask-secret"
+
     # Kubeconfig (empty for in-cluster, or provide config)
     kubeconfig: ""
 

@@ -69,6 +69,15 @@ type Config struct {
 	// deployed Thunder instance's own self-configured issuer never diverge.
 	ThunderHostBaseDomain string
 
+	// ThunderAskSecret, when set, is the shared secret Caddy's on-demand-TLS ask
+	// call presents (header X-Thunder-Ask-Secret) to /internal/thunder-ask so
+	// that call can be told apart from the public internet, which reaches the
+	// same path through the api host's own catch-all route — see
+	// api/thunder_ask_routes.go. Empty by default: a deployment that hasn't set
+	// this (e.g. one upgrading without regenerating its Caddyfile) keeps today's
+	// single shared rate limit rather than breaking.
+	ThunderAskSecret string
+
 	// OAuthAuthorizationServers is the list of OAuth 2.0 authorization server URLs
 	// advertised in the RFC 9728 protected resource metadata document. Each entry
 	// MUST be an absolute http/https URL (validated at config load). Required for

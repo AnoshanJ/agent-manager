@@ -175,3 +175,91 @@ func TestThunderAskRoute_RateLimited(t *testing.T) {
 		t.Errorf("expected the request past burst to be rate-limited, got %d", second.Code)
 	}
 }
+
+func askThunderRouteWithSecret(mux *http.ServeMux, domain, secret string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/internal/thunder-ask?domain="+domain, nil)
+	if secret != "" {
+		req.Header.Set(thunderAskSecretHeader, secret)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestThunderAskRoute_TrustedSecretHasItsOwnBudget locks in the actual fix for
+// the shared-limiter problem: a public caller exhausting thunderAskRateLimit
+// must never be able to deny a legitimate Caddy request presenting
+// ThunderAskSecret, because that request draws from a separate budget.
+func TestThunderAskRoute_TrustedSecretHasItsOwnBudget(t *testing.T) {
+	svc := &stubThunderAskEnvironmentService{registered: true}
+	mux := http.NewServeMux()
+
+	origPublic, origTrusted := thunderAskRateLimit, thunderAskTrustedRateLimit
+	thunderAskRateLimit = newTokenBucketLimiter(0, 1) // exactly one public request ever
+	thunderAskTrustedRateLimit = newTokenBucketLimiter(1000, 1000)
+	t.Cleanup(func() { thunderAskRateLimit, thunderAskTrustedRateLimit = origPublic, origTrusted })
+
+	cfg := config.GetConfig()
+	origDomain, origSecret := cfg.ThunderHostBaseDomain, cfg.ThunderAskSecret
+	cfg.ThunderHostBaseDomain = "amp.example.com"
+	cfg.ThunderAskSecret = "s3cr3t"
+	t.Cleanup(func() { cfg.ThunderHostBaseDomain, cfg.ThunderAskSecret = origDomain, origSecret })
+
+	registerThunderAskRoute(mux, svc)
+
+	// Exhaust the public budget entirely.
+	exhaust := askThunderRoute(mux, "abcd1234.amp.example.com")
+	if exhaust.Code != http.StatusOK {
+		t.Fatalf("expected the exhausting public request to succeed, got %d", exhaust.Code)
+	}
+	blocked := askThunderRoute(mux, "abcd1234.amp.example.com")
+	if blocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected the public budget to now be exhausted, got %d", blocked.Code)
+	}
+
+	// A request presenting the correct secret must still succeed.
+	trusted := askThunderRouteWithSecret(mux, "abcd1234.amp.example.com", "s3cr3t")
+	if trusted.Code != http.StatusOK {
+		t.Errorf("expected a request with a valid ThunderAskSecret to draw from its own budget, got %d", trusted.Code)
+	}
+}
+
+func TestThunderAskRoute_WrongSecretStaysOnPublicBudget(t *testing.T) {
+	svc := &stubThunderAskEnvironmentService{registered: true}
+	mux := http.NewServeMux()
+
+	origPublic, origTrusted := thunderAskRateLimit, thunderAskTrustedRateLimit
+	thunderAskRateLimit = newTokenBucketLimiter(0, 1)
+	thunderAskTrustedRateLimit = newTokenBucketLimiter(1000, 1000)
+	t.Cleanup(func() { thunderAskRateLimit, thunderAskTrustedRateLimit = origPublic, origTrusted })
+
+	cfg := config.GetConfig()
+	origDomain, origSecret := cfg.ThunderHostBaseDomain, cfg.ThunderAskSecret
+	cfg.ThunderHostBaseDomain = "amp.example.com"
+	cfg.ThunderAskSecret = "s3cr3t"
+	t.Cleanup(func() { cfg.ThunderHostBaseDomain, cfg.ThunderAskSecret = origDomain, origSecret })
+
+	registerThunderAskRoute(mux, svc)
+
+	askThunderRoute(mux, "abcd1234.amp.example.com") // exhausts the public budget
+
+	wrongSecret := askThunderRouteWithSecret(mux, "abcd1234.amp.example.com", "not-the-secret")
+	if wrongSecret.Code != http.StatusTooManyRequests {
+		t.Errorf("expected an invalid secret to stay on the exhausted public budget, got %d", wrongSecret.Code)
+	}
+}
+
+// TestThunderAskRoute_UnconfiguredSecretPreservesExistingBehavior guards the
+// upgrade path: a deployment that hasn't set ThunderAskSecret (the zero value)
+// must keep exactly today's single-limiter behavior, even if a caller sends
+// the header — there's nothing configured to compare it against.
+func TestThunderAskRoute_UnconfiguredSecretPreservesExistingBehavior(t *testing.T) {
+	svc := &stubThunderAskEnvironmentService{registered: true}
+	mux := setupThunderAskMux(t, svc)
+
+	rec := askThunderRouteWithSecret(mux, "abcd1234.amp.example.com", "anything")
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for a registered handle regardless of the header, got %d", rec.Code)
+	}
+}
