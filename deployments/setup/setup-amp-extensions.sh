@@ -109,7 +109,7 @@ install_evaluation_workflows() {
         --set ampEvaluation.publisher.clientId="amp-publisher-client" \
         --set networkPolicy.evaluationJob.enabled="${network_policy_enabled}" \
         --set networkPolicy.evaluationJob.devEgress.cidr="${node_cidr}" \
-        --set networkPolicy.evaluationJob.devEgress.port=8080 \
+        --set "networkPolicy.evaluationJob.devEgress.ports={8080,19080}" \
         --set "networkPolicy.evaluationJob.apiServer.cidrs[0]=${node_cidr}"
     echo "✅ Evaluation Workflows Extension installed/upgraded successfully"
 }

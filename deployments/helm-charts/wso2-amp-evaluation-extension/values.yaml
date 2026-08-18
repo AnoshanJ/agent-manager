@@ -92,11 +92,12 @@ networkPolicy:
       # the label alone.
       namespace: ""
 
-    # -- Local-dev only: ipBlock exception for agent-manager-service running outside the
-    # cluster (docker-compose). Empty (no-op) elsewhere; setup-amp-extensions.sh sets it.
+    # -- Local-dev only: ipBlock exception for the node network, covering agent-manager-service
+    # outside the cluster (8080) and the gateway's node port (19080). Empty (no-op) elsewhere;
+    # setup-amp-extensions.sh sets both.
     devEgress:
       cidr: ""
-      port: 8080
+      ports: [8080, 19080]
 
     # -- Node network of the kube-apiserver. Permissive default spans the pod and service CIDRs so any
     # cluster works unconfigured; narrow to the control-plane subnet in production.
