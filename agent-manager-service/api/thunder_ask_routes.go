@@ -20,17 +20,29 @@ import (
 	"net/http"
 	"strings"
 
+	"golang.org/x/time/rate"
+
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
 
+// thunderAskRateLimit caps thunder-ask throughput well above anything Caddy's
+// own on-demand-TLS traffic could ever produce (new-cert issuance and renewals
+// are rare events), while bounding how fast this reachable-from-the-public-
+// internet endpoint (routed through the api host's HTTPRoute so Caddy can
+// reach it — see caddyfile()) can be used to enumerate registered handles.
+var thunderAskRateLimit = rate.NewLimiter(rate.Limit(5), 10)
+
 // registerThunderAskRoute registers the endpoint Caddy's on-demand TLS "ask"
 // mechanism calls before issuing a certificate for any hostname under the
-// env-Thunder wildcard (see deployments/vm/lib-vm.sh's caddyfile(), which also
-// reuses this same ask endpoint for the per-env gateway and deployed-agent
-// wildcards — this only ever tightens the env-Thunder case, every other
-// hostname keeps today's always-allow behavior).
+// env-Thunder wildcard, including the legacy "<org>-<env>.thunder" shape
+// LegacyThunderHandleLabel grandfathers pre-existing environments onto (see
+// env_thunder_url_reader.go) — both are genuine registered rows, so neither is
+// rejected for containing a "." the way a newly-generated handle never would.
+// caddyfile() (deployments/vm/lib-vm.sh) matches the per-env gateway and
+// deployed-agent wildcards BEFORE ever proxying here, so every request this
+// handler actually sees is already known to be env-Thunder-shaped.
 //
 // Unauthenticated by design: Caddy's ask call carries no credentials, and the
 // question answered here ("is this label a registered env-Thunder handle?")
@@ -38,20 +50,24 @@ import (
 // hostname and observing whether it resolves.
 func registerThunderAskRoute(mux *http.ServeMux, environmentService services.EnvironmentService) {
 	mux.HandleFunc("GET /internal/thunder-ask", func(w http.ResponseWriter, r *http.Request) {
+		if !thunderAskRateLimit.Allow() {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+
 		domain := r.URL.Query().Get("domain")
 		label, isEnvThunderHost := strings.CutSuffix(domain, "."+config.GetConfig().ThunderHostBaseDomain)
 		if !isEnvThunderHost {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if label == "" || strings.Contains(label, ".") {
-			// The bare base domain, or anything with an extra label in
-			// between, is never a valid single-segment handle.
+		if label == "" {
+			// The bare base domain is never a valid handle.
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 
-		available, err := environmentService.IsThunderHandleAvailable(r.Context(), label)
+		registered, err := environmentService.ThunderHandleRegistered(r.Context(), label)
 		if err != nil {
 			// Fail closed: an unreadable registry must never be treated as
 			// authorization to issue the certificate.
@@ -59,8 +75,7 @@ func registerThunderAskRoute(mux *http.ServeMux, environmentService services.Env
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if available {
-			// "Available" means no environment has claimed this label.
+		if !registered {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}

@@ -72,6 +72,10 @@ type EnvironmentService interface {
 	// (wrapping utils.ErrInvalidThunderHandle) if handle's format itself is
 	// invalid, distinct from "valid but taken" (available=false, err=nil).
 	IsThunderHandleAvailable(ctx context.Context, handle string) (bool, error)
+	// ThunderHandleRegistered reports whether handle is registered to any
+	// environment, without validating handle's format first — see doc comment
+	// on the implementation for why that distinction matters.
+	ThunderHandleRegistered(ctx context.Context, handle string) (bool, error)
 }
 
 type environmentService struct {
@@ -838,6 +842,21 @@ func (s *environmentService) IsThunderHandleAvailable(ctx context.Context, handl
 		return false, fmt.Errorf("failed to check thunder url handle availability for %q: %w", handle, err)
 	}
 	return !exists, nil
+}
+
+// ThunderHandleRegistered reports whether handle is registered to ANY
+// environment, skipping the DNS-label format check IsThunderHandleAvailable
+// applies. A legacy grandfathered handle (LegacyThunderHandleLabel) contains a
+// literal "." and would never pass that check, but it can still be a genuine,
+// registered row — this is the raw existence question Caddy's on-demand-TLS
+// ask endpoint needs (see api/thunder_ask_routes.go), not the "is this a
+// well-formed new handle" question IsThunderHandleAvailable answers.
+func (s *environmentService) ThunderHandleRegistered(ctx context.Context, handle string) (bool, error) {
+	exists, err := s.envThunderURLRepo.ExistsByHandle(ctx, handle)
+	if err != nil {
+		return false, fmt.Errorf("failed to check thunder url handle registration for %q: %w", handle, err)
+	}
+	return exists, nil
 }
 
 // SetThunderSystemClientSecret encrypts and upserts the env-Thunder system-client

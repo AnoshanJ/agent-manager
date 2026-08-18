@@ -23,23 +23,25 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"golang.org/x/time/rate"
+
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
 )
 
 // stubThunderAskEnvironmentService implements services.EnvironmentService by
 // embedding the interface (every unimplemented method panics if called) and
-// overriding only IsThunderHandleAvailable, the one method this route uses.
+// overriding only ThunderHandleRegistered, the one method this route uses.
 type stubThunderAskEnvironmentService struct {
 	services.EnvironmentService
-	available    bool
-	availableErr error
-	calledWith   *string
+	registered    bool
+	registeredErr error
+	calledWith    *string
 }
 
-func (s *stubThunderAskEnvironmentService) IsThunderHandleAvailable(_ context.Context, handle string) (bool, error) {
+func (s *stubThunderAskEnvironmentService) ThunderHandleRegistered(_ context.Context, handle string) (bool, error) {
 	s.calledWith = &handle
-	return s.available, s.availableErr
+	return s.registered, s.registeredErr
 }
 
 func setupThunderAskMux(t *testing.T, svc services.EnvironmentService) *http.ServeMux {
@@ -48,6 +50,13 @@ func setupThunderAskMux(t *testing.T, svc services.EnvironmentService) *http.Ser
 	orig := cfg.ThunderHostBaseDomain
 	cfg.ThunderHostBaseDomain = "amp.example.com"
 	t.Cleanup(func() { cfg.ThunderHostBaseDomain = orig })
+
+	// A fresh, generous limiter per test — the package-level one is shared
+	// production state and would otherwise accumulate hits across every test
+	// in this file, making pass/fail depend on run order and timing.
+	origLimiter := thunderAskRateLimit
+	thunderAskRateLimit = rate.NewLimiter(rate.Limit(1000), 1000)
+	t.Cleanup(func() { thunderAskRateLimit = origLimiter })
 
 	mux := http.NewServeMux()
 	registerThunderAskRoute(mux, svc)
@@ -62,7 +71,7 @@ func askThunderRoute(mux *http.ServeMux, domain string) *httptest.ResponseRecord
 }
 
 func TestThunderAskRoute_RegisteredHandleAllowed(t *testing.T) {
-	svc := &stubThunderAskEnvironmentService{available: false}
+	svc := &stubThunderAskEnvironmentService{registered: true}
 	mux := setupThunderAskMux(t, svc)
 
 	rec := askThunderRoute(mux, "abcd1234.amp.example.com")
@@ -76,7 +85,7 @@ func TestThunderAskRoute_RegisteredHandleAllowed(t *testing.T) {
 }
 
 func TestThunderAskRoute_UnregisteredHandleForbidden(t *testing.T) {
-	svc := &stubThunderAskEnvironmentService{available: true}
+	svc := &stubThunderAskEnvironmentService{registered: false}
 	mux := setupThunderAskMux(t, svc)
 
 	rec := askThunderRoute(mux, "never-claimed.amp.example.com")
@@ -87,7 +96,7 @@ func TestThunderAskRoute_UnregisteredHandleForbidden(t *testing.T) {
 }
 
 func TestThunderAskRoute_FailsClosedOnServiceError(t *testing.T) {
-	svc := &stubThunderAskEnvironmentService{availableErr: errors.New("db down")}
+	svc := &stubThunderAskEnvironmentService{registeredErr: errors.New("db down")}
 	mux := setupThunderAskMux(t, svc)
 
 	rec := askThunderRoute(mux, "abcd1234.amp.example.com")
@@ -98,9 +107,10 @@ func TestThunderAskRoute_FailsClosedOnServiceError(t *testing.T) {
 }
 
 func TestThunderAskRoute_NonThunderHostAlwaysAllowed(t *testing.T) {
-	// The gateway and deployed-agent wildcards share this same ask endpoint
-	// (see caddyfile()) — this route must never touch the handle registry for
-	// hostnames outside the env-Thunder base domain.
+	// The gateway and deployed-agent wildcards are matched and allowed in
+	// Caddy itself before ever reaching here (see caddyfile()) — this route
+	// must never touch the handle registry for hostnames outside the
+	// env-Thunder base domain.
 	svc := &stubThunderAskEnvironmentService{}
 	mux := setupThunderAskMux(t, svc)
 
@@ -128,16 +138,55 @@ func TestThunderAskRoute_EmptyLabelForbidden(t *testing.T) {
 	}
 }
 
-func TestThunderAskRoute_MultiLabelRemainderForbidden(t *testing.T) {
-	svc := &stubThunderAskEnvironmentService{}
+func TestThunderAskRoute_RegisteredLegacyHandleAllowed(t *testing.T) {
+	// LegacyThunderHandleLabel (env_thunder_url_reader.go) grandfathers
+	// pre-existing environments onto "<org>-<env>.thunder" — a genuinely
+	// registered row that contains a "." a newly-generated handle never would.
+	// This must be checked the same as any other registered handle, not
+	// rejected for its shape.
+	svc := &stubThunderAskEnvironmentService{registered: true}
 	mux := setupThunderAskMux(t, svc)
 
-	rec := askThunderRoute(mux, "a.b.amp.example.com")
+	rec := askThunderRoute(mux, "myorg-myenv.thunder.amp.example.com")
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for a registered legacy handle, got %d", rec.Code)
+	}
+	if svc.calledWith == nil || *svc.calledWith != "myorg-myenv.thunder" {
+		t.Errorf("expected the full dotted legacy label to be checked, got %v", svc.calledWith)
+	}
+}
+
+func TestThunderAskRoute_UnregisteredLegacyShapeForbidden(t *testing.T) {
+	svc := &stubThunderAskEnvironmentService{registered: false}
+	mux := setupThunderAskMux(t, svc)
+
+	rec := askThunderRoute(mux, "never-provisioned.thunder.amp.example.com")
 
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403 for a multi-label remainder, got %d", rec.Code)
+		t.Errorf("expected 403 for an unregistered legacy-shaped label, got %d", rec.Code)
 	}
-	if svc.calledWith != nil {
-		t.Errorf("expected the handle registry not to be consulted, got %v", svc.calledWith)
+}
+
+func TestThunderAskRoute_RateLimited(t *testing.T) {
+	svc := &stubThunderAskEnvironmentService{registered: true}
+	mux := http.NewServeMux()
+	origLimiter := thunderAskRateLimit
+	thunderAskRateLimit = rate.NewLimiter(rate.Limit(1), 1)
+	t.Cleanup(func() { thunderAskRateLimit = origLimiter })
+	cfg := config.GetConfig()
+	origDomain := cfg.ThunderHostBaseDomain
+	cfg.ThunderHostBaseDomain = "amp.example.com"
+	t.Cleanup(func() { cfg.ThunderHostBaseDomain = origDomain })
+	registerThunderAskRoute(mux, svc)
+
+	first := askThunderRoute(mux, "abcd1234.amp.example.com")
+	second := askThunderRoute(mux, "abcd1234.amp.example.com")
+
+	if first.Code != http.StatusOK {
+		t.Errorf("expected the first request within burst to succeed, got %d", first.Code)
+	}
+	if second.Code != http.StatusTooManyRequests {
+		t.Errorf("expected the request past burst to be rate-limited, got %d", second.Code)
 	}
 }
