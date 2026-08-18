@@ -300,8 +300,6 @@ func (s *LLMProviderService) List(ouID string, limit, offset int) ([]*models.LLM
 // is scoped to the gateways that provider is currently deployed to, instead of every
 // active gateway in the org.
 func (s *LLMProviderService) ListAvailableLLMPolicies(ctx context.Context, ouID, providerID string) (*models.LLMPolicyAvailabilityResponse, error) {
-	_ = ctx
-
 	var available map[string]llmPolicyManifestItem
 	var err error
 	if providerID != "" {
@@ -315,9 +313,9 @@ func (s *LLMProviderService) ListAvailableLLMPolicies(ctx context.Context, ouID,
 		if provider == nil {
 			return nil, utils.ErrLLMProviderNotFound
 		}
-		available, err = intersectDeployedGatewayLLMPolicies(s.gatewayRepo, s.deploymentRepo, provider.UUID, ouID)
+		available, err = intersectDeployedGatewayLLMPolicies(ctx, s.gatewayRepo, s.deploymentRepo, provider.UUID, ouID)
 	} else {
-		available, err = intersectActiveGatewayLLMPolicies(s.gatewayRepo, ouID)
+		available, err = intersectActiveGatewayLLMPolicies(ctx, s.gatewayRepo, ouID)
 	}
 	if err != nil {
 		return nil, err

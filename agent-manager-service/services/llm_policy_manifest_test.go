@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -163,7 +164,7 @@ func TestExtractLLMPolicyManifestItems_EmptyOrMalformedManifest(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestIntersectActiveGatewayLLMPolicies_NilRepoReturnsEmpty(t *testing.T) {
-	available, err := intersectActiveGatewayLLMPolicies(nil, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), nil, "org-uuid")
 
 	require.NoError(t, err)
 	assert.NotNil(t, available)
@@ -179,7 +180,7 @@ func TestIntersectActiveGatewayLLMPolicies_SingleGateway(t *testing.T) {
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	require.Len(t, available, 1)
@@ -201,7 +202,7 @@ func TestIntersectActiveGatewayLLMPolicies_OverlappingPoliciesSurvive(t *testing
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	// Only the policy reported by EVERY active gateway survives the intersection.
@@ -226,7 +227,7 @@ func TestIntersectActiveGatewayLLMPolicies_VersionMismatchFallsBackToLowest(t *t
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	// Every gateway has the policy, just at different versions — treated as
@@ -251,7 +252,7 @@ func TestIntersectActiveGatewayLLMPolicies_MissingFromOneGatewayStaysExcluded(t 
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	assert.Empty(t, available)
@@ -271,7 +272,7 @@ func TestIntersectActiveGatewayLLMPolicies_VersionMismatchUsesSemverComparison(t
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	// A plain string compare would wrongly treat "1.10.0" < "1.9.0". Numeric
@@ -294,7 +295,7 @@ func TestIntersectActiveGatewayLLMPolicies_VersionMismatchStripsVPrefixForSemver
 		},
 	}
 
-	available, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	available, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	// A plain string compare of "v10" vs "v2" would wrongly rank "v10" lower.
@@ -312,7 +313,7 @@ func TestIntersectActiveGatewayLLMPolicies_OnlyActiveGatewaysQueried(t *testing.
 		},
 	}
 
-	_, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	_, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.NoError(t, err)
 	assert.Equal(t, "org-uuid", capturedFilters.OrganizationID)
@@ -328,7 +329,7 @@ func TestIntersectActiveGatewayLLMPolicies_RepoErrorIsWrapped(t *testing.T) {
 		},
 	}
 
-	_, err := intersectActiveGatewayLLMPolicies(repo, "org-uuid")
+	_, err := intersectActiveGatewayLLMPolicies(context.Background(), repo, "org-uuid")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom)
@@ -340,7 +341,7 @@ func TestIntersectActiveGatewayLLMPolicies_RepoErrorIsWrapped(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestIntersectDeployedGatewayLLMPolicies_NilRepoReturnsEmpty(t *testing.T) {
-	available, err := intersectDeployedGatewayLLMPolicies(nil, nil, uuid.New(), "org-uuid")
+	available, err := intersectDeployedGatewayLLMPolicies(context.Background(), nil, nil, uuid.New(), "org-uuid")
 
 	require.NoError(t, err)
 	assert.Empty(t, available)
@@ -372,7 +373,7 @@ func TestIntersectDeployedGatewayLLMPolicies_ScopesToDeployedGatewaysOnly(t *tes
 	}
 	_ = undeployedGateway // never queried — GetByUUIDFunc only ever asked for the deployed gateway.
 
-	available, err := intersectDeployedGatewayLLMPolicies(gatewayRepo, deploymentRepo, providerUUID, "org-uuid")
+	available, err := intersectDeployedGatewayLLMPolicies(context.Background(), gatewayRepo, deploymentRepo, providerUUID, "org-uuid")
 
 	require.NoError(t, err)
 	require.Len(t, available, 1)
@@ -395,7 +396,7 @@ func TestIntersectDeployedGatewayLLMPolicies_SkipsGatewayFromAnotherOrg(t *testi
 		},
 	}
 
-	available, err := intersectDeployedGatewayLLMPolicies(gatewayRepo, deploymentRepo, uuid.New(), "org-uuid")
+	available, err := intersectDeployedGatewayLLMPolicies(context.Background(), gatewayRepo, deploymentRepo, uuid.New(), "org-uuid")
 
 	require.NoError(t, err)
 	assert.Empty(t, available)
@@ -413,7 +414,7 @@ func TestIntersectDeployedGatewayLLMPolicies_SkipsStaleGatewayReference(t *testi
 		},
 	}
 
-	available, err := intersectDeployedGatewayLLMPolicies(gatewayRepo, deploymentRepo, uuid.New(), "org-uuid")
+	available, err := intersectDeployedGatewayLLMPolicies(context.Background(), gatewayRepo, deploymentRepo, uuid.New(), "org-uuid")
 
 	require.NoError(t, err)
 	assert.Empty(t, available)
@@ -427,7 +428,7 @@ func TestIntersectDeployedGatewayLLMPolicies_DeploymentRepoErrorIsWrapped(t *tes
 		},
 	}
 
-	_, err := intersectDeployedGatewayLLMPolicies(&repomocks.GatewayRepositoryMock{}, deploymentRepo, uuid.New(), "org-uuid")
+	_, err := intersectDeployedGatewayLLMPolicies(context.Background(), &repomocks.GatewayRepositoryMock{}, deploymentRepo, uuid.New(), "org-uuid")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom)

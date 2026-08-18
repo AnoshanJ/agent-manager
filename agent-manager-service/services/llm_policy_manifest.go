@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -48,7 +49,7 @@ type llmPolicyManifestItem struct {
 // definitions available across every active gateway in the org. Used when the caller has
 // no specific provider/deployment to scope to (e.g. a provider-agnostic listing).
 // See intersectLLMPolicies for the availability semantics.
-func intersectActiveGatewayLLMPolicies(gatewayRepo repositories.GatewayRepository, orgUUID string) (map[string]llmPolicyManifestItem, error) {
+func intersectActiveGatewayLLMPolicies(ctx context.Context, gatewayRepo repositories.GatewayRepository, orgUUID string) (map[string]llmPolicyManifestItem, error) {
 	if gatewayRepo == nil {
 		return map[string]llmPolicyManifestItem{}, nil
 	}
@@ -62,7 +63,7 @@ func intersectActiveGatewayLLMPolicies(gatewayRepo repositories.GatewayRepositor
 		return nil, fmt.Errorf("failed to list active gateways: %w", err)
 	}
 
-	return intersectLLMPolicies(gateways), nil
+	return intersectLLMPolicies(ctx, gateways), nil
 }
 
 // intersectDeployedGatewayLLMPolicies returns, keyed by "name\x00version", the full policy
@@ -70,7 +71,7 @@ func intersectActiveGatewayLLMPolicies(gatewayRepo repositories.GatewayRepositor
 // to scope the guardrail catalog to what that provider's actual gateways support, instead
 // of every active gateway in the org. See intersectLLMPolicies for the availability
 // semantics.
-func intersectDeployedGatewayLLMPolicies(gatewayRepo repositories.GatewayRepository, deploymentRepo repositories.DeploymentRepository, providerUUID uuid.UUID, orgUUID string) (map[string]llmPolicyManifestItem, error) {
+func intersectDeployedGatewayLLMPolicies(ctx context.Context, gatewayRepo repositories.GatewayRepository, deploymentRepo repositories.DeploymentRepository, providerUUID uuid.UUID, orgUUID string) (map[string]llmPolicyManifestItem, error) {
 	if gatewayRepo == nil || deploymentRepo == nil {
 		return map[string]llmPolicyManifestItem{}, nil
 	}
@@ -100,7 +101,7 @@ func intersectDeployedGatewayLLMPolicies(gatewayRepo repositories.GatewayReposit
 		}
 	}
 
-	return intersectLLMPolicies(gateways), nil
+	return intersectLLMPolicies(ctx, gateways), nil
 }
 
 // intersectLLMPolicies returns, keyed by "name\x00version", the full policy definitions
@@ -110,7 +111,7 @@ func intersectDeployedGatewayLLMPolicies(gatewayRepo repositories.GatewayReposit
 // still report the old version — policies are assumed backward-compatible: the name falls
 // back to the LOWEST version reported by any of the given gateways, using that gateway's
 // own metadata, so a previously-applied policy doesn't disappear from the catalog mid-rollout.
-func intersectLLMPolicies(gateways []*models.Gateway) map[string]llmPolicyManifestItem {
+func intersectLLMPolicies(ctx context.Context, gateways []*models.Gateway) map[string]llmPolicyManifestItem {
 	var perGatewayPolicies []map[string]llmPolicyManifestItem
 	// byName collects every (gateway, version) sighting per policy name, used for the
 	// backward-compatible fallback when strict intersection yields nothing for that name.
@@ -128,7 +129,7 @@ func intersectLLMPolicies(gateways []*models.Gateway) map[string]llmPolicyManife
 		gatewayCount++
 		gatewayPolicies := map[string]llmPolicyManifestItem{}
 		namesOnThisGateway := map[string]struct{}{}
-		for _, policy := range extractLLMPolicyManifestItems(gatewayManifest(gateway)) {
+		for _, policy := range extractLLMPolicyManifestItems(gatewayManifest(ctx, gateway)) {
 			if policy.Name == "" || policy.Version == "" {
 				continue
 			}
