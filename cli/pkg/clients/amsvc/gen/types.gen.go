@@ -368,13 +368,13 @@ func (e CreateEnvironmentRequestIsolationTier) Valid() bool {
 
 // Defines values for CreateGitSecretRequestType.
 const (
-	CreateGitSecretRequestTypeBasic CreateGitSecretRequestType = "basic"
+	Basic CreateGitSecretRequestType = "basic"
 )
 
 // Valid indicates whether the value is a known member of the CreateGitSecretRequestType enum.
 func (e CreateGitSecretRequestType) Valid() bool {
 	switch e {
-	case CreateGitSecretRequestTypeBasic:
+	case Basic:
 		return true
 	default:
 		return false
@@ -1025,22 +1025,16 @@ func (e UpdateDeploymentStateResponseState) Valid() bool {
 
 // Defines values for UpstreamAuthType.
 const (
-	UpstreamAuthTypeApiKey UpstreamAuthType = "api-key"
-	UpstreamAuthTypeBasic  UpstreamAuthType = "basic"
-	UpstreamAuthTypeBearer UpstreamAuthType = "bearer"
-	UpstreamAuthTypeNone   UpstreamAuthType = "none"
+	ApiKey UpstreamAuthType = "api-key"
+	None   UpstreamAuthType = "none"
 )
 
 // Valid indicates whether the value is a known member of the UpstreamAuthType enum.
 func (e UpstreamAuthType) Valid() bool {
 	switch e {
-	case UpstreamAuthTypeApiKey:
+	case ApiKey:
 		return true
-	case UpstreamAuthTypeBasic:
-		return true
-	case UpstreamAuthTypeBearer:
-		return true
-	case UpstreamAuthTypeNone:
+	case None:
 		return true
 	default:
 		return false
