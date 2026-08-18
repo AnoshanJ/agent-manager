@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
@@ -353,32 +352,6 @@ func TestValidateMCPEndpointSecurity_TwoEgressGateways_NoDeployment_OneNonCompli
 	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil)
 	assert.ErrorIs(t, err, utils.ErrInvalidInput)
 	assert.Contains(t, err.Error(), nonCompliant.Name)
-}
-
-func TestValidateMCPEndpointSecurity_CachedManifestDoesNotLeakAcrossGateways(t *testing.T) {
-	// Regression test: gatewayHasMCPIdentityPolicies must evaluate each candidate's OWN
-	// manifest. Before the manifest cache was keyed per-gateway, pushing a manifest for
-	// ANY gateway made every OTHER gateway's capability check read that same cached
-	// manifest, so a non-compliant gateway was wrongly reported as compliant the moment
-	// a different gateway in the cache had pushed mcp-auth/mcp-authz.
-	clearGatewayManifestCache(t)
-
-	compliant := gatewayWithPolicyManifestAndRole(models.GatewayRoleBoth, "mcp-auth", "v1", "mcp-authz", "v1")
-	nonCompliant := gatewayWithPolicyManifestAndRole(models.GatewayRoleEgress, "mcp-auth", "v1")
-	compliant.OUID = "org1"
-	nonCompliant.OUID = "org1"
-
-	require.NoError(t, currentGatewayManifestCache().Set(context.Background(), compliant.OUID, compliant.UUID.String(), compliant.Manifest))
-
-	gwRepo := gatewayFixtureRepo(t, testMCPEnvUUID, []*models.Gateway{compliant, nonCompliant})
-	svc := &MCPProxyService{gatewayRepo: gwRepo}
-	endpoints := []models.MCPProxyEndpointDTO{
-		endpointWith("https://93.184.216.34", identityEnabledSecurity()),
-	}
-
-	err := svc.validateMCPEndpointSecurity(context.Background(), "org1", endpoints, nil)
-	assert.ErrorIs(t, err, utils.ErrInvalidInput)
-	assert.Contains(t, err.Error(), nonCompliant.Name, "nonCompliant must still fail even though compliant's manifest is cached")
 }
 
 // endpointBoundToGateway builds a single-environment endpoint DTO targeting testMCPEnvUUID

@@ -274,6 +274,7 @@ func (s *MCPProxyService) List(ctx context.Context, orgUUID string, limit, offse
 
 // ListAvailableMCPPolicies returns policy versions reported by active gateways in the organization.
 func (s *MCPProxyService) ListAvailableMCPPolicies(ctx context.Context, orgUUID string) (*models.MCPPolicyAvailabilityResponse, error) {
+	_ = ctx
 	if s.gatewayRepo == nil {
 		return &models.MCPPolicyAvailabilityResponse{List: []models.MCPPolicyAvailableItem{}}, nil
 	}
@@ -294,7 +295,7 @@ func (s *MCPProxyService) ListAvailableMCPPolicies(ctx context.Context, orgUUID 
 			continue
 		}
 		gatewayPolicies := map[string]models.MCPPolicyAvailableItem{}
-		for _, policy := range extractGatewayPolicyManifestItems(gatewayManifest(ctx, gateway)) {
+		for _, policy := range extractGatewayPolicyManifestItems(gatewayManifest(gateway)) {
 			if policy.Name == "" || policy.Version == "" {
 				continue
 			}
@@ -1272,7 +1273,7 @@ func (s *MCPProxyService) validateMCPEndpointSecurity(
 			}
 
 			for _, gateway := range candidates {
-				if !gatewayHasMCPIdentityPolicies(ctx, gateway) {
+				if !gatewayHasMCPIdentityPolicies(gateway) {
 					return fmt.Errorf("%w: endpoint %q environment %q: gateway %q does not support mcp-auth/mcp-authz v1 policies required for Agent Identity security", utils.ErrInvalidInput, handle, env.EnvironmentUUID, gateway.Name)
 				}
 			}
@@ -1383,9 +1384,9 @@ func egressCandidatesForEnvironment(repo repositories.GatewayRepository, ouID st
 
 // gatewayHasMCPIdentityPolicies reports whether the gateway's policy manifest
 // advertises both mcp-auth v1 and mcp-authz v1 (the policies identity mode emits).
-func gatewayHasMCPIdentityPolicies(ctx context.Context, gateway *models.Gateway) bool {
+func gatewayHasMCPIdentityPolicies(gateway *models.Gateway) bool {
 	need := map[string]bool{"mcp-auth\x00v1": false, "mcp-authz\x00v1": false}
-	for _, item := range extractGatewayPolicyManifestItems(gatewayManifest(ctx, gateway)) {
+	for _, item := range extractGatewayPolicyManifestItems(gatewayManifest(gateway)) {
 		key := item.Name + "\x00" + normalizePolicyVersionToMajor(item.Version)
 		if _, ok := need[key]; ok {
 			need[key] = true
