@@ -242,6 +242,11 @@ The config file is plain shell, one `KEY=value` assignment per line. Generate an
 
 With `DOMAIN_BASE=amp.mycompany.com`, the derived hosts are `console.amp.mycompany.com`, `api.amp.mycompany.com`, `thunder.amp.mycompany.com`, `observer.amp.mycompany.com`, `gateway.amp.mycompany.com`, and `cp.amp.mycompany.com`, plus three dynamic tiers: deployed agents at `<org>-<project>.agents.amp.mycompany.com`, per-environment Thunder at `<handle>.amp.mycompany.com` (one unguessable host directly under the base domain per environment — no fixed subdomain segment in between), and per-environment API Platform Gateways at `<env>-<org>.gateway.amp.mycompany.com`. cert-manager issues one **wildcard** certificate covering all of them, so there are no per-host certificate steps.
 
+When you create an environment, you may supply its **Identity Service Handle**;
+otherwise Agent Manager generates one. Treat the `Issuer:` value printed by the
+provisioning command as the source of truth. Do not reconstruct the public
+Thunder hostname from the organization and environment names.
+
 ### DNS provider credentials (`dns01`) {#adv-dns-provider}
 
 Add the block for your provider to `amp-config.env`. Only the credential is secret; keep the file `chmod 600`.
