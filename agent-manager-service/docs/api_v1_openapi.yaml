@@ -15739,7 +15739,7 @@ components:
         type:
           type: string
           description: Authentication type
-          example: bearer
+          example: api-key
         header:
           type: string
           description: Header name for authentication
@@ -15801,10 +15801,8 @@ components:
           description: Authentication type
           enum:
             - api-key
-            - bearer
-            - basic
             - none
-          example: bearer
+          example: api-key
         header:
           type: string
           description: Authentication header name

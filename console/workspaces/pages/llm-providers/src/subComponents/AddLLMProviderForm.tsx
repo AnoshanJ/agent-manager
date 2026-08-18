@@ -63,7 +63,7 @@ export type TemplateCard = {
   hasTemplateAuthType?: boolean;
   hasTemplateAuthHeader?: boolean;
   /**
-   * Auth type from template metadata (e.g., "bearer", "apiKey").
+   * Auth type from template metadata (e.g., "api-key").
    */
   authType?: string;
   /**
