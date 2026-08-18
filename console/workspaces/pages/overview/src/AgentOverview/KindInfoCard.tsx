@@ -102,7 +102,7 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                                         <Box display="flex" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
                                             <Tag size={13} />
                                             <Typography variant="body2" color="text.secondary" noWrap>
-                                                v{kindVersion}
+                                                {kindVersion}
                                             </Typography>
                                         </Box>
                                     )}

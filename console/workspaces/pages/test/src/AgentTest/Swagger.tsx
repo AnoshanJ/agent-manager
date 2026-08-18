@@ -109,19 +109,30 @@ export function Swagger() {
   // kindVersion is absent on agents created before it was recorded, and those
   // can't be tied to a published version.
   const deployedSpec = data?.[endpoint]?.schema?.content;
-  const { data: agent } = useGetAgent({
+  const {
+    data: agent,
+    isLoading: isAgentLoading,
+    error: agentError,
+  } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
   });
   const needsKindSpec = !!agent?.kindName && !!agent?.kindVersion;
-  const { data: kindVersion, isLoading: isKindVersionLoading } =
-    useGetAgentKindVersion({
-      orgName: needsKindSpec ? orgId ?? "" : "",
-      kindName: needsKindSpec ? agent?.kindName ?? "" : "",
-      versionTag: needsKindSpec ? agent?.kindVersion ?? "" : "",
-    });
-  const { data: kindBuild, isLoading: isKindBuildLoading } = useGetBuild({
+  const {
+    data: kindVersion,
+    isLoading: isKindVersionLoading,
+    error: kindVersionError,
+  } = useGetAgentKindVersion({
+    orgName: needsKindSpec ? orgId ?? "" : "",
+    kindName: needsKindSpec ? agent?.kindName ?? "" : "",
+    versionTag: needsKindSpec ? agent?.kindVersion ?? "" : "",
+  });
+  const {
+    data: kindBuild,
+    isLoading: isKindBuildLoading,
+    error: kindBuildError,
+  } = useGetBuild({
     orgName: needsKindSpec ? orgId ?? "" : "",
     projName: kindVersion?.sourceProjectName ?? "",
     agentName: kindVersion?.sourceAgentName ?? "",
@@ -129,6 +140,9 @@ export function Swagger() {
   });
   const isKindSpecLoading =
     needsKindSpec && (isKindVersionLoading || isKindBuildLoading);
+  // Reading the kind's spec goes through the kind's source project, which the
+  // viewer may not have access to, so these can fail on their own.
+  const specLookupError = agentError ?? (needsKindSpec ? kindVersionError ?? kindBuildError : null);
   const specContent =
     deployedSpec || kindBuild?.inputInterface?.schema?.content;
 
@@ -206,7 +220,12 @@ export function Swagger() {
     }
   };
 
-  if (isLoading || isKindSpecLoading || (securityEnabled && isLoadingTestKey)) {
+  if (
+    isLoading ||
+    isAgentLoading ||
+    isKindSpecLoading ||
+    (securityEnabled && isLoadingTestKey)
+  ) {
     return <Skeleton variant="rounded" height={500} />;
   }
 
@@ -218,6 +237,19 @@ export function Swagger() {
     return (
       <Alert severity="error">
         Failed to fetch test API key{testKeyError instanceof Error ? `: ${testKeyError.message}` : ""}.
+      </Alert>
+    );
+  }
+
+  // A failed lookup is not the same as an agent that has no schema, so only claim
+  // the latter once every lookup the spec could have come from has succeeded. A
+  // schema we already have still renders — an error resolving the kind's copy is
+  // irrelevant then.
+  if (!specContent && specLookupError) {
+    return (
+      <Alert severity="error">
+        Could not load the API schema for this agent:{" "}
+        {getErrorMessage(specLookupError)}
       </Alert>
     );
   }

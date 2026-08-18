@@ -83,7 +83,7 @@ func buildInternalAgentFromKindComponentRequestBody(namespaceName, projectName s
 	// validation error naming the tag, never dropped to make creation succeed with
 	// an incomplete provenance record.
 	if err := utils.ValidateLabelValue(req.AgentKind.Version, "agent kind version"); err != nil {
-		return gen.CreateComponentJSONRequestBody{}, err
+		return gen.CreateComponentJSONRequestBody{}, fmt.Errorf("invalid agent kind version: %w", err)
 	}
 	labels := map[string]string{
 		string(LabelKeyProvisioningType): string(ProvisioningInternal),
