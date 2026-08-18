@@ -674,6 +674,11 @@ type ClientInterface interface {
 	// ProvisionAgentIdentity request
 	ProvisionAgentIdentity(ctx context.Context, orgName string, projName string, agentName string, params *ProvisionAgentIdentityParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RetryAgentIdentityProvisioningWithBody request with any body
+	RetryAgentIdentityProvisioningWithBody(ctx context.Context, orgName string, projName string, agentName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RetryAgentIdentityProvisioning(ctx context.Context, orgName string, projName string, agentName string, body RetryAgentIdentityProvisioningJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListAgentMCPConfigs request
 	ListAgentMCPConfigs(ctx context.Context, orgName string, projName string, agentName string, params *ListAgentMCPConfigsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3427,6 +3432,30 @@ func (c *Client) RegenerateAgentIdentitySecret(ctx context.Context, orgName stri
 
 func (c *Client) ProvisionAgentIdentity(ctx context.Context, orgName string, projName string, agentName string, params *ProvisionAgentIdentityParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProvisionAgentIdentityRequest(c.Server, orgName, projName, agentName, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RetryAgentIdentityProvisioningWithBody(ctx context.Context, orgName string, projName string, agentName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetryAgentIdentityProvisioningRequestWithBody(c.Server, orgName, projName, agentName, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RetryAgentIdentityProvisioning(ctx context.Context, orgName string, projName string, agentName string, body RetryAgentIdentityProvisioningJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetryAgentIdentityProvisioningRequest(c.Server, orgName, projName, agentName, body)
 	if err != nil {
 		return nil, err
 	}
@@ -12791,6 +12820,67 @@ func NewProvisionAgentIdentityRequest(server string, orgName string, projName st
 	return req, nil
 }
 
+// NewRetryAgentIdentityProvisioningRequest calls the generic RetryAgentIdentityProvisioning builder with application/json body
+func NewRetryAgentIdentityProvisioningRequest(server string, orgName string, projName string, agentName string, body RetryAgentIdentityProvisioningJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRetryAgentIdentityProvisioningRequestWithBody(server, orgName, projName, agentName, "application/json", bodyReader)
+}
+
+// NewRetryAgentIdentityProvisioningRequestWithBody generates requests for RetryAgentIdentityProvisioning with any type of body
+func NewRetryAgentIdentityProvisioningRequestWithBody(server string, orgName string, projName string, agentName string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "orgName", orgName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projName", projName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "agentName", agentName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/orgs/%s/projects/%s/agents/%s/identities/retry", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListAgentMCPConfigsRequest generates requests for ListAgentMCPConfigs
 func NewListAgentMCPConfigsRequest(server string, orgName string, projName string, agentName string, params *ListAgentMCPConfigsParams) (*http.Request, error) {
 	var err error
@@ -17115,6 +17205,11 @@ type ClientWithResponsesInterface interface {
 	// ProvisionAgentIdentityWithResponse request
 	ProvisionAgentIdentityWithResponse(ctx context.Context, orgName string, projName string, agentName string, params *ProvisionAgentIdentityParams, reqEditors ...RequestEditorFn) (*ProvisionAgentIdentityResp, error)
 
+	// RetryAgentIdentityProvisioningWithBodyWithResponse request with any body
+	RetryAgentIdentityProvisioningWithBodyWithResponse(ctx context.Context, orgName string, projName string, agentName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RetryAgentIdentityProvisioningResp, error)
+
+	RetryAgentIdentityProvisioningWithResponse(ctx context.Context, orgName string, projName string, agentName string, body RetryAgentIdentityProvisioningJSONRequestBody, reqEditors ...RequestEditorFn) (*RetryAgentIdentityProvisioningResp, error)
+
 	// ListAgentMCPConfigsWithResponse request
 	ListAgentMCPConfigsWithResponse(ctx context.Context, orgName string, projName string, agentName string, params *ListAgentMCPConfigsParams, reqEditors ...RequestEditorFn) (*ListAgentMCPConfigsResp, error)
 
@@ -21247,6 +21342,33 @@ func (r ProvisionAgentIdentityResp) StatusCode() int {
 	return 0
 }
 
+type RetryAgentIdentityProvisioningResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON202      *AgentIdentityEnvironmentView
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON500      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r RetryAgentIdentityProvisioningResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RetryAgentIdentityProvisioningResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ListAgentMCPConfigsResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -24463,6 +24585,23 @@ func (c *ClientWithResponses) ProvisionAgentIdentityWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseProvisionAgentIdentityResp(rsp)
+}
+
+// RetryAgentIdentityProvisioningWithBodyWithResponse request with arbitrary body returning *RetryAgentIdentityProvisioningResp
+func (c *ClientWithResponses) RetryAgentIdentityProvisioningWithBodyWithResponse(ctx context.Context, orgName string, projName string, agentName string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RetryAgentIdentityProvisioningResp, error) {
+	rsp, err := c.RetryAgentIdentityProvisioningWithBody(ctx, orgName, projName, agentName, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetryAgentIdentityProvisioningResp(rsp)
+}
+
+func (c *ClientWithResponses) RetryAgentIdentityProvisioningWithResponse(ctx context.Context, orgName string, projName string, agentName string, body RetryAgentIdentityProvisioningJSONRequestBody, reqEditors ...RequestEditorFn) (*RetryAgentIdentityProvisioningResp, error) {
+	rsp, err := c.RetryAgentIdentityProvisioning(ctx, orgName, projName, agentName, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetryAgentIdentityProvisioningResp(rsp)
 }
 
 // ListAgentMCPConfigsWithResponse request returning *ListAgentMCPConfigsResp
@@ -32326,6 +32465,67 @@ func ParseProvisionAgentIdentityResp(rsp *http.Response) (*ProvisionAgentIdentit
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRetryAgentIdentityProvisioningResp parses an HTTP response from a RetryAgentIdentityProvisioningWithResponse call
+func ParseRetryAgentIdentityProvisioningResp(rsp *http.Response) (*RetryAgentIdentityProvisioningResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RetryAgentIdentityProvisioningResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest AgentIdentityEnvironmentView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse

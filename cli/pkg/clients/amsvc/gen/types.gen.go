@@ -6014,6 +6014,9 @@ type RotateAgentAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
 // RegenerateAgentIdentitySecretJSONRequestBody defines body for RegenerateAgentIdentitySecret for application/json ContentType.
 type RegenerateAgentIdentitySecretJSONRequestBody = AgentIdentityActionRequest
 
+// RetryAgentIdentityProvisioningJSONRequestBody defines body for RetryAgentIdentityProvisioning for application/json ContentType.
+type RetryAgentIdentityProvisioningJSONRequestBody = AgentIdentityActionRequest
+
 // CreateAgentMCPConfigJSONRequestBody defines body for CreateAgentMCPConfig for application/json ContentType.
 type CreateAgentMCPConfigJSONRequestBody = CreateAgentModelConfigRequest
 

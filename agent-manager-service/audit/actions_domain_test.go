@@ -63,6 +63,10 @@ func TestDomainActionsMatchRouteDerivedActions(t *testing.T) {
 			"DELETE /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities",
 			nil, ActionAgentIdentityRevokeSecret,
 		},
+		{
+			"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/retry",
+			nil, ActionAgentIdentityRetryProvisioning,
+		},
 		{"PUT /orgs/{orgName}/environments/{envID}/thunder-system-client", nil, ActionServiceAccountConfigure},
 		{"DELETE /orgs/{orgName}/environments/{envID}/thunder-system-client", nil, ActionServiceAccountRemove},
 		{"POST /orgs/{orgName}/identities/roles/{roleID}/permissions/add", nil, ActionRoleGrantPermission},
@@ -113,6 +117,7 @@ func TestCredentialAndIdentityActionsAreCritical(t *testing.T) {
 		ActionGatewayTokenRotate, ActionGatewayTokenRevoke,
 		ActionAgentTokenMint, ActionAgentTokenRegenerateTracing,
 		ActionAgentIdentityProvision, ActionAgentIdentityRegenerateSecret, ActionAgentIdentityRevokeSecret,
+		ActionAgentIdentityRetryProvisioning,
 		ActionServiceAccountConfigure, ActionServiceAccountRemove,
 		ActionRoleGrantPermission, ActionRoleRevokePermission,
 		ActionRoleAssign, ActionRoleUnassign,
