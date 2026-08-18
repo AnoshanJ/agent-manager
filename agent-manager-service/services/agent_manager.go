@@ -517,15 +517,25 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, ouID
 // gateway at a port nothing listens on (a 503 on every request to a custom-api
 // agent). Resolve those from the build its kind version was published from.
 //
+// deployedImageID is the image this call is deploying. A deploy can select a kind
+// version other than the one the agent was created from, and the component's
+// kind-version label does not move when it does — so the image, not the label,
+// says which version's interface the gateway must be pointed at. Empty (or an
+// image matching no published version) falls back to the label.
+//
 // The chat-API defaults remain the last resort: a chat agent genuinely serves on
 // them, and they are the only sane guess when nothing else resolves
-func (s *agentManagerService) effectiveUpstreamInterface(ctx context.Context, ouID string, agent *models.AgentResponse) (int32, string) {
+func (s *agentManagerService) effectiveUpstreamInterface(ctx context.Context, ouID string, agent *models.AgentResponse, deployedImageID string) (int32, string) {
 	port := config.GetConfig().DefaultChatAPI.DefaultHTTPPort
 	basePath := config.GetConfig().DefaultChatAPI.DefaultBasePath
 
 	iface := agent.InputInterface
 	if agent.KindName != "" {
-		if resolved := s.kindVersionInputInterface(ctx, ouID, agent.KindName, agent.KindVersion); resolved != nil {
+		versionTag := agent.KindVersion
+		if deployed := s.kindVersionForImage(ctx, ouID, agent.KindName, deployedImageID); deployed != "" {
+			versionTag = deployed
+		}
+		if resolved := s.kindVersionInputInterface(ctx, ouID, agent.KindName, versionTag); resolved != nil {
 			iface = resolved
 		}
 	}
@@ -538,6 +548,27 @@ func (s *agentManagerService) effectiveUpstreamInterface(ctx context.Context, ou
 		}
 	}
 	return port, basePath
+}
+
+// kindVersionForImage returns the kind version published as the given image, or ""
+// when the image is empty, matches no published version, or the kind can't be read.
+// Published images are unique per version, so the mapping is unambiguous.
+func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kindName, imageID string) string {
+	if imageID == "" {
+		return ""
+	}
+	kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+	if err != nil {
+		s.logger.Warn("Failed to read agent kind while resolving the deployed version",
+			"kindName", kindName, "error", err)
+		return ""
+	}
+	for _, v := range kind.Versions {
+		if v.ImageId == imageID {
+			return v.Version
+		}
+	}
+	return ""
 }
 
 // kindVersionInputInterface reads the input interface a kind version was published
@@ -3061,7 +3092,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		}
 		artifactID := apiArtifact.UUID.String()
 
-		upstreamPort, upstreamBasePath := s.effectiveUpstreamInterface(ctx, ouID, agent)
+		upstreamPort, upstreamBasePath := s.effectiveUpstreamInterface(ctx, ouID, agent, req.ImageId)
 		traitOpts := []client.TraitOption{
 			client.WithArtifactID(artifactID),
 			client.WithUpstreamPort(upstreamPort),

@@ -33,6 +33,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"gorm.io/gorm"
 )
 
 func TestEffectiveUpstreamInterface(t *testing.T) {
@@ -45,7 +46,7 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 
 		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{
 			InputInterface: &models.InputInterface{Port: 8084, BasePath: "/tasks"},
-		})
+		}, "")
 
 		assert.Equal(t, int32(8084), port)
 		assert.Equal(t, "/tasks", basePath)
@@ -54,20 +55,29 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 	// kindRepo returns a kind whose version 1.0.1 was built by build-1.
 	kindRepo := func() *repomocks.AgentKindRepositoryMock {
 		kindID := uuid.New()
+		sourceKind := &models.AgentKind{
+			ID: kindID, Name: "bal-task-assistant", ProjectName: "source-proj", AgentName: "source-agent",
+		}
+		// Each published version has its own image and its own build, which is what
+		// lets a deploy of 1.2.0's image be told apart from the agent's 1.0.1 label.
+		versions := []models.AgentKindVersion{
+			{Version: "1.0.1", BuildName: "build-1", ImageId: "registry/agent:v1", Kind: sourceKind},
+			{Version: "1.2.0", BuildName: "build-2", ImageId: "registry/agent:v2", Kind: sourceKind},
+		}
 		return &repomocks.AgentKindRepositoryMock{
 			GetKindFunc: func(_ context.Context, _, kindName string) (*models.AgentKind, error) {
-				return &models.AgentKind{
-					ID: kindID, Name: kindName, ProjectName: "source-proj", AgentName: "source-agent",
-				}, nil
+				kind := *sourceKind
+				kind.Name = kindName
+				kind.Versions = versions
+				return &kind, nil
 			},
 			GetVersionFunc: func(_ context.Context, _ uuid.UUID, versionTag string) (*models.AgentKindVersion, error) {
-				return &models.AgentKindVersion{
-					Version:   versionTag,
-					BuildName: "build-1",
-					Kind: &models.AgentKind{
-						Name: "bal-task-assistant", ProjectName: "source-proj", AgentName: "source-agent",
-					},
-				}, nil
+				for i := range versions {
+					if versions[i].Version == versionTag {
+						return &versions[i], nil
+					}
+				}
+				return nil, gorm.ErrRecordNotFound
 			},
 		}
 	}
@@ -95,11 +105,61 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 
 		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{
 			KindName: "bal-task-assistant", KindVersion: "1.0.1",
-		})
+		}, "")
 
 		assert.Equal(t, int32(8084), port)
 		assert.Equal(t, "/tasks", basePath)
 		require.Empty(t, oc.GetComponentCalls(), "the mutable source component must not be consulted")
+	})
+
+	// A deploy can select a version other than the one the agent was created from,
+	// and the component's kind-version label does not move when it does. Reading the
+	// label here would point the gateway at the old version's port — a 503 on every
+	// request whenever two versions serve different interfaces.
+	t.Run("uses the interface of the version being deployed, not the agent's label", func(t *testing.T) {
+		oc := &clientmocks.OpenChoreoClientMock{
+			GetBuildFunc: func(_ context.Context, _, _, _, buildName string) (*models.BuildDetailsResponse, error) {
+				require.Equal(t, "build-2", buildName, "must read the deployed version's build")
+				return &models.BuildDetailsResponse{
+					InputInterface: &models.InputInterface{Port: 9090, BasePath: "/v2"},
+				}, nil
+			},
+		}
+		repo := kindRepo()
+		s := &agentManagerService{
+			ocClient: oc, agentKindService: newKindService(repo, oc), logger: discardLogger(),
+		}
+
+		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{
+			KindName: "bal-task-assistant", KindVersion: "1.0.1",
+		}, "registry/agent:v2")
+
+		assert.Equal(t, int32(9090), port)
+		assert.Equal(t, "/v2", basePath)
+	})
+
+	// An image the kind never published (a source-built image, or a version since
+	// deleted) leaves the label as the only thing left to go on.
+	t.Run("an unpublished image falls back to the agent's recorded version", func(t *testing.T) {
+		oc := &clientmocks.OpenChoreoClientMock{
+			GetBuildFunc: func(_ context.Context, _, _, _, buildName string) (*models.BuildDetailsResponse, error) {
+				require.Equal(t, "build-1", buildName)
+				return &models.BuildDetailsResponse{
+					InputInterface: &models.InputInterface{Port: 8084, BasePath: "/tasks"},
+				}, nil
+			},
+		}
+		repo := kindRepo()
+		s := &agentManagerService{
+			ocClient: oc, agentKindService: newKindService(repo, oc), logger: discardLogger(),
+		}
+
+		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{
+			KindName: "bal-task-assistant", KindVersion: "1.0.1",
+		}, "registry/agent:unknown")
+
+		assert.Equal(t, int32(8084), port)
+		assert.Equal(t, "/tasks", basePath)
 	})
 
 	t.Run("a build that can no longer be read leaves the defaults", func(t *testing.T) {
@@ -114,7 +174,7 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 		}
 
 		port, basePath := s.effectiveUpstreamInterface(ctx, "org",
-			&models.AgentResponse{KindName: "k", KindVersion: "1.0.1"})
+			&models.AgentResponse{KindName: "k", KindVersion: "1.0.1"}, "")
 
 		assert.Equal(t, defaultPort, port)
 		assert.Equal(t, defaultBasePath, basePath)
@@ -129,7 +189,7 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 			ocClient: oc, agentKindService: newKindService(repo, oc), logger: discardLogger(),
 		}
 
-		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{KindName: "k"})
+		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{KindName: "k"}, "")
 
 		assert.Equal(t, defaultPort, port)
 		assert.Equal(t, defaultBasePath, basePath)
@@ -141,7 +201,7 @@ func TestEffectiveUpstreamInterface(t *testing.T) {
 		oc := &clientmocks.OpenChoreoClientMock{}
 		s := &agentManagerService{ocClient: oc, logger: discardLogger()}
 
-		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{})
+		port, basePath := s.effectiveUpstreamInterface(ctx, "org", &models.AgentResponse{}, "")
 
 		assert.Equal(t, defaultPort, port)
 		assert.Equal(t, defaultBasePath, basePath)

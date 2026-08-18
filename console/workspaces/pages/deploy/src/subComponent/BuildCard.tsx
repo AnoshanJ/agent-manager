@@ -130,11 +130,12 @@ export function BuildCard(props: BuildCardProps) {
   const selectedVersionFromParams = searchParams.get("selectedVersion");
   const isVersionSelectorOpen = searchParams.get("versionSelector") === "open";
 
-  const { data: deployments } = useListAgentDeployments({
-    orgName: orgId,
-    projName: projectId,
-    agentName: agentId,
-  });
+  const { data: deployments, isLoading: isDeploymentsLoading } =
+    useListAgentDeployments({
+      orgName: orgId,
+      projName: projectId,
+      agentName: agentId,
+    });
 
   // What the card opens on, in order: the version this environment already runs,
   // then the one the agent was created from, then the kind's newest. Defaulting to
@@ -154,12 +155,25 @@ export function BuildCard(props: BuildCardProps) {
   }, [deployments, initialEnvironment?.name, agent?.kindVersion, sortedKindVersions]);
 
   useEffect(() => {
+    // Writing the param pins the selection — the effect cannot correct it later,
+    // because selectedVersionFromParams is set from then on. So wait for the
+    // deployments query: pinning first would lock the card onto the fallback
+    // (the creation version, or the kind's newest) even though this environment
+    // runs something else.
+    if (isDeploymentsLoading) return;
     if (isKindAgent && !selectedVersionFromParams && defaultKindVersion) {
       const next = new URLSearchParams(searchParams);
       next.set("selectedVersion", defaultKindVersion);
       setSearchParams(next, { replace: true });
     }
-  }, [isKindAgent, selectedVersionFromParams, defaultKindVersion, searchParams, setSearchParams]);
+  }, [
+    isDeploymentsLoading,
+    isKindAgent,
+    selectedVersionFromParams,
+    defaultKindVersion,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const selectedVersion = selectedVersionFromParams || defaultKindVersion;
 
