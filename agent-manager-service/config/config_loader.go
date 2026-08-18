@@ -190,9 +190,7 @@ func loadEnvs() {
 	// safe for a single replica; HA deployments must set this to "redis" so every
 	// replica reads and writes the same cached manifest.
 	config.GatewayManifestCache = GatewayManifestCacheConfig{
-		// Trimmed here, once, so every downstream reader (validation, wiring's backend
-		// switch) sees the same value — readOptionalString itself doesn't trim.
-		Backend: strings.TrimSpace(r.readOptionalString("GATEWAY_MANIFEST_CACHE_BACKEND", "memory")),
+		Backend: r.readOptionalString("GATEWAY_MANIFEST_CACHE_BACKEND", "memory"),
 		Redis: GatewayManifestCacheRedisConfig{
 			Host:       r.readOptionalString("GATEWAY_MANIFEST_CACHE_REDIS_HOST", ""),
 			Port:       int(r.readOptionalInt64("GATEWAY_MANIFEST_CACHE_REDIS_PORT", 6379)),
@@ -361,10 +359,7 @@ var validGatewayManifestCacheBackends = map[string]bool{
 }
 
 func validateGatewayManifestCacheConfig(cfg *Config, r *configReader) {
-	// Backend is trimmed once, at load (see loadEnvs), so wire.go's backend switch and
-	// this check agree on the same value instead of a typo like "redis " passing here
-	// but tripping wire.go's default case with a confusing "unknown backend" error.
-	backend := cfg.GatewayManifestCache.Backend
+	backend := strings.TrimSpace(cfg.GatewayManifestCache.Backend)
 	if !validGatewayManifestCacheBackends[backend] {
 		r.errors = append(r.errors, fmt.Errorf(
 			"GATEWAY_MANIFEST_CACHE_BACKEND %q is not valid (must be \"memory\" or \"redis\")", cfg.GatewayManifestCache.Backend,
