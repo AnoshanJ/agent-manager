@@ -69,14 +69,17 @@ func IsValidationError(err error) *ValidationError {
 
 var (
 	// Resource not found errors
-	ErrProjectNotFound                = errors.New("project not found")
-	ErrAgentAlreadyExists             = errors.New("agent already exists")
-	ErrAgentNotFound                  = errors.New("agent not found")
-	ErrTraitNotFound                  = errors.New("trait not found")
-	ErrOrganizationNotFound           = errors.New("organization not found")
-	ErrBuildNotFound                  = errors.New("build not found")
-	ErrEnvironmentNotFound            = errors.New("environment not found")
-	ErrAgentIdentityNotProvisioned    = errors.New("agent identity not yet provisioned for this environment")
+	ErrProjectNotFound             = errors.New("project not found")
+	ErrAgentAlreadyExists          = errors.New("agent already exists")
+	ErrAgentNotFound               = errors.New("agent not found")
+	ErrTraitNotFound               = errors.New("trait not found")
+	ErrOrganizationNotFound        = errors.New("organization not found")
+	ErrBuildNotFound               = errors.New("build not found")
+	ErrEnvironmentNotFound         = errors.New("environment not found")
+	ErrAgentIdentityNotProvisioned = errors.New("agent identity not yet provisioned for this environment")
+	// ErrAgentIdentityRetryNotAllowed is returned when a retry is requested for
+	// a binding whose current status is not failed. Maps to 409.
+	ErrAgentIdentityRetryNotAllowed   = errors.New("agent identity binding is not in a failed state and cannot be retried")
 	ErrOrganizationAlreadyExists      = errors.New("organization already exists")
 	ErrProjectAlreadyExists           = errors.New("project already exists")
 	ErrDeploymentPipelineNotFound     = errors.New("deployment pipeline not found")

@@ -72,6 +72,7 @@ type AgentManagerService interface {
 	RegenerateAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (*models.AgentRegenerateSecretResponse, error)
 	RevokeAgentIdentitySecret(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentRevokeSecretResponse, error)
 	ProvisionAgentIdentity(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (view models.AgentIdentityEnvironmentView, alreadyExisted bool, err error)
+	RetryAgentIdentityProvisioning(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, error)
 	GetAgentRoles(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderRole, error)
 	GetAgentGroups(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) ([]thundersvc.ThunderGroup, error)
 }
@@ -3693,6 +3694,15 @@ func (s *agentManagerService) ProvisionAgentIdentity(ctx context.Context, ouID s
 	// Upsert inside ProvisionForEnvironmentIfMissing is synchronous, so the row
 	// (at minimum PENDING) must already be visible to this read.
 	return models.AgentIdentityEnvironmentView{}, alreadyExisted, fmt.Errorf("agent thunder binding for %s/%s vanished immediately after being provisioned", agentName, environmentName)
+}
+
+// RetryAgentIdentityProvisioning resets a failed AgentID binding and
+// re-attempts provisioning, for both Internal and External agents.
+func (s *agentManagerService) RetryAgentIdentityProvisioning(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) (models.AgentIdentityEnvironmentView, error) {
+	if s.agentThunderProvisioning == nil {
+		return models.AgentIdentityEnvironmentView{}, utils.ErrAgentIdentityNotProvisioned
+	}
+	return s.agentThunderProvisioning.RetryProvisioning(ctx, ouID, projectName, agentName, environmentName)
 }
 
 // PromoteAgent promotes an agent from one environment to another.
