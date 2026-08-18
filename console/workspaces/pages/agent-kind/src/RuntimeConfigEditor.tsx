@@ -162,6 +162,8 @@ const ConfigRow: React.FC<ConfigRowProps> = ({
                 fullWidth
                 size="small"
                 disabled={readonlyKey && row.isSecret}
+                type={row.isSecret && !readonlyKey ? "password" : "text"}
+                showPasswordToggle={row.isSecret && !readonlyKey}
             />
         </Box>
         <Box display="flex" flexDirection="row" flexGrow={1} alignItems="start" pl={2} pt={0.5} gap={1}>
