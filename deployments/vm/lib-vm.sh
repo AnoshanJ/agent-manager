@@ -489,6 +489,17 @@ caddyfile() {
   printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
     "$([[ "$scheme" == http ]] && printf 'http://')" "${AMP_HOST_THUNDER#thunder.}" "$addr_suffix" "$agent_tls"
 
+  # An environment that predates this handle feature was never given a
+  # registered handle and is grandfathered onto LegacyThunderHandleLabel
+  # (env_thunder_url_reader.go) instead — "<org>-<env>.thunder", still nested
+  # one level under "thunder.<base>" the way every env-Thunder host used to be.
+  # The base-domain wildcard above only matches a single label, so that
+  # two-label legacy shape needs its own wildcard site or it stops resolving
+  # on the next Caddyfile re-render — see cert_dns_names in lib-certmanager.sh
+  # for the same fix on the cert-manager (non-VM) install path.
+  printf '%s*.%s%s {\n%s\treverse_proxy 127.0.0.1:8080\n}\n\n' \
+    "$([[ "$scheme" == http ]] && printf 'http://')" "$AMP_HOST_THUNDER" "$addr_suffix" "$agent_tls"
+
   # Observer is ClusterIP behind the OC observability-plane kgateway
   # (11080), host-routed the same way (observability_helm_args sets the route
   # hostname).
@@ -519,18 +530,26 @@ caddyfile() {
   # gateway wildcards below, AND the env-Thunder base-domain wildcard above —
   # so this one shared endpoint has to answer for all three tiers.
   #
-  # Proxied straight to AMS's own /internal/thunder-ask (agent-manager-service/api/thunder_ask_routes.go)
-  # via the SAME kgateway listener every other site already uses, with the Host
-  # header rewritten to AMP_HOST_API so kgateway's Host-based routing lands on
-  # AMS rather than whatever Caddy's on-demand-tls client itself sent (no new
-  # container/process — this is just another Caddy site, like every _site above).
-  # AMS validates the env-Thunder wildcard's requests against registered handles
-  # and returns its own always-allow default for the gateway/agents wildcards, so
-  # this preserves today's behavior for those two while closing the env-Thunder
-  # gap (previously: any unregistered *.<base> subdomain could trigger real ACME
-  # issuance, burning quota and letting an attacker squat a would-be handle).
+  # The gateway/agents wildcards are matched and allowed HERE, in Caddy, before
+  # ever calling out to AMS: AMP_HOST_GATEWAY ("gateway.<thunder base>") is
+  # itself a subdomain of the env-Thunder base domain, so a naive "does this
+  # request's domain end in the base domain" check on the AMS side would treat
+  # every per-env gateway host as an env-Thunder handle lookup too (and 403 it,
+  # since "myenv-myorg.gateway" isn't a bare single-label handle) — matching
+  # them here keeps their cert issuance independent of AMS/kgateway being up,
+  # exactly like before this endpoint existed, and keeps the only genuinely
+  # ambiguous case (a bare label directly under the base domain) as the one
+  # that actually needs AMS's registered-handle check.
+  #
+  # Everything else falls through to AMS's own /internal/thunder-ask
+  # (agent-manager-service/api/thunder_ask_routes.go) via the SAME kgateway
+  # listener every other site already uses, with the Host header rewritten to
+  # AMP_HOST_API so kgateway's Host-based routing lands on AMS rather than
+  # whatever Caddy's on-demand-tls client itself sent (no new container/process
+  # — this is just another Caddy site, like every _site above).
   if [[ "$tls_mode" == letsencrypt ]]; then
-    printf 'http://127.0.0.1:9753 {\n\treverse_proxy 127.0.0.1:8080 {\n\t\theader_up Host %s\n\t}\n}\n\n' "$AMP_HOST_API"
+    printf 'http://127.0.0.1:9753 {\n\t@gateway_or_agents expression `{query.domain}.endsWith(".%s") || {query.domain}.endsWith(".%s")`\n\trespond @gateway_or_agents 200\n\treverse_proxy 127.0.0.1:8080 {\n\t\theader_up Host %s\n\t}\n}\n\n' \
+      "$AMP_HOST_GATEWAY" "$AMP_AGENTS_BASE" "$AMP_HOST_API"
   fi
 
   # Deployed-agent endpoints: <org>-<project>.<AGENTS_BASE> (one host per org/project,
