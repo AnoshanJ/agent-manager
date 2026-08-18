@@ -94,6 +94,7 @@ export const InternalAgentOverview = () => {
                 <KindInfoCard
                     orgId={orgId ?? ""}
                     kindName={agent!.kindName!}
+                    kindVersion={agent?.kindVersion}
                     framework={agent?.agentType?.type}
                     model={agent?.agentType?.subType}
                 />

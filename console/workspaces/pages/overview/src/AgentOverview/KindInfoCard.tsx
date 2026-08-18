@@ -38,12 +38,15 @@ import { UppercaseCaptionLabel } from "./SectionHeader";
 interface KindInfoCardProps {
     orgId: string;
     kindName: string;
+    /** The kind version this agent was created from. Absent for agents created
+     *  before the component recorded it. */
+    kindVersion?: string;
     framework?: string;
     model?: string;
 }
 
 export const KindInfoCard: React.FC<KindInfoCardProps> = ({
-    orgId, kindName, framework, model,
+    orgId, kindName, kindVersion, framework, model,
 }) => {
     const { data: kind, isLoading } = useGetAgentKind({ orgName: orgId, kindName });
 
@@ -52,8 +55,15 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
         { orgId, kindId: kindName },
     );
 
-    const latestVersionData = kind?.versions?.find((v) => v.version === kind.latestVersion)
-        ?? kind?.versions?.[0];
+    // The version shown is the one this agent actually runs — never the kind's
+    // newest, which diverges from it the moment the kind publishes again. An agent
+    // created before the version was recorded has nothing to show, so the chip is
+    // omitted rather than filled in with a version we can't attribute to it.
+    // versionData carries that version's own metadata (its publish date), and is
+    // absent when the version has since been deleted from the kind.
+    const versionData = kindVersion
+        ? kind?.versions?.find((v) => v.version === kindVersion)
+        : undefined;
 
     return (
         <Card variant="outlined">
@@ -86,20 +96,24 @@ export const KindInfoCard: React.FC<KindInfoCardProps> = ({
                                 </IconButton>
                             </Box>
 
-                            {latestVersionData && (
+                            {(kindVersion || framework || model) && (
                                 <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
-                                    <Box display="flex" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
-                                        <Tag size={13} />
+                                    {kindVersion && (
+                                        <Box display="flex" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
+                                            <Tag size={13} />
+                                            <Typography variant="body2" color="text.secondary" noWrap>
+                                                v{kindVersion}
+                                            </Typography>
+                                        </Box>
+                                    )}
+                                    {versionData && (
                                         <Typography variant="body2" color="text.secondary" noWrap>
-                                            v{latestVersionData.version}
+                                            {formatDistanceToNow(
+                                                new Date(versionData.createdAt),
+                                                { addSuffix: true },
+                                            )}
                                         </Typography>
-                                    </Box>
-                                    <Typography variant="body2" color="text.secondary" noWrap>
-                                        {formatDistanceToNow(
-                                            new Date(latestVersionData.createdAt),
-                                            { addSuffix: true },
-                                        )}
-                                    </Typography>
+                                    )}
                                     {(framework || model) && (
                                         <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
                                             {`Agent Type: ${[framework, model].filter(Boolean).join("/")}`}
