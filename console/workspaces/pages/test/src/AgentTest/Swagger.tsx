@@ -17,8 +17,11 @@
  */
 
 import {
+  useGetAgent,
   useGetAgentConfigurations,
   useGetAgentEndpoints,
+  useGetAgentKindVersion,
+  useGetBuild,
   useTestAgentAPIKey,
 } from "@agent-management-platform/api-client";
 import { getErrorMessage } from "@agent-management-platform/shared-component";
@@ -95,6 +98,40 @@ export function Swagger() {
 
   const endpoint = useMemo(() => Object.keys(data ?? {})?.[0] ?? "", [data]);
 
+  // A kind-sourced agent runs no build of its own, so nothing ever writes an
+  // OpenAPI document onto its deployed endpoint. Resolve the spec from the kind
+  // version it was created from instead — kind version -> its source build —
+  // which is how the agent catalogue renders a kind's API spec.
+  //
+  // kindName is set only for agents instantiated from a kind, so it — not an
+  // empty endpoint schema — is what decides which source to read: waiting for
+  // the endpoints response first would just delay the two lookups behind it.
+  // kindVersion is absent on agents created before it was recorded, and those
+  // can't be tied to a published version.
+  const deployedSpec = data?.[endpoint]?.schema?.content;
+  const { data: agent } = useGetAgent({
+    orgName: orgId,
+    projName: projectId,
+    agentName: agentId,
+  });
+  const needsKindSpec = !!agent?.kindName && !!agent?.kindVersion;
+  const { data: kindVersion, isLoading: isKindVersionLoading } =
+    useGetAgentKindVersion({
+      orgName: needsKindSpec ? orgId ?? "" : "",
+      kindName: needsKindSpec ? agent?.kindName ?? "" : "",
+      versionTag: needsKindSpec ? agent?.kindVersion ?? "" : "",
+    });
+  const { data: kindBuild, isLoading: isKindBuildLoading } = useGetBuild({
+    orgName: needsKindSpec ? orgId ?? "" : "",
+    projName: kindVersion?.sourceProjectName ?? "",
+    agentName: kindVersion?.sourceAgentName ?? "",
+    buildName: kindVersion?.buildName ?? "",
+  });
+  const isKindSpecLoading =
+    needsKindSpec && (isKindVersionLoading || isKindBuildLoading);
+  const specContent =
+    deployedSpec || kindBuild?.inputInterface?.schema?.content;
+
   // The gateway drops CORS headers on 401s, so a cross-origin 401 rejects
   // fetch with a TypeError before swagger-ui's responseInterceptor runs.
   // Inject a custom fetch (req.userFetch) instead: retry once to ride out key
@@ -169,7 +206,7 @@ export function Swagger() {
     }
   };
 
-  if (isLoading || (securityEnabled && isLoadingTestKey)) {
+  if (isLoading || isKindSpecLoading || (securityEnabled && isLoadingTestKey)) {
     return <Skeleton variant="rounded" height={500} />;
   }
 
@@ -185,7 +222,7 @@ export function Swagger() {
     );
   }
 
-  if (!data?.[endpoint]?.schema?.content) {
+  if (!specContent) {
     return (
       <Alert severity="warning">
         No API schema available for this endpoint.
@@ -240,7 +277,7 @@ export function Swagger() {
       )}
       <Box sx={{ "& .swagger-ui .wrapper": { padding: 0 } }}>
         <SwaggerUI
-          spec={data?.[endpoint].schema.content}
+          spec={specContent}
           layout="BaseLayout"
           plugins={[disableAuthorizeAndInfoPluginCustomSecuritySchema]}
           docExpansion="list"
