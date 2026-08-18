@@ -89,7 +89,7 @@ export interface ScriptInputs {
   issuer: string;
   jwksUri: string;
   skipTlsVerify: boolean;
-  mode: "upsert" | "delete";
+  mode: ManageIdentityProviderMode;
   token: string;
 }
 
