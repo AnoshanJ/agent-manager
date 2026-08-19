@@ -285,16 +285,25 @@ func (c *gatewayController) ListGateways(w http.ResponseWriter, r *http.Request)
 		filters.Status = &isActive
 	}
 
-	// Filter by environment
+	// Filter by environment. envParam may be a UUID or a name; an unresolvable one
+	// is a client error, not a reason to drop the filter — silently returning the
+	// unfiltered list makes a typo look like "every gateway matches".
 	if envParam := r.URL.Query().Get("environment"); envParam != "" {
-		// envParam could be UUID or name, we need to resolve it to UUID
 		envUUID, err := c.resolveEnvironmentUUID(ctx, ouID, envParam)
-		if err != nil {
-			log.Warn("ListGateways: failed to resolve environment", "environment", envParam, "error", err)
-			// Continue without environment filter if resolution fails
-		} else {
-			filters.EnvironmentID = &envUUID
+		switch {
+		case errors.Is(err, utils.ErrEnvironmentNotFound):
+			// A 400 rather than a 404: the collection exists, the filter value does
+			// not. listGateways declares 400 but no 404.
+			log.Error("ListGateways: unknown environment filter", "environment", envParam)
+			utils.WriteErrorResponse(w, http.StatusBadRequest,
+				fmt.Sprintf("Unknown environment %q in 'environment' filter", envParam))
+			return
+		case err != nil:
+			log.Error("ListGateways: failed to resolve environment", "environment", envParam, "error", err)
+			handleGatewayErrors(w, err, "Failed to resolve environment filter")
+			return
 		}
+		filters.EnvironmentID = &envUUID
 	}
 
 	// Get gateways from local service with filters and DB-level pagination

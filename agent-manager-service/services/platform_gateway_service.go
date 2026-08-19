@@ -334,20 +334,33 @@ func (s *PlatformGatewayService) ListGateways(ouID *string, filters *GatewayList
 	return listResponse, nil
 }
 
-// GetGateway retrieves a gateway by ID
-func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayResponse, error) {
-	// Validate UUID format
-	if _, err := uuid.Parse(gatewayID); err != nil {
-		return nil, errors.New("invalid UUID format")
+// resolveGateway looks the identifier up as a UUID, falling back to a name lookup
+// within the org. A non-UUID identifier used to be rejected with a bare error that
+// matched no case in handleGatewayErrors and surfaced as HTTP 500.
+func (s *PlatformGatewayService) resolveGateway(identifier, ouID string) (*models.Gateway, error) {
+	if _, err := uuid.Parse(identifier); err != nil {
+		return s.gatewayRepo.GetByNameAndOrgID(identifier, ouID)
 	}
 
-	gateway, err := s.gatewayRepo.GetByUUID(gatewayID)
+	gateway, err := s.gatewayRepo.GetByUUID(identifier)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, utils.ErrGatewayNotFound
+		}
 		return nil, fmt.Errorf("failed to get gateway: %w", err)
 	}
-
 	if gateway == nil {
 		return nil, utils.ErrGatewayNotFound
+	}
+	return gateway, nil
+}
+
+// GetGateway retrieves a gateway by UUID or by name, matching what the spec
+// advertises for the path parameter ("Gateway UUID or name").
+func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayResponse, error) {
+	gateway, err := s.resolveGateway(gatewayID, ouID)
+	if err != nil {
+		return nil, err
 	}
 
 	if gateway.OUID != ouID {

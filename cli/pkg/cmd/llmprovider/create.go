@@ -230,6 +230,9 @@ func NewCreateCmd(f *cmdutil.Factory) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("template", func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return cmdutil.CompleteLLMProviderTemplates(cmd, f), cobra.ShellCompDirectiveNoFileComp
 	})
+	_ = cmd.RegisterFlagCompletionFunc("gateways", func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return cmdutil.CompleteGateways(cmd, f), cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
