@@ -1,4 +1,4 @@
-.PHONY: help setup setup-colima setup-k3d setup-openchoreo setup-default-env-thunder setup-sandbox setup-gvisor setup-kata setup-platform setup-gateway setup-console-local setup-console-local-force setup-amp teardown-amp reset-amp dev-up dev-down dev-restart dev-rebuild dev-logs dev-migrate openchoreo-up openchoreo-down openchoreo-status thunder-up thunder-down thunder-restart thunder-reset teardown db-connect db-logs service-logs service-shell console-logs port-forward stop-port-forward gen-eval-artifacts gen-instrumentation-contract check-contract-drift check-matrix-manifest e2e-test
+.PHONY: help setup setup-colima setup-k3d setup-openchoreo setup-default-env-thunder setup-sandbox setup-gvisor setup-kata setup-platform setup-gateway setup-console-local setup-console-local-force setup-amp teardown-amp reset-amp dev-up dev-down dev-restart dev-rebuild dev-logs dev-migrate openchoreo-up openchoreo-down openchoreo-status thunder-up thunder-down thunder-restart thunder-reset teardown db-connect db-logs service-logs service-shell console-logs port-forward stop-port-forward gen-eval-artifacts gen-instrumentation-contract check-contract-drift check-matrix-manifest e2e-test security-test security-test-static security-test-live
 
 # Absolute path to the console directory on the host. Passed to docker-compose
 # so the container mounts and builds at the same path, keeping rush/pnpm
@@ -62,6 +62,11 @@ help:
 	@echo "🧪 E2E Tests:"
 	@echo "  make setup-ai-gateway   - Install AI Gateway (needed for LLM proxy tests)"
 	@echo "  make e2e-test           - Run E2E tests (cluster must be running)"
+	@echo ""
+	@echo "🔒 Security Tests:"
+	@echo "  make security-test         - Run all security tests (static + live)"
+	@echo "  make security-test-static  - Route-table authz invariants (no cluster needed)"
+	@echo "  make security-test-live    - Security suites against a running deployment"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  make reset-amp          - Fast reset: teardown-amp + setup-amp (OpenChoreo base preserved)"
@@ -404,6 +409,65 @@ e2e-test:
 		go run github.com/onsi/ginkgo/v2/ginkgo -v $(GINKGO_PROCS) --timeout 45m --poll-progress-after=600s \
 		--keep-going --junit-report=e2e-report.xml --output-dir=. \
 		$(if $(FOCUS),--focus="$(FOCUS)") $(if $(SUITE),./tests/$(SUITE)/...,./tests/...)
+
+
+# Security tests
+#
+# Two layers, both run by `make security-test`:
+#
+#   security-test-static  Go unit tests over the route table. No cluster needed.
+#   security-test-live    Ginkgo suites against a running deployment.
+#
+# The live suites live in test/e2e/security/ — deliberately NOT under
+# test/e2e/tests/, because `make e2e-test` and the e2e CI job both glob
+# ./tests/... and must not pick them up. They share the e2e framework/ and
+# operations/ packages and run against the same cluster `make e2e-test` needs.
+#
+# Run all:            make security-test
+# Static only:        make security-test-static
+# One live suite:     make security-test SUITE=authz
+# One spec:           make security-test FOCUS="scope matrix"
+# Parallel:           make security-test PROCS=4
+#
+# Serial by default, unlike e2e-test. These specs are individually cheap (one
+# HTTP call each) but every one needs a scope-reduced token from the IDP.
+# Ginkgo parallelism forks N processes with separate memory, so each rebuilds
+# its own token cache — parallelism multiplies token requests against Thunder
+# without buying much wall-clock. Override with PROCS= if that changes.
+SECURITY_GINKGO_PROCS := $(if $(PROCS),--procs=$(PROCS),--procs=1)
+
+security-test: security-test-static security-test-live
+
+# Route-table invariants, all in agent-manager-service/api/route_authz_invariant_test.go:
+#   every route carries a permission check; every declared permission gates
+#   something; permissions are reachable through roles and IDP/E2E scope
+#   catalogs; no handler reads the org from the URL path.
+#
+# ADDING AN INVARIANT? Name it TestSecurityInvariant<Whatever> and it runs here
+# automatically. The suite selects by prefix rather than by a list of names,
+# because a -run regex that matches nothing prints "no tests to run" and exits
+# 0 — a broken list would report success while checking nothing. A self-check
+# in the file enforces both halves of the convention.
+#
+# Env vars mirror scripts/run_unit_tests.sh: the api package loads config at
+# init, so it needs them even though these tests touch neither DB nor OpenChoreo.
+SECURITY_STATIC_TESTS := TestSecurityInvariant
+
+security-test-static:
+	@echo "Running static authorization invariants..."
+	@cd agent-manager-service && \
+		DB_HOST=localhost DB_PORT=5432 DB_USER=unit DB_PASSWORD=unit DB_NAME=unit \
+		OPEN_CHOREO_BASE_URL=http://localhost/api/v1 \
+		ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+		SERVER_PORT=8080 \
+		go test ./api/ -run '$(SECURITY_STATIC_TESTS)' -v
+
+security-test-live:
+	@echo "Running security tests (cluster must be running)..."
+	@cd test/e2e && set -a && [ -f .env ] && . ./.env; set +a && \
+		go run github.com/onsi/ginkgo/v2/ginkgo -v $(SECURITY_GINKGO_PROCS) --timeout 45m \
+		--poll-progress-after=300s --keep-going --junit-report=security-report.xml --output-dir=. \
+		$(if $(FOCUS),--focus="$(FOCUS)") $(if $(SUITE),./security/$(SUITE)/...,./security/...)
 
 
 # Cleanup
