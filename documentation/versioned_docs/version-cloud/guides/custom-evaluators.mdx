@@ -7,11 +7,11 @@ import TabItem from '@theme/TabItem';
 
 # Custom Evaluators
 
-This tutorial walks you through creating custom evaluators in the AMP Console. Custom evaluators let you define domain-specific quality checks using Python code or LLM judge prompt templates.
+This guide walks you through creating custom evaluators in the AMP Console. Custom evaluators let you define domain-specific quality checks using Python code or LLM judge prompt templates.
 
 ## Prerequisites
 
-- A WSO2 Agent Manager account (see [Sign Up](../getting-started/on-cloud.mdx))
+- A WSO2 Agent Manager cloud organization (see [Sign Up](../get-started/on-cloud.mdx))
 - An agent registered in AMP with an active environment
 - Familiarity with [evaluation concepts](../concepts/evaluation.mdx), especially evaluator types and evaluation levels
 - For LLM judge evaluators: an API key for a [supported LLM provider](../concepts/evaluation.mdx#supported-llm-providers)
@@ -83,6 +83,10 @@ def evaluate(trace: Trace) -> EvalResult:
 
 :::tip
 Use `EvalResult.skip()` instead of returning a score of 0.0 when the evaluator is not applicable. Skipped evaluations are tracked separately and do not affect aggregated scores.
+:::
+
+:::info Disallowed imports
+Source containing `os`, `subprocess`, `socket`, `ctypes`, or `importlib` imports (or a dynamic `__import__()` call) is rejected at creation/update time with a 400 error naming the pattern. This check always applies regardless of deployment, but it's a basic content check, not a full sandbox — write evaluators that don't need these regardless, since network egress is only restricted on deployments where it's enabled and enforced (see [Network access](../concepts/evaluation.mdx#custom-evaluators)).
 :::
 
   </TabItem>
