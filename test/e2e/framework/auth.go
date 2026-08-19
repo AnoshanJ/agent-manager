@@ -17,6 +17,7 @@
 package framework
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -68,26 +69,36 @@ const ampScopes = "amp:agent-identity:create amp:agent-identity:delete amp:agent
 // client_credentials grant type, carrying the full ampScopes superset. It
 // retries on transient errors.
 func FetchToken(cfg *Config) (string, error) {
-	return fetchTokenWithRetry(cfg, ampScopes)
+	return FetchTokenWithContext(context.Background(), cfg)
+}
+
+// FetchTokenWithContext obtains a full-privilege OAuth2 access token and
+// propagates cancellation through token requests and retry delays.
+func FetchTokenWithContext(ctx context.Context, cfg *Config) (string, error) {
+	return fetchTokenWithRetry(ctx, cfg, ampScopes)
 }
 
 // fetchTokenWithRetry fetches a token for the given space-delimited scope
 // string, retrying on transient errors. An empty scope string requests no
 // scopes at all, which yields an unscoped token.
-func fetchTokenWithRetry(cfg *Config, scope string) (string, error) {
+func fetchTokenWithRetry(ctx context.Context, cfg *Config, scope string) (string, error) {
 	var lastErr error
 	backoff := 2 * time.Second
 
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
 			fmt.Printf("token fetch failed: %v, retrying in %v...\n", lastErr, backoff)
-			time.Sleep(backoff)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("wait to retry token request: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
 			if backoff < 15*time.Second {
 				backoff = backoff * 3 / 2
 			}
 		}
 
-		token, err := fetchTokenOnce(cfg, scope)
+		token, err := fetchTokenOnce(ctx, cfg, scope)
 		if err == nil {
 			return token, nil
 		}
@@ -97,7 +108,7 @@ func fetchTokenWithRetry(cfg *Config, scope string) (string, error) {
 	return "", lastErr
 }
 
-func fetchTokenOnce(cfg *Config, scope string) (string, error) {
+func fetchTokenOnce(ctx context.Context, cfg *Config, scope string) (string, error) {
 	form := url.Values{
 		"grant_type": {"client_credentials"},
 	}
@@ -110,7 +121,7 @@ func fetchTokenOnce(cfg *Config, scope string) (string, error) {
 		form.Set("scope", scope)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, cfg.IDPTokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.IDPTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create token request: %w", err)
 	}

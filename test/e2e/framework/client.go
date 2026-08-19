@@ -36,7 +36,13 @@ type AMPClient struct {
 // NewAMPClient creates a new API client. It fetches a scoped OAuth2 token from
 // Thunder IDP via the client_credentials grant.
 func NewAMPClient(cfg *Config) (*AMPClient, error) {
-	token, err := FetchToken(cfg)
+	return NewAMPClientWithContext(context.Background(), cfg)
+}
+
+// NewAMPClientWithContext creates a new API client and propagates cancellation
+// while fetching its OAuth2 token.
+func NewAMPClientWithContext(ctx context.Context, cfg *Config) (*AMPClient, error) {
+	token, err := FetchTokenWithContext(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("fetch auth token: %w", err)
 	}
@@ -126,6 +132,11 @@ func (c *AMPClient) PutWithContext(ctx context.Context, path string, body any) (
 // Patch sends a PATCH request with a JSON body.
 func (c *AMPClient) Patch(path string, body any) (*http.Response, error) {
 	return c.Do(http.MethodPatch, path, body)
+}
+
+// PatchWithContext sends a PATCH request and propagates cancellation.
+func (c *AMPClient) PatchWithContext(ctx context.Context, path string, body any) (*http.Response, error) {
+	return c.DoWithContext(ctx, http.MethodPatch, path, body)
 }
 
 // Delete sends a DELETE request.

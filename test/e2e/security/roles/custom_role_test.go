@@ -52,7 +52,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 		retainedPath := "/api/v1/orgs/" + cfg.DefaultOrg + "/projects"
 
 		By("Resolving the deployed AMP resource server")
-		resp, err := admin.Get(identityBase + "/permissions")
+		resp, err := admin.GetWithContext(ctx, identityBase+"/permissions")
 		Expect(err).NotTo(HaveOccurred())
 		catalog := framework.ExpectStatusAndDecode[permissionsResponse](Default, resp, http.StatusOK)
 		resp.Body.Close()
@@ -60,7 +60,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 
 		By("Creating a disposable custom role through Agent Manager")
 		roleName := "e2e-test-sec-custom-role-" + uuid.NewString()[:8]
-		resp, err = admin.Post(identityBase+"/roles", map[string]string{
+		resp, err = admin.PostWithContext(ctx, identityBase+"/roles", map[string]string{
 			"name":        roleName,
 			"description": "Disposable security-test role",
 		})
@@ -76,7 +76,9 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 			if roleID == "" {
 				return
 			}
-			cleanupResp, cleanupErr := admin.Delete(identityBase + "/roles/" + roleID)
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			cleanupResp, cleanupErr := admin.DeleteWithContext(cleanupCtx, identityBase+"/roles/"+roleID)
 			Expect(cleanupErr).NotTo(HaveOccurred())
 			defer cleanupResp.Body.Close()
 			Expect(cleanupResp.StatusCode).To(Or(Equal(http.StatusNoContent), Equal(http.StatusNotFound)))
@@ -88,7 +90,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 		}
 
 		By("Granting two harmless read permissions through Agent Manager")
-		resp, err = admin.Post(identityBase+"/roles/"+role.ID+"/permissions/add", permissionRequest)
+		resp, err = admin.PostWithContext(ctx, identityBase+"/roles/"+role.ID+"/permissions/add", permissionRequest)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectStatus(Default, resp, http.StatusOK)
 		resp.Body.Close()
@@ -110,7 +112,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 		Expect(err).NotTo(HaveOccurred())
 		Expect(grantedScopes).To(HaveKey(customRoleProbeScope))
 		Expect(grantedScopes).To(HaveKey(customRoleRetainedScope))
-		resp, err = framework.NewAMPClientWithToken(cfg, persona.Token).Get(probePath)
+		resp, err = framework.NewAMPClientWithToken(cfg, persona.Token).GetWithContext(ctx, probePath)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectNotForbidden(Default, resp, "custom role with "+customRoleProbeScope)
 		resp.Body.Close()
@@ -120,7 +122,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 			"resourceServerId": catalog.ResourceServerID,
 			"permissions":      []string{customRoleProbeScope},
 		}
-		resp, err = admin.Post(identityBase+"/roles/"+role.ID+"/permissions/remove", probeRemoval)
+		resp, err = admin.PostWithContext(ctx, identityBase+"/roles/"+role.ID+"/permissions/remove", probeRemoval)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectStatus(Default, resp, http.StatusOK)
 		resp.Body.Close()
@@ -143,13 +145,13 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 			fmt.Sprintf("new tokens kept %s after role revocation", customRoleProbeScope))
 
 		By("Requiring exactly 403 for the removed permission")
-		resp, err = framework.NewAMPClientWithToken(cfg, revokedToken).Get(probePath)
+		resp, err = framework.NewAMPClientWithToken(cfg, revokedToken).GetWithContext(ctx, probePath)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectForbidden(Default, resp, "custom role after revoking only "+customRoleProbeScope)
 		resp.Body.Close()
 
 		By("Proving the retained permission still reaches its endpoint")
-		resp, err = framework.NewAMPClientWithToken(cfg, revokedToken).Get(retainedPath)
+		resp, err = framework.NewAMPClientWithToken(cfg, revokedToken).GetWithContext(ctx, retainedPath)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectNotForbidden(Default, resp, "custom role retaining "+customRoleRetainedScope)
 		resp.Body.Close()
@@ -159,7 +161,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 			"resourceServerId": catalog.ResourceServerID,
 			"permissions":      []string{customRoleRetainedScope},
 		}
-		resp, err = admin.Post(identityBase+"/roles/"+role.ID+"/permissions/remove", finalRemoval)
+		resp, err = admin.PostWithContext(ctx, identityBase+"/roles/"+role.ID+"/permissions/remove", finalRemoval)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectStatus(Default, resp, http.StatusOK)
 		resp.Body.Close()
@@ -180,7 +182,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 			fmt.Sprintf("new tokens kept %s after final role revocation", customRoleRetainedScope))
 
 		By("Proving the zero-permission token is rejected fail-closed")
-		resp, err = framework.NewAMPClientWithToken(cfg, zeroScopeToken).Get(retainedPath)
+		resp, err = framework.NewAMPClientWithToken(cfg, zeroScopeToken).GetWithContext(ctx, retainedPath)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectStatusIn(Default, resp, http.StatusUnauthorized, http.StatusForbidden)
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -196,7 +198,7 @@ var _ = Describe("SEC-ROLE-002: custom role mutation and revocation", Label("sec
 		persona = nil
 
 		By("Deleting the disposable custom role through Agent Manager")
-		resp, err = admin.Delete(identityBase + "/roles/" + role.ID)
+		resp, err = admin.DeleteWithContext(ctx, identityBase+"/roles/"+role.ID)
 		Expect(err).NotTo(HaveOccurred())
 		framework.ExpectStatus(Default, resp, http.StatusNoContent)
 		resp.Body.Close()

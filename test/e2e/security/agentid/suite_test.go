@@ -48,7 +48,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 
 	By("Creating the full-privilege fixture client")
 	var err error
-	adminClient, err = framework.NewAMPClient(cfg)
+	adminClient, err = framework.NewAMPClientWithContext(ctx, cfg)
 	Expect(err).NotTo(HaveOccurred())
 	framework.VerifyDefaultOrg(adminClient, cfg.DefaultOrg)
 
@@ -68,7 +68,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	}
 
 	By("Creating a valid AMP token without amp:agent:update")
-	reducedToken, err := framework.FetchTokenWithScopes(cfg, []string{"amp:agent:read"})
+	reducedToken, err := framework.FetchTokenWithScopes(ctx, cfg, []string{"amp:agent:read"})
 	Expect(err).NotTo(HaveOccurred())
 	scopes, err := framework.TokenScopes(reducedToken)
 	Expect(err).NotTo(HaveOccurred())

@@ -32,45 +32,45 @@ func publisherPath() string {
 }
 
 var _ = Describe("SEC-PUB-001: score publisher audience", Label("security", "publisher"), func() {
-	It("allows an amp-publisher-* token to reach the ingestion handler", func() {
+	It("allows an amp-publisher-* token to reach the ingestion handler", func(ctx SpecContext) {
 		resp, err := framework.NewAMPClientWithToken(cfg, publisherClient.Token).
-			Post(publisherPath(), nil)
+			PostWithContext(ctx, publisherPath(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest),
 			"a valid publisher token should reach body validation; 401/403 means the audience boundary rejected it")
 	})
 
-	It("denies a normal AMP API token", func() {
-		resp, err := normalClient.Post(publisherPath(), nil)
+	It("denies a normal AMP API token", func(ctx SpecContext) {
+		resp, err := normalClient.PostWithContext(ctx, publisherPath(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		framework.ExpectForbidden(Default, resp, "normal API client on publisher-only score ingestion")
 	})
 
-	It("rejects a publisher lookalike audience", func() {
+	It("rejects a publisher lookalike audience", func(ctx SpecContext) {
 		resp, err := framework.NewAMPClientWithToken(cfg, lookalikeClient.Token).
-			Post(publisherPath(), nil)
+			PostWithContext(ctx, publisherPath(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		framework.ExpectUnauthorized(Default, resp, "lookalike publisher audience")
 	})
 
-	It("rejects a forged amp-publisher-* audience", func() {
+	It("rejects a forged amp-publisher-* audience", func(ctx SpecContext) {
 		forged, err := framework.TamperClaims(normalClient.Token(), func(claims map[string]any) {
 			claims["aud"] = []string{"amp-publisher-attacker"}
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		resp, err := framework.NewAMPClientWithToken(cfg, forged).Post(publisherPath(), nil)
+		resp, err := framework.NewAMPClientWithToken(cfg, forged).PostWithContext(ctx, publisherPath(), nil)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		framework.ExpectUnauthorized(Default, resp, "valid token with attacker-edited publisher audience")
 	})
 
-	It("does not grant access to normal AMP routes", func() {
+	It("does not grant access to normal AMP routes", func(ctx SpecContext) {
 		path := "/api/v1/orgs/" + cfg.DefaultOrg + "/agent-kinds"
-		resp, err := framework.NewAMPClientWithToken(cfg, publisherClient.Token).Get(path)
+		resp, err := framework.NewAMPClientWithToken(cfg, publisherClient.Token).GetWithContext(ctx, path)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		framework.ExpectForbidden(Default, resp, "publisher token on ordinary Agent Manager route")
@@ -85,9 +85,9 @@ var _ = Describe("SEC-PUB-002: Observer publisher confinement", Label("security"
 	}
 	for _, path := range traceRoutes {
 		path := path
-		It("allows implicit trace-read on "+path, func() {
+		It("allows implicit trace-read on "+path, func(ctx SpecContext) {
 			actualPath := path + "?organization=" + cfg.DefaultOrg
-			resp := observerGet(publisherClient.Token, actualPath)
+			resp := observerGet(ctx, publisherClient.Token, actualPath)
 			defer resp.Body.Close()
 			framework.ExpectNotForbidden(Default, resp, "publisher token on Observer trace route "+actualPath)
 		})
@@ -100,19 +100,19 @@ var _ = Describe("SEC-PUB-002: Observer publisher confinement", Label("security"
 	}
 	for _, path := range confinedRoutes {
 		path := path
-		It("denies publisher access to "+path, func() {
+		It("denies publisher access to "+path, func(ctx SpecContext) {
 			actualPath := path + "?organization=" + cfg.DefaultOrg
 			if path == "/api/v1/build-logs" {
 				actualPath += "&buildId=e2e-test-sec-absent"
 			}
-			resp := observerGet(publisherClient.Token, actualPath)
+			resp := observerGet(ctx, publisherClient.Token, actualPath)
 			defer resp.Body.Close()
 			framework.ExpectForbidden(Default, resp, "publisher confinement on Observer route "+actualPath)
 		})
 	}
 
-	It("never treats the lookalike audience as an Observer publisher", func() {
-		resp := observerGet(lookalikeClient.Token, "/api/v1/traces?organization="+cfg.DefaultOrg)
+	It("never treats the lookalike audience as an Observer publisher", func(ctx SpecContext) {
+		resp := observerGet(ctx, lookalikeClient.Token, "/api/v1/traces?organization="+cfg.DefaultOrg)
 		defer resp.Body.Close()
 		// Production JWKS mode validates the audience and returns 401. The local
 		// quick-start deliberately runs Observer with isLocalDevEnv=true, where

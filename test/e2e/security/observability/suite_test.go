@@ -97,7 +97,7 @@ func verifyObserverReachable(ctx context.Context) {
 // for any non-publisher token and every trace in the cluster is readable by any
 // authenticated caller.
 func verifyObserverRBACEnabled(ctx context.Context) {
-	unscoped, err := framework.FetchTokenWithScopes(Cfg, nil)
+	unscoped, err := framework.FetchTokenWithScopes(ctx, Cfg, nil)
 	Expect(err).NotTo(HaveOccurred(), "failed to fetch an unscoped token")
 
 	resp := getObs(ctx, unscoped, "/api/v1/traces", nil)
@@ -144,12 +144,12 @@ var (
 	tokenCache sync.Map
 )
 
-func tokenWithScope(scope string) string {
+func tokenWithScope(ctx context.Context, scope string) string {
 	if cached, ok := tokenCache.Load(scope); ok {
 		return cached.(string)
 	}
 
-	token, err := framework.FetchTokenWithScopes(Cfg, []string{scope})
+	token, err := framework.FetchTokenWithScopes(ctx, Cfg, []string{scope})
 	Expect(err).NotTo(HaveOccurred(), "failed to mint a token for %s", scope)
 
 	// Same vacuity guard as the authz suite: confirm the IDP issued only what

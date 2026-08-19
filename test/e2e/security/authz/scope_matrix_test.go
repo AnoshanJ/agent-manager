@@ -145,19 +145,19 @@ func guardedRoutes(org string) []guardedRoute {
 var _ = Describe("SEC-AUTHZ-001: scope matrix", Label("security"), func() {
 	for _, route := range guardedRoutes(framework.LoadConfig().DefaultOrg) {
 		It(fmt.Sprintf("denies %s to a token without %s",
-			route.Method+" "+route.Path, strings.Join(route.Scopes, "/")), func() {
+			route.Method+" "+route.Path, strings.Join(route.Scopes, "/")), func(ctx SpecContext) {
 			By("calling the route with every scope EXCEPT the one it requires")
-			deny := clientWithScopes(framework.ScopesExcept(route.Scopes...))
-			resp := send(deny, route)
+			deny := clientWithScopes(ctx, framework.ScopesExcept(route.Scopes...))
+			resp := send(ctx, deny, route)
 			defer resp.Body.Close()
 			framework.ExpectForbidden(Default, resp, route.String())
 		})
 
 		It(fmt.Sprintf("allows %s to a token with %s",
-			route.Method+" "+route.Path, route.Scopes[0]), func() {
+			route.Method+" "+route.Path, route.Scopes[0]), func(ctx SpecContext) {
 			By("calling the same route with only the scope it requires")
-			allow := clientWithScopes([]string{route.Scopes[0]})
-			resp := send(allow, route)
+			allow := clientWithScopes(ctx, []string{route.Scopes[0]})
+			resp := send(ctx, allow, route)
 			defer resp.Body.Close()
 			framework.ExpectNotForbidden(Default, resp, route.String())
 		})
@@ -166,8 +166,8 @@ var _ = Describe("SEC-AUTHZ-001: scope matrix", Label("security"), func() {
 
 // send issues the route's request. POST/PUT deliberately carry no body so the
 // handler rejects them at JSON decode, before any state is touched.
-func send(client *framework.AMPClient, route guardedRoute) *http.Response {
-	resp, err := client.Do(route.Method, route.Path, nil)
+func send(ctx SpecContext, client *framework.AMPClient, route guardedRoute) *http.Response {
+	resp, err := client.DoWithContext(ctx, route.Method, route.Path, nil)
 	Expect(err).NotTo(HaveOccurred(), "request failed: %s", route)
 	return resp
 }
@@ -179,14 +179,14 @@ var (
 	tokenCache sync.Map
 )
 
-func clientWithScopes(scopes []string) *framework.AMPClient {
+func clientWithScopes(ctx SpecContext, scopes []string) *framework.AMPClient {
 	key := strings.Join(scopes, " ")
 
 	if cached, ok := tokenCache.Load(key); ok {
 		return cached.(*framework.AMPClient)
 	}
 
-	token, err := framework.FetchTokenWithScopes(Cfg, scopes)
+	token, err := framework.FetchTokenWithScopes(ctx, Cfg, scopes)
 	Expect(err).NotTo(HaveOccurred(), "failed to mint a token for %d scope(s)", len(scopes))
 
 	// Guard against a silently-unreduced token. BeforeSuite proves the IDP

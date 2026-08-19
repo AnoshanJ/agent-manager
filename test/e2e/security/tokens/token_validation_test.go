@@ -31,11 +31,11 @@ import (
 var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 	// forged tokens — built from scratch, no genuine signature involved.
 	DescribeTable("rejects a forged token with 401",
-		func(build func() (string, error)) {
+		func(ctx SpecContext, build func() (string, error)) {
 			token, err := build()
 			Expect(err).NotTo(HaveOccurred(), "failed to build the forged token")
 
-			resp := get(token)
+			resp := get(ctx, token)
 			defer resp.Body.Close()
 			framework.ExpectUnauthorized(Default, resp, "forged token")
 		},
@@ -78,12 +78,12 @@ var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 	// realistic attack: take the token you were legitimately issued and try to
 	// widen it.
 	DescribeTable("rejects a tampered genuine token with 401",
-		func(tamper func(genuine string) (string, error)) {
+		func(ctx SpecContext, tamper func(genuine string) (string, error)) {
 			token, err := tamper(Client.Token())
 			Expect(err).NotTo(HaveOccurred(), "failed to tamper the genuine token")
 			Expect(token).NotTo(Equal(Client.Token()), "the tamper produced an identical token")
 
-			resp := get(token)
+			resp := get(ctx, token)
 			defer resp.Body.Close()
 			framework.ExpectUnauthorized(Default, resp, "tampered token")
 		},
@@ -142,8 +142,8 @@ var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 
 	// malformed input — nothing resembling a JWT.
 	DescribeTable("rejects malformed credentials with 401",
-		func(token string) {
-			resp := get(token)
+		func(ctx SpecContext, token string) {
+			resp := get(ctx, token)
 			defer resp.Body.Close()
 			framework.ExpectUnauthorized(Default, resp, "malformed credential")
 		},
@@ -163,8 +163,8 @@ var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 	// The requirement is "refused without being authenticated", which both
 	// codes satisfy; anything else means megabytes of attacker input reached
 	// the JWT parser.
-	It("refuses an oversized token without parsing it", func() {
-		resp := get(strings.Repeat("A", 100_000))
+	It("refuses an oversized token without parsing it", func(ctx SpecContext) {
+		resp := get(ctx, strings.Repeat("A", 100_000))
 		defer resp.Body.Close()
 
 		Expect(resp.StatusCode).To(BeElementOf(
@@ -173,8 +173,8 @@ var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 				"auth layer), got %d", resp.StatusCode)
 	})
 
-	It("rejects a request with no Authorization header", func() {
-		resp, err := Client.GetUnauthenticated(fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
+	It("rejects a request with no Authorization header", func(ctx SpecContext) {
+		resp, err := Client.GetUnauthenticatedWithContext(ctx, fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
 		Expect(err).NotTo(HaveOccurred(), "request failed")
 		defer resp.Body.Close()
 		framework.ExpectUnauthorized(Default, resp, "no Authorization header")
@@ -184,12 +184,11 @@ var _ = Describe("SEC-AUTH-001: token rejection", Label("security"), func() {
 	// access logs, proxy logs, and browser history. The genuine token is used
 	// here deliberately: the point is that even a VALID token must not
 	// authenticate when presented this way.
-	It("does not accept a valid token passed as a query parameter", func() {
+	It("does not accept a valid token passed as a query parameter", func(ctx SpecContext) {
 		path := fmt.Sprintf(guardedPath, Cfg.DefaultOrg) + "?access_token=" + Client.Token()
-		resp, err := Client.GetUnauthenticated(path)
+		resp, err := Client.GetUnauthenticatedWithContext(ctx, path)
 		Expect(err).NotTo(HaveOccurred(), "request failed")
 		defer resp.Body.Close()
 		framework.ExpectUnauthorized(Default, resp, "token in query parameter")
 	})
-
 })

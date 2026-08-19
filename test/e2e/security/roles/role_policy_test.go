@@ -64,7 +64,7 @@ var _ = Describe("SEC-ROLE-001: deployed role policy", Label("security", "roles"
 		if probe.allowed {
 			verb = "allows"
 		}
-		It(fmt.Sprintf("%s %s for %s", verb, probe.scope, probe.role), func() {
+		It(fmt.Sprintf("%s %s for %s", verb, probe.scope, probe.role), func(ctx SpecContext) {
 			persona := personas[probe.role]
 			issued, err := framework.TokenScopes(persona.Token)
 			Expect(err).NotTo(HaveOccurred())
@@ -75,7 +75,7 @@ var _ = Describe("SEC-ROLE-001: deployed role policy", Label("security", "roles"
 			}
 
 			client := framework.NewAMPClientWithToken(cfg, persona.Token)
-			resp, err := client.Do(probe.method, probe.path(cfg), nil)
+			resp, err := client.DoWithContext(ctx, probe.method, probe.path(cfg), nil)
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close()
 			label := fmt.Sprintf("%s acting on %s", probe.role, probe.scope)

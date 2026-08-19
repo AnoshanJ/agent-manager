@@ -88,5 +88,7 @@ make security-test-live SUITE=runtime
 ## Adding tests
 
 Keep API calls in `test/e2e/operations/` and assertions in the relevant suite.
-Use disposable `e2e-test-` resources and register cleanup immediately after
-resource creation. Never print access tokens, client secrets, or API keys.
+Build resource names with framework constants such as `E2EProjectPrefix` and
+`E2EAgentPrefix` so stale-resource cleanup can identify them. Delete created
+resources with `DeferCleanup`, or in the final spec of an ordered lifecycle.
+Never print access tokens, client secrets, or API keys.

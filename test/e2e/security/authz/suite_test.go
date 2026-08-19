@@ -52,7 +52,7 @@ func TestSecurityAuthz(t *testing.T) {
 	RunSpecs(t, "Security: Authorization Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(ctx SpecContext) {
 	Cfg = framework.LoadConfig()
 
 	By("Waiting for API readiness")
@@ -60,17 +60,17 @@ var _ = BeforeSuite(func() {
 
 	By("Creating full-privilege API client")
 	var err error
-	Client, err = framework.NewAMPClient(Cfg)
+	Client, err = framework.NewAMPClientWithContext(ctx, Cfg)
 	Expect(err).NotTo(HaveOccurred(), "failed to create API client")
 
 	By("Verifying default organization")
 	framework.VerifyDefaultOrg(Client, Cfg.DefaultOrg)
 
 	By("Verifying the IDP honours scope reduction")
-	verifyScopeReductionWorks()
+	verifyScopeReductionWorks(ctx)
 
 	By("Verifying RBAC enforcement is enabled on the target deployment")
-	verifyRBACEnabled()
+	verifyRBACEnabled(ctx)
 })
 
 // verifyScopeReductionWorks proves the harness can mint a token that genuinely
@@ -78,8 +78,8 @@ var _ = BeforeSuite(func() {
 // the IDP and its client registration, not something this suite controls — if
 // it ever stops holding, every negative spec would silently pass with a
 // full-privilege token.
-func verifyScopeReductionWorks() {
-	reduced, err := framework.FetchTokenWithScopes(Cfg, framework.ScopesExcept(rbacProbeScope))
+func verifyScopeReductionWorks(ctx SpecContext) {
+	reduced, err := framework.FetchTokenWithScopes(ctx, Cfg, framework.ScopesExcept(rbacProbeScope))
 	Expect(err).NotTo(HaveOccurred(), "failed to fetch a scope-reduced token")
 
 	scopes, err := framework.TokenScopes(reduced)
@@ -102,12 +102,12 @@ func verifyScopeReductionWorks() {
 // route is reachable by any authenticated caller. Running the negative specs
 // against such a deployment would report a clean bill of health for a platform
 // with authorization switched off entirely.
-func verifyRBACEnabled() {
-	unscoped, err := framework.FetchTokenWithScopes(Cfg, nil)
+func verifyRBACEnabled(ctx SpecContext) {
+	unscoped, err := framework.FetchTokenWithScopes(ctx, Cfg, nil)
 	Expect(err).NotTo(HaveOccurred(), "failed to fetch an unscoped token")
 
 	resp, err := framework.NewAMPClientWithToken(Cfg, unscoped).
-		Get(fmt.Sprintf(rbacProbePath, Cfg.DefaultOrg))
+		GetWithContext(ctx, fmt.Sprintf(rbacProbePath, Cfg.DefaultOrg))
 	Expect(err).NotTo(HaveOccurred(), "RBAC probe request failed")
 	defer resp.Body.Close()
 

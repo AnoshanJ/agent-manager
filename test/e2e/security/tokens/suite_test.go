@@ -46,7 +46,7 @@ func TestSecurityTokens(t *testing.T) {
 	RunSpecs(t, "Security: Authentication Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(ctx SpecContext) {
 	Cfg = framework.LoadConfig()
 
 	By("Waiting for API readiness")
@@ -54,19 +54,19 @@ var _ = BeforeSuite(func() {
 
 	By("Creating full-privilege API client")
 	var err error
-	Client, err = framework.NewAMPClient(Cfg)
+	Client, err = framework.NewAMPClientWithContext(ctx, Cfg)
 	Expect(err).NotTo(HaveOccurred(), "failed to create API client")
 
 	By("Verifying the endpoint under test accepts a genuine token")
-	verifyPositiveControl()
+	verifyPositiveControl(ctx)
 })
 
 // verifyPositiveControl proves the endpoint every spec drives returns 200 for a
 // genuine token. Without this, all the 401 assertions below would also hold
 // against a broken endpoint, an unreachable service, or a wrong path — the
 // suite would report that authentication is airtight while testing nothing.
-func verifyPositiveControl() {
-	resp, err := Client.Get(fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
+func verifyPositiveControl(ctx SpecContext) {
+	resp, err := Client.GetWithContext(ctx, fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
 	Expect(err).NotTo(HaveOccurred(), "positive control request failed")
 	defer resp.Body.Close()
 
@@ -78,9 +78,9 @@ func verifyPositiveControl() {
 }
 
 // get drives guardedPath with the given token, returning the response.
-func get(token string) *http.Response {
+func get(ctx SpecContext, token string) *http.Response {
 	resp, err := framework.NewAMPClientWithToken(Cfg, token).
-		Get(fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
+		GetWithContext(ctx, fmt.Sprintf(guardedPath, Cfg.DefaultOrg))
 	Expect(err).NotTo(HaveOccurred(), "request failed")
 	return resp
 }

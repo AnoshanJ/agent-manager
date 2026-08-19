@@ -76,7 +76,7 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 		route := route
 
 		It(fmt.Sprintf("allows %s with %s", route.Name, route.Scope), func(ctx SpecContext) {
-			resp := getObs(ctx, tokenWithScope(route.Scope), route.Path, route.Query)
+			resp := getObs(ctx, tokenWithScope(ctx, route.Scope), route.Path, route.Query)
 			defer resp.Body.Close()
 			framework.ExpectNotForbidden(Default, resp,
 				fmt.Sprintf("%s (%s) with its own scope", route.Name, route.Path))
@@ -89,7 +89,7 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 			wrong := wrong
 
 			It(fmt.Sprintf("denies %s to a token holding only %s", route.Name, wrong), func(ctx SpecContext) {
-				resp := getObs(ctx, tokenWithScope(wrong), route.Path, route.Query)
+				resp := getObs(ctx, tokenWithScope(ctx, wrong), route.Path, route.Query)
 				defer resp.Body.Close()
 				framework.ExpectForbidden(Default, resp,
 					fmt.Sprintf("%s (%s) with only %s — observability scopes must not be "+
@@ -98,7 +98,7 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 		}
 
 		It(fmt.Sprintf("denies %s to an unscoped token", route.Name), func(ctx SpecContext) {
-			unscoped, err := framework.FetchTokenWithScopes(Cfg, nil)
+			unscoped, err := framework.FetchTokenWithScopes(ctx, Cfg, nil)
 			Expect(err).NotTo(HaveOccurred(), "failed to fetch an unscoped token")
 
 			resp := getObs(ctx, unscoped, route.Path, route.Query)

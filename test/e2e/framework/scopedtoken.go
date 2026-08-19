@@ -17,6 +17,7 @@
 package framework
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -60,8 +61,8 @@ func ScopesExcept(exclude ...string) []string {
 // FetchTokenWithScopes obtains a client_credentials token carrying exactly the
 // given scopes. A nil or empty slice requests no scopes, yielding an unscoped
 // token — used to prove RBAC enforcement is switched on at all.
-func FetchTokenWithScopes(cfg *Config, scopes []string) (string, error) {
-	return fetchTokenWithRetry(cfg, strings.Join(scopes, " "))
+func FetchTokenWithScopes(ctx context.Context, cfg *Config, scopes []string) (string, error) {
+	return fetchTokenWithRetry(ctx, cfg, strings.Join(scopes, " "))
 }
 
 // TokenScopes decodes the JWT payload (without verifying the signature — the

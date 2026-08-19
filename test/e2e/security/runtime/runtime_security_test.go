@@ -236,7 +236,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
 				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
-			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite),
+			g.Expect(identity.RequestedScopes).To(ConsistOf(scopeRead, scopeWrite),
 				"deployed workload did not receive the complete MCP scope request list")
 		}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
@@ -285,7 +285,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
 				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.TokenMinted).To(BeTrue())
-			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
+			g.Expect(identity.RequestedScopes).To(ConsistOf(scopeRead, scopeWrite))
 		}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
 
 		// Real gateway decisions, rather than local token decoding, prove the
@@ -326,7 +326,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
 			g.Expect(identity.TokenMinted).To(BeTrue())
-			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
+			g.Expect(identity.RequestedScopes).To(ConsistOf(scopeRead, scopeWrite))
 		}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 		expectMCPAuthorization(ctx, key, addTool, true)
 	})

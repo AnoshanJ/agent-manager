@@ -37,6 +37,7 @@ var (
 	publisherClient *framework.AudienceClient
 	lookalikeClient *framework.AudienceClient
 	normalClient    *framework.AMPClient
+	observerClient  = &http.Client{Timeout: 30 * time.Second}
 )
 
 func TestSecurityPublisher(t *testing.T) {
@@ -51,7 +52,9 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	framework.WaitForAPIReady(cfg)
 
 	By("Checking Observer readiness")
-	resp, err := http.Get(observerURL("/api/v1/traces")) //nolint:gosec // fixed test-config URL
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, observerURL("/api/v1/traces"), nil)
+	Expect(err).NotTo(HaveOccurred())
+	resp, err := observerClient.Do(req)
 	Expect(err).NotTo(HaveOccurred(), "cannot reach Observer at %s", cfg.ObserverBaseURL)
 	resp.Body.Close()
 	Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized),
@@ -78,7 +81,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Creating the normal AMP API control client")
-	normalClient, err = framework.NewAMPClient(cfg)
+	normalClient, err = framework.NewAMPClientWithContext(ctx, cfg)
 	Expect(err).NotTo(HaveOccurred())
 })
 
@@ -86,8 +89,9 @@ func observerURL(path string) string {
 	return strings.TrimSuffix(cfg.ObserverBaseURL, "/") + path
 }
 
-func observerGet(token, path string) *http.Response {
-	resp, err := framework.NewAMPClientWithToken(cfg, token).DoRaw(http.MethodGet, observerURL(path))
+func observerGet(ctx SpecContext, token, path string) *http.Response {
+	resp, err := framework.NewAMPClientWithToken(cfg, token).
+		DoRawWithContext(ctx, http.MethodGet, observerURL(path))
 	Expect(err).NotTo(HaveOccurred(), "Observer request failed: %s", path)
 	return resp
 }
