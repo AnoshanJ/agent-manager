@@ -4493,9 +4493,9 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 }
 
 // getSystemManagedEnvVars fetches existing env vars from the Component CR / ReleaseBinding and
-// identifies system-managed secret env vars (e.g., LLM provider config API keys).
+// identifies system-managed env vars (e.g., LLM provider config URL and API key).
 //
-// System-managed env vars are identified by looking up the secretRef in the DB: if it is
+// System-managed secret env vars are identified by looking up the secretRef in the DB: if it is
 // recorded in agent_env_config_variables_mapping for this agent's LLM configurations, it is
 // system-managed. This is provider-agnostic — it does not rely on secret reference name
 // patterns.
@@ -4505,7 +4505,7 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 // K8s Secret is different (e.g., "api-key").
 //
 // Returns:
-//   - []client.EnvVar: system-managed env vars with correct SecretKeyRef
+//   - []client.EnvVar: system-managed env vars with correct SecretKeyRef or live plain value
 //   - map[string]bool: set of system-managed env var keys (for filtering from deploy request)
 func (s *agentManagerService) getSystemManagedEnvVars(
 	ctx context.Context,
@@ -4559,6 +4559,21 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 		keySet[existing.Key] = true
 		s.logger.Info("Identified system-managed secret env var",
 			"key", existing.Key, "secretRef", existing.SecretRef, "secretKey", secretKey)
+	}
+
+	// The scan above only catches secret-backed vars; add any plain system-managed vars
+	// (e.g. the LLM provider URL) it missed, using their current live value.
+	systemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, componentName, ouID, projectName, environmentName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list system-managed env var keys: %w", err)
+	}
+	for _, existing := range existingConfigs {
+		if keySet[existing.Key] || !systemKeys[existing.Key] {
+			continue
+		}
+		result = append(result, client.EnvVar{Key: existing.Key, Value: existing.Value})
+		keySet[existing.Key] = true
+		s.logger.Info("Identified system-managed plain env var", "key", existing.Key)
 	}
 
 	return result, keySet, nil
