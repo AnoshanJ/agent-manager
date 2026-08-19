@@ -65,8 +65,16 @@ const ampScopes = "amp:agent-identity:create amp:agent-identity:delete amp:agent
 	"amp:profile:read amp:profile:update-attributes"
 
 // FetchToken obtains an OAuth2 access token from the Thunder IDP using the
-// client_credentials grant type. It retries on transient errors.
+// client_credentials grant type, carrying the full ampScopes superset. It
+// retries on transient errors.
 func FetchToken(cfg *Config) (string, error) {
+	return fetchTokenWithRetry(cfg, ampScopes)
+}
+
+// fetchTokenWithRetry fetches a token for the given space-delimited scope
+// string, retrying on transient errors. An empty scope string requests no
+// scopes at all, which yields an unscoped token.
+func fetchTokenWithRetry(cfg *Config, scope string) (string, error) {
 	var lastErr error
 	backoff := 2 * time.Second
 
@@ -79,7 +87,7 @@ func FetchToken(cfg *Config) (string, error) {
 			}
 		}
 
-		token, err := fetchTokenOnce(cfg)
+		token, err := fetchTokenOnce(cfg, scope)
 		if err == nil {
 			return token, nil
 		}
@@ -89,13 +97,17 @@ func FetchToken(cfg *Config) (string, error) {
 	return "", lastErr
 }
 
-func fetchTokenOnce(cfg *Config) (string, error) {
+func fetchTokenOnce(cfg *Config, scope string) (string, error) {
 	form := url.Values{
 		"grant_type": {"client_credentials"},
-		// Request the scopes explicitly — Thunder only embeds requested scopes in
-		// a client_credentials token (returns requested ∩ allowed). Without this
-		// the token is unscoped and RBAC-guarded routes return 403.
-		"scope": {ampScopes},
+	}
+	// Request the scopes explicitly — Thunder only embeds requested scopes in
+	// a client_credentials token (returns requested ∩ allowed). Without this
+	// the token is unscoped and RBAC-guarded routes return 403. An empty scope
+	// is deliberate for the security suite's unscoped-token probe, and the
+	// parameter is omitted entirely so Thunder does not see "scope=".
+	if scope != "" {
+		form.Set("scope", scope)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, cfg.IDPTokenURL, strings.NewReader(form.Encode()))
