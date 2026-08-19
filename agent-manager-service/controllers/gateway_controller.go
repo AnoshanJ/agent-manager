@@ -243,8 +243,9 @@ func (c *gatewayController) GetGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get environments from DB
-	environments := c.getGatewayEnvironmentsFromDB(ctx, ouID, gatewayID)
+	// Key the mapping lookup off the resolved UUID: gatewayID may be a name, and
+	// environment mappings are indexed by UUID only.
+	environments := c.getGatewayEnvironmentsFromDB(ctx, ouID, gateway.ID)
 
 	response := convertGatewayToSpecResponse(gateway, ouID, environments)
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
@@ -375,8 +376,8 @@ func (c *gatewayController) UpdateGateway(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Get environments from DB
-	environments := c.getGatewayEnvironmentsFromDB(ctx, ouID, gatewayID)
+	// Key the mapping lookup off the resolved UUID rather than the raw path value.
+	environments := c.getGatewayEnvironmentsFromDB(ctx, ouID, gateway.ID)
 
 	response := convertGatewayToSpecResponse(gateway, ouID, environments)
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
