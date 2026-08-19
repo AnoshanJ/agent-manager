@@ -9,7 +9,8 @@ The probe exposes only fixed operations used by `security/runtime`:
 - report runtime-hardening booleans;
 - attempt the named in-cluster Kubernetes API network path and report only a
   controlled evidence category;
-- mint an AgentID token and return only its non-secret granted scopes; and
+- mint an AgentID token and return its non-secret requested scopes, plus
+  best-effort granted-scope diagnostics when the token is a JWT; and
 - invoke the fixed `echo` and `add` MCP tools with a fresh AgentID token.
 
 No endpoint returns access tokens, client credentials, environment-variable

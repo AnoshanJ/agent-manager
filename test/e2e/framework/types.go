@@ -806,11 +806,12 @@ type SecurityNetworkProbeResponse struct {
 }
 
 type SecurityIdentityProbeResponse struct {
-	Configured    bool     `json:"configured"`
-	TokenMinted   bool     `json:"token_minted"`
-	StatusCode    *int     `json:"status_code"`
-	GrantedScopes []string `json:"granted_scopes"`
-	OAuthError    string   `json:"oauth_error"`
+	Configured      bool     `json:"configured"`
+	TokenMinted     bool     `json:"token_minted"`
+	StatusCode      *int     `json:"status_code"`
+	RequestedScopes []string `json:"requested_scopes"`
+	GrantedScopes   []string `json:"granted_scopes"`
+	OAuthError      string   `json:"oauth_error"`
 }
 
 type SecurityMCPProbeResponse struct {

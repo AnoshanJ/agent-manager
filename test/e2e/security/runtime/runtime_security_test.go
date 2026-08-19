@@ -46,6 +46,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		roleName    string
 		scopeRead   string
 		scopeWrite  string
+		mcpConfigID string
 	)
 
 	newProbeAPIKey := func() string {
@@ -77,6 +78,8 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 	BeforeAll(func() {
 		roleName = "e2e-security-probe-" + suffix
 		DeferCleanup(func() {
+			configuration.DeleteAgentMCPConfigBestEffort(adminClient, cfg.DefaultOrg,
+				cfg.DefaultProject, agentName, mcpConfigID)
 			agentops.DeleteAgentBestEffort(adminClient, cfg.DefaultOrg, cfg.DefaultProject, agentName)
 			identityops.DeleteRoleBestEffort(adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID)
 			mcpproxyops.DeleteMCPProxyBestEffort(adminClient, cfg.DefaultOrg, proxyID)
@@ -222,12 +225,15 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 				},
 			})
 		Expect(config.UUID).NotTo(BeEmpty())
+		mcpConfigID = config.UUID
 
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
 				g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
+			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite),
+				"deployed workload did not receive the complete MCP scope request list")
 		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 		for _, tool := range []string{echoTool, addTool} {
@@ -268,10 +274,11 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
 				g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.TokenMinted).To(BeTrue())
-			g.Expect(identity.GrantedScopes).To(ContainElement(scopeRead))
-			g.Expect(identity.GrantedScopes).NotTo(ContainElement(scopeWrite))
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
+		}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
 
+		// Real gateway decisions, rather than local token decoding, prove the
+		// effective grants. Environment Thunder may issue opaque access tokens.
 		expectMCPAuthorization(key, echoTool, true)
 		expectMCPAuthorization(key, addTool, false)
 	})
@@ -282,11 +289,6 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(updated.ID).To(Equal(roleID))
 
 		key := newProbeAPIKey()
-		Eventually(func(g Gomega) {
-			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
-			g.Expect(identity.GrantedScopes).To(ContainElements(scopeRead, scopeWrite))
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 		expectMCPAuthorization(key, echoTool, true)
 		expectMCPAuthorization(key, addTool, true)
 	})
@@ -297,12 +299,6 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(updated.ID).To(Equal(roleID))
 
 		key := newProbeAPIKey()
-		Eventually(func(g Gomega) {
-			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
-			g.Expect(identity.GrantedScopes).NotTo(ContainElement(scopeRead))
-			g.Expect(identity.GrantedScopes).To(ContainElement(scopeWrite))
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 		expectMCPAuthorization(key, echoTool, false)
 		expectMCPAuthorization(key, addTool, true)
 	})
@@ -319,7 +315,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 				g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
 			g.Expect(identity.TokenMinted).To(BeTrue())
-			g.Expect(identity.GrantedScopes).To(ContainElement(scopeWrite))
+			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
 		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 		expectMCPAuthorization(key, addTool, true)
 	})

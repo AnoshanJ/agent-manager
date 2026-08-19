@@ -25,6 +25,7 @@ class TokenResult:
     configured: bool
     token_minted: bool
     status_code: int | None
+    requested_scopes: list[str]
     granted_scopes: list[str]
     oauth_error: str
     access_token: str
@@ -36,6 +37,10 @@ class TokenResult:
             "configured": self.configured,
             "token_minted": self.token_minted,
             "status_code": self.status_code,
+            "requested_scopes": self.requested_scopes,
+            # Best-effort diagnostic only. Opaque access tokens cannot expose
+            # their granted scopes locally; MCP authorization is the
+            # authoritative end-to-end enforcement check.
             "granted_scopes": self.granted_scopes,
             "oauth_error": self.oauth_error,
         }
@@ -57,14 +62,27 @@ def _jwt_scopes(token: str) -> list[str]:
     return []
 
 
+def _normalized_scopes(value: str) -> list[str]:
+    return sorted(set(value.split()))
+
+
 async def mint_agent_token() -> TokenResult:
     client_id = os.environ.get("AMP_AGENTID_CLIENT_ID", "")
     client_secret = os.environ.get("AMP_AGENTID_CLIENT_SECRET", "")
     token_endpoint = os.environ.get("AMP_AGENTID_TOKEN_ENDPOINT", "")
     requested_scopes = os.environ.get("AMP_AGENTID_SCOPES", "")
+    requested_scope_list = _normalized_scopes(requested_scopes)
     configured = bool(client_id and client_secret and token_endpoint)
     if not configured:
-        return TokenResult(False, False, None, [], "not_configured", "")
+        return TokenResult(
+            configured=False,
+            token_minted=False,
+            status_code=None,
+            requested_scopes=requested_scope_list,
+            granted_scopes=[],
+            oauth_error="not_configured",
+            access_token="",
+        )
 
     try:
         async with httpx.AsyncClient(
@@ -80,7 +98,15 @@ async def mint_agent_token() -> TokenResult:
                 auth=httpx.BasicAuth(client_id, client_secret),
             )
     except httpx.HTTPError:
-        return TokenResult(True, False, None, [], "request_failed", "")
+        return TokenResult(
+            configured=True,
+            token_minted=False,
+            status_code=None,
+            requested_scopes=requested_scope_list,
+            granted_scopes=[],
+            oauth_error="request_failed",
+            access_token="",
+        )
 
     oauth_error = ""
     token = ""
@@ -103,6 +129,7 @@ async def mint_agent_token() -> TokenResult:
         configured=True,
         token_minted=bool(token),
         status_code=response.status_code,
+        requested_scopes=requested_scope_list,
         granted_scopes=_jwt_scopes(token),
         oauth_error=oauth_error,
         access_token=token,

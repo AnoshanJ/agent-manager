@@ -36,7 +36,7 @@ paths:
       operationId: agentIdentityProbe
       responses:
         "200":
-          description: AgentID configuration and token-mint evidence without credentials.
+          description: AgentID requested-scope and token-mint evidence without credentials.
   /security/mcp/{tool}:
     post:
       operationId: mcpAuthorizationProbe
