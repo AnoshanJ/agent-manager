@@ -801,6 +801,7 @@ type SecurityRuntimeProbeResponse struct {
 type SecurityNetworkProbeResponse struct {
 	Target     string `json:"target"`
 	Outcome    string `json:"outcome"`
+	Evidence   string `json:"evidence"`
 	HTTPStatus *int   `json:"http_status"`
 }
 

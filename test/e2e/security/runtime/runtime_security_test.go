@@ -201,7 +201,10 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 			Default, http.MethodPost, endpointURL+"/security/network/kubernetes-api", key)
 		Expect(result.Target).To(Equal("kubernetes-api"))
 		Expect(result.Outcome).To(Equal("blocked"),
-			"any HTTP response means the sandbox reached the Kubernetes API; indeterminate is deliberately not treated as a pass")
+			"any HTTP response means the sandbox reached the Kubernetes API; outcome=%s evidence=%s status=%v",
+			result.Outcome, result.Evidence, result.HTTPStatus)
+		Expect(result.Evidence).To(BeElementOf("connect_timeout", "connect_rejected"),
+			"only failure to establish a connection to the injected, known-live Kubernetes API is blocking evidence")
 		Expect(result.HTTPStatus).To(BeNil())
 	})
 
