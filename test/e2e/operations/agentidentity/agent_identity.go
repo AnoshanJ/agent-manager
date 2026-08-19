@@ -66,6 +66,14 @@ func AddRoleAssignments(g Gomega, client *framework.AMPClient, orgName, envName,
 	framework.ExpectStatus(g, response, http.StatusOK)
 }
 
+func GetRoleAssignments(g Gomega, client *framework.AMPClient, orgName, envName, roleID string) framework.AgentIdentityRoleAssignmentsResponse {
+	path := rolesPath(orgName, envName) + "/" + roleID + "/assignments"
+	response, err := client.Get(path)
+	g.Expect(err).NotTo(HaveOccurred(), "get AgentID role assignments request failed")
+	defer response.Body.Close()
+	return framework.ExpectStatusAndDecode[framework.AgentIdentityRoleAssignmentsResponse](g, response, http.StatusOK)
+}
+
 func ListAgents(g Gomega, client *framework.AMPClient, orgName, envName string) framework.AgentIdentityAgentListResponse {
 	path := fmt.Sprintf("/api/v1/orgs/%s/environments/%s/agent-identities/agents", orgName, envName)
 	response, err := client.Get(path)

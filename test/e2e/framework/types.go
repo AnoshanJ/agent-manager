@@ -777,6 +777,10 @@ type AgentIdentityAssignmentsRequest struct {
 	Assignments []AgentIdentityAssignment `json:"assignments"`
 }
 
+type AgentIdentityRoleAssignmentsResponse struct {
+	Agents []AgentIdentityAssignment `json:"agents"`
+}
+
 type AgentIdentityAgent struct {
 	AgentName      string `json:"agentName"`
 	ProjectName    string `json:"projectName"`

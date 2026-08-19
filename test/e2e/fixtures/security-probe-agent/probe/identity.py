@@ -66,7 +66,19 @@ def _normalized_scopes(value: str) -> list[str]:
     return sorted(set(value.split()))
 
 
-async def mint_agent_token() -> TokenResult:
+def _token_request_form(requested_scopes: str, resource: str) -> dict[str, str]:
+    form = {"grant_type": "client_credentials"}
+    if requested_scopes:
+        form["scope"] = requested_scopes
+    if resource:
+        # RFC 8707 selects the MCP proxy's resource server. Without it,
+        # Thunder evaluates the request against its default resource server
+        # and legitimately omits the proxy-specific permissions.
+        form["resource"] = resource
+    return form
+
+
+async def mint_agent_token(resource: str = "") -> TokenResult:
     client_id = os.environ.get("AMP_AGENTID_CLIENT_ID", "")
     client_secret = os.environ.get("AMP_AGENTID_CLIENT_SECRET", "")
     token_endpoint = os.environ.get("AMP_AGENTID_TOKEN_ENDPOINT", "")
@@ -91,10 +103,7 @@ async def mint_agent_token() -> TokenResult:
         ) as client:
             response = await client.post(
                 token_endpoint,
-                data={
-                    "grant_type": "client_credentials",
-                    "scope": requested_scopes,
-                },
+                data=_token_request_form(requested_scopes, resource),
                 auth=httpx.BasicAuth(client_id, client_secret),
             )
     except httpx.HTTPError:

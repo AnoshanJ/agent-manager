@@ -28,7 +28,19 @@ async def probe_mcp_tool(tool: str) -> dict[str, object]:
             "error": "unknown_tool",
         }
 
-    token = await mint_agent_token()
+    proxy_url = os.environ.get("SECURITY_MCP_URL", "")
+    if not proxy_url:
+        return {
+            "tool": tool,
+            "phase": "configuration",
+            "token_minted": False,
+            "http_status": None,
+            "authorized": False,
+            "result_received": False,
+            "error": "mcp_url_not_configured",
+        }
+
+    token = await mint_agent_token(resource=proxy_url)
     if not token.access_token:
         public = token.public()
         return {
@@ -39,18 +51,6 @@ async def probe_mcp_tool(tool: str) -> dict[str, object]:
             "authorized": False,
             "result_received": False,
             "error": public["oauth_error"] or "token_unavailable",
-        }
-
-    proxy_url = os.environ.get("SECURITY_MCP_URL", "")
-    if not proxy_url:
-        return {
-            "tool": tool,
-            "phase": "configuration",
-            "token_minted": True,
-            "http_status": None,
-            "authorized": False,
-            "result_received": False,
-            "error": "mcp_url_not_configured",
         }
 
     headers = {

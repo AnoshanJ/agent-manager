@@ -13,6 +13,10 @@ The probe exposes only fixed operations used by `security/runtime`:
   best-effort granted-scope diagnostics when the token is a JWT; and
 - invoke the fixed `echo` and `add` MCP tools with a fresh AgentID token.
 
+MCP token requests include the proxy invocation URL as the OAuth 2.0 Resource
+Indicator (`resource`, RFC 8707), selecting the per-proxy resource server whose
+scopes the test role controls.
+
 No endpoint returns access tokens, client credentials, environment-variable
 values, remote response bodies, or exception messages.
 

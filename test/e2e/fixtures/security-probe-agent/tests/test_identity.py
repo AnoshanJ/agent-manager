@@ -4,7 +4,12 @@ import base64
 import json
 import unittest
 
-from probe.identity import TokenResult, _jwt_scopes, _normalized_scopes
+from probe.identity import (
+    TokenResult,
+    _jwt_scopes,
+    _normalized_scopes,
+    _token_request_form,
+)
 
 
 def _jwt(payload: dict[str, object]) -> str:
@@ -17,6 +22,25 @@ class IdentityEvidenceTests(unittest.TestCase):
         self.assertEqual(
             _normalized_scopes("proxy:write proxy:read proxy:write"),
             ["proxy:read", "proxy:write"],
+        )
+
+    def test_mcp_token_request_selects_its_resource_server(self) -> None:
+        self.assertEqual(
+            _token_request_form(
+                "proxy:read proxy:write",
+                "https://gateway.example.com/proxy/mcp",
+            ),
+            {
+                "grant_type": "client_credentials",
+                "scope": "proxy:read proxy:write",
+                "resource": "https://gateway.example.com/proxy/mcp",
+            },
+        )
+
+    def test_empty_optional_token_parameters_are_omitted(self) -> None:
+        self.assertEqual(
+            _token_request_form("", ""),
+            {"grant_type": "client_credentials"},
         )
 
     def test_jwt_scope_claim_is_available_as_diagnostic_evidence(self) -> None:

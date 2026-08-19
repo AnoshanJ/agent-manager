@@ -64,8 +64,12 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Eventually(func(g Gomega) {
 			result := agentops.InvokeSecurityProbe[framework.SecurityMCPProbeResponse](
 				g, http.MethodPost, endpointURL+"/security/mcp/"+tool, apiKey)
+			status := 0
+			if result.HTTPStatus != nil {
+				status = *result.HTTPStatus
+			}
 			g.Expect(result.Authorized).To(Equal(wantAllowed),
-				"tool=%s phase=%s status=%v error=%s", tool, result.Phase, result.HTTPStatus, result.Error)
+				"tool=%s phase=%s status=%d error=%s", tool, result.Phase, status, result.Error)
 			if wantAllowed {
 				g.Expect(result.TokenMinted).To(BeTrue())
 				g.Expect(result.HTTPStatus).NotTo(BeNil())
@@ -268,6 +272,13 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 
 		identityops.AddRoleAssignments(Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
 			[]framework.AgentIdentityAssignment{{ID: thunderAgentID, Type: "agent"}})
+		Eventually(func(g Gomega) {
+			assignments := identityops.GetRoleAssignments(g, adminClient,
+				cfg.DefaultOrg, cfg.DefaultEnv, roleID)
+			g.Expect(assignments.Agents).To(ContainElement(
+				framework.AgentIdentityAssignment{ID: thunderAgentID, Type: "agent"}),
+				"Thunder did not persist the AgentID role assignment")
+		}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
