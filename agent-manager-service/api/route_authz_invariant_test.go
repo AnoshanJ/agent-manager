@@ -21,7 +21,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,8 +113,7 @@ var gatewayInternalRoutes = []string{
 
 func init() {
 	for _, pattern := range gatewayInternalRoutes {
-		unguardedRouteAllowlist[routeKey{"RegisterGatewayInternalRoutes", "HandleFuncWithValidation", pattern}] =
-			"gateway-to-control-plane endpoint on the separately exposed internal listener."
+		unguardedRouteAllowlist[routeKey{"RegisterGatewayInternalRoutes", "HandleFuncWithValidation", pattern}] = "gateway-to-control-plane endpoint on the separately exposed internal listener."
 	}
 }
 
@@ -737,15 +735,14 @@ func thunderAMPScopeCatalog(t *testing.T) map[string]bool {
 	t.Helper()
 
 	const valuesPath = "../../deployments/helm-charts/wso2-amp-thunder-extension/values.yaml"
-	f, err := os.Open(valuesPath)
+	contents, err := os.ReadFile(valuesPath)
 	if err != nil {
-		t.Fatalf("open Thunder values: %v", err)
+		t.Fatalf("read Thunder values: %v", err)
 	}
-	defer f.Close()
 
 	scopes := map[string]bool{}
 	inCatalog := false
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(strings.NewReader(string(contents)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "    ampScopes:" {
@@ -812,17 +809,22 @@ func forEachFile(t *testing.T, dir string, fn func(*token.FileSet, *ast.File)) {
 	t.Helper()
 
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(info fs.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parse %s: %v", dir, err)
+		t.Fatalf("read %s: %v", dir, err)
 	}
 
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			fn(fset, file)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
 		}
+
+		path := filepath.Join(dir, entry.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		fn(fset, file)
 	}
 }
 
