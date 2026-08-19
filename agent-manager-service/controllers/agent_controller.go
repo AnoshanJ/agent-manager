@@ -516,7 +516,9 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 		handleCommonErrors(w, err, "Failed to build agent")
 		return
 	}
-	utils.WriteSuccessResponse(w, http.StatusAccepted, build)
+
+	buildResponse := utils.ConvertToBuildResponse(build)
+	utils.WriteSuccessResponse(w, http.StatusAccepted, buildResponse)
 }
 
 func (c *agentController) DeployAgent(w http.ResponseWriter, r *http.Request) {
