@@ -345,7 +345,7 @@ func (c *agentController) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		ProjectName:    projName,
 		Provisioning:   payload.Provisioning,
 		AgentType:      agentType,
-		Configurations: payload.Configurations,
+		Configurations: utils.RedactSecretConfigValues(payload.Configurations),
 		Build:          payload.Build,
 		CreatedAt:      time.Now(),
 	}

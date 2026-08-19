@@ -1086,3 +1086,50 @@ func convertTraceEvaluatorScores(evals []models.TraceEvaluatorScore) []spec.Trac
 	}
 	return result
 }
+
+// RedactSecretConfigValues returns a copy of cfg with the value of every sensitive
+// env var and file mount omitted, so a secret submitted on create is never
+// serialized back out. Mirrors the read path in GetAgentConfigurations, which
+// blanks the same fields.
+//
+// The copy is not incidental: cfg points into the decoded request body, and for
+// kind-based agents ApplySecretConfigDefaults has already written the kind's stored
+// secret defaults into the backing slices. Redacting in place would make
+// correctness depend on the order in which the service and the handler run.
+func RedactSecretConfigValues(cfg *spec.Configurations) *spec.Configurations {
+	if cfg == nil {
+		return nil
+	}
+	redacted := *cfg
+	redacted.Env = redactSensitiveEnvValues(cfg.Env)
+	redacted.Files = redactSensitiveFileValues(cfg.Files)
+	return &redacted
+}
+
+func redactSensitiveEnvValues(env []spec.EnvironmentVariable) []spec.EnvironmentVariable {
+	if len(env) == 0 {
+		return env
+	}
+	redacted := make([]spec.EnvironmentVariable, len(env))
+	for i, variable := range env {
+		if BoolPointerAsBool(variable.IsSensitive, false) {
+			variable.Value = nil
+		}
+		redacted[i] = variable
+	}
+	return redacted
+}
+
+func redactSensitiveFileValues(files []spec.FileMount) []spec.FileMount {
+	if len(files) == 0 {
+		return files
+	}
+	redacted := make([]spec.FileMount, len(files))
+	for i, file := range files {
+		if BoolPointerAsBool(file.IsSensitive, false) {
+			file.Value = nil
+		}
+		redacted[i] = file
+	}
+	return redacted
+}
