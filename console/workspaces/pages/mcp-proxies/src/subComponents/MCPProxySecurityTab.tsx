@@ -15,7 +15,7 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useDeleteMCPProxyScope,
   useListMCPProxyScopes,
@@ -80,16 +80,22 @@ type ToolScopeRow = {
   scopes: MCPProxyScopeResponse[];
 };
 
+// One scope's replacement tool list, as sent by Save.
+type ScopeToolUpdate = { action: string; tools: string[] };
+
 // Builds one row per discovered tool, seeded with whichever scopes reference it.
-// Pure and parameterized on the catalog so a partially applied Save can derive
-// the rows the server now holds, not only the ones it last returned.
+// `appliedUpdates` overrides a scope's tool list, so a Save that committed only
+// some of its updates can derive the rows the server now holds rather than the
+// ones it last returned.
 function toolScopeRowsFor(
   toolEntries: string[],
   scopes: MCPProxyScopeResponse[],
+  appliedUpdates: ScopeToolUpdate[] = [],
 ): ToolScopeRow[] {
+  const toolsByAction = new Map(appliedUpdates.map((u) => [u.action, u.tools]));
   const toolToScopes = new Map<string, MCPProxyScopeResponse[]>();
   for (const scope of scopes) {
-    for (const tool of scope.tools) {
+    for (const tool of toolsByAction.get(scope.action) ?? scope.tools) {
       const scopesForTool = toolToScopes.get(tool) ?? [];
       scopesForTool.push(scope);
       toolToScopes.set(tool, scopesForTool);
@@ -101,26 +107,13 @@ function toolScopeRowsFor(
   }));
 }
 
-// The catalog with `updates` applied — the server's state after a Save that
-// committed only some of its scope updates.
-function applyScopeToolUpdates(
-  scopes: MCPProxyScopeResponse[],
-  updates: { action: string; tools: string[] }[],
-): MCPProxyScopeResponse[] {
-  const toolsByAction = new Map(updates.map((u) => [u.action, u.tools]));
-  return scopes.map((scope) => {
-    const tools = toolsByAction.get(scope.action);
-    return tools ? { ...scope, tools } : scope;
-  });
-}
-
 // Compares rows by tool and scope-action set only — the identity that Save
 // actually writes, ignoring incidental churn in the scope objects themselves.
 const serializeToolScopeRows = (rows: ToolScopeRow[]) =>
   JSON.stringify(
     rows.map((row) => ({
       tool: row.tool,
-      scopes: [...row.scopes.map((s) => s.action)].sort(),
+      scopes: row.scopes.map((s) => s.action).sort(),
     })),
   );
 
@@ -134,7 +127,7 @@ const serializeToolScopeRows = (rows: ToolScopeRow[]) =>
 function computeScopeToolUpdates(
   rows: ToolScopeRow[],
   catalogScopes: MCPProxyScopeResponse[],
-): { action: string; tools: string[] }[] {
+): ScopeToolUpdate[] {
   const desired = new Map<string, Set<string>>(
     catalogScopes.map((s) => [s.action, new Set<string>()]),
   );
@@ -146,7 +139,7 @@ function computeScopeToolUpdates(
   const setsEqual = (a: Set<string>, b: Set<string>) =>
     a.size === b.size && [...a].every((v) => b.has(v));
 
-  const updates: { action: string; tools: string[] }[] = [];
+  const updates: ScopeToolUpdate[] = [];
   for (const scope of catalogScopes) {
     const desiredTools = desired.get(scope.action) ?? new Set<string>();
     if (!setsEqual(desiredTools, new Set(scope.tools))) {
@@ -271,10 +264,20 @@ export function MCPProxySecurityTab({
   // step. Starts empty and is seeded by the effects below once the tool
   // list and scope catalog are both available.
   const [toolScopeRows, setToolScopeRows] = useState<ToolScopeRow[]>([]);
-  // State rather than a ref: toolScopesDirty below is memoized, and a ref write
-  // wouldn't recompute it — leaving the tab pinned as dirty after a save, which
-  // in turn keeps the reseed effect from ever adopting the refetched catalog.
+  // Must be state, not a ref: toolScopesDirty is memoized on it and the reseed
+  // effect below is gated on toolScopesDirty, so a ref write would leave the tab
+  // pinned as dirty and never adopt the refetched catalog. (lastSavedAuthRef
+  // above can stay a ref: authIsDirty already re-derives from the config prop,
+  // which the same refetch replaces.)
   const [lastSavedToolScopeRows, setLastSavedToolScopeRows] = useState<ToolScopeRow[]>([]);
+
+  // Rows and their saved snapshot move together whenever the server's state
+  // changes, as opposed to a user edit, which moves the rows alone. Missing the
+  // paired write is what pinned the tab as dirty before.
+  const resetToolScopeRows = useCallback((rows: SetStateAction<ToolScopeRow[]>) => {
+    setToolScopeRows(rows);
+    setLastSavedToolScopeRows(rows);
+  }, []);
 
   const toolScopesDirty = useMemo(
     () =>
@@ -283,11 +286,8 @@ export function MCPProxySecurityTab({
     [toolScopeRows, lastSavedToolScopeRows],
   );
 
-  // Rows are a view built from the discovered tool list, not a separately
-  // stored binding: every known tool always has a row, seeded with whichever
-  // scopes already reference it (empty if none). Memoized since both reseed
-  // effects below would otherwise rebuild this from scratch on every render
-  // they fire in, even when neither toolEntries nor catalogScopes changed.
+  // Memoized since both reseed effects below would otherwise rebuild this from
+  // scratch on every render they fire in, even when neither input changed.
   const derivedToolScopeRows = useMemo<ToolScopeRow[]>(
     () => toolScopeRowsFor(toolEntries, catalogScopes),
     [toolEntries, catalogScopes],
@@ -296,12 +296,9 @@ export function MCPProxySecurityTab({
   // Switching endpoint tabs discards unsaved row edits, consistent with the
   // auth-fields effect above — even though scopes are shared across every
   // endpoint of the proxy, this tab's Save/Discard state is still per endpoint.
-  // Reads derivedToolScopeRows without depending on it — the effect below
-  // owns reseeding on scope-list changes, so this one only reacts to the tab switch.
   useEffect(() => {
     if (!selectedEndpointId) return;
-    setToolScopeRows(derivedToolScopeRows);
-    setLastSavedToolScopeRows(derivedToolScopeRows);
+    resetToolScopeRows(derivedToolScopeRows);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handled by the effect below
   }, [selectedEndpointId]);
 
@@ -313,8 +310,7 @@ export function MCPProxySecurityTab({
   // changes catalogScopes.
   useEffect(() => {
     if (!selectedEndpointId || toolScopesDirty) return;
-    setToolScopeRows(derivedToolScopeRows);
-    setLastSavedToolScopeRows(derivedToolScopeRows);
+    resetToolScopeRows(derivedToolScopeRows);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- guard, not a trigger dep
   }, [catalogScopes]);
 
@@ -415,27 +411,22 @@ export function MCPProxySecurityTab({
         // Sequential rather than Promise.all: a rejection must not leave the
         // remaining updates in flight, and the committed prefix has to be
         // knowable so the snapshot below can record what the server holds.
-        const committed: { action: string; tools: string[] }[] = [];
+        let committedCount = 0;
         try {
           for (const u of updates) {
             await updateMCPProxyScope.mutateAsync({
               params: { orgName, proxyId, scopeAction: u.action },
               body: { tools: u.tools },
             });
-            committed.push(u);
+            committedCount += 1;
           }
         } finally {
-          // Snapshot server truth: the requested rows when every update landed,
-          // otherwise the catalog with only the committed ones applied. Keeping
-          // the pre-save snapshot instead would leave Discard restoring a state
-          // the server no longer has.
+          // Keeping the pre-save snapshot instead would leave Discard restoring
+          // a state the server no longer has.
           setLastSavedToolScopeRows(
-            committed.length === updates.length
+            committedCount === updates.length
               ? toolScopeRows
-              : toolScopeRowsFor(
-                  toolEntries,
-                  applyScopeToolUpdates(catalogScopes, committed),
-                ),
+              : toolScopeRowsFor(toolEntries, catalogScopes, updates.slice(0, committedCount)),
           );
         }
       }
@@ -490,16 +481,15 @@ export function MCPProxySecurityTab({
               ...row,
               scopes: row.scopes.filter((s) => s.action !== scope.action),
             }));
-          setToolScopeRows(dropDeletedScope);
-          setLastSavedToolScopeRows(dropDeletedScope);
+          resetToolScopeRows(dropDeletedScope);
         },
       });
     },
-    [orgName, proxyId, addConfirmation, deleteMCPProxyScope],
+    [orgName, proxyId, addConfirmation, deleteMCPProxyScope, resetToolScopeRows],
   );
 
   const isDisabled = isLoading || !config;
-  const noToolsForRbac = !isLoading && !!config && toolEntries.length === 0;
+  const hasNoDiscoveredTools = !isLoading && !!config && toolEntries.length === 0;
 
   if (isLoading) {
     return (
@@ -579,7 +569,7 @@ export function MCPProxySecurityTab({
           </Tabs>
 
           {authorizationTab === "tools" &&
-            (noToolsForRbac ? (
+            (hasNoDiscoveredTools ? (
               <ListingTable.Container>
                 <ListingTable.EmptyState
                   illustration={<ShieldX size={64} />}

@@ -46,23 +46,13 @@ func (noopScopeRedeployer) RedeployMCPProxy(context.Context, *models.MCPProxy, s
 // scopeUpdateTestController wires the real scope service behind the controller so
 // the tests below exercise the whole decode -> validate -> persist path, which is
 // where the nil-vs-empty distinction for "tools" lives.
-func scopeUpdateTestController(
-	scopeRepo *repomocks.MCPProxyScopeRepositoryMock,
-	tools ...string,
-) MCPProxyScopeController {
-	toolMaps := make([]map[string]interface{}, 0, len(tools))
-	for _, tl := range tools {
-		toolMaps = append(toolMaps, map[string]interface{}{"name": tl})
-	}
+func scopeUpdateTestController(scopeRepo *repomocks.MCPProxyScopeRepositoryMock) MCPProxyScopeController {
 	proxy := &models.MCPProxy{
 		UUID:     uuid.New(),
 		Artifact: &models.Artifact{Handle: "t4-deepwiki"},
 		Endpoints: []models.MCPProxyEndpoint{{
 			UUID:   uuid.New(),
 			Handle: "primary",
-			Configuration: models.MCPEndpointConfig{
-				Capabilities: &models.MCPProxyCapabilities{Tools: &toolMaps},
-			},
 		}},
 	}
 	proxyRepo := &repomocks.MCPProxyRepositoryMock{
@@ -96,7 +86,7 @@ func TestUpdateMCPProxyScope_EmptyToolsClearsBindings(t *testing.T) {
 		},
 		UpdateFunc: func(_ context.Context, s *models.MCPProxyScope) error { persisted = s; return nil },
 	}
-	ctrl := scopeUpdateTestController(scopeRepo, "ask_question")
+	ctrl := scopeUpdateTestController(scopeRepo)
 
 	w := httptest.NewRecorder()
 	ctrl.UpdateMCPProxyScope(w, updateScopeRequest(t, `{"tools":[]}`))
@@ -119,7 +109,7 @@ func TestUpdateMCPProxyScope_OmittedToolsKeepsBindings(t *testing.T) {
 		},
 		UpdateFunc: func(_ context.Context, s *models.MCPProxyScope) error { persisted = s; return nil },
 	}
-	ctrl := scopeUpdateTestController(scopeRepo, "ask_question")
+	ctrl := scopeUpdateTestController(scopeRepo)
 
 	w := httptest.NewRecorder()
 	ctrl.UpdateMCPProxyScope(w, updateScopeRequest(t, `{"description":"write access"}`))
