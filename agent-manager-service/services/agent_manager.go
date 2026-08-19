@@ -507,6 +507,117 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, ouID
 	return traits, nil
 }
 
+// effectiveUpstreamInterface returns the port and base path the API gateway must
+// dial to reach this agent's container, for the api-configuration trait.
+//
+// A source-built agent carries them on its component's workflow parameters, so
+// they read straight off the component. A kind-sourced agent has no workflow —
+// its endpoint lives only on the Workload — so convertComponentFromTyped leaves
+// InputInterface nil, and falling through to the chat-API defaults would point the
+// gateway at a port nothing listens on (a 503 on every request to a custom-api
+// agent). Resolve those from the build its kind version was published from.
+//
+// deployedImageID is the image this call is deploying. A deploy can select a kind
+// version other than the one the agent was created from, and the component's
+// kind-version label does not move when it does — so the image, not the label,
+// says which version's interface the gateway must be pointed at. Empty (or an
+// image matching no published version) falls back to the label.
+//
+// The chat-API defaults remain the last resort: a chat agent genuinely serves on
+// them, and they are the only sane guess when nothing else resolves
+func (s *agentManagerService) effectiveUpstreamInterface(ctx context.Context, ouID string, agent *models.AgentResponse, deployedImageID string) (int32, string) {
+	port := config.GetConfig().DefaultChatAPI.DefaultHTTPPort
+	basePath := config.GetConfig().DefaultChatAPI.DefaultBasePath
+
+	iface := agent.InputInterface
+	if agent.KindName != "" {
+		versionTag := agent.KindVersion
+		if deployed := s.kindVersionForImage(ctx, ouID, agent.KindName, deployedImageID); deployed != "" {
+			versionTag = deployed
+		}
+		if resolved := s.kindVersionInputInterface(ctx, ouID, agent.KindName, versionTag); resolved != nil {
+			iface = resolved
+		}
+	}
+	if iface != nil {
+		if iface.Port > 0 {
+			port = iface.Port
+		}
+		if iface.BasePath != "" {
+			basePath = iface.BasePath
+		}
+	}
+	return port, basePath
+}
+
+// kindVersionForImage returns the kind version published as the given image, or ""
+// when the image is empty, matches no published version, or the kind can't be read.
+// Published images are unique per version, so the mapping is unambiguous.
+func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kindName, imageID string) string {
+	if imageID == "" {
+		return ""
+	}
+	kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+	if err != nil {
+		s.logger.Warn("Failed to read agent kind while resolving the deployed version",
+			"kindName", kindName, "error", err)
+		return ""
+	}
+	for _, v := range kind.Versions {
+		if v.ImageId == imageID {
+			return v.Version
+		}
+	}
+	return ""
+}
+
+// kindVersionInputInterface reads the input interface a kind version was published
+// with, off the build (workflow run) that produced its image.
+//
+// The build is read rather than the kind's source agent because a source agent goes
+// on living: change its port or base path after publishing, and reading the
+// component would describe an interface the published image never served. A
+// WorkflowRun is a finished record of one build, so its parameters still describe
+// the image this agent actually runs — the same reason the agent catalogue reads a
+// version's API spec from there.
+//
+// Returns nil on any failure so callers fall back to their defaults rather than
+// failing a deploy over it.
+func (s *agentManagerService) kindVersionInputInterface(ctx context.Context, ouID, kindName, versionTag string) *models.InputInterface {
+	if versionTag == "" {
+		s.logger.Warn("Agent has no recorded kind version; cannot resolve its published upstream interface",
+			"kindName", kindName)
+		return nil
+	}
+	kindVersion, err := s.agentKindService.GetKindVersion(ctx, ouID, kindName, versionTag)
+	if err != nil {
+		s.logger.Warn("Failed to read kind version while resolving upstream interface",
+			"kindName", kindName, "kindVersion", versionTag, "error", err)
+		return nil
+	}
+	return s.kindBuildInputInterface(ctx, ouID, kindVersion)
+}
+
+// kindBuildInputInterface reads the input interface off the build that produced a
+// kind version's image. Returns nil when the version has no build, or the build can
+// no longer be read, so callers fall back rather than failing over it.
+func (s *agentManagerService) kindBuildInputInterface(ctx context.Context, ouID string, kindVersion *models.AgentKindVersion) *models.InputInterface {
+	if kindVersion == nil || kindVersion.Kind == nil || kindVersion.BuildName == "" {
+		return nil
+	}
+	build, err := s.ocClient.GetBuild(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, kindVersion.BuildName)
+	if err != nil {
+		s.logger.Warn("Failed to read a kind version's build while resolving its input interface",
+			"kindName", kindVersion.Kind.Name, "kindVersion", kindVersion.Version,
+			"buildName", kindVersion.BuildName, "error", err)
+		return nil
+	}
+	if build == nil {
+		return nil
+	}
+	return build.InputInterface
+}
+
 // ErrInstrumentationVersionNotPinned indicates an agent has no pinned AMP
 // instrumentation version: no row in agent_configs yet, no project pipeline,
 // or the column is NULL. Callers should treat it as "fall back to the platform
@@ -1282,30 +1393,27 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 			SubType: &subType,
 		}
 		req.Build = modelBuildToSpecBuild(sourceComponent.Build)
-		if sourceComponent.InputInterface != nil {
-			port := sourceComponent.InputInterface.Port
-			basePath := sourceComponent.InputInterface.BasePath
+		// Prefer the interface recorded on the build this version was published
+		// from: the source agent keeps living, so its component may describe a port
+		// or base path the published image never served. The component is the
+		// fallback for versions whose build is gone. This is what the created
+		// agent's api-configuration trait — and so the gateway's upstream URL — is
+		// built from, which is why a wrong value here is a 503 rather than a
+		// cosmetic slip.
+		iface := s.kindBuildInputInterface(ctx, ouID, kindVersion)
+		if iface == nil {
+			iface = sourceComponent.InputInterface
+		}
+		if iface != nil {
+			port := iface.Port
+			basePath := iface.BasePath
 			req.InputInterface = &spec.InputInterface{
-				Type:     sourceComponent.InputInterface.Type,
+				Type:     iface.Type,
 				Port:     &port,
 				BasePath: &basePath,
 			}
-			if sourceComponent.InputInterface.Schema != nil && sourceComponent.InputInterface.Schema.Path != "" {
-				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &sourceComponent.InputInterface.Schema.Path}
-				// Kind-sourced agents deploy from a stored image with no git checkout/build step,
-				// so the schema path above can never be resolved into content for them. Resolve the
-				// source agent's already-built OpenAPI content here so the Swagger UI has something
-				// to render instead of "No API schema available for this endpoint".
-				if endpoints, epErr := s.ocClient.GetComponentEndpoints(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, ""); epErr != nil {
-					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation",
-						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName, "error", epErr)
-				} else if sourceEndpoint, ok := endpoints[kindVersion.Kind.AgentName+"-endpoint"]; ok && sourceEndpoint.Schema.Content != "" {
-					content := sourceEndpoint.Schema.Content
-					req.InputInterface.Schema.Content = &content
-				} else {
-					s.logger.Debug("No resolved OpenAPI schema content found for source agent's endpoint during kind instantiation",
-						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName)
-				}
+			if iface.Schema != nil && iface.Schema.Path != "" {
+				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &iface.Schema.Path}
 			}
 		}
 		imageID = kindVersion.ImageId
@@ -2984,18 +3092,11 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		}
 		artifactID := apiArtifact.UUID.String()
 
+		upstreamPort, upstreamBasePath := s.effectiveUpstreamInterface(ctx, ouID, agent, req.ImageId)
 		traitOpts := []client.TraitOption{
 			client.WithArtifactID(artifactID),
-		}
-		if agent.InputInterface != nil && agent.InputInterface.Port > 0 {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(agent.InputInterface.Port))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(config.GetConfig().DefaultChatAPI.DefaultHTTPPort))
-		}
-		if agent.InputInterface != nil && agent.InputInterface.BasePath != "" {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(agent.InputInterface.BasePath))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(config.GetConfig().DefaultChatAPI.DefaultBasePath))
+			client.WithUpstreamPort(upstreamPort),
+			client.WithUpstreamBasePath(upstreamBasePath),
 		}
 		if resilienceTimeoutSeconds > 0 {
 			traitOpts = append(traitOpts, client.WithResilienceTimeout(resilienceTimeoutSeconds))
@@ -5021,11 +5122,50 @@ func (s *agentManagerService) GetAgentDeployments(ctx context.Context, ouID stri
 	// for all-runc setups, and converges in a single write per binding.
 	if agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
 		s.logger.Warn("isolation reconcile: failed to fetch agent for type gate", "agentName", agentName, "error", err)
-	} else if agent.Type.Type == string(utils.AgentTypeAPI) {
-		s.reconcileIsolationRuntimeClass(ctx, ouID, agentName, deployments)
+	} else {
+		if agent.Type.Type == string(utils.AgentTypeAPI) {
+			s.reconcileIsolationRuntimeClass(ctx, ouID, agentName, deployments)
+		}
+		s.resolveDeployedKindVersions(ctx, ouID, agent.KindName, deployments)
 	}
 
 	return deployments, nil
+}
+
+// resolveDeployedKindVersions stamps each deployment with the Agent Kind version
+// its image was published as, mutating deployments in place.
+//
+// The version an agent runs is a property of the deployment, not of the agent:
+// redeploying on a newer kind version — or promoting one environment and not
+// another — changes it per environment, while the component's kind-version label
+// records only what the agent was created from. The image is the link between the
+// two, since a published version's image is unique.
+//
+// Best-effort: a kind that can't be read leaves the versions empty rather than
+// failing the deployments read, which must keep working for the rest of its data.
+func (s *agentManagerService) resolveDeployedKindVersions(ctx context.Context, ouID, kindName string, deployments []*models.DeploymentResponse) {
+	if kindName == "" || len(deployments) == 0 {
+		return
+	}
+	kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+	if err != nil {
+		s.logger.Warn("Failed to resolve deployed kind versions", "kindName", kindName, "error", err)
+		return
+	}
+	versionByImage := make(map[string]string, len(kind.Versions))
+	for _, v := range kind.Versions {
+		if v.ImageId != "" {
+			versionByImage[v.ImageId] = v.Version
+		}
+	}
+	for _, deployment := range deployments {
+		if deployment == nil {
+			continue
+		}
+		// No entry means the image predates the kind or its version was deleted;
+		// leaving it empty is the honest answer, and callers render nothing.
+		deployment.KindVersion = versionByImage[deployment.ImageId]
+	}
 }
 
 // reconcileIsolationRuntimeClass ensures every deployment whose environment has an isolation tier

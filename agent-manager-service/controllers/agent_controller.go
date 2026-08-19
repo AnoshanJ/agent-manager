@@ -84,6 +84,13 @@ func NewAgentController(agentService services.AgentManagerService, agentKindServ
 // If no common error matches, writes an internal server error with the provided fallback message.
 func handleCommonErrors(w http.ResponseWriter, err error, fallbackMsg string) {
 	switch {
+	// A ValidationError raised below the controller (e.g. a stored agent kind
+	// version that can't be written as a label) is still a client-side problem —
+	// report it as a 400 naming the offending value instead of letting it reach
+	// the generic 500 fallback.
+	case utils.IsValidationError(err) != nil:
+		utils.WriteValidationErrorResponse(w, err)
+
 	// Not found errors
 	case errors.Is(err, utils.ErrOrganizationNotFound):
 		utils.WriteErrorResponseWithReason(w, http.StatusNotFound,
@@ -1027,6 +1034,14 @@ func (c *agentController) PublishKind(w http.ResponseWriter, r *http.Request) {
 
 	if payload.GetKindName() == "" || payload.GetVersion() == "" || payload.GetBuildName() == "" {
 		utils.WriteErrorResponse(w, http.StatusBadRequest, "kindName, version, and buildName are required")
+		return
+	}
+
+	// The tag is stamped onto every agent created from this version as a label,
+	// so reject an unusable one here rather than at agent-creation time.
+	if err := utils.ValidateLabelValue(payload.GetVersion(), "version"); err != nil {
+		log.Debug("PublishKind: invalid version tag", "error", err)
+		utils.WriteValidationErrorResponse(w, err)
 		return
 	}
 
