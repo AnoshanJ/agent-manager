@@ -24,10 +24,12 @@
 package observability
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -37,6 +39,8 @@ import (
 
 // Cfg is the shared test configuration.
 var Cfg *framework.Config
+
+var observerHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // The four observability scopes, as the observer's rbac package builds them
 // (rbac.Permission.Scope() → "amp:observability:<action>").
@@ -58,22 +62,22 @@ func TestSecurityObservability(t *testing.T) {
 	RunSpecs(t, "Security: Observability Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(ctx SpecContext) {
 	Cfg = framework.LoadConfig()
 
 	By("Checking the observer is reachable")
-	verifyObserverReachable()
+	verifyObserverReachable(ctx)
 
 	By("Verifying RBAC enforcement is enabled on the observer")
-	verifyObserverRBACEnabled()
+	verifyObserverRBACEnabled(ctx)
 })
 
 // verifyObserverReachable fails fast with an actionable message rather than
 // letting every spec fail on a connection error. The observer is a separate
 // deployment from agent-manager-service, so it can be absent or unexposed on a
 // cluster where the rest of the platform is fine.
-func verifyObserverReachable() {
-	resp, err := http.Get(obsURL("/api/v1/traces", nil)) //nolint:gosec // fixed test-config URL
+func verifyObserverReachable(ctx context.Context) {
+	resp, err := getObsUnauthenticated(ctx, "/api/v1/traces", nil)
 	Expect(err).NotTo(HaveOccurred(),
 		"ABORTING: cannot reach the observer at %s. Set AM_OBSERVER_BASE_URL, or check the "+
 			"observability extension is installed and port-forwarded.", Cfg.ObserverBaseURL)
@@ -92,11 +96,11 @@ func verifyObserverReachable() {
 // says nothing about this service. With it off, AuthorizePermission returns nil
 // for any non-publisher token and every trace in the cluster is readable by any
 // authenticated caller.
-func verifyObserverRBACEnabled() {
+func verifyObserverRBACEnabled(ctx context.Context) {
 	unscoped, err := framework.FetchTokenWithScopes(Cfg, nil)
 	Expect(err).NotTo(HaveOccurred(), "failed to fetch an unscoped token")
 
-	resp := getObs(unscoped, "/api/v1/traces", nil)
+	resp := getObs(ctx, unscoped, "/api/v1/traces", nil)
 	defer resp.Body.Close()
 
 	Expect(resp.StatusCode).To(Equal(http.StatusForbidden),
@@ -120,24 +124,29 @@ func obsURL(path string, query map[string]string) string {
 }
 
 // getObs issues an authenticated GET against the observer.
-func getObs(token, path string, query map[string]string) *http.Response {
+func getObs(ctx context.Context, token, path string, query map[string]string) *http.Response {
 	resp, err := framework.NewAMPClientWithToken(Cfg, token).
-		DoRaw(http.MethodGet, obsURL(path, query))
+		DoRawWithContext(ctx, http.MethodGet, obsURL(path, query))
 	Expect(err).NotTo(HaveOccurred(), "observer request failed: %s", path)
 	return resp
 }
 
+func getObsUnauthenticated(ctx context.Context, path string, query map[string]string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, obsURL(path, query), nil)
+	if err != nil {
+		return nil, err
+	}
+	return observerHTTPClient.Do(req)
+}
+
 // tokenCache avoids re-minting the same single-scope token for every route.
 var (
-	tokenCache   = map[string]string{}
-	tokenCacheMu sync.Mutex
+	tokenCache sync.Map
 )
 
 func tokenWithScope(scope string) string {
-	tokenCacheMu.Lock()
-	defer tokenCacheMu.Unlock()
-	if t, ok := tokenCache[scope]; ok {
-		return t
+	if cached, ok := tokenCache.Load(scope); ok {
+		return cached.(string)
 	}
 
 	token, err := framework.FetchTokenWithScopes(Cfg, []string{scope})
@@ -155,6 +164,6 @@ func tokenWithScope(scope string) string {
 		}
 	}
 
-	tokenCache[scope] = token
-	return token
+	actual, _ := tokenCache.LoadOrStore(scope, token)
+	return actual.(string)
 }

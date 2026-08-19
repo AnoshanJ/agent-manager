@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py openapi.yaml ./
 COPY probe ./probe
+RUN mkdir /security-probe-fs-test && chown 65534:65534 /security-probe-fs-test
 
 USER 65534:65534
 EXPOSE 8000

@@ -136,7 +136,7 @@ def _mcp_result(
         "phase": phase,
         "token_minted": True,
         "http_status": status,
-        "authorized": status not in (401, 403),
+        "authorized": phase == "tool_call" and status == 200,
         "result_received": result_received,
         "error": "",
     }

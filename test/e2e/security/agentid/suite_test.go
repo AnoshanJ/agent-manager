@@ -40,7 +40,7 @@ func TestSecurityAgentID(t *testing.T) {
 	RunSpecs(t, "Security: AgentID Credential Lifecycle Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(ctx SpecContext) {
 	cfg = framework.LoadConfig()
 
 	By("Waiting for Agent Manager readiness")
@@ -55,7 +55,7 @@ var _ = BeforeSuite(func() {
 	if cfg.AgentIDTokenURL == "" {
 		By("Discovering the environment-specific Thunder token endpoint")
 		Eventually(func(g Gomega) string {
-			instances := environmentops.ListThunderInstances(g, adminClient, cfg.DefaultOrg)
+			instances := environmentops.ListThunderInstances(ctx, g, adminClient, cfg.DefaultOrg)
 			for _, instance := range instances.ThunderInstances {
 				if instance.EnvName == cfg.DefaultEnv {
 					cfg.AgentIDTokenURL = instance.TokenURL
@@ -63,7 +63,7 @@ var _ = BeforeSuite(func() {
 				}
 			}
 			return ""
-		}).WithTimeout(2*time.Minute).WithPolling(3*time.Second).
+		}).WithContext(ctx).WithTimeout(2*time.Minute).WithPolling(3*time.Second).
 			ShouldNot(BeEmpty(), "no reachable environment Thunder instance was registered for %s", cfg.DefaultEnv)
 	}
 

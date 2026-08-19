@@ -1,6 +1,7 @@
 package configuration
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -41,13 +42,13 @@ func CreateAgentMCPConfig(g Gomega, client *framework.AMPClient, orgName, projNa
 // agent and proxy are deleted. Removing the binding first avoids a proxy-delete
 // conflict during suite teardown, while never hiding the original spec result
 // behind a cleanup failure.
-func DeleteAgentMCPConfigBestEffort(client *framework.AMPClient, orgName, projName, agentName, configID string) {
+func DeleteAgentMCPConfigBestEffort(ctx context.Context, client *framework.AMPClient, orgName, projName, agentName, configID string) {
 	if configID == "" {
 		return
 	}
 	path := fmt.Sprintf("/api/v1/orgs/%s/projects/%s/agents/%s/mcp-configs/%s",
 		orgName, projName, agentName, configID)
-	response, err := client.Delete(path)
+	response, err := client.DeleteWithContext(ctx, path)
 	if err != nil {
 		ginkgo.GinkgoWriter.Printf("teardown: delete agent MCP config %q failed: %v\n", configID, err)
 		return

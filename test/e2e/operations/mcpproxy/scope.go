@@ -17,6 +17,7 @@
 package mcpproxy
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -25,9 +26,9 @@ import (
 	"github.com/wso2/agent-manager/test/e2e/framework"
 )
 
-func CreateScope(g Gomega, client *framework.AMPClient, orgName, proxyID string, request framework.MCPProxyScopeRequest) framework.MCPProxyScopeResponse {
+func CreateScope(ctx context.Context, g Gomega, client *framework.AMPClient, orgName, proxyID string, request framework.MCPProxyScopeRequest) framework.MCPProxyScopeResponse {
 	path := fmt.Sprintf("/api/v1/orgs/%s/mcp-proxies/%s/scopes", orgName, proxyID)
-	response, err := client.Post(path, request)
+	response, err := client.PostWithContext(ctx, path, request)
 	g.Expect(err).NotTo(HaveOccurred(), "create MCP scope request failed")
 	defer response.Body.Close()
 	return framework.ExpectStatusAndDecode[framework.MCPProxyScopeResponse](g, response, http.StatusCreated)

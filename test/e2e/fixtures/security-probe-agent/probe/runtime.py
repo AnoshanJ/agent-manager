@@ -23,7 +23,10 @@ def runtime_posture() -> dict[str, object]:
     """Return booleans describing the sandbox without exposing its contents."""
 
     root_filesystem_read_only = False
-    root_probe = Path("/security-probe-root-write")
+    # This directory is owned by the probe's non-root UID in the image. A write
+    # therefore succeeds on a writable root filesystem and fails only when the
+    # workload's root filesystem is actually mounted read-only.
+    root_probe = Path("/security-probe-fs-test/write-check")
     try:
         root_probe.write_text("probe", encoding="utf-8")
         root_probe.unlink(missing_ok=True)

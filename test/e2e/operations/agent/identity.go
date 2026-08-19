@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,12 +35,12 @@ func AgentIdentityPath(orgName, projName, agentName string) string {
 
 // ListAgentIdentities returns both the decoded safe views and the original
 // response body so security specs can prove no secret-shaped field was emitted.
-func ListAgentIdentities(g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) ([]framework.AgentIdentityEnvironmentView, string) {
+func ListAgentIdentities(ctx context.Context, g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) ([]framework.AgentIdentityEnvironmentView, string) {
 	path := AgentIdentityPath(orgName, projName, agentName)
 	if environment != "" {
 		path += "?" + url.Values{"environment": {environment}}.Encode()
 	}
-	resp, err := client.Get(path)
+	resp, err := client.GetWithContext(ctx, path)
 	g.Expect(err).NotTo(HaveOccurred(), "list agent identities request failed")
 	defer resp.Body.Close()
 	g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -50,8 +51,8 @@ func ListAgentIdentities(g Gomega, client *framework.AMPClient, orgName, projNam
 	return views, string(body)
 }
 
-func RegenerateAgentIdentitySecret(g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) framework.AgentRegenerateSecretResponse {
-	resp, err := client.Post(AgentIdentityPath(orgName, projName, agentName), framework.AgentIdentityActionRequest{Environment: environment})
+func RegenerateAgentIdentitySecret(ctx context.Context, g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) framework.AgentRegenerateSecretResponse {
+	resp, err := client.PostWithContext(ctx, AgentIdentityPath(orgName, projName, agentName), framework.AgentIdentityActionRequest{Environment: environment})
 	g.Expect(err).NotTo(HaveOccurred(), "regenerate AgentID secret request failed")
 	defer resp.Body.Close()
 	return framework.ExpectStatusAndDecode[framework.AgentRegenerateSecretResponse](g, resp, http.StatusOK)
@@ -59,9 +60,9 @@ func RegenerateAgentIdentitySecret(g Gomega, client *framework.AMPClient, orgNam
 
 // RevokeAgentIdentitySecret also returns the raw body so the suite can assert
 // that a revoke response never echoes the credential it just invalidated.
-func RevokeAgentIdentitySecret(g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) (framework.AgentRevokeSecretResponse, string) {
+func RevokeAgentIdentitySecret(ctx context.Context, g Gomega, client *framework.AMPClient, orgName, projName, agentName, environment string) (framework.AgentRevokeSecretResponse, string) {
 	path := AgentIdentityPath(orgName, projName, agentName) + "?" + url.Values{"environment": {environment}}.Encode()
-	resp, err := client.Delete(path)
+	resp, err := client.DeleteWithContext(ctx, path)
 	g.Expect(err).NotTo(HaveOccurred(), "revoke AgentID secret request failed")
 	defer resp.Body.Close()
 	g.Expect(resp.StatusCode).To(Equal(http.StatusOK))

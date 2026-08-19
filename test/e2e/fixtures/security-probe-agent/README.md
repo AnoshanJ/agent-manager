@@ -20,6 +20,17 @@ scopes the test role controls.
 No endpoint returns access tokens, client credentials, environment-variable
 values, remote response bodies, or exception messages.
 
+The probe does not implement a second application-level authentication scheme.
+Its public endpoint is created by Agent Manager and protected by the platform's
+generated API key; the runtime suite invokes every operation through that
+gateway boundary. The workload service itself is not exposed outside its data
+plane namespace.
+
+`SECURITY_MCP_URL` is intentionally optional at initial startup. The suite
+first deploys the probe, then attaches the MCP configuration and waits for the
+workload update. Until that update arrives, MCP operations return only the
+non-secret `mcp_url_not_configured` evidence value.
+
 Run the probe's unit tests with:
 
 ```bash

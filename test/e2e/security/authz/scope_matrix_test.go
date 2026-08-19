@@ -95,8 +95,10 @@ func guardedRoutes(org string) []guardedRoute {
 		{http.MethodPost, agentBase + "/" + absentName + "/promote", []string{"amp:agent:promote"}},
 		{http.MethodPost, agentBase + "/" + absentName + "/deployments/state", []string{"amp:agent:suspend"}},
 		{http.MethodPost, agentBase + "/" + absentName + "/publish-kind", []string{"amp:agent-kind:create"}},
-		{http.MethodPost, agentBase + "/" + absentName + "/environments/" + absentName + "/api-keys",
-			[]string{"amp:agent:api-key-manage"}},
+		{
+			http.MethodPost, agentBase + "/" + absentName + "/environments/" + absentName + "/api-keys",
+			[]string{"amp:agent:api-key-manage"},
+		},
 
 		// --- Projects --------------------------------------------------------
 		{http.MethodPost, orgBase + "/projects", []string{"amp:project:create"}},
@@ -174,17 +176,14 @@ func send(client *framework.AMPClient, route guardedRoute) *http.Response {
 // processes with separate memory, so this is a per-process cache; it still cuts
 // the token round-trips for this matrix roughly in half.
 var (
-	tokenCache   = map[string]*framework.AMPClient{}
-	tokenCacheMu sync.Mutex
+	tokenCache sync.Map
 )
 
 func clientWithScopes(scopes []string) *framework.AMPClient {
 	key := strings.Join(scopes, " ")
 
-	tokenCacheMu.Lock()
-	defer tokenCacheMu.Unlock()
-	if c, ok := tokenCache[key]; ok {
-		return c
+	if cached, ok := tokenCache.Load(key); ok {
+		return cached.(*framework.AMPClient)
 	}
 
 	token, err := framework.FetchTokenWithScopes(Cfg, scopes)
@@ -203,6 +202,6 @@ func clientWithScopes(scopes []string) *framework.AMPClient {
 	}
 
 	c := framework.NewAMPClientWithToken(Cfg, token)
-	tokenCache[key] = c
-	return c
+	actual, _ := tokenCache.LoadOrStore(key, c)
+	return actual.(*framework.AMPClient)
 }

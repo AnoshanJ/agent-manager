@@ -261,13 +261,13 @@ There are deliberately **no cross-org tests**. AMP on-prem is single-org today,
 so there is no second tenant to construct a cross-tenant request from, and
 assertions written now would likely be wrong by the time multi-org ships.
 
-What is covered instead is the invariant that makes multi-org safe when it
-arrives: `TestSecurityInvariantHandlersNeverReadOrgFromPath` asserts no handler
-reads `{orgName}` from the URL, because `middleware.RequireOrgMatch` takes the
-org solely from the token's `ouId`/`ouHandle` claims. That property can rot
-silently *precisely because* single-org makes it unobservable at runtime — and
-the day multi-org lands, a handler reading the path becomes a tenancy breach on
-arrival.
+What is covered instead is one necessary—but not sufficient—tenant-safety
+invariant: `TestSecurityInvariantHandlersNeverReadOrgFromPath` asserts no
+handler reads `{orgName}` from the URL, because `middleware.RequireOrgMatch`
+takes the org solely from the token's `ouId`/`ouHandle` claims. It does not
+prove that every operation checks the caller against the loaded resource, or
+that collection and search queries filter by tenant. Those guarantees remain
+outside the current suite until a real second organization can be exercised.
 
 Two known items to revisit when multi-org work starts:
 

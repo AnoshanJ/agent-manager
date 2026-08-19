@@ -18,6 +18,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,12 +34,12 @@ import (
 // public API-key-protected endpoint. The raw body is checked for credential-
 // shaped fields before decoding, so a fixture regression cannot print a token
 // into Ginkgo/JUnit output through an assertion failure.
-func InvokeSecurityProbe[T any](g Gomega, method, endpointURL, apiKey string) T {
+func InvokeSecurityProbe[T any](ctx context.Context, g Gomega, method, endpointURL, apiKey string) T {
 	client := &http.Client{Timeout: 45 * time.Second}
 	var decoded T
 
-	Eventually(func(attempt Gomega) {
-		request, err := http.NewRequest(method, endpointURL, bytes.NewReader(nil))
+	g.Eventually(func(attempt Gomega) {
+		request, err := http.NewRequestWithContext(ctx, method, endpointURL, bytes.NewReader(nil))
 		attempt.Expect(err).NotTo(HaveOccurred(), "create security probe request")
 		request.Header.Set("X-API-Key", apiKey)
 		request.Header.Set("Content-Type", "application/json")
@@ -67,7 +68,7 @@ func InvokeSecurityProbe[T any](g Gomega, method, endpointURL, apiKey string) T 
 		attempt.Expect(normalized).NotTo(ContainSubstring("clientsecret"), "probe response exposed a client-secret field")
 		attempt.Expect(normalized).NotTo(ContainSubstring("authorization"), "probe response exposed authorization data")
 		attempt.Expect(json.Unmarshal(body, &decoded)).To(Succeed(), "decode security probe response")
-	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithContext(ctx).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 	ginkgo.GinkgoWriter.Printf("Security probe completed: %s %s\n", method, endpointURL)
 	return decoded

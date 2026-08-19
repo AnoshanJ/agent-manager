@@ -19,6 +19,7 @@
 package mcpproxy
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -98,12 +99,12 @@ func DeleteMCPProxy(g Gomega, client *framework.AMPClient, orgName, proxyID stri
 
 // DeleteMCPProxyBestEffort is intended for suite teardown after a disposable
 // runtime fixture. It never hides a spec failure behind a cleanup failure.
-func DeleteMCPProxyBestEffort(client *framework.AMPClient, orgName, proxyID string) {
+func DeleteMCPProxyBestEffort(ctx context.Context, client *framework.AMPClient, orgName, proxyID string) {
 	if proxyID == "" {
 		return
 	}
 	path := fmt.Sprintf("/api/v1/orgs/%s/mcp-proxies/%s", orgName, proxyID)
-	response, err := client.Delete(path)
+	response, err := client.DeleteWithContext(ctx, path)
 	if err != nil {
 		ginkgo.GinkgoWriter.Printf("teardown: delete MCP proxy %q failed: %v\n", proxyID, err)
 		return

@@ -17,6 +17,7 @@
 package environment
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -37,9 +38,9 @@ func GetEnvironment(g Gomega, client *framework.AMPClient, orgName, envName stri
 // ListThunderInstances returns the externally reachable per-environment
 // Thunder endpoints registered with Agent Manager. Their host labels are
 // opaque handles and must never be reconstructed from org/environment names.
-func ListThunderInstances(g Gomega, client *framework.AMPClient, orgName string) framework.ThunderInstanceListResponse {
+func ListThunderInstances(ctx context.Context, g Gomega, client *framework.AMPClient, orgName string) framework.ThunderInstanceListResponse {
 	path := fmt.Sprintf("/api/v1/orgs/%s/thunder-instances", orgName)
-	resp, err := client.Get(path)
+	resp, err := client.GetWithContext(ctx, path)
 	g.Expect(err).NotTo(HaveOccurred(), "list Thunder instances request failed")
 	defer resp.Body.Close()
 	return framework.ExpectStatusAndDecode[framework.ThunderInstanceListResponse](g, resp, http.StatusOK)

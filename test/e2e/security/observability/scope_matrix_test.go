@@ -18,7 +18,6 @@ package observability
 
 import (
 	"fmt"
-	"net/http"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -76,8 +75,8 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 	for _, route := range obsRoutes(framework.LoadConfig().DefaultOrg) {
 		route := route
 
-		It(fmt.Sprintf("allows %s with %s", route.Name, route.Scope), func() {
-			resp := getObs(tokenWithScope(route.Scope), route.Path, route.Query)
+		It(fmt.Sprintf("allows %s with %s", route.Name, route.Scope), func(ctx SpecContext) {
+			resp := getObs(ctx, tokenWithScope(route.Scope), route.Path, route.Query)
 			defer resp.Body.Close()
 			framework.ExpectNotForbidden(Default, resp,
 				fmt.Sprintf("%s (%s) with its own scope", route.Name, route.Path))
@@ -89,8 +88,8 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 			}
 			wrong := wrong
 
-			It(fmt.Sprintf("denies %s to a token holding only %s", route.Name, wrong), func() {
-				resp := getObs(tokenWithScope(wrong), route.Path, route.Query)
+			It(fmt.Sprintf("denies %s to a token holding only %s", route.Name, wrong), func(ctx SpecContext) {
+				resp := getObs(ctx, tokenWithScope(wrong), route.Path, route.Query)
 				defer resp.Body.Close()
 				framework.ExpectForbidden(Default, resp,
 					fmt.Sprintf("%s (%s) with only %s — observability scopes must not be "+
@@ -98,20 +97,20 @@ var _ = Describe("SEC-OBS-001: observability scope matrix", Label("security"), f
 			})
 		}
 
-		It(fmt.Sprintf("denies %s to an unscoped token", route.Name), func() {
+		It(fmt.Sprintf("denies %s to an unscoped token", route.Name), func(ctx SpecContext) {
 			unscoped, err := framework.FetchTokenWithScopes(Cfg, nil)
 			Expect(err).NotTo(HaveOccurred(), "failed to fetch an unscoped token")
 
-			resp := getObs(unscoped, route.Path, route.Query)
+			resp := getObs(ctx, unscoped, route.Path, route.Query)
 			defer resp.Body.Close()
 			framework.ExpectForbidden(Default, resp,
 				fmt.Sprintf("%s (%s) with an unscoped token", route.Name, route.Path))
 		})
 	}
 
-	It("rejects an unauthenticated request to every data route", func() {
+	It("rejects an unauthenticated request to every data route", func(ctx SpecContext) {
 		for _, route := range obsRoutes(Cfg.DefaultOrg) {
-			resp, err := http.Get(obsURL(route.Path, route.Query)) //nolint:gosec // fixed test-config URL
+			resp, err := getObsUnauthenticated(ctx, route.Path, route.Query)
 			Expect(err).NotTo(HaveOccurred(), "request failed: %s", route.Path)
 
 			framework.ExpectUnauthorized(Default, resp,

@@ -17,6 +17,7 @@
 package framework
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,9 +40,9 @@ type ClientCredentialsTokenResult struct {
 // RequestClientCredentialsToken makes one OAuth2 client_credentials request.
 // Security lifecycle tests deliberately need both the success and invalid_client
 // responses, so a non-200 HTTP status is returned as data rather than as an error.
-func RequestClientCredentialsToken(tokenURL, clientID, clientSecret string) (ClientCredentialsTokenResult, error) {
+func RequestClientCredentialsToken(ctx context.Context, tokenURL, clientID, clientSecret string) (ClientCredentialsTokenResult, error) {
 	form := url.Values{"grant_type": {"client_credentials"}}
-	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return ClientCredentialsTokenResult{}, fmt.Errorf("create client-credentials request: %w", err)
 	}

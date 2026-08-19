@@ -60,10 +60,10 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		return response.ApiKey
 	}
 
-	expectMCPAuthorization := func(apiKey, tool string, wantAllowed bool) {
+	expectMCPAuthorization := func(ctx SpecContext, apiKey, tool string, wantAllowed bool) {
 		Eventually(func(g Gomega) {
 			result := agentops.InvokeSecurityProbe[framework.SecurityMCPProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/mcp/"+tool, apiKey)
+				ctx, g, http.MethodPost, endpointURL+"/security/mcp/"+tool, apiKey)
 			status := 0
 			if result.HTTPStatus != nil {
 				status = *result.HTTPStatus
@@ -76,21 +76,21 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 				g.Expect(*result.HTTPStatus).To(Equal(http.StatusOK))
 				g.Expect(result.ResultReceived).To(BeTrue())
 			}
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 	}
 
 	BeforeAll(func() {
 		roleName = "e2e-security-probe-" + suffix
-		DeferCleanup(func() {
-			configuration.DeleteAgentMCPConfigBestEffort(adminClient, cfg.DefaultOrg,
+		DeferCleanup(func(ctx SpecContext) {
+			configuration.DeleteAgentMCPConfigBestEffort(ctx, adminClient, cfg.DefaultOrg,
 				cfg.DefaultProject, agentName, mcpConfigID)
 			agentops.DeleteAgentBestEffort(adminClient, cfg.DefaultOrg, cfg.DefaultProject, agentName)
-			identityops.DeleteRoleBestEffort(adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID)
-			mcpproxyops.DeleteMCPProxyBestEffort(adminClient, cfg.DefaultOrg, proxyID)
+			identityops.DeleteRoleBestEffort(ctx, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID)
+			mcpproxyops.DeleteMCPProxyBestEffort(ctx, adminClient, cfg.DefaultOrg, proxyID)
 		})
 	})
 
-	It("creates an identity-secured MCP proxy with two independently scoped tools", func() {
+	It("creates an identity-secured MCP proxy with two independently scoped tools", func(ctx SpecContext) {
 		contextPath := "/" + proxyID
 		description := "Disposable MCP proxy for AgentID scope isolation"
 		version := "2025-06-18"
@@ -139,13 +139,13 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 			})
 		Expect(proxy.ID).To(Equal(proxyID))
 
-		readScope := mcpproxyops.CreateScope(Default, adminClient, cfg.DefaultOrg, proxyID,
+		readScope := mcpproxyops.CreateScope(ctx, Default, adminClient, cfg.DefaultOrg, proxyID,
 			framework.MCPProxyScopeRequest{
 				Action:      "read",
 				Description: "Allows only the echo probe",
 				Tools:       []string{echoTool},
 			})
-		writeScope := mcpproxyops.CreateScope(Default, adminClient, cfg.DefaultOrg, proxyID,
+		writeScope := mcpproxyops.CreateScope(ctx, Default, adminClient, cfg.DefaultOrg, proxyID,
 			framework.MCPProxyScopeRequest{
 				Action:      "write",
 				Description: "Allows only the add probe",
@@ -189,10 +189,10 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(endpointURL).NotTo(BeEmpty())
 	})
 
-	It("runs with the required container hardening controls", func() {
+	It("runs with the required container hardening controls", func(ctx SpecContext) {
 		key := newProbeAPIKey()
 		posture := agentops.InvokeSecurityProbe[framework.SecurityRuntimeProbeResponse](
-			Default, http.MethodGet, endpointURL+"/security/runtime", key)
+			ctx, Default, http.MethodGet, endpointURL+"/security/runtime", key)
 		Expect(posture.NonRoot).To(BeTrue(), "agent process ran as root")
 		Expect(posture.RootFilesystemReadOnly).To(BeTrue(), "agent root filesystem was writable")
 		Expect(posture.TmpWritable).To(BeTrue(), "sandbox did not provide its bounded writable /tmp")
@@ -202,10 +202,10 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(posture.SeccompEnabled).To(BeTrue(), "RuntimeDefault seccomp is not active")
 	})
 
-	It("blocks the running agent from reaching the Kubernetes API network path", func() {
+	It("blocks the running agent from reaching the Kubernetes API network path", func(ctx SpecContext) {
 		key := newProbeAPIKey()
 		result := agentops.InvokeSecurityProbe[framework.SecurityNetworkProbeResponse](
-			Default, http.MethodPost, endpointURL+"/security/network/kubernetes-api", key)
+			ctx, Default, http.MethodPost, endpointURL+"/security/network/kubernetes-api", key)
 		Expect(result.Target).To(Equal("kubernetes-api"))
 		Expect(result.Outcome).To(Equal("blocked"),
 			"any HTTP response means the sandbox reached the Kubernetes API; outcome=%s evidence=%s status=%v",
@@ -215,7 +215,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(result.HTTPStatus).To(BeNil())
 	})
 
-	It("attaches the MCP proxy and denies both tools before any role assignment", func() {
+	It("attaches the MCP proxy and denies both tools before any role assignment", func(ctx SpecContext) {
 		config := configuration.CreateAgentMCPConfig(Default, adminClient,
 			cfg.DefaultOrg, cfg.DefaultProject, agentName,
 			framework.CreateAgentModelConfigRequest{
@@ -234,21 +234,21 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
+				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
 			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite),
 				"deployed workload did not receive the complete MCP scope request list")
-		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 		for _, tool := range []string{echoTool, addTool} {
 			result := agentops.InvokeSecurityProbe[framework.SecurityMCPProbeResponse](
-				Default, http.MethodPost, endpointURL+"/security/mcp/"+tool, key)
+				ctx, Default, http.MethodPost, endpointURL+"/security/mcp/"+tool, key)
 			Expect(result.Authorized).To(BeFalse(), "unassigned AgentID reached %s", tool)
 		}
 	})
 
-	It("grants only the read scope and keeps the write tool denied", func() {
-		role := identityops.CreateRole(Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv,
+	It("grants only the read scope and keeps the write tool denied", func(ctx SpecContext) {
+		role := identityops.CreateRole(ctx, Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv,
 			framework.AgentIdentityRoleRequest{
 				Name:        roleName,
 				Description: "Disposable partial-scope AgentID role",
@@ -259,7 +259,7 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 
 		var thunderAgentID string
 		Eventually(func(g Gomega) {
-			agents := identityops.ListAgents(g, adminClient, cfg.DefaultOrg, cfg.DefaultEnv)
+			agents := identityops.ListAgents(ctx, g, adminClient, cfg.DefaultOrg, cfg.DefaultEnv)
 			for _, candidate := range agents.Agents {
 				if candidate.AgentName == agentName && candidate.ProjectName == cfg.DefaultProject &&
 					strings.EqualFold(candidate.Status, "completed") {
@@ -268,54 +268,54 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 				}
 			}
 			g.Expect(thunderAgentID).NotTo(BeEmpty())
-		}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-		identityops.AddRoleAssignments(Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
+		identityops.AddRoleAssignments(ctx, Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
 			[]framework.AgentIdentityAssignment{{ID: thunderAgentID, Type: "agent"}})
 		Eventually(func(g Gomega) {
-			assignments := identityops.GetRoleAssignments(g, adminClient,
+			assignments := identityops.GetRoleAssignments(ctx, g, adminClient,
 				cfg.DefaultOrg, cfg.DefaultEnv, roleID)
 			g.Expect(assignments.Agents).To(ContainElement(
 				framework.AgentIdentityAssignment{ID: thunderAgentID, Type: "agent"}),
 				"Thunder did not persist the AgentID role assignment")
-		}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
+				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.TokenMinted).To(BeTrue())
 			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
-		}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
 
 		// Real gateway decisions, rather than local token decoding, prove the
 		// effective grants. Environment Thunder may issue opaque access tokens.
-		expectMCPAuthorization(key, echoTool, true)
-		expectMCPAuthorization(key, addTool, false)
+		expectMCPAuthorization(ctx, key, echoTool, true)
+		expectMCPAuthorization(ctx, key, addTool, false)
 	})
 
-	It("adds the second scope and allows both tools with newly minted tokens", func() {
-		updated := identityops.UpdateRole(Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
+	It("adds the second scope and allows both tools with newly minted tokens", func(ctx SpecContext) {
+		updated := identityops.UpdateRole(ctx, Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
 			framework.AgentIdentityRoleRequest{Name: roleName, Scopes: []string{scopeRead, scopeWrite}})
 		Expect(updated.ID).To(Equal(roleID))
 
 		key := newProbeAPIKey()
-		expectMCPAuthorization(key, echoTool, true)
-		expectMCPAuthorization(key, addTool, true)
+		expectMCPAuthorization(ctx, key, echoTool, true)
+		expectMCPAuthorization(ctx, key, addTool, true)
 	})
 
-	It("removes only the read scope while the write scope remains usable", func() {
-		updated := identityops.UpdateRole(Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
+	It("removes only the read scope while the write scope remains usable", func(ctx SpecContext) {
+		updated := identityops.UpdateRole(ctx, Default, adminClient, cfg.DefaultOrg, cfg.DefaultEnv, roleID,
 			framework.AgentIdentityRoleRequest{Name: roleName, Scopes: []string{scopeWrite}})
 		Expect(updated.ID).To(Equal(roleID))
 
 		key := newProbeAPIKey()
-		expectMCPAuthorization(key, echoTool, false)
-		expectMCPAuthorization(key, addTool, true)
+		expectMCPAuthorization(ctx, key, echoTool, false)
+		expectMCPAuthorization(ctx, key, addTool, true)
 	})
 
-	It("refreshes the deployed workload after AgentID credential rotation", func() {
-		rotated := agentops.RegenerateAgentIdentitySecret(Default, adminClient,
+	It("refreshes the deployed workload after AgentID credential rotation", func(ctx SpecContext) {
+		rotated := agentops.RegenerateAgentIdentitySecret(ctx, Default, adminClient,
 			cfg.DefaultOrg, cfg.DefaultProject, agentName, cfg.DefaultEnv)
 		Expect(rotated.ProvisioningType).To(Equal("internal"))
 		Expect(rotated.ClientSecret).NotTo(BeEmpty())
@@ -323,16 +323,16 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
+				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeTrue())
 			g.Expect(identity.TokenMinted).To(BeTrue())
 			g.Expect(identity.RequestedScopes).To(ContainElements(scopeRead, scopeWrite))
-		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-		expectMCPAuthorization(key, addTool, true)
+		}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		expectMCPAuthorization(ctx, key, addTool, true)
 	})
 
-	It("removes the deployed identity after revocation and denies further MCP access", func() {
-		revoked, raw := agentops.RevokeAgentIdentitySecret(Default, adminClient,
+	It("removes the deployed identity after revocation and denies further MCP access", func(ctx SpecContext) {
+		revoked, raw := agentops.RevokeAgentIdentitySecret(ctx, Default, adminClient,
 			cfg.DefaultOrg, cfg.DefaultProject, agentName, cfg.DefaultEnv)
 		Expect(revoked.Status).To(Equal("revoked"))
 		Expect(strings.ToLower(strings.ReplaceAll(raw, "_", ""))).NotTo(ContainSubstring("clientsecret"))
@@ -340,14 +340,13 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		key := newProbeAPIKey()
 		Eventually(func(g Gomega) {
 			identity := agentops.InvokeSecurityProbe[framework.SecurityIdentityProbeResponse](
-				g, http.MethodPost, endpointURL+"/security/identity", key)
+				ctx, g, http.MethodPost, endpointURL+"/security/identity", key)
 			g.Expect(identity.Configured).To(BeFalse())
 			g.Expect(identity.TokenMinted).To(BeFalse())
-		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 		result := agentops.InvokeSecurityProbe[framework.SecurityMCPProbeResponse](
-			Default, http.MethodPost, endpointURL+"/security/mcp/"+addTool, key)
+			ctx, Default, http.MethodPost, endpointURL+"/security/mcp/"+addTool, key)
 		Expect(result.Authorized).To(BeFalse())
 	})
-
 })
