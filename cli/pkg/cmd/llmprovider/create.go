@@ -36,16 +36,28 @@ import (
 )
 
 const (
-	defaultVersion = "v1"
+	// defaultVersion must satisfy the spec's `^v\d+\.\d+$` pattern. "v1" does not,
+	// and was accepted only because the server did not validate it.
+	defaultVersion = "v1.0"
 	defaultContext = "/"
 	// defaultAuthType matches the auth scheme of the built-in templates that
 	// require a credential (openai, anthropic, mistralai, …). It is only sent
 	// when the user also supplies a key or an explicit auth override.
 	defaultAuthType = "api-key"
+	// defaultAccessMode matches what the console sends. A deployed proxy defaults
+	// to deny_all server-side and is then unreachable, so a provider created
+	// without an explicit mode would be created correctly and still not work.
+	defaultAccessMode = "allow_all"
 )
 
 // validAuthTypes are the upstream auth schemes accepted by the service.
 var validAuthTypes = []string{"api-key", "none"}
+
+// validAccessModes are the access control modes accepted by the service.
+var validAccessModes = []string{"allow_all", "deny_all"}
+
+// versionRegex mirrors the spec's `version` pattern.
+var versionRegex = regexp.MustCompile(`^v\d+\.\d+$`)
 
 type CreateOptions struct {
 	IO           *iostreams.IOStreams
@@ -74,13 +86,23 @@ type CreateOptions struct {
 	APIKey      string
 	APIKeyStdin bool
 
-	Gateways []string
+	AccessMode string
+	Gateways   []string
 }
 
 // keyRequested reports whether the user asked to attach a credential, without
 // reading stdin (so it is safe to call during validation).
 func (o *CreateOptions) keyRequested() bool {
 	return o.APIKey != "" || o.APIKeyStdin
+}
+
+// accessMode falls back to the default so a caller that builds CreateOptions
+// directly cannot send an empty mode, which the service would reject.
+func (o *CreateOptions) accessMode() string {
+	if o.AccessMode == "" {
+		return defaultAccessMode
+	}
+	return o.AccessMode
 }
 
 func validateCreate(opts *CreateOptions) error {
@@ -100,8 +122,14 @@ func validateCreate(opts *CreateOptions) error {
 	if msg := contextViolation(opts.Context); msg != "" {
 		v = append(v, msg)
 	}
+	if !versionRegex.MatchString(opts.Version) {
+		v = append(v, fmt.Sprintf("--version must match %s, e.g. %s", versionRegex, defaultVersion))
+	}
 	if !isValidAuthType(opts.AuthType) {
 		v = append(v, fmt.Sprintf("--auth-type must be one of: %s", strings.Join(validAuthTypes, ", ")))
+	}
+	if !slices.Contains(validAccessModes, opts.accessMode()) {
+		v = append(v, fmt.Sprintf("--access-mode must be one of: %s", strings.Join(validAccessModes, ", ")))
 	}
 	if opts.APIKey != "" && opts.APIKeyStdin {
 		v = append(v, "--api-key and --api-key-stdin are mutually exclusive")
@@ -112,8 +140,11 @@ func validateCreate(opts *CreateOptions) error {
 	if opts.keyRequested() && opts.AuthType == "none" {
 		v = append(v, "an API key cannot be used with --auth-type none")
 	}
-	if _, err := parseGateways(opts.Gateways); err != nil {
-		v = append(v, err.Error())
+	for _, g := range opts.Gateways {
+		if strings.TrimSpace(g) == "" {
+			v = append(v, "--gateways must not contain a blank value")
+			break
+		}
 	}
 
 	if len(v) == 0 {
@@ -157,19 +188,50 @@ func contextViolation(ctx string) string {
 	return ""
 }
 
-// parseGateways converts the raw --gateways values into typed UUIDs, reporting
-// the first malformed value.
-func parseGateways(raw []string) ([]openapi_types.UUID, error) {
+// gatewayNames returns the --gateways values that are not UUIDs, in order and
+// deduplicated. Kept pure so validateCreate can reject blanks without a client.
+func gatewayNames(raw []string) []string {
+	seen := map[string]bool{}
+	names := []string{}
+	for _, g := range raw {
+		trimmed := strings.TrimSpace(g)
+		if trimmed == "" {
+			continue
+		}
+		if _, err := uuid.Parse(trimmed); err == nil {
+			continue
+		}
+		if !seen[trimmed] {
+			seen[trimmed] = true
+			names = append(names, trimmed)
+		}
+	}
+	return names
+}
+
+// parseGateways converts the raw --gateways values into typed UUIDs, resolving any
+// that are names through nameToUUID. A nil nameToUUID means names are rejected,
+// which is what validateCreate uses to check shape without reaching the server.
+func parseGateways(raw []string, nameToUUID map[string]openapi_types.UUID) ([]openapi_types.UUID, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 	out := make([]openapi_types.UUID, 0, len(raw))
 	for _, g := range raw {
-		id, err := uuid.Parse(strings.TrimSpace(g))
-		if err != nil {
-			return nil, fmt.Errorf("invalid gateway id %q: must be a UUID", g)
+		trimmed := strings.TrimSpace(g)
+		if trimmed == "" {
+			return nil, fmt.Errorf("--gateways must not contain a blank value")
 		}
-		out = append(out, id)
+		id, err := uuid.Parse(trimmed)
+		if err == nil {
+			out = append(out, id)
+			continue
+		}
+		resolved, ok := nameToUUID[trimmed]
+		if !ok {
+			return nil, fmt.Errorf("unknown gateway %q: pass a gateway name or UUID from 'amctl gateway list'", trimmed)
+		}
+		out = append(out, resolved)
 	}
 	return out, nil
 }
@@ -222,10 +284,15 @@ func NewCreateCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.AuthHeader, "auth-header", "", "Override the template's auth header name")
 	cmd.Flags().StringVar(&opts.APIKey, "api-key", "", "Provider API key (leaks into shell history; prefer --api-key-stdin)")
 	cmd.Flags().BoolVar(&opts.APIKeyStdin, "api-key-stdin", false, "Read the provider API key from stdin")
-	cmd.Flags().StringSliceVar(&opts.Gateways, "gateways", nil, "Gateway UUIDs to deploy the provider to (repeatable)")
+	cmd.Flags().StringVar(&opts.AccessMode, "access-mode", defaultAccessMode,
+		fmt.Sprintf("Route access control for the deployed proxy: %s", strings.Join(validAccessModes, " or ")))
+	cmd.Flags().StringSliceVar(&opts.Gateways, "gateways", nil, "Gateway names or UUIDs to deploy the provider to (repeatable)")
 
 	_ = cmd.RegisterFlagCompletionFunc("auth-type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return validAuthTypes, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.RegisterFlagCompletionFunc("access-mode", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return validAccessModes, cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("template", func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return cmdutil.CompleteLLMProviderTemplates(cmd, f), cobra.ShellCompDirectiveNoFileComp
@@ -250,12 +317,17 @@ func runCreate(ctx context.Context, o *CreateOptions) error {
 		}
 	}
 
-	req, err := buildCreateRequest(o, key)
+	client, err := o.Client(ctx)
 	if err != nil {
 		return render.Error(o.IO, o.Scope, err)
 	}
 
-	client, err := o.Client(ctx)
+	gatewayUUIDs, err := resolveGatewayNames(ctx, client, o.Org, o.Gateways)
+	if err != nil {
+		return render.Error(o.IO, o.Scope, err)
+	}
+
+	req, err := buildCreateRequest(o, key, gatewayUUIDs)
 	if err != nil {
 		return render.Error(o.IO, o.Scope, err)
 	}
@@ -276,10 +348,43 @@ func runCreate(ctx context.Context, o *CreateOptions) error {
 	return nil
 }
 
+// resolveGatewayNames maps any non-UUID --gateways values to their UUIDs by listing
+// the org's gateways. Returns nil without calling the server when every value is
+// already a UUID, so the common scripted case costs no extra request.
+func resolveGatewayNames(
+	ctx context.Context, client *amsvc.ClientWithResponses, org string, raw []string,
+) (map[string]openapi_types.UUID, error) {
+	names := gatewayNames(raw)
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	resp, err := client.ListGatewaysWithResponse(ctx, org, &amsvc.ListGatewaysParams{})
+	if err != nil {
+		return nil, clierr.Newf(clierr.Transport, "look up gateways by name: %v", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, cmdutil.ErrorFromServer(resp.HTTPResponse,
+			cmdutil.FirstNonNil(resp.JSON400, resp.JSON401, resp.JSON500))
+	}
+
+	byName := make(map[string]openapi_types.UUID, len(resp.JSON200.Gateways))
+	for _, g := range resp.JSON200.Gateways {
+		id, err := uuid.Parse(g.Uuid)
+		if err != nil {
+			continue
+		}
+		byName[g.Name] = id
+	}
+	return byName, nil
+}
+
 // buildCreateRequest maps the resolved options into the create payload. The
 // upstream block is attached only when the user supplies a URL or an auth input,
 // so a bare `create <id> --display-name --template` defers entirely to the template.
-func buildCreateRequest(o *CreateOptions, key string) (amsvc.CreateLLMProviderRequest, error) {
+func buildCreateRequest(
+	o *CreateOptions, key string, gatewayUUIDs map[string]openapi_types.UUID,
+) (amsvc.CreateLLMProviderRequest, error) {
 	req := amsvc.CreateLLMProviderRequest{
 		Id:       o.ID,
 		Name:     o.DisplayName,
@@ -311,12 +416,19 @@ func buildCreateRequest(o *CreateOptions, key string) (amsvc.CreateLLMProviderRe
 		req.Upstream = amsvc.UpstreamConfig{Main: main}
 	}
 
-	gws, err := parseGateways(o.Gateways)
+	gws, err := parseGateways(o.Gateways, gatewayUUIDs)
 	if err != nil {
 		return req, cmdutil.FlagErrors([]string{err.Error()})
 	}
 	if len(gws) > 0 {
 		req.Gateways = &gws
+	}
+
+	// Sent unconditionally: a deployed proxy defaults to deny_all server-side, so a
+	// provider created without an access control block is unreachable.
+	req.AccessControl = &amsvc.LLMAccessControl{
+		Mode:       amsvc.LLMAccessControlMode(o.accessMode()),
+		Exceptions: &[]amsvc.RouteException{},
 	}
 
 	return req, nil

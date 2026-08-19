@@ -232,7 +232,7 @@ func TestCreate_ContextTrailingSlash(t *testing.T) {
 func TestValidateCreate_RootContextOK(t *testing.T) {
 	err := validateCreate(&CreateOptions{
 		ID: "openai", DisplayName: "OpenAI", Template: "openai",
-		Context: "/", AuthType: "api-key",
+		Context: "/", AuthType: "api-key", Version: defaultVersion,
 	})
 	if err != nil {
 		t.Fatalf("expected valid options, got %v", err)
@@ -259,7 +259,17 @@ func TestCreate_BlankAPIKey(t *testing.T) {
 		"--api-key must not be blank")
 }
 
-func TestCreate_BadGateway(t *testing.T) {
-	runTreeExpectViolation(t, []string{"llm-provider", "create", "p", "--display-name", "X", "--template", "openai", "--gateways", "not-a-uuid"},
-		"invalid gateway id")
+func TestCreate_BlankGateway(t *testing.T) {
+	runTreeExpectViolation(t, []string{"llm-provider", "create", "p", "--display-name", "X", "--template", "openai", "--gateways", "  "},
+		"--gateways must not contain a blank value")
+}
+
+func TestCreate_BadVersion(t *testing.T) {
+	runTreeExpectViolation(t, []string{"llm-provider", "create", "p", "--display-name", "X", "--template", "openai", "--version", "v1"},
+		"--version must match")
+}
+
+func TestCreate_BadAccessMode(t *testing.T) {
+	runTreeExpectViolation(t, []string{"llm-provider", "create", "p", "--display-name", "X", "--template", "openai", "--access-mode", "everyone"},
+		"--access-mode must be one of")
 }
