@@ -126,10 +126,14 @@ func proxyToolUnion(proxy *models.MCPProxy) map[string]struct{} {
 	return union
 }
 
+// validateScopeTools normalizes a scope's tool list: trimmed, de-duplicated,
+// sorted, and — when the proxy's capabilities are known — restricted to tools it
+// actually discovered. An empty list is legal and yields an empty (never nil)
+// slice: a scope bound to no tools is a declared-but-unbound catalog entry,
+// still grantable to a role and still projected into Thunder on that grant, but
+// enforced on nothing (appendMCPIdentityAuthPolicies emits no rule for it).
+// Non-nil matters — tools is a jsonb column, and nil would persist as null.
 func validateScopeTools(tools []string, union map[string]struct{}) ([]string, error) {
-	if len(tools) == 0 {
-		return nil, fmt.Errorf("%w: a scope must authorize at least one tool", utils.ErrInvalidInput)
-	}
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(tools))
 	for _, tl := range tools {

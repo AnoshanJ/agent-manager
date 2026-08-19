@@ -820,3 +820,16 @@ func TestMCPProxyEnvArtifactHandleDistinguishesEndpoints(t *testing.T) {
 		t.Fatalf("expected distinct handles for different endpoints in the same environment")
 	}
 }
+
+// A scope bound to no tools contributes no mcp-authz rule; when it is the only
+// scope, mcp-authz is omitted entirely and the endpoint degrades to
+// authenticated-only rather than emitting an empty rule set.
+func TestAppendMCPIdentityAuthPolicies_ScopeWithNoToolsEmitsAuthOnly(t *testing.T) {
+	on := true
+	sec := &models.SecurityConfig{Enabled: &on, Identity: &models.IdentitySecurity{Enabled: &on}}
+	out := appendMCPIdentityAuthPolicies(nil, sec, "gh-proxy", []models.MCPProxyScope{
+		{Action: "read", Tools: []string{}},
+	})
+	assert.Len(t, out, 1)
+	assert.Equal(t, "mcp-auth", out[0].Name)
+}
