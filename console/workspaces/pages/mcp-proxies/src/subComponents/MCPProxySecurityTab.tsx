@@ -183,6 +183,10 @@ export function MCPProxySecurityTab({
     severity: "success" | "error";
   } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ keyValue?: string }>({});
+  // Covers the whole of handleSave, unlike the isUpdating prop, which only
+  // tracks the endpoint-config mutation and goes idle again while the
+  // scope-update loop below it is still running.
+  const [isSaving, setIsSaving] = useState(false);
   const [createScopeDrawerOpen, setCreateScopeDrawerOpen] = useState(false);
   const [authorizationTab, setAuthorizationTab] = useState<"tools" | "scopes">("tools");
   const { addConfirmation } = useConfirmationDialog();
@@ -350,6 +354,9 @@ export function MCPProxySecurityTab({
   );
 
   const isDirty = authIsDirty || toolScopesDirty;
+  // Gates every control a save touches, so no edit or second Save can land
+  // while updates are still in flight.
+  const saveInProgress = isUpdating || isSaving;
 
   const handleDiscard = useCallback(() => {
     if (!config) return;
@@ -377,6 +384,7 @@ export function MCPProxySecurityTab({
     }
     setFieldErrors({});
 
+    setIsSaving(true);
     try {
       await onUpdate({
         security: {
@@ -440,6 +448,8 @@ export function MCPProxySecurityTab({
         message: "Failed to update security.",
         severity: "error",
       });
+    } finally {
+      setIsSaving(false);
     }
   }, [
     config,
@@ -613,7 +623,7 @@ export function MCPProxySecurityTab({
                             multiple
                             size="small"
                             disableCloseOnSelect
-                            disabled={isDisabled || isUpdating}
+                            disabled={isDisabled || saveInProgress}
                             options={catalogScopes}
                             value={row.scopes}
                             onChange={(_e, value) =>
@@ -741,7 +751,10 @@ export function MCPProxySecurityTab({
       )}
 
       <Stack spacing={1.5} width="100%">
-        <Collapse in={!!status && !isDirty} timeout={300}>
+        {/* Success messages hide as soon as the user edits again, but errors
+            must not: a failed save leaves the rows it couldn't commit dirty,
+            which would otherwise swallow the only report of the failure. */}
+        <Collapse in={!!status && (status.severity === "error" || !isDirty)} timeout={300}>
           {status && (
             <Alert
               severity={status.severity}
@@ -756,16 +769,16 @@ export function MCPProxySecurityTab({
           <Button
             variant="outlined"
             onClick={handleDiscard}
-            disabled={!isDirty || isUpdating}
+            disabled={!isDirty || saveInProgress}
           >
             Discard
           </Button>
           <Button
             variant="contained"
             onClick={() => void handleSave()}
-            disabled={isUpdating || !isDirty}
+            disabled={saveInProgress || !isDirty}
           >
-            {isUpdating ? "Saving..." : "Save"}
+            {saveInProgress ? "Saving..." : "Save"}
           </Button>
         </Stack>
       </Stack>
