@@ -460,7 +460,7 @@ security-test-static:
 		OPEN_CHOREO_BASE_URL=http://localhost/api/v1 \
 		ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
 		SERVER_PORT=8080 \
-		go test ./api/ -run '$(SECURITY_STATIC_TESTS)' -v
+		go test -mod=readonly ./api/ -run '$(SECURITY_STATIC_TESTS)' -v
 
 security-test-live:
 	@echo "Running security tests (cluster must be running)..."
