@@ -3267,7 +3267,9 @@ func (s *agentManagerService) applyEnvScopedWorkloadConfig(
 			"agentName", agentName, "environment", environment, "attempt", attempt)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			// Wrapped so the caller can still match context.Canceled/DeadlineExceeded with
+			// errors.Is while seeing which operation gave up.
+			return fmt.Errorf("failed to apply environment configuration: %w", ctx.Err())
 		case <-time.After(releaseBindingWaitInterval):
 		}
 	}
@@ -4110,6 +4112,14 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 				return fmt.Errorf("failed to process environment variables: %w", err)
 			}
 			envOverrides = append(envOverrides, processed...)
+			// An explicit empty req.Env means "this environment has none", and PromoteComponent
+			// tells nil (leave the binding's env alone) from empty (replace it with nothing) —
+			// so the cleared list has to reach it as a non-nil empty slice rather than the nil
+			// that appending zero processed entries leaves behind. Gated on req.Env because a
+			// files-only request must not clear env vars it never mentioned.
+			if req.Env != nil && envOverrides == nil {
+				envOverrides = []client.EnvVar{}
+			}
 		}
 		if req.Files != nil {
 			processed, err := s.processFileVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, req.Files)

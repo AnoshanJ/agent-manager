@@ -1872,7 +1872,8 @@ func (s *agentConfigurationService) processEnvProviderChange(
 		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); rbErr != nil {
-			s.logger.Warn("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
+			s.logger.Error("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
+			return "", rbRes, pendingAppBinding{}, fmt.Errorf("failed to update release binding env vars for environment %s: %w", envName, rbErr)
 		}
 		// Bootstrap default for agents with no ReleaseBinding yet.
 		if firstEnvName != "" && envName == firstEnvName {
