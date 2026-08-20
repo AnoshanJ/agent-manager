@@ -97,6 +97,42 @@ func TestListGateways_KnownEnvironmentNameResolvesToItsUUID(t *testing.T) {
 	}
 }
 
+func TestListGateways_KnownEnvironmentUUIDResolvesToItself(t *testing.T) {
+	var filters repositories.GatewayFilterOptions
+	ctrl, w, req := listGatewaysRequest(t, "environment="+defaultEnvUUID, emptyGatewayRepo(&filters))
+
+	ctrl.ListGateways(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if filters.EnvironmentID == nil {
+		t.Fatal("environment filter was dropped")
+	}
+	if *filters.EnvironmentID != defaultEnvUUID {
+		t.Errorf("EnvironmentID = %q, want %q", *filters.EnvironmentID, defaultEnvUUID)
+	}
+}
+
+// A UUID used to be accepted on syntactic validity alone, so an environment from
+// another organization passed straight through as a filter and the caller saw an
+// empty list instead of being told the value is unknown to them.
+func TestListGateways_ForeignEnvironmentUUIDIsRejected(t *testing.T) {
+	const foreignEnvUUID = "11111111-2222-3333-4444-555555555555"
+	// Every repository func is nil: the filter must be rejected before the service
+	// is ever asked for gateways.
+	ctrl, w, req := listGatewaysRequest(t, "environment="+foreignEnvUUID, &repomocks.GatewayRepositoryMock{})
+
+	ctrl.ListGateways(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), foreignEnvUUID) {
+		t.Errorf("body = %s, want the rejected environment named", w.Body.String())
+	}
+}
+
 func TestListGateways_NoEnvironmentFilterLeavesItUnset(t *testing.T) {
 	var filters repositories.GatewayFilterOptions
 	ctrl, w, req := listGatewaysRequest(t, "", emptyGatewayRepo(&filters))

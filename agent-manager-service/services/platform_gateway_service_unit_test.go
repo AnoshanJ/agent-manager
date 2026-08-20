@@ -107,6 +107,35 @@ func TestGetGateway_UnknownUUIDIsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, utils.ErrGatewayNotFound)
 }
 
+// The name branch used to return the repository error verbatim, so a bare failure
+// matched no case in handleGatewayErrors and surfaced as a 500 instead of a 404.
+func TestGetGateway_UnknownNameFromGormIsNotFound(t *testing.T) {
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByNameAndOrgIDFunc: func(_, _ string) (*models.Gateway, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	_, err := svc.GetGateway("ghost", gatewayTestOUID)
+
+	assert.ErrorIs(t, err, utils.ErrGatewayNotFound)
+}
+
+// A nil gateway with no error reached GetGateway's OUID check and panicked.
+func TestGetGateway_NilGatewayWithoutErrorIsNotFound(t *testing.T) {
+	repo := &repomocks.GatewayRepositoryMock{
+		GetByNameAndOrgIDFunc: func(_, _ string) (*models.Gateway, error) {
+			return nil, nil //nolint:nilnil // the shape under test
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	_, err := svc.GetGateway("ghost", gatewayTestOUID)
+
+	assert.ErrorIs(t, err, utils.ErrGatewayNotFound)
+}
+
 // A real repository failure must not be flattened into not-found.
 func TestGetGateway_RepositoryErrorIsNotMaskedAsNotFound(t *testing.T) {
 	boom := errors.New("connection refused")

@@ -339,12 +339,20 @@ func (s *PlatformGatewayService) ListGateways(ouID *string, filters *GatewayList
 // matched no case in handleGatewayErrors and surfaced as HTTP 500.
 func (s *PlatformGatewayService) resolveGateway(identifier, ouID string) (*models.Gateway, error) {
 	if _, err := uuid.Parse(identifier); err != nil {
-		return s.gatewayRepo.GetByNameAndOrgID(identifier, ouID)
+		return normalizeGatewayLookup(s.gatewayRepo.GetByNameAndOrgID(identifier, ouID))
 	}
+	return normalizeGatewayLookup(s.gatewayRepo.GetByUUID(identifier))
+}
 
-	gateway, err := s.gatewayRepo.GetByUUID(identifier)
+// normalizeGatewayLookup reduces either repository lookup's "no such row" shapes — a
+// gorm not-found error, the repository's own sentinel, or a nil gateway with no error
+// — to ErrGatewayNotFound, and wraps anything else with context. Both branches of
+// resolveGateway need this: a raw repository error matches no case in
+// handleGatewayErrors and surfaces as a 500, and a nil gateway returned without an
+// error is dereferenced by GetGateway.
+func normalizeGatewayLookup(gateway *models.Gateway, err error) (*models.Gateway, error) {
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, utils.ErrGatewayNotFound) {
 			return nil, utils.ErrGatewayNotFound
 		}
 		return nil, fmt.Errorf("failed to get gateway: %w", err)

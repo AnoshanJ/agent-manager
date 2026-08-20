@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
@@ -86,23 +85,19 @@ func NewGatewayController(
 	}
 }
 
-// resolveEnvironmentUUID resolves environment name or UUID to UUID
+// resolveEnvironmentUUID resolves an environment name or UUID to the UUID of an
+// environment in ouID. A UUID is looked up like any other identifier rather than
+// trusted on shape: a well-formed UUID belonging to another organization is as
+// unknown to this caller as a typo, and returning it unchecked let a cross-org
+// value through as a list filter and as the target of an environment assignment.
 func (c *gatewayController) resolveEnvironmentUUID(ctx context.Context, ouID, envIdentifier string) (string, error) {
-	// First try to parse as UUID
-	if _, err := uuid.Parse(envIdentifier); err == nil {
-		// It's a valid UUID, return it
-		return envIdentifier, nil
-	}
-
-	// Not a UUID, try to resolve by name using OpenChoreo client
 	environments, err := c.ocClient.ListEnvironments(ctx, ouID)
 	if err != nil {
 		return "", fmt.Errorf("failed to list environments: %w", err)
 	}
 
-	// Find environment by name
 	for _, env := range environments {
-		if env.Name == envIdentifier {
+		if env.Name == envIdentifier || strings.EqualFold(env.UUID, envIdentifier) {
 			return env.UUID, nil
 		}
 	}
