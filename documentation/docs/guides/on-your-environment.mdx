@@ -701,6 +701,7 @@ helm install amp-thunder-extension \
   --set thunder.bootstrap.amObserverClient.clientSecret="${AM_OBSERVER_CLIENT_SECRET}" \
   --set thunder.bootstrap.workloadPublisherClient.clientSecret="${WORKFLOW_PUBLISHER_SECRET}" \
   --set thunder.bootstrap.observerResourceReaderClient.clientSecret="${OBSERVER_READER_SECRET}" \
+  --set thunder.ocIngress.https.enabled=false \
   --values thunder-db-values.yaml \
   --timeout 1800s
 
@@ -715,6 +716,10 @@ The chart bootstraps **six** OAuth clients, and every one it is not given keeps 
 Leaving them out breaks the platform in two ways at once. The defaults stay valid, so an install that looks hardened still accepts `openchoreo-workload-publisher-secret` and `openchoreo-observer-resource-reader-client-secret`. And because the consumers read the *generated* values from OpenBao, they present a secret Thunder does not have: every agent build fails at the workload-publish step with `Failed to get access token`, from a `401 invalid_client` that never reaches the build log.
 
 When verifying, note the two client families use different token-endpoint auth methods — the four `amp*` clients use HTTP Basic, these two use POST-body credentials. Testing with the wrong method returns `400`, not `401`, which is easy to misread as a rejected credential.
+:::
+
+:::warning Disable Thunder's own local-dev gateway
+`thunder.ocIngress.https.enabled` defaults to `true`. It exists so a local k3d install can reach Thunder over HTTPS without depending on the control plane's own gateway TLS — it stands up a second, dedicated Gateway plus a self-signed "AMP Local Dev CA" certificate, independent of the wildcard certificate this guide creates in [Step 5](#step-5-install-openchoreo-control-plane). On a real cluster this is redundant rather than harmful, since every other plane still gets its own LoadBalancer address — but it is still an unused Gateway and certificate with no purpose here, so turn it off with the `--set` above.
 :::
 
 :::info MCP resource identifiers
@@ -1623,7 +1628,7 @@ Open the Console, log in, then create → build → deploy an agent; its invoke 
 
 Port-forwarding remains available as a debugging fallback for any individual service (all Agent Manager services are ClusterIP), e.g. `kubectl port-forward -n wso2-amp svc/amp-console 3000:3000`.
 
-**Default credentials:** `admin` / `admin` — bootstrap only; replace before exposing the platform (see [Identity and Access](#identity-and-access)).
+**Admin login:** username `admin`, with a generated password retrieved from the `amp-admin-credentials` Secret — bootstrap only; replace before exposing the platform (see [Identity and Access](#identity-and-access)).
 
 ---
 
@@ -1678,7 +1683,7 @@ Work down this table against an existing install. The **When** column matters: t
 | OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-set-up-the-secret-stores) | Any time — re-seeding required |
 | OpenSearch volume sized to retention, admin password matches OpenBao | [Step 8](#step-8-setup-observability-plane) | Any time |
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
-| Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
+| Console admin's generated bootstrap password replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
 | JWT signature verification active on the API and the observer | [Identity](#identity-and-access) | Any time |
 | Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Both are set during installation |
 | Post-upgrade patches re-applied | [After a chart upgrade](#after-a-chart-upgrade) | After every relevant `helm upgrade` |
