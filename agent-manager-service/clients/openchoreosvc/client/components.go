@@ -363,10 +363,18 @@ func getWorkflowName(build *BuildConfig) (string, error) {
 	return "", fmt.Errorf("invalid build configuration: unsupported build type '%s'", build.Type)
 }
 
+// Build workflow parameter names carrying the agent's runtime env vars and file mounts. They are
+// seeded once at agent creation and then left alone; deploy writes runtime config to each
+// environment's ReleaseBinding workloadOverrides instead.
+const (
+	workflowParamEnvironmentVariables = "environmentVariables"
+	workflowParamFileMounts           = "fileMounts"
+)
+
 func buildWorkflowParameters(req CreateComponentRequest) (map[string]any, error) {
 	params := map[string]any{
-		"environmentVariables": buildEnvironmentVariables(req),
-		"fileMounts":           buildFileMounts(req),
+		workflowParamEnvironmentVariables: buildEnvironmentVariables(req),
+		workflowParamFileMounts:           buildFileMounts(req),
 	}
 
 	// Add repository details in nested format expected by ClusterWorkflow
@@ -2820,25 +2828,78 @@ func (c *openChoreoClient) GetComponentFileMounts(ctx context.Context, ouID, pro
 		})
 	}
 
-	var fileMounts []models.FileMountEntry
+	// Base file mounts from the Workload, keyed so the environment's overrides can replace them.
+	// Order is tracked separately: a map alone would return the mounts in a different order on
+	// every call, which reshuffles the list the console renders.
+	fileMountMap := make(map[string]models.FileMountEntry)
+	var order []string
+	appendMount := func(f gen.FileVar) {
+		isSensitive := f.ValueFrom != nil && f.ValueFrom.SecretKeyRef != nil
+		secretRef := ""
+		if isSensitive && f.ValueFrom.SecretKeyRef.Name != nil {
+			secretRef = *f.ValueFrom.SecretKeyRef.Name
+		}
+		if _, seen := fileMountMap[f.Key]; !seen {
+			order = append(order, f.Key)
+		}
+		fileMountMap[f.Key] = models.FileMountEntry{
+			Key:         f.Key,
+			MountPath:   f.MountPath,
+			Value:       utils.StrPointerAsStr(f.Value, ""),
+			IsSensitive: isSensitive,
+			SecretRef:   secretRef,
+		}
+	}
+
 	if workloadResp.JSON200 != nil && len(workloadResp.JSON200.Items) > 0 {
 		workload := workloadResp.JSON200.Items[0]
 		if workload.Spec != nil && workload.Spec.Container != nil && workload.Spec.Container.Files != nil {
 			for _, f := range *workload.Spec.Container.Files {
-				isSensitive := f.ValueFrom != nil && f.ValueFrom.SecretKeyRef != nil
-				secretRef := ""
-				if isSensitive && f.ValueFrom.SecretKeyRef.Name != nil {
-					secretRef = *f.ValueFrom.SecretKeyRef.Name
-				}
-				fileMounts = append(fileMounts, models.FileMountEntry{
-					Key:         f.Key,
-					MountPath:   f.MountPath,
-					Value:       utils.StrPointerAsStr(f.Value, ""),
-					IsSensitive: isSensitive,
-					SecretRef:   secretRef,
-				})
+				appendMount(f)
 			}
 		}
+	}
+
+	// Overlay this environment's release binding overrides. Deploy writes the effective set here,
+	// so without this a mount added to one environment is invisible to the console and to
+	// GET .../file-mounts, which would report the shared base for every environment instead.
+	// Union semantics match the render: mergeFileConfigs falls back to the base for keys an
+	// override omits, and the base is retained, so base-only mounts still read correctly.
+	// Mirrors GetComponentConfigurations.
+	releaseBindingResp, err := c.ocClient.ListReleaseBindingsWithResponse(ctx, namespaceName, &gen.ListReleaseBindingsParams{
+		Component: &componentName,
+		Limit:     &defaultListLimit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list release bindings: %w", err)
+	}
+	if releaseBindingResp.StatusCode() != http.StatusOK {
+		return nil, handleErrorResponse(releaseBindingResp.StatusCode(), ErrorResponses{
+			JSON401: releaseBindingResp.JSON401,
+			JSON403: releaseBindingResp.JSON403,
+			JSON404: releaseBindingResp.JSON404,
+			JSON500: releaseBindingResp.JSON500,
+		})
+	}
+
+	if releaseBindingResp.JSON200 != nil {
+		for _, binding := range releaseBindingResp.JSON200.Items {
+			if binding.Spec == nil || binding.Spec.Environment != environment {
+				continue
+			}
+			if binding.Spec.WorkloadOverrides != nil && binding.Spec.WorkloadOverrides.Container != nil &&
+				binding.Spec.WorkloadOverrides.Container.Files != nil {
+				for _, f := range *binding.Spec.WorkloadOverrides.Container.Files {
+					appendMount(f)
+				}
+			}
+			break
+		}
+	}
+
+	var fileMounts []models.FileMountEntry
+	for _, key := range order {
+		fileMounts = append(fileMounts, fileMountMap[key])
 	}
 
 	return fileMounts, nil

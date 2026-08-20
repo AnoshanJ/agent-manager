@@ -2855,10 +2855,14 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("failed to prepare environment %q for deployment: %w", lowestEnv, err)
 	}
 
-	// Convert to deploy request with user-provided env vars
+	// Image only. Env vars and file mounts go to the environment's ReleaseBinding
+	// (applyEnvScopedWorkloadConfig below), not to the component-wide Workload.
+	//
+	// Environment is intentionally unset: it exists solely to make Deploy stamp restartedAt on the
+	// binding, and the override write already does that. Setting it here would stamp the same
+	// binding twice per deploy and can roll the pod twice.
 	deployReq := client.DeployRequest{
-		ImageID:     req.ImageId,
-		Environment: lowestEnv,
+		ImageID: req.ImageId,
 	}
 
 	// Log deploy request env var details for debugging
@@ -2949,25 +2953,32 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	// Combine user-processed env vars with preserved system-managed env vars
 	// and freshly-derived AgentID credentials.
-	deployReq.Env = append(envVars, systemManagedEnvVars...)
-	deployReq.Env = append(deployReq.Env, identityEnvVars...)
+	//
+	// These are written to THIS environment's ReleaseBinding workloadOverrides after Deploy, not
+	// to the Workload: the Workload is a single component-wide base that every environment merges
+	// into its render, so config written there leaks into every other environment and can never be
+	// unset by an override. Deploy() itself only updates the image.
+	overrideEnvVars := append(envVars, systemManagedEnvVars...)
+	overrideEnvVars = append(overrideEnvVars, identityEnvVars...)
 
-	// Ensure Env is always non-nil so Deploy() replaces the Workload env vars rather than
-	// skipping the update. A nil slice is a no-op in Deploy(); an empty slice clears all vars.
-	if deployReq.Env == nil {
-		deployReq.Env = []client.EnvVar{}
+	// Non-nil so the override write means "this is the full set" rather than "leave existing
+	// alone" — an empty slice clears the environment's env vars.
+	if overrideEnvVars == nil {
+		overrideEnvVars = []client.EnvVar{}
 	}
 
-	s.logger.Debug("Final deploy env vars", "agentName", agentName, "totalCount", len(deployReq.Env))
+	s.logger.Debug("Final deploy env vars", "agentName", agentName, "totalCount", len(overrideEnvVars))
 
 	// Process file mounts
-	fileVars, err := s.processFileVars(ctx, ouID, projectName, lowestEnv, agentName, req.Files)
+	overrideFileVars, err := s.processFileVars(ctx, ouID, projectName, lowestEnv, agentName, req.Files)
 	if err != nil {
 		s.logger.Error("Failed to process file mounts", "agentName", agentName, "error", err)
 		return "", fmt.Errorf("failed to process file mounts: %w", err)
 	}
-	deployReq.Files = fileVars
-	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(fileVars))
+	if overrideFileVars == nil {
+		overrideFileVars = []client.FileVar{}
+	}
+	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(overrideFileVars))
 
 	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
 	if err != nil {
@@ -3040,9 +3051,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("%w for agent %s in environment %s", utils.ErrDeploymentInProgress, agentName, lowestEnv)
 	}
 
-	componentDeployConfig := client.ComponentDeploymentConfigRequest{
-		Env: deployReq.Env,
-	}
+	// Traits only. Env is left nil so the Component's build workflow parameters are not rewritten
+	// here — this deploy's env vars go to the environment's ReleaseBinding instead.
+	componentDeployConfig := client.ComponentDeploymentConfigRequest{}
 	requiresComponentConfig := false
 	isAPIAgent := agent.Type.Type == string(utils.AgentTypeAPI)
 
@@ -3067,20 +3078,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 	deployTraitEnvConfigs := buildTraitEnvConfigs(agentName, policies, "", resilienceTimeoutSeconds, isPythonBuildpack, isBallerinaBuildpack, enableAutoInstrumentation, deployInstrumentationImage)
 
-	// Replace Component CR workflow parameters with env vars and file mounts from deploy request
-	// This replaces all existing env vars to ensure the component CR matches the deploy request
-	s.logger.Debug("Replacing component workflow parameters with environment variables", "agentName", agentName, "envVarCount", len(deployReq.Env))
-	if err := s.ocClient.ReplaceComponentEnvVars(ctx, ouID, projectName, agentName, deployReq.Env); err != nil {
-		s.logger.Warn("Failed to replace component workflow parameters with env vars", "agentName", agentName, "error", err)
-		// Continue with deploy even if this fails - env vars will still be applied to the workload
-	}
-
-	if deployReq.Files != nil {
-		s.logger.Debug("Replacing component workflow parameters with file mounts", "agentName", agentName, "fileMountCount", len(deployReq.Files))
-		if err := s.ocClient.ReplaceComponentFileMounts(ctx, ouID, projectName, agentName, deployReq.Files); err != nil {
-			s.logger.Warn("Failed to replace component workflow parameters with file mounts", "agentName", agentName, "error", err)
-		}
-	}
+	// Env vars and file mounts are NOT written to the Component's build workflow parameters here.
+	// Those are seeded once at agent creation and then left alone; this deploy's config goes to the
+	// environment's ReleaseBinding instead — see applyEnvScopedWorkloadConfig.
 
 	if isAPIAgent {
 		if targetEnv == nil {
@@ -3117,19 +3117,20 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		s.logger.Info("Updated api-configuration trait", "agentName", agentName, "artifactID", artifactID, "enableApiKeySecurity", enableApiKeySecurity)
 	}
 
-	// Apply deploy-time Component CR changes in a single PUT. This replaces workflow env vars
-	// and also applies any trait changes needed for this deploy.
-	s.logger.Debug("Updating component deployment config", "agentName", agentName, "envVarCount", len(deployReq.Env),
+	// Apply deploy-time Component CR changes in a single PUT — trait changes needed for this deploy.
+	s.logger.Debug("Updating component deployment config", "agentName", agentName,
 		"traitsToAttach", len(componentDeployConfig.TraitsToAttach), "traitsToDetach", len(componentDeployConfig.TraitsToDetach))
 	if err := s.ocClient.UpdateComponentDeploymentConfig(ctx, ouID, projectName, agentName, componentDeployConfig); err != nil {
 		if requiresComponentConfig {
 			return "", fmt.Errorf("failed to update component deployment config: %w", err)
 		}
-		s.logger.Warn("Failed to replace component workflow parameters with env vars", "agentName", agentName, "error", err)
-		// Continue with deploy even if this fails - env vars will still be applied to the workload.
+		s.logger.Warn("Failed to update component deployment config", "agentName", agentName, "error", err)
+		// Continue with deploy even if this fails — the traits are not required for this agent type.
 	}
 
-	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
+	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured).
+	// This updates the Workload image only; env vars and file mounts are applied per-environment
+	// via the release binding below.
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
 	// The permission gating this route is agent:deploy-non-production whatever
 	// the pipeline's lowest environment actually is, so the record has to carry
@@ -3158,6 +3159,13 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", err
 	}
 	deployAttempt.Complete(ctx, nil)
+
+	// Write this environment's env vars and file mounts to its release binding, so this deploy's
+	// config reaches this environment only. The component-wide base is left as agent creation
+	// seeded it — see applyEnvScopedWorkloadConfig for why it is not cleared here.
+	if err := s.applyEnvScopedWorkloadConfig(ctx, ouID, projectName, agentName, lowestEnv, overrideEnvVars, overrideFileVars); err != nil {
+		return "", err
+	}
 
 	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
 	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
@@ -3211,6 +3219,69 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "ouID", org.Name, "projectName", projectName, "environment", lowestEnv)
 	return lowestEnv, nil
+}
+
+// releaseBindingWaitAttempts / releaseBindingWaitInterval bound how long a deploy waits for the
+// environment's ReleaseBinding to exist. On an agent's first deploy the binding is created by
+// OpenChoreo's component controller once the build's Release lands (ensureReleaseBinding), so it
+// can trail the Deploy call by a reconcile cycle.
+const (
+	releaseBindingWaitAttempts = 10
+	releaseBindingWaitInterval = 2 * time.Second
+)
+
+// applyEnvScopedWorkloadConfig writes the environment's full env var and file mount set to its
+// ReleaseBinding workloadOverrides. Deploy no longer writes to the component-wide base (the
+// Workload container spec and the Component's build workflow parameters), so config applied here
+// reaches only this environment.
+//
+// The base is deliberately left untouched. It is seeded once at agent creation and every
+// environment renders base merged with its own overrides, which has a known consequence: a var set
+// at creation is inherited everywhere and cannot be removed, since an override cannot unset a base
+// key. Clearing the base would fix that, but it changes what EVERY environment renders — an
+// environment promoted before its binding carried the full set (create → auto-build → promote,
+// with no deploy in between) is silently relying on the base, and would lose those vars and roll
+// into a broken config the moment an unrelated environment was deployed. Removing the base
+// therefore requires first materializing it into every existing binding; until that exists,
+// leaving it in place trades un-removable create-time config for never breaking a live
+// environment out from under itself.
+func (s *agentManagerService) applyEnvScopedWorkloadConfig(
+	ctx context.Context,
+	ouID, projectName, agentName, environment string,
+	envVars []client.EnvVar,
+	fileVars []client.FileVar,
+) error {
+	var lastErr error
+	for attempt := 1; attempt <= releaseBindingWaitAttempts; attempt++ {
+		lastErr = s.ocClient.ReplaceReleaseBindingWorkloadOverrides(ctx, ouID, agentName, environment, envVars, fileVars)
+		if lastErr == nil {
+			break
+		}
+		if !errors.Is(lastErr, utils.ErrNotFound) {
+			s.logger.Error("Failed to write workload overrides to release binding",
+				"agentName", agentName, "environment", environment, "error", lastErr)
+			return fmt.Errorf("failed to apply environment configuration: %w", lastErr)
+		}
+		// Binding not created yet (first deploy) — wait for the controller and retry.
+		s.logger.Debug("Release binding not ready yet, retrying workload override write",
+			"agentName", agentName, "environment", environment, "attempt", attempt)
+		select {
+		case <-ctx.Done():
+			// Wrapped so the caller can still match context.Canceled/DeadlineExceeded with
+			// errors.Is while seeing which operation gave up.
+			return fmt.Errorf("failed to apply environment configuration: %w", ctx.Err())
+		case <-time.After(releaseBindingWaitInterval):
+		}
+	}
+	if lastErr != nil {
+		s.logger.Error("Release binding never became available for workload overrides",
+			"agentName", agentName, "environment", environment, "error", lastErr)
+		return fmt.Errorf("failed to apply environment configuration: %w", lastErr)
+	}
+
+	s.logger.Debug("Applied environment-scoped workload config", "agentName", agentName,
+		"environment", environment, "envVarCount", len(envVars), "fileMountCount", len(fileVars))
+	return nil
 }
 
 // resolvedTracingConfig holds resolved instrumentation config values.
@@ -4026,21 +4097,40 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 				userEnv = append(userEnv, env)
 			}
 		}
-		if len(userEnv) > 0 {
+		// Nil (caller sent nothing) and empty (caller cleared the list) must stay distinguishable:
+		// an empty list is a deliberate "this environment has none", so it still has to be
+		// processed and written as an explicit override rather than skipped.
+		//
+		// processEnvVars is also the sole writer of file-mount secrets to the KV store (it handles
+		// env and file secrets together on one path), so it must run whenever the request carries
+		// files, even with no env vars — otherwise processFileVars emits a secretKeyRef to a secret
+		// that was never created.
+		if req.Env != nil || req.Files != nil {
 			processed, err := s.processEnvVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, userEnv, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process environment variables for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process environment variables: %w", err)
 			}
 			envOverrides = append(envOverrides, processed...)
+			// An explicit empty req.Env means "this environment has none", and PromoteComponent
+			// tells nil (leave the binding's env alone) from empty (replace it with nothing) —
+			// so the cleared list has to reach it as a non-nil empty slice rather than the nil
+			// that appending zero processed entries leaves behind. Gated on req.Env because a
+			// files-only request must not clear env vars it never mentioned.
+			if req.Env != nil && envOverrides == nil {
+				envOverrides = []client.EnvVar{}
+			}
 		}
-		if len(req.Files) > 0 {
+		if req.Files != nil {
 			processed, err := s.processFileVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process file mounts for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process file mounts: %w", err)
 			}
 			fileOverrides = processed
+			if fileOverrides == nil {
+				fileOverrides = []client.FileVar{}
+			}
 		}
 	}
 
