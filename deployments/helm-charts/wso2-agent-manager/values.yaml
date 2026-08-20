@@ -180,6 +180,8 @@ agentManagerService:
       # explicitly, or prefer existingSecret, for production.
       value: ""
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+      # the chart-managed Secret always uses the fixed key "api-key".
       existingSecretKey: "api-key"
 
     # Encryption key for secrets at rest (hex-encoded 32-byte AES-256 key)
@@ -187,6 +189,8 @@ agentManagerService:
     encryptionKey:
       value: ""
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+      # the chart-managed Secret always uses the fixed key "encryption-key".
       existingSecretKey: "encryption-key"
 
     # Kubeconfig (empty for in-cluster, or provide config)
