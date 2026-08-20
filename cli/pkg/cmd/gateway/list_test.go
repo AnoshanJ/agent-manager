@@ -258,6 +258,32 @@ func TestListCmd_RejectsZeroLimit(t *testing.T) {
 	}
 }
 
+// The flags are ints narrowed to the wire's int32. Without an upper bound
+// `--limit 4294967297` truncated to 1 and `--offset 4294967296` to 0, so the command
+// quietly requested a page nobody asked for instead of rejecting the value.
+func TestListCmd_RejectsOutOfRangePagination(t *testing.T) {
+	for _, tc := range []struct{ flag, value string }{
+		{flag: "--limit", value: "4294967297"},  // truncates to 1
+		{flag: "--limit", value: "2147483648"},  // MaxInt32 + 1
+		{flag: "--offset", value: "4294967296"}, // truncates to 0
+	} {
+		t.Run(tc.flag+"="+tc.value, func(t *testing.T) {
+			io, _, _ := newTestIO()
+			clientFn, captured, closeFn := newTestClient(t, http.StatusOK, sampleListResponse())
+			defer closeFn()
+
+			root := testGatewayCmd(t, io, clientFn)
+			root.SetArgs([]string{"gateway", "list", tc.flag, tc.value})
+			if err := root.Execute(); err == nil {
+				t.Fatalf("expected an error for %s %s", tc.flag, tc.value)
+			}
+			if captured.called {
+				t.Errorf("server was called despite an invalid %s", tc.flag)
+			}
+		})
+	}
+}
+
 func TestNormalizeGatewayType(t *testing.T) {
 	for _, tc := range []struct {
 		in      string

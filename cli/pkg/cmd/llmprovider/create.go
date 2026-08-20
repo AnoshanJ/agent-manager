@@ -208,26 +208,35 @@ func gatewayNames(raw []string) []string {
 // parseGateways converts the raw --gateways values into typed UUIDs, resolving any
 // that are names through nameToUUID. A nil nameToUUID means names are rejected,
 // which is what validateCreate uses to check shape without reaching the server.
+//
+// Duplicates are dropped after resolution, keeping the first occurrence and the
+// caller's order: a gateway named twice — or named once by name and once by UUID —
+// is one placement, and sending it twice draws a confusing rejection from the
+// server's "no two gateways may share an environment" check.
 func parseGateways(raw []string, nameToUUID map[string]openapi_types.UUID) ([]openapi_types.UUID, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 	out := make([]openapi_types.UUID, 0, len(raw))
+	seen := make(map[openapi_types.UUID]struct{}, len(raw))
 	for _, g := range raw {
 		trimmed := strings.TrimSpace(g)
 		if trimmed == "" {
 			return nil, fmt.Errorf("--gateways must not contain a blank value")
 		}
 		id, err := uuid.Parse(trimmed)
-		if err == nil {
-			out = append(out, id)
+		if err != nil {
+			resolved, ok := nameToUUID[trimmed]
+			if !ok {
+				return nil, fmt.Errorf("unknown gateway %q: pass a gateway name or UUID from 'amctl gateway list'", trimmed)
+			}
+			id = resolved
+		}
+		if _, duplicate := seen[id]; duplicate {
 			continue
 		}
-		resolved, ok := nameToUUID[trimmed]
-		if !ok {
-			return nil, fmt.Errorf("unknown gateway %q: pass a gateway name or UUID from 'amctl gateway list'", trimmed)
-		}
-		out = append(out, resolved)
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
 	return out, nil
 }
@@ -355,20 +364,19 @@ func resolveGatewayNames(
 		return nil, nil
 	}
 
-	resp, err := client.ListGatewaysWithResponse(ctx, org, &amsvc.ListGatewaysParams{})
+	gateways, err := cmdutil.ListAllGateways(ctx, client, org)
 	if err != nil {
-		return nil, clierr.Newf(clierr.Transport, "look up gateways by name: %v", err)
-	}
-	if resp.JSON200 == nil {
-		return nil, cmdutil.ErrorFromServer(resp.HTTPResponse,
-			cmdutil.FirstNonNil(resp.JSON400, resp.JSON401, resp.JSON500))
+		return nil, err
 	}
 
-	byName := make(map[string]openapi_types.UUID, len(resp.JSON200.Gateways))
-	for _, g := range resp.JSON200.Gateways {
+	byName := make(map[string]openapi_types.UUID, len(gateways))
+	for _, g := range gateways {
 		id, err := uuid.Parse(g.Uuid)
 		if err != nil {
-			continue
+			// Skipping the entry would report the gateway as unknown, blaming the
+			// user's input for a malformed UUID the server sent.
+			return nil, clierr.Newf(clierr.Internal,
+				"server returned gateway %q with an unparseable uuid %q", g.Name, g.Uuid)
 		}
 		byName[g.Name] = id
 	}

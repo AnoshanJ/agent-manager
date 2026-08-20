@@ -19,6 +19,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -77,16 +78,21 @@ func NewListCmd(f *cmdutil.Factory) *cobra.Command {
 			}
 			opts.Org, opts.Scope = org, scope
 
+			// Both bounds are checked before the int32 conversion the wire type needs:
+			// on a 64-bit host `--limit 4294967297` truncates to 1, so an unchecked
+			// upper bound silently sends a page size nobody asked for.
 			if cmd.Flags().Changed("limit") {
-				if limit < 1 {
-					return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--limit must be >= 1"))
+				if limit < 1 || limit > math.MaxInt32 {
+					return render.Error(opts.IO, scope,
+						cmdutil.FlagErrorf("--limit must be between 1 and %d", math.MaxInt32))
 				}
 				v := int32(limit)
 				opts.Limit = &v
 			}
 			if cmd.Flags().Changed("offset") {
-				if offset < 0 {
-					return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--offset must be >= 0"))
+				if offset < 0 || offset > math.MaxInt32 {
+					return render.Error(opts.IO, scope,
+						cmdutil.FlagErrorf("--offset must be between 0 and %d", math.MaxInt32))
 				}
 				v := int32(offset)
 				opts.Offset = &v

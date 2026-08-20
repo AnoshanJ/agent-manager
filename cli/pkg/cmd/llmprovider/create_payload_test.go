@@ -140,6 +140,26 @@ func TestParseGateways_MixesNamesAndUUIDs(t *testing.T) {
 	}
 }
 
+// One gateway named twice is one placement. Sending it twice drew a rejection from
+// the server's "no two gateways may share an environment" check, which reads as a
+// conflict between two gateways rather than as a repeated value.
+func TestParseGateways_DropsDuplicatesKeepingFirstOccurrence(t *testing.T) {
+	edge := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	other := "11111111-1111-1111-1111-111111111111"
+
+	got, err := parseGateways(
+		[]string{"edge", other, " edge ", edge.String(), other},
+		map[string]openapi_types.UUID{"edge": edge},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// "edge", " edge " and the bare UUID are all the same gateway.
+	if len(got) != 2 || got[0] != edge || got[1].String() != other {
+		t.Errorf("parseGateways = %v, want [%s %s]", got, edge, other)
+	}
+}
+
 // newRoutingTestClient answers each path with its own body, so a test can exercise
 // the gateway lookup followed by the create call. Any request to an undeclared path
 // fails the test, which is how the "no extra round trip" case is asserted.

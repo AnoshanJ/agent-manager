@@ -337,17 +337,17 @@ func CompleteGateways(cmd *cobra.Command, f *Factory) []string {
 		logCompletionErr(op, map[string]string{"org": org}, err)
 		return nil
 	}
-	resp, err := client.ListGatewaysWithResponse(ctx, org, &amsvc.ListGatewaysParams{})
+	// A partial result is kept: paging the whole org can outrun completionTimeout,
+	// and the gateways already gathered complete better than an empty list.
+	gateways, err := ListAllGateways(ctx, client, org)
 	if err != nil {
 		logCompletionErr(op, map[string]string{"org": org}, err)
-		return nil
+		if len(gateways) == 0 {
+			return nil
+		}
 	}
-	if resp.JSON200 == nil {
-		logCompletionErr(op, map[string]string{"org": org}, fmt.Errorf("status %d", resp.StatusCode()))
-		return nil
-	}
-	out := make([]string, 0, len(resp.JSON200.Gateways))
-	for _, g := range resp.JSON200.Gateways {
+	out := make([]string, 0, len(gateways))
+	for _, g := range gateways {
 		out = append(out, fmt.Sprintf("%s\t%s (%s)", g.Name, g.Uuid, g.GatewayType))
 	}
 	sort.Strings(out)
