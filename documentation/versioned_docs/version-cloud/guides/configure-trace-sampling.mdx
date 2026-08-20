@@ -78,7 +78,7 @@ AMP already injects `AMP_OTEL_ENDPOINT` and `AMP_AGENT_API_KEY`, so you only add
 
 You can also set the same variables when first deploying the agent, from the **Environment Variables** section of the **Configure & Deploy** step.
 
-Environment variables apply to one environment at a time, so set them for each environment you want sampled; values for later environments are configured when you promote.
+Environment variables apply to one environment at a time, so set them for each environment you want sampled; values for later environments are configured when you promote. See [Manage Environments and Deployment Pipelines](./environment-management.mdx) for how promotion works.
 
 This works whether the agent uses auto-instrumentation or the manual `init_otel()` helper — both read the variables from the container environment at startup.
 
