@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import type { Configurations } from "@agent-management-platform/types";
 import type { DeploymentStatus } from "@agent-management-platform/shared-component";
 import { EnvAgentInterfaceCard } from "./EnvAgentInterfaceCard";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
@@ -31,7 +30,6 @@ interface EnvironmentSectionsContentProps {
     projectId: string;
     agentId: string;
     envId: string;
-    configurations?: Configurations;
     external?: boolean;
     deploymentStatus?: DeploymentStatus;
 }
@@ -45,7 +43,7 @@ interface EnvironmentSectionsContentProps {
  * since both are compact per-environment identity/interface summaries.
  */
 export function EnvironmentSectionsContent({
-    orgId, projectId, agentId, envId, configurations, external, deploymentStatus,
+    orgId, projectId, agentId, envId, external, deploymentStatus,
 }: EnvironmentSectionsContentProps) {
     return (
         <>
@@ -55,7 +53,6 @@ export function EnvironmentSectionsContent({
                 projectId={projectId}
                 agentId={agentId}
                 envId={envId}
-                configurations={configurations}
                 external={external}
                 deploymentStatus={deploymentStatus}
             />
