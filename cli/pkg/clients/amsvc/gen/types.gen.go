@@ -4031,8 +4031,8 @@ type MCPProxyScopeRequest struct {
 	Action      string  `json:"action"`
 	Description *string `json:"description,omitempty"`
 
-	// Tools MCP tool names this scope authorizes.
-	Tools []string `json:"tools"`
+	// Tools MCP tool names this scope authorizes. May be omitted or empty to declare a scope before binding it to any tool; such a scope is grantable to roles but enforced on no tool.
+	Tools *[]string `json:"tools,omitempty"`
 }
 
 // MCPProxyScopeResponse defines model for MCPProxyScopeResponse.
@@ -4049,8 +4049,10 @@ type MCPProxyScopeResponse struct {
 
 // MCPProxyScopeUpdateRequest defines model for MCPProxyScopeUpdateRequest.
 type MCPProxyScopeUpdateRequest struct {
-	Description *string   `json:"description,omitempty"`
-	Tools       *[]string `json:"tools,omitempty"`
+	Description *string `json:"description,omitempty"`
+
+	// Tools Replaces the scope's tool list. Omit to leave it unchanged; send an empty array to unbind the scope from every tool.
+	Tools *[]string `json:"tools,omitempty"`
 }
 
 // MCPServerInfoFetchRequest defines model for MCPServerInfoFetchRequest.

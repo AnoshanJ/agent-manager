@@ -10986,7 +10986,7 @@ components:
   schemas:
     MCPProxyScopeRequest:
       type: object
-      required: [action, tools]
+      required: [action]
       properties:
         action:
           type: string
@@ -10998,10 +10998,12 @@ components:
           example: Read access to repository tools
         tools:
           type: array
-          minItems: 1
           items:
             type: string
-          description: MCP tool names this scope authorizes.
+          description: >-
+            MCP tool names this scope authorizes. May be omitted or empty to declare a
+            scope before binding it to any tool; such a scope is grantable to roles but
+            enforced on no tool.
     MCPProxyScopeUpdateRequest:
       type: object
       properties:
@@ -11009,9 +11011,11 @@ components:
           type: string
         tools:
           type: array
-          minItems: 1
           items:
             type: string
+          description: >-
+            Replaces the scope's tool list. Omit to leave it unchanged; send an empty
+            array to unbind the scope from every tool.
     MCPProxyScopeResponse:
       type: object
       required: [action, scope, tools]
