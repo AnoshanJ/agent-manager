@@ -5712,7 +5712,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}:
+  /orgs/{orgName}/llm-providers/{providerId}:
     parameters:
       - name: orgName
         in: path
@@ -5720,7 +5720,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -5813,7 +5813,12 @@ paths:
       tags:
         - LLM Providers
       summary: Delete LLM provider
-      description: Delete an LLM provider
+      description: |
+        Delete an LLM provider.
+
+        The provider is undeployed from every gateway it is deployed to before it is
+        removed. Deletion is refused with a 409 while anything still references the
+        provider — an LLM proxy, or an agent's LLM configuration.
       operationId: deleteLLMProvider
       responses:
         "204":
@@ -5830,8 +5835,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller lacks the llm-provider:delete permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: |
+            Provider still has dependents (LLM proxies or agent LLM configurations),
+            or undeploying it from its gateways failed. The message names the blocker.
           content:
             application/json:
               schema:
@@ -5843,7 +5862,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/catalog:
+  /orgs/{orgName}/llm-providers/{providerId}/catalog:
     parameters:
       - name: orgName
         in: path
@@ -5851,7 +5870,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -5909,7 +5928,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/llm-proxies:
+  /orgs/{orgName}/llm-providers/{providerId}/llm-proxies:
     parameters:
       - name: orgName
         in: path
@@ -5917,7 +5936,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -5980,7 +5999,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/consumers:
+  /orgs/{orgName}/llm-providers/{providerId}/consumers:
     parameters:
       - name: orgName
         in: path
@@ -5988,7 +6007,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID or handle
@@ -6752,7 +6771,7 @@ paths:
   # LLM DEPLOYMENT ENDPOINTS
   # ============================================
 
-  /orgs/{orgName}/llm-providers/{id}/deployments:
+  /orgs/{orgName}/llm-providers/{providerId}/deployments:
     parameters:
       - name: orgName
         in: path
@@ -6760,7 +6779,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -6866,7 +6885,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/deployments/undeploy:
+  /orgs/{orgName}/llm-providers/{providerId}/deployments/undeploy:
     parameters:
       - name: orgName
         in: path
@@ -6874,7 +6893,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -6942,7 +6961,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/deployments/restore:
+  /orgs/{orgName}/llm-providers/{providerId}/deployments/restore:
     parameters:
       - name: orgName
         in: path
@@ -6950,7 +6969,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID
@@ -7014,7 +7033,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /orgs/{orgName}/llm-providers/{id}/deployments/{deploymentId}:
+  /orgs/{orgName}/llm-providers/{providerId}/deployments/{deploymentId}:
     parameters:
       - name: orgName
         in: path
@@ -7022,7 +7041,7 @@ paths:
         description: Organization name/handle
         schema:
           type: string
-      - name: id
+      - name: providerId
         in: path
         required: true
         description: Provider UUID

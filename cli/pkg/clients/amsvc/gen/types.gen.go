@@ -5987,14 +5987,14 @@ type UpdateLLMProviderTemplateJSONRequestBody = UpdateLLMProviderTemplateRequest
 // CreateLLMProviderJSONRequestBody defines body for CreateLLMProvider for application/json ContentType.
 type CreateLLMProviderJSONRequestBody = CreateLLMProviderRequest
 
-// UpdateLLMProviderJSONRequestBody defines body for UpdateLLMProvider for application/json ContentType.
-type UpdateLLMProviderJSONRequestBody = UpdateLLMProviderRequest
-
 // CreateLLMProviderAPIKeyJSONRequestBody defines body for CreateLLMProviderAPIKey for application/json ContentType.
 type CreateLLMProviderAPIKeyJSONRequestBody = CreateLLMAPIKeyRequest
 
 // RotateLLMProviderAPIKeyJSONRequestBody defines body for RotateLLMProviderAPIKey for application/json ContentType.
 type RotateLLMProviderAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
+
+// UpdateLLMProviderJSONRequestBody defines body for UpdateLLMProvider for application/json ContentType.
+type UpdateLLMProviderJSONRequestBody = UpdateLLMProviderRequest
 
 // UpdateLLMProviderCatalogStatusJSONRequestBody defines body for UpdateLLMProviderCatalogStatus for application/json ContentType.
 type UpdateLLMProviderCatalogStatusJSONRequestBody = UpdateLLMProviderCatalogRequest

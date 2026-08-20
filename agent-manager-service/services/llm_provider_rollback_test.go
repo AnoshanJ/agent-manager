@@ -1,0 +1,80 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package services
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+)
+
+// serviceForRollback wires the three repository calls a rollback Delete makes for a
+// provider with no deployed gateways: resolve the provider, list its deployed
+// gateways, delete the row. deleteErr is what the final delete reports.
+func serviceForRollback(
+	created *models.LLMProvider, deleteErr error,
+) (*LLMProviderService, *LLMProviderDeploymentService) {
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc: func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		DeleteFunc:    func(_, _ string) error { return deleteErr },
+	}
+	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
+			return []string{}, nil
+		},
+	}
+	return &LLMProviderService{providerRepo: providerRepo},
+		&LLMProviderDeploymentService{deploymentRepo: deploymentRepo}
+}
+
+func createdProvider() *models.LLMProvider {
+	return &models.LLMProvider{
+		UUID:          uuid.New(),
+		Configuration: models.LLMProviderConfig{Handle: "acme-openai"},
+	}
+}
+
+// A rollback that fails leaves behind the provider the rollback exists to remove.
+// Swallowing that into a log meant the caller saw only "all deployments failed",
+// retried the same handle, and was rejected by a provider it did not know existed.
+func TestRollbackCreatedProvider_ReturnsTheRollbackFailure(t *testing.T) {
+	boom := errors.New("connection refused")
+	created := createdProvider()
+	svc, deploymentSvc := serviceForRollback(created, boom)
+
+	err := svc.rollbackCreatedProvider(context.Background(), created, "ou-acme", deploymentSvc)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, boom)
+	assert.Contains(t, err.Error(), created.UUID.String())
+}
+
+func TestRollbackCreatedProvider_ReportsNoErrorWhenTheProviderIsRemoved(t *testing.T) {
+	created := createdProvider()
+	svc, deploymentSvc := serviceForRollback(created, nil)
+
+	err := svc.rollbackCreatedProvider(context.Background(), created, "ou-acme", deploymentSvc)
+
+	assert.NoError(t, err)
+}
