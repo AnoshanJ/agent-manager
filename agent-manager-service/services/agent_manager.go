@@ -4568,7 +4568,8 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 		return nil, nil, fmt.Errorf("failed to list system-managed env var keys: %w", err)
 	}
 	for _, existing := range existingConfigs {
-		if keySet[existing.Key] || !systemKeys[existing.Key] {
+		// Never flatten a secret-backed var to a plain value — its live Value is always empty.
+		if keySet[existing.Key] || !systemKeys[existing.Key] || existing.IsSensitive || existing.SecretRef != "" {
 			continue
 		}
 		result = append(result, client.EnvVar{Key: existing.Key, Value: existing.Value})
