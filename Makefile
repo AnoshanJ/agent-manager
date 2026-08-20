@@ -82,7 +82,7 @@ setup: setup-colima setup-k3d setup-openchoreo setup-platform setup-sandbox setu
 	@echo ""
 	@echo "   Console:                 http://localhost:3000"
 	@echo "   API:                     http://localhost:8080"
-	@bash deployments/scripts/print-admin-credentials.sh http://localhost:3000 amp-thunder
+	@bash deployments/scripts/print-admin-credentials.sh http://localhost:3000 amp-thunder || true
 	@echo ""
 	@echo "Run 'make stop-port-forward' to stop port-forwards"
 	@echo "Run 'make port-forward' to restart in a dedicated terminal"
@@ -110,7 +110,7 @@ setup-amp: setup-console-local
 	@echo "✅ AMP layer ready!"
 	@echo "   Console: http://localhost:3000"
 	@echo "   API:     http://localhost:9000"
-	@bash deployments/scripts/print-admin-credentials.sh http://localhost:3000 amp-thunder
+	@bash deployments/scripts/print-admin-credentials.sh http://localhost:3000 amp-thunder || true
 
 # Air recompiles the Go service on a fresh container start, so :9000 lags
 # `docker compose up` by up to a couple of minutes. Steps that call the AMS API
