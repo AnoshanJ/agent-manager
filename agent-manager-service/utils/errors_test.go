@@ -25,8 +25,8 @@ import (
 // fmt.Errorf("%w: ...", ErrInvalidInput) if callers that classify errors by
 // sentinel still recognise it — otherwise swapping one for the other silently
 // reroutes a 400 into the controller's generic 500 fallback.
-func TestNewValidationErrorFor_MatchesItsSentinelAndKeepsBothHalves(t *testing.T) {
-	err := NewValidationErrorFor(ErrInvalidInput, "Promotion blocked: identity is not ready", "retry once provisioning completes")
+func TestNewInvalidInputError_MatchesItsSentinelAndKeepsBothHalves(t *testing.T) {
+	err := NewInvalidInputError("Promotion blocked: identity is not ready", "retry once provisioning completes")
 
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("errors.Is(err, ErrInvalidInput) = false, want true")

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
@@ -36,18 +37,15 @@ import (
 func TestHandleCommonErrors_ValidationErrorWithSentinel_KeepsItsOwnMessage(t *testing.T) {
 	rr := httptest.NewRecorder()
 
-	handleCommonErrors(rr, utils.NewValidationErrorFor(utils.ErrInvalidInput,
+	handleCommonErrors(rr, utils.NewInvalidInputError(
 		"Promotion blocked: the agent identity for \"staging\" is still being provisioned",
 		"retry once provisioning completes"), "Failed to promote agent")
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	var body struct {
-		Message string `json:"message"`
-		Reason  string `json:"reason"`
-		Code    string `json:"code"`
-	}
+	var body spec.ErrorResponse
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	assert.Equal(t, "Promotion blocked: the agent identity for \"staging\" is still being provisioned", body.Message)
-	assert.Equal(t, "retry once provisioning completes", body.Reason)
+	require.NotNil(t, body.Reason)
+	assert.Equal(t, "retry once provisioning completes", *body.Reason)
 	assert.Equal(t, utils.ErrCodeValidation, body.Code)
 }

@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -713,19 +714,29 @@ func (s *provisionForEnvIfMissingStub) ProvisionForEnvironmentIfMissing(_ contex
 	return false, nil
 }
 
+// stubUnresolvedMCPs makes the named connections unresolved in blockedEnv only,
+// which is what makes a promotion into that environment break them.
+func stubUnresolvedMCPs(t *testing.T, s *agentManagerService, blockedEnv string, names ...string) {
+	t.Helper()
+	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
+	require.True(t, ok)
+	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
+		unresolved := map[string]struct{}{}
+		if envName == blockedEnv {
+			for _, name := range names {
+				unresolved[name] = struct{}{}
+			}
+		}
+		return unresolved, nil
+	}
+}
+
 // An MCP connection that resolves in the source but not the target would promote with its
 // URL and API key injected as empty strings — the agent starts, then fails on every tool
 // call. The promotion must be refused instead, before the component is promoted.
 func TestPromoteAgent_BlocksWhenMCPConnectionUnresolvableInTarget(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
-	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
-	require.True(t, ok)
-	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
-		if envName == "staging" {
-			return map[string]struct{}{"booking": {}}, nil
-		}
-		return map[string]struct{}{}, nil
-	}
+	stubUnresolvedMCPs(t, s, "staging", "booking")
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -782,14 +793,7 @@ func TestPromoteAgent_BlocksWhenMCPBindingLookupFails(t *testing.T) {
 // the same message on every run instead of reshuffling with Go's map iteration order.
 func TestPromoteAgent_ListsBrokenMCPConnectionsInStableOrder(t *testing.T) {
 	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
-	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
-	require.True(t, ok)
-	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
-		if envName == "staging" {
-			return map[string]struct{}{"payments": {}, "booking": {}}, nil
-		}
-		return map[string]struct{}{}, nil
-	}
+	stubUnresolvedMCPs(t, s, "staging", "payments", "booking")
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -798,22 +802,6 @@ func TestPromoteAgent_ListsBrokenMCPConnectionsInStableOrder(t *testing.T) {
 
 	ve := requireBriefPromotionBlock(t, err)
 	assert.Contains(t, ve.Message, "booking, payments")
-}
-
-func TestPromoteAgent_BlocksWhenTargetIdentityNotReady(t *testing.T) {
-	// Empty, no-error result — exactly what EnvVarsForEnvironment returns
-	// when the target's AgentID binding hasn't finished provisioning yet.
-	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
-
-	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
-		SourceEnvironment: "dev",
-		TargetEnvironment: "staging",
-	})
-
-	ve := requireBriefPromotionBlock(t, err)
-	assert.Contains(t, ve.Message, "still being provisioned")
-	assert.False(t, *promoteCalled,
-		"promotion must be blocked BEFORE calling PromoteComponent — otherwise the pod is already promoted with leaked credentials by the time this error is returned")
 }
 
 func TestPromoteAgent_TargetIdentityReady_PromotesWithTargetOnlyCredentials(t *testing.T) {
@@ -1039,11 +1027,7 @@ func TestPromoteAgent_PollSucceedsWithinBudget_PromotesOnFirstCall(t *testing.T)
 func TestPromoteAgent_TargetCredentialRevoked_BlocksWithRegenerateMessage(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
 
-	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
-	require.True(t, ok)
-	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
-		return &AgentThunderBindingState{Status: models.AgentThunderStatusCompleted, HasSecret: false}, nil
-	}
+	stubBindingState(t, s, &AgentThunderBindingState{Status: models.AgentThunderStatusCompleted, HasSecret: false}, nil)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -1053,7 +1037,7 @@ func TestPromoteAgent_TargetCredentialRevoked_BlocksWithRegenerateMessage(t *tes
 	ve := requireBriefPromotionBlock(t, err)
 	assert.Contains(t, ve.Message, "revoked")
 	assert.Contains(t, ve.Reason, "regenerate")
-	assert.NotContains(t, ve.Message+ve.Reason, "still being provisioned", "a revoked credential must not tell the caller to just retry")
+	assert.NotContains(t, renderedUIError(ve), "still being provisioned", "a revoked credential must not tell the caller to just retry")
 	assert.False(t, *promoteCalled)
 }
 
@@ -1064,11 +1048,7 @@ func TestPromoteAgent_TargetCredentialRevoked_BlocksWithRegenerateMessage(t *tes
 func TestPromoteAgent_TargetProvisioningFailed_BlocksWithReprovisionMessage(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
 
-	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
-	require.True(t, ok)
-	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
-		return &AgentThunderBindingState{Status: models.AgentThunderStatusFailed, LastError: "thunder unreachable"}, nil
-	}
+	stubBindingState(t, s, &AgentThunderBindingState{Status: models.AgentThunderStatusFailed, LastError: "thunder unreachable"}, nil)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -1079,30 +1059,54 @@ func TestPromoteAgent_TargetProvisioningFailed_BlocksWithReprovisionMessage(t *t
 	assert.Contains(t, ve.Message, "failed")
 	assert.Contains(t, ve.Reason, "thunder unreachable")
 	assert.Contains(t, ve.Reason, "re-provision")
-	assert.NotContains(t, ve.Message+ve.Reason, "still being provisioned", "a permanently failed binding must not tell the caller to just retry")
+	assert.NotContains(t, renderedUIError(ve), "still being provisioned", "a permanently failed binding must not tell the caller to just retry")
 	assert.False(t, *promoteCalled)
 }
 
-// maxPromotionUIErrorLen bounds what a blocked promotion may put on screen.
-// The console renders a failed request as "<message>: <reason>" (see
-// extractServerErrorMessage in the api-client), so both halves together are
-// the UI string — 160 characters is roughly one line of an inline alert.
-const maxPromotionUIErrorLen = 160
+// maxPromotionUIErrorLen guards against a blocked promotion regrowing into the
+// wall of text it used to be. The console renders a failed request as
+// "<message>: <reason>" (see extractServerErrorMessage in the api-client), so
+// both halves together are the UI string. The alert wraps rather than
+// truncates, so this is a legibility budget rather than a rendering limit —
+// the pre-split messages ran past 300 characters.
+//
+// What the code bounds is the unbounded detail it interpolates: upstream
+// failure text and the list of connection names. The environment name is
+// echoed verbatim on purpose (the caller needs to know which one blocked), so
+// a deliberately long environment name can still push a message past this.
+const maxPromotionUIErrorLen = 200
 
 // captureLogs points s at a buffer-backed logger and returns the accumulated
 // output, so a test can assert that detail withheld from the UI still reaches
 // the operator.
-func captureLogs(t *testing.T, s *agentManagerService) func() string {
-	t.Helper()
+func captureLogs(s *agentManagerService) func() string {
 	var buf bytes.Buffer
 	s.logger = slog.New(slog.NewTextHandler(&buf, nil))
 	return buf.String
 }
 
+// stubBindingState makes GetBindingState return a fixed result, selecting which
+// arm of the hard block's state switch runs.
+func stubBindingState(t *testing.T, s *agentManagerService, state *AgentThunderBindingState, err error) {
+	t.Helper()
+	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
+	require.True(t, ok)
+	// (nil, nil) is what GetBindingState itself returns for a missing row.
+	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
+		return state, err
+	}
+}
+
+// renderedUIError is the string the console actually shows for a failed
+// request, so assertions about "what the user sees" all measure the same thing.
+func renderedUIError(ve *utils.ValidationError) string {
+	return ve.Message + ": " + ve.Reason
+}
+
 // requireBriefPromotionBlock asserts err is the caller-facing form of a
 // blocked promotion: a ValidationError (so the UI gets the short Message
 // instead of the whole technical string) that still classifies as invalid
-// input, and whose rendered form fits an inline alert.
+// input, and whose rendered form stays inside the legibility budget.
 func requireBriefPromotionBlock(t *testing.T, err error) *utils.ValidationError {
 	t.Helper()
 	require.Error(t, err)
@@ -1110,10 +1114,10 @@ func requireBriefPromotionBlock(t *testing.T, err error) *utils.ValidationError 
 	ve := utils.IsValidationError(err)
 	require.NotNil(t, ve, "the block must carry a short UI Message separate from its technical Reason")
 
-	rendered := ve.Message + ": " + ve.Reason
-	assert.LessOrEqual(t, len(rendered), maxPromotionUIErrorLen,
-		"the UI string is too lengthy (%d chars): %s", len(rendered), rendered)
-	assert.NotContains(t, rendered, "GET ", "REST call hints belong in the logs, not the UI")
+	rendered := renderedUIError(ve)
+	assert.LessOrEqual(t, utf8.RuneCountInString(rendered), maxPromotionUIErrorLen,
+		"the UI string is too lengthy (%d runes): %s", utf8.RuneCountInString(rendered), rendered)
+	assert.NotContains(t, rendered, "check GET ", "REST call hints belong in the logs, not the UI")
 	return ve
 }
 
@@ -1123,7 +1127,7 @@ func requireBriefPromotionBlock(t *testing.T, err error) *utils.ValidationError 
 // log instead.
 func TestPromoteAgent_IdentityStillProvisioning_KeepsUIErrorBriefAndLogsDetail(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
-	logs := captureLogs(t, s)
+	logs := captureLogs(s)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -1136,7 +1140,8 @@ func TestPromoteAgent_IdentityStillProvisioning_KeepsUIErrorBriefAndLogsDetail(t
 	assert.NotContains(t, ve.Message, "inherit", "the leak rationale is operator detail, not a UI message")
 	assert.Contains(t, logs(), "inherit", "the full rationale must still reach the log")
 	assert.Contains(t, logs(), "staging")
-	assert.False(t, *promoteCalled)
+	assert.False(t, *promoteCalled,
+		"promotion must be blocked BEFORE calling PromoteComponent — otherwise the pod is already promoted with leaked credentials by the time this error is returned")
 }
 
 // The same short-message contract for the state the hard block cannot explain
@@ -1144,12 +1149,8 @@ func TestPromoteAgent_IdentityStillProvisioning_KeepsUIErrorBriefAndLogsDetail(t
 // yet.
 func TestPromoteAgent_IdentityBindingMissing_KeepsUIErrorBriefAndSaysRetry(t *testing.T) {
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
-	logs := captureLogs(t, s)
-	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
-	require.True(t, ok)
-	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
-		return nil, nil //nolint:nilnil // "no binding row yet" is what GetBindingState itself returns for a missing row
-	}
+	logs := captureLogs(s)
+	stubBindingState(t, s, nil, nil)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -1158,7 +1159,8 @@ func TestPromoteAgent_IdentityBindingMissing_KeepsUIErrorBriefAndSaysRetry(t *te
 
 	ve := requireBriefPromotionBlock(t, err)
 	assert.Contains(t, ve.Message, "staging")
-	assert.Contains(t, ve.Reason, "retry")
+	assert.Contains(t, ve.Reason, "just triggered",
+		"the missing-row arm must be distinguishable from the still-provisioning arm, which shares its Message")
 	assert.Contains(t, logs(), "staging")
 	assert.False(t, *promoteCalled)
 }
@@ -1171,12 +1173,8 @@ func TestPromoteAgent_IdentityBindingMissing_KeepsUIErrorBriefAndSaysRetry(t *te
 func TestPromoteAgent_BindingStateReadFails_ReportsOperationalFailureNotValidation(t *testing.T) {
 	readFailure := errors.New("read agent thunder binding state: dial tcp: connection refused")
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
-	logs := captureLogs(t, s)
-	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
-	require.True(t, ok)
-	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
-		return nil, readFailure
-	}
+	logs := captureLogs(s)
+	stubBindingState(t, s, nil, readFailure)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
@@ -1191,18 +1189,40 @@ func TestPromoteAgent_BindingStateReadFails_ReportsOperationalFailureNotValidati
 	assert.False(t, *promoteCalled)
 }
 
+// Realistic worst case for the MCP block: several long connection names.
+// Connection names are user-supplied and unbounded, so
+// without shortening the list the UI string grows into the wall of text the
+// split exists to prevent — and shortening must drop whole names, never cut one
+// mid-name and put a connection that does not exist in front of the user.
+func TestPromoteAgent_ManyLongMCPConnectionNames_KeepsUIErrorBriefAndNamesNoPartialConnection(t *testing.T) {
+	names := []string{"booking-service", "invoicing-api", "notifications-fanout", "payments-gateway", "search-indexer"}
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "target-client-id"}}, nil)
+	stubUnresolvedMCPs(t, s, "staging", names...)
+	logs := captureLogs(s)
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Contains(t, ve.Message, "(+", "a shortened list must say how many connections it left out")
+	assert.NotContains(t, ve.Message, "…",
+		"a list is shortened by dropping whole names, so no name may be cut mid-word")
+	for _, name := range names {
+		assert.Contains(t, logs(), name, "every blocked connection must reach the log")
+	}
+	assert.False(t, *promoteCalled)
+}
+
 // A Thunder failure message is unbounded — the whole point of the split is
 // that it cannot push the UI string back over the limit. The full text must
 // still be logged verbatim.
 func TestPromoteAgent_ProvisioningFailedWithLongLastError_TruncatesUIReason(t *testing.T) {
 	longLastError := "thunder unreachable: " + strings.Repeat("connection refused; ", 30)
 	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
-	logs := captureLogs(t, s)
-	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
-	require.True(t, ok)
-	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
-		return &AgentThunderBindingState{Status: models.AgentThunderStatusFailed, LastError: longLastError}, nil
-	}
+	logs := captureLogs(s)
+	stubBindingState(t, s, &AgentThunderBindingState{Status: models.AgentThunderStatusFailed, LastError: longLastError}, nil)
 
 	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",

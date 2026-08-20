@@ -88,6 +88,12 @@ func handleCommonErrors(w http.ResponseWriter, err error, fallbackMsg string) {
 	// version that can't be written as a label) is still a client-side problem —
 	// report it as a 400 naming the offending value instead of letting it reach
 	// the generic 500 fallback.
+	//
+	// Keep this FIRST: a ValidationError may also match a classification
+	// sentinel (utils.NewInvalidInputError sets ErrInvalidInput), and the
+	// sentinel cases below relabel the response with a generic bucket message.
+	// Moving this case down silently replaces every such error's own
+	// user-facing Message with "Invalid input provided".
 	case utils.IsValidationError(err) != nil:
 		utils.WriteValidationErrorResponse(w, err)
 
