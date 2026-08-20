@@ -173,27 +173,25 @@ thunder:
     # 01900000-0000-7000-8000-000000000030) is deliberately left at its default username
     # "admin" here — 67-amp-default-users.yaml below re-targets our own admin bootstrap
     # entry at this SAME fixed id instead of creating a separate user, merging the two
-    # into a single account (as the previous version's bootstrap did by looking up and
-    # reusing this same native user). That account already sits in Thunder's built-in
+    # into a single account. That account already sits in Thunder's built-in
     # "Administrators" group (system permission), so it works for both the AMP console
     # and ThunderID's own native console without needing a second AMP-side role for it.
-    # admin.password is what actually sets this merged account's real credential —
-    # 67-amp-default-users.yaml deliberately never touches credentials on it (see that
-    # file's comment for why). Must be set explicitly: the thunderid subchart does not
-    # default this value itself (it generates a random password if left unset, per the
-    # thunderid chart's own values.yaml comment), so leaving this unset silently
-    # breaks the documented admin/admin console login. Keep this in sync with
-    # thunder.bootstrap.defaultUsers[0].password below if you change either one.
-    # WARNING: admin.password below is a LOCAL-DEVELOPMENT-ONLY placeholder.
-    # In production, override thunder.setup.admin.password (and
-    # thunder.bootstrap.defaultUsers[0].password) via a Kubernetes Secret or
-    # an external secret manager. TODO: this is one instance of a known,
-    # repo-wide gap — every hardcoded password in agent-manager is planned to
-    # be replaced with a generated or operator-supplied value as a separate
-    # effort, not fixed piecemeal per file.
+    #
+    # Leave password empty for production: this chart's own admin-credentials.yaml
+    # then generates a random 10-character value itself (reused across
+    # reinstalls the same way Thunder's own admin-secret.yaml already does),
+    # so there is no shipped default for anyone to leave unchanged. Set it
+    # explicitly (the local dev, quick-start, and VM installers all set it to
+    # a fixed value) only when a memorable password matters more than a
+    # generated one — e.g. a machine only the operator can reach. Either way,
+    # retrieve the real value in effect any time with:
+    #   kubectl get secret amp-admin-credentials -n <thunder-namespace> -o jsonpath='{.data.password}' | base64 -d
     admin:
       username: "admin"
-      password: "admin"
+      password: ""
+      passwordRef:
+        name: "amp-admin-credentials"
+        key: "password"
     resources:
       limits:
         cpu: 500m
@@ -714,8 +712,11 @@ thunder:
       allowSelfRegistration: true
     # Default users configuration
     defaultUsers:
+      # No password here: for username "admin" specifically, 67-amp-default-users.yaml
+      # never renders a credentials block (it merges into Thunder's own native admin
+      # account, which already has one from thunder.setup.admin.passwordRef above) — a
+      # value here would be silently unused, not a second copy of the real password.
       - username: "admin"
-        password: "admin"
         givenName: "Admin"
         familyName: "User"
         groups: []

@@ -851,14 +851,13 @@ data:
     #
     # No credentials block here, deliberately: Thunder's own "01-" bootstrap document
     # (which runs first in the same import batch, since it sorts before "67-") already
-    # creates this exact user and sets its credential from thunder.setup.admin.password
-    # (explicitly set, matching defaultUsers[0].password below — the subchart does not
-    # default this itself). Setting credentials again here,
-    # on the very same id in the very same batch, fails with USR-1028 "Credential update
-    # not allowed" — Thunder refuses a second credential write against a user that
-    # already has one, even within a single bootstrap run. If you change
-    # defaultUsers[0].password, also update thunder.setup.admin.password to match, since
-    # that is what actually sets this account's real password.
+    # creates this exact user and sets its credential from
+    # thunder.setup.admin.passwordRef (see values.yaml — generated once by this chart's
+    # own admin-credentials.yaml, not an inline value here). Setting credentials again
+    # here, on the very same id in the very same batch, fails with USR-1028 "Credential
+    # update not allowed" — Thunder refuses a second credential write against a user
+    # that already has one, even within a single bootstrap run. defaultUsers[0] has no
+    # password field for this reason — it would be silently unused, not a real copy.
     id: "01900000-0000-7000-8000-000000000030"
     type: Person
     ouHandle: default
