@@ -26,7 +26,6 @@
         "concepts/agentid",
         "concepts/gateway",
         "concepts/deployment-pipeline",
-        "concepts/agent-sandboxing",
         "concepts/llm-service-provider",
         "concepts/mcp-proxy"
       ]
@@ -59,7 +58,6 @@
           "label": "Platform Administration",
           "collapsed": true,
           "items": [
-            "guides/register-ai-gateway",
             {
               "type": "doc",
               "id": "guides/register-llm-service-provider",
