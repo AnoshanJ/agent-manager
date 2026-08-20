@@ -507,6 +507,117 @@ func (s *agentManagerService) buildCreateTraitRequests(ctx context.Context, ouID
 	return traits, nil
 }
 
+// effectiveUpstreamInterface returns the port and base path the API gateway must
+// dial to reach this agent's container, for the api-configuration trait.
+//
+// A source-built agent carries them on its component's workflow parameters, so
+// they read straight off the component. A kind-sourced agent has no workflow —
+// its endpoint lives only on the Workload — so convertComponentFromTyped leaves
+// InputInterface nil, and falling through to the chat-API defaults would point the
+// gateway at a port nothing listens on (a 503 on every request to a custom-api
+// agent). Resolve those from the build its kind version was published from.
+//
+// deployedImageID is the image this call is deploying. A deploy can select a kind
+// version other than the one the agent was created from, and the component's
+// kind-version label does not move when it does — so the image, not the label,
+// says which version's interface the gateway must be pointed at. Empty (or an
+// image matching no published version) falls back to the label.
+//
+// The chat-API defaults remain the last resort: a chat agent genuinely serves on
+// them, and they are the only sane guess when nothing else resolves
+func (s *agentManagerService) effectiveUpstreamInterface(ctx context.Context, ouID string, agent *models.AgentResponse, deployedImageID string) (int32, string) {
+	port := config.GetConfig().DefaultChatAPI.DefaultHTTPPort
+	basePath := config.GetConfig().DefaultChatAPI.DefaultBasePath
+
+	iface := agent.InputInterface
+	if agent.KindName != "" {
+		versionTag := agent.KindVersion
+		if deployed := s.kindVersionForImage(ctx, ouID, agent.KindName, deployedImageID); deployed != "" {
+			versionTag = deployed
+		}
+		if resolved := s.kindVersionInputInterface(ctx, ouID, agent.KindName, versionTag); resolved != nil {
+			iface = resolved
+		}
+	}
+	if iface != nil {
+		if iface.Port > 0 {
+			port = iface.Port
+		}
+		if iface.BasePath != "" {
+			basePath = iface.BasePath
+		}
+	}
+	return port, basePath
+}
+
+// kindVersionForImage returns the kind version published as the given image, or ""
+// when the image is empty, matches no published version, or the kind can't be read.
+// Published images are unique per version, so the mapping is unambiguous.
+func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kindName, imageID string) string {
+	if imageID == "" {
+		return ""
+	}
+	kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+	if err != nil {
+		s.logger.Warn("Failed to read agent kind while resolving the deployed version",
+			"kindName", kindName, "error", err)
+		return ""
+	}
+	for _, v := range kind.Versions {
+		if v.ImageId == imageID {
+			return v.Version
+		}
+	}
+	return ""
+}
+
+// kindVersionInputInterface reads the input interface a kind version was published
+// with, off the build (workflow run) that produced its image.
+//
+// The build is read rather than the kind's source agent because a source agent goes
+// on living: change its port or base path after publishing, and reading the
+// component would describe an interface the published image never served. A
+// WorkflowRun is a finished record of one build, so its parameters still describe
+// the image this agent actually runs — the same reason the agent catalogue reads a
+// version's API spec from there.
+//
+// Returns nil on any failure so callers fall back to their defaults rather than
+// failing a deploy over it.
+func (s *agentManagerService) kindVersionInputInterface(ctx context.Context, ouID, kindName, versionTag string) *models.InputInterface {
+	if versionTag == "" {
+		s.logger.Warn("Agent has no recorded kind version; cannot resolve its published upstream interface",
+			"kindName", kindName)
+		return nil
+	}
+	kindVersion, err := s.agentKindService.GetKindVersion(ctx, ouID, kindName, versionTag)
+	if err != nil {
+		s.logger.Warn("Failed to read kind version while resolving upstream interface",
+			"kindName", kindName, "kindVersion", versionTag, "error", err)
+		return nil
+	}
+	return s.kindBuildInputInterface(ctx, ouID, kindVersion)
+}
+
+// kindBuildInputInterface reads the input interface off the build that produced a
+// kind version's image. Returns nil when the version has no build, or the build can
+// no longer be read, so callers fall back rather than failing over it.
+func (s *agentManagerService) kindBuildInputInterface(ctx context.Context, ouID string, kindVersion *models.AgentKindVersion) *models.InputInterface {
+	if kindVersion == nil || kindVersion.Kind == nil || kindVersion.BuildName == "" {
+		return nil
+	}
+	build, err := s.ocClient.GetBuild(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, kindVersion.BuildName)
+	if err != nil {
+		s.logger.Warn("Failed to read a kind version's build while resolving its input interface",
+			"kindName", kindVersion.Kind.Name, "kindVersion", kindVersion.Version,
+			"buildName", kindVersion.BuildName, "error", err)
+		return nil
+	}
+	if build == nil {
+		return nil
+	}
+	return build.InputInterface
+}
+
 // ErrInstrumentationVersionNotPinned indicates an agent has no pinned AMP
 // instrumentation version: no row in agent_configs yet, no project pipeline,
 // or the column is NULL. Callers should treat it as "fall back to the platform
@@ -1282,30 +1393,27 @@ func (s *agentManagerService) CreateAgent(ctx context.Context, ouID string, proj
 			SubType: &subType,
 		}
 		req.Build = modelBuildToSpecBuild(sourceComponent.Build)
-		if sourceComponent.InputInterface != nil {
-			port := sourceComponent.InputInterface.Port
-			basePath := sourceComponent.InputInterface.BasePath
+		// Prefer the interface recorded on the build this version was published
+		// from: the source agent keeps living, so its component may describe a port
+		// or base path the published image never served. The component is the
+		// fallback for versions whose build is gone. This is what the created
+		// agent's api-configuration trait — and so the gateway's upstream URL — is
+		// built from, which is why a wrong value here is a 503 rather than a
+		// cosmetic slip.
+		iface := s.kindBuildInputInterface(ctx, ouID, kindVersion)
+		if iface == nil {
+			iface = sourceComponent.InputInterface
+		}
+		if iface != nil {
+			port := iface.Port
+			basePath := iface.BasePath
 			req.InputInterface = &spec.InputInterface{
-				Type:     sourceComponent.InputInterface.Type,
+				Type:     iface.Type,
 				Port:     &port,
 				BasePath: &basePath,
 			}
-			if sourceComponent.InputInterface.Schema != nil && sourceComponent.InputInterface.Schema.Path != "" {
-				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &sourceComponent.InputInterface.Schema.Path}
-				// Kind-sourced agents deploy from a stored image with no git checkout/build step,
-				// so the schema path above can never be resolved into content for them. Resolve the
-				// source agent's already-built OpenAPI content here so the Swagger UI has something
-				// to render instead of "No API schema available for this endpoint".
-				if endpoints, epErr := s.ocClient.GetComponentEndpoints(ctx, ouID, kindVersion.Kind.ProjectName, kindVersion.Kind.AgentName, ""); epErr != nil {
-					s.logger.Warn("Failed to resolve source agent's OpenAPI schema content for kind instantiation",
-						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName, "error", epErr)
-				} else if sourceEndpoint, ok := endpoints[kindVersion.Kind.AgentName+"-endpoint"]; ok && sourceEndpoint.Schema.Content != "" {
-					content := sourceEndpoint.Schema.Content
-					req.InputInterface.Schema.Content = &content
-				} else {
-					s.logger.Debug("No resolved OpenAPI schema content found for source agent's endpoint during kind instantiation",
-						"ouID", ouID, "sourceProject", kindVersion.Kind.ProjectName, "agentName", kindVersion.Kind.AgentName)
-				}
+			if iface.Schema != nil && iface.Schema.Path != "" {
+				req.InputInterface.Schema = &spec.InputInterfaceSchema{Path: &iface.Schema.Path}
 			}
 		}
 		imageID = kindVersion.ImageId
@@ -2747,10 +2855,14 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("failed to prepare environment %q for deployment: %w", lowestEnv, err)
 	}
 
-	// Convert to deploy request with user-provided env vars
+	// Image only. Env vars and file mounts go to the environment's ReleaseBinding
+	// (applyEnvScopedWorkloadConfig below), not to the component-wide Workload.
+	//
+	// Environment is intentionally unset: it exists solely to make Deploy stamp restartedAt on the
+	// binding, and the override write already does that. Setting it here would stamp the same
+	// binding twice per deploy and can roll the pod twice.
 	deployReq := client.DeployRequest{
-		ImageID:     req.ImageId,
-		Environment: lowestEnv,
+		ImageID: req.ImageId,
 	}
 
 	// Log deploy request env var details for debugging
@@ -2841,25 +2953,32 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	// Combine user-processed env vars with preserved system-managed env vars
 	// and freshly-derived AgentID credentials.
-	deployReq.Env = append(envVars, systemManagedEnvVars...)
-	deployReq.Env = append(deployReq.Env, identityEnvVars...)
+	//
+	// These are written to THIS environment's ReleaseBinding workloadOverrides after Deploy, not
+	// to the Workload: the Workload is a single component-wide base that every environment merges
+	// into its render, so config written there leaks into every other environment and can never be
+	// unset by an override. Deploy() itself only updates the image.
+	overrideEnvVars := append(envVars, systemManagedEnvVars...)
+	overrideEnvVars = append(overrideEnvVars, identityEnvVars...)
 
-	// Ensure Env is always non-nil so Deploy() replaces the Workload env vars rather than
-	// skipping the update. A nil slice is a no-op in Deploy(); an empty slice clears all vars.
-	if deployReq.Env == nil {
-		deployReq.Env = []client.EnvVar{}
+	// Non-nil so the override write means "this is the full set" rather than "leave existing
+	// alone" — an empty slice clears the environment's env vars.
+	if overrideEnvVars == nil {
+		overrideEnvVars = []client.EnvVar{}
 	}
 
-	s.logger.Debug("Final deploy env vars", "agentName", agentName, "totalCount", len(deployReq.Env))
+	s.logger.Debug("Final deploy env vars", "agentName", agentName, "totalCount", len(overrideEnvVars))
 
 	// Process file mounts
-	fileVars, err := s.processFileVars(ctx, ouID, projectName, lowestEnv, agentName, req.Files)
+	overrideFileVars, err := s.processFileVars(ctx, ouID, projectName, lowestEnv, agentName, req.Files)
 	if err != nil {
 		s.logger.Error("Failed to process file mounts", "agentName", agentName, "error", err)
 		return "", fmt.Errorf("failed to process file mounts: %w", err)
 	}
-	deployReq.Files = fileVars
-	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(fileVars))
+	if overrideFileVars == nil {
+		overrideFileVars = []client.FileVar{}
+	}
+	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(overrideFileVars))
 
 	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
 	if err != nil {
@@ -2932,9 +3051,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("%w for agent %s in environment %s", utils.ErrDeploymentInProgress, agentName, lowestEnv)
 	}
 
-	componentDeployConfig := client.ComponentDeploymentConfigRequest{
-		Env: deployReq.Env,
-	}
+	// Traits only. Env is left nil so the Component's build workflow parameters are not rewritten
+	// here — this deploy's env vars go to the environment's ReleaseBinding instead.
+	componentDeployConfig := client.ComponentDeploymentConfigRequest{}
 	requiresComponentConfig := false
 	isAPIAgent := agent.Type.Type == string(utils.AgentTypeAPI)
 
@@ -2959,20 +3078,9 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 	deployTraitEnvConfigs := buildTraitEnvConfigs(agentName, policies, "", resilienceTimeoutSeconds, isPythonBuildpack, isBallerinaBuildpack, enableAutoInstrumentation, deployInstrumentationImage)
 
-	// Replace Component CR workflow parameters with env vars and file mounts from deploy request
-	// This replaces all existing env vars to ensure the component CR matches the deploy request
-	s.logger.Debug("Replacing component workflow parameters with environment variables", "agentName", agentName, "envVarCount", len(deployReq.Env))
-	if err := s.ocClient.ReplaceComponentEnvVars(ctx, ouID, projectName, agentName, deployReq.Env); err != nil {
-		s.logger.Warn("Failed to replace component workflow parameters with env vars", "agentName", agentName, "error", err)
-		// Continue with deploy even if this fails - env vars will still be applied to the workload
-	}
-
-	if deployReq.Files != nil {
-		s.logger.Debug("Replacing component workflow parameters with file mounts", "agentName", agentName, "fileMountCount", len(deployReq.Files))
-		if err := s.ocClient.ReplaceComponentFileMounts(ctx, ouID, projectName, agentName, deployReq.Files); err != nil {
-			s.logger.Warn("Failed to replace component workflow parameters with file mounts", "agentName", agentName, "error", err)
-		}
-	}
+	// Env vars and file mounts are NOT written to the Component's build workflow parameters here.
+	// Those are seeded once at agent creation and then left alone; this deploy's config goes to the
+	// environment's ReleaseBinding instead — see applyEnvScopedWorkloadConfig.
 
 	if isAPIAgent {
 		if targetEnv == nil {
@@ -2984,18 +3092,11 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		}
 		artifactID := apiArtifact.UUID.String()
 
+		upstreamPort, upstreamBasePath := s.effectiveUpstreamInterface(ctx, ouID, agent, req.ImageId)
 		traitOpts := []client.TraitOption{
 			client.WithArtifactID(artifactID),
-		}
-		if agent.InputInterface != nil && agent.InputInterface.Port > 0 {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(agent.InputInterface.Port))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamPort(config.GetConfig().DefaultChatAPI.DefaultHTTPPort))
-		}
-		if agent.InputInterface != nil && agent.InputInterface.BasePath != "" {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(agent.InputInterface.BasePath))
-		} else {
-			traitOpts = append(traitOpts, client.WithUpstreamBasePath(config.GetConfig().DefaultChatAPI.DefaultBasePath))
+			client.WithUpstreamPort(upstreamPort),
+			client.WithUpstreamBasePath(upstreamBasePath),
 		}
 		if resilienceTimeoutSeconds > 0 {
 			traitOpts = append(traitOpts, client.WithResilienceTimeout(resilienceTimeoutSeconds))
@@ -3016,19 +3117,20 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		s.logger.Info("Updated api-configuration trait", "agentName", agentName, "artifactID", artifactID, "enableApiKeySecurity", enableApiKeySecurity)
 	}
 
-	// Apply deploy-time Component CR changes in a single PUT. This replaces workflow env vars
-	// and also applies any trait changes needed for this deploy.
-	s.logger.Debug("Updating component deployment config", "agentName", agentName, "envVarCount", len(deployReq.Env),
+	// Apply deploy-time Component CR changes in a single PUT — trait changes needed for this deploy.
+	s.logger.Debug("Updating component deployment config", "agentName", agentName,
 		"traitsToAttach", len(componentDeployConfig.TraitsToAttach), "traitsToDetach", len(componentDeployConfig.TraitsToDetach))
 	if err := s.ocClient.UpdateComponentDeploymentConfig(ctx, ouID, projectName, agentName, componentDeployConfig); err != nil {
 		if requiresComponentConfig {
 			return "", fmt.Errorf("failed to update component deployment config: %w", err)
 		}
-		s.logger.Warn("Failed to replace component workflow parameters with env vars", "agentName", agentName, "error", err)
-		// Continue with deploy even if this fails - env vars will still be applied to the workload.
+		s.logger.Warn("Failed to update component deployment config", "agentName", agentName, "error", err)
+		// Continue with deploy even if this fails — the traits are not required for this agent type.
 	}
 
-	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
+	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured).
+	// This updates the Workload image only; env vars and file mounts are applied per-environment
+	// via the release binding below.
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
 	// The permission gating this route is agent:deploy-non-production whatever
 	// the pipeline's lowest environment actually is, so the record has to carry
@@ -3057,6 +3159,13 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", err
 	}
 	deployAttempt.Complete(ctx, nil)
+
+	// Write this environment's env vars and file mounts to its release binding, so this deploy's
+	// config reaches this environment only. The component-wide base is left as agent creation
+	// seeded it — see applyEnvScopedWorkloadConfig for why it is not cleared here.
+	if err := s.applyEnvScopedWorkloadConfig(ctx, ouID, projectName, agentName, lowestEnv, overrideEnvVars, overrideFileVars); err != nil {
+		return "", err
+	}
 
 	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
 	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
@@ -3110,6 +3219,69 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "ouID", org.Name, "projectName", projectName, "environment", lowestEnv)
 	return lowestEnv, nil
+}
+
+// releaseBindingWaitAttempts / releaseBindingWaitInterval bound how long a deploy waits for the
+// environment's ReleaseBinding to exist. On an agent's first deploy the binding is created by
+// OpenChoreo's component controller once the build's Release lands (ensureReleaseBinding), so it
+// can trail the Deploy call by a reconcile cycle.
+const (
+	releaseBindingWaitAttempts = 10
+	releaseBindingWaitInterval = 2 * time.Second
+)
+
+// applyEnvScopedWorkloadConfig writes the environment's full env var and file mount set to its
+// ReleaseBinding workloadOverrides. Deploy no longer writes to the component-wide base (the
+// Workload container spec and the Component's build workflow parameters), so config applied here
+// reaches only this environment.
+//
+// The base is deliberately left untouched. It is seeded once at agent creation and every
+// environment renders base merged with its own overrides, which has a known consequence: a var set
+// at creation is inherited everywhere and cannot be removed, since an override cannot unset a base
+// key. Clearing the base would fix that, but it changes what EVERY environment renders — an
+// environment promoted before its binding carried the full set (create → auto-build → promote,
+// with no deploy in between) is silently relying on the base, and would lose those vars and roll
+// into a broken config the moment an unrelated environment was deployed. Removing the base
+// therefore requires first materializing it into every existing binding; until that exists,
+// leaving it in place trades un-removable create-time config for never breaking a live
+// environment out from under itself.
+func (s *agentManagerService) applyEnvScopedWorkloadConfig(
+	ctx context.Context,
+	ouID, projectName, agentName, environment string,
+	envVars []client.EnvVar,
+	fileVars []client.FileVar,
+) error {
+	var lastErr error
+	for attempt := 1; attempt <= releaseBindingWaitAttempts; attempt++ {
+		lastErr = s.ocClient.ReplaceReleaseBindingWorkloadOverrides(ctx, ouID, agentName, environment, envVars, fileVars)
+		if lastErr == nil {
+			break
+		}
+		if !errors.Is(lastErr, utils.ErrNotFound) {
+			s.logger.Error("Failed to write workload overrides to release binding",
+				"agentName", agentName, "environment", environment, "error", lastErr)
+			return fmt.Errorf("failed to apply environment configuration: %w", lastErr)
+		}
+		// Binding not created yet (first deploy) — wait for the controller and retry.
+		s.logger.Debug("Release binding not ready yet, retrying workload override write",
+			"agentName", agentName, "environment", environment, "attempt", attempt)
+		select {
+		case <-ctx.Done():
+			// Wrapped so the caller can still match context.Canceled/DeadlineExceeded with
+			// errors.Is while seeing which operation gave up.
+			return fmt.Errorf("failed to apply environment configuration: %w", ctx.Err())
+		case <-time.After(releaseBindingWaitInterval):
+		}
+	}
+	if lastErr != nil {
+		s.logger.Error("Release binding never became available for workload overrides",
+			"agentName", agentName, "environment", environment, "error", lastErr)
+		return fmt.Errorf("failed to apply environment configuration: %w", lastErr)
+	}
+
+	s.logger.Debug("Applied environment-scoped workload config", "agentName", agentName,
+		"environment", environment, "envVarCount", len(envVars), "fileMountCount", len(fileVars))
+	return nil
 }
 
 // resolvedTracingConfig holds resolved instrumentation config values.
@@ -3925,21 +4097,40 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 				userEnv = append(userEnv, env)
 			}
 		}
-		if len(userEnv) > 0 {
+		// Nil (caller sent nothing) and empty (caller cleared the list) must stay distinguishable:
+		// an empty list is a deliberate "this environment has none", so it still has to be
+		// processed and written as an explicit override rather than skipped.
+		//
+		// processEnvVars is also the sole writer of file-mount secrets to the KV store (it handles
+		// env and file secrets together on one path), so it must run whenever the request carries
+		// files, even with no env vars — otherwise processFileVars emits a secretKeyRef to a secret
+		// that was never created.
+		if req.Env != nil || req.Files != nil {
 			processed, err := s.processEnvVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, userEnv, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process environment variables for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process environment variables: %w", err)
 			}
 			envOverrides = append(envOverrides, processed...)
+			// An explicit empty req.Env means "this environment has none", and PromoteComponent
+			// tells nil (leave the binding's env alone) from empty (replace it with nothing) —
+			// so the cleared list has to reach it as a non-nil empty slice rather than the nil
+			// that appending zero processed entries leaves behind. Gated on req.Env because a
+			// files-only request must not clear env vars it never mentioned.
+			if req.Env != nil && envOverrides == nil {
+				envOverrides = []client.EnvVar{}
+			}
 		}
-		if len(req.Files) > 0 {
+		if req.Files != nil {
 			processed, err := s.processFileVars(ctx, ouID, projectName, req.TargetEnvironment, agentName, req.Files)
 			if err != nil {
 				s.logger.Error("Failed to process file mounts for promotion", "agentName", agentName, "error", err)
 				return fmt.Errorf("failed to process file mounts: %w", err)
 			}
 			fileOverrides = processed
+			if fileOverrides == nil {
+				fileOverrides = []client.FileVar{}
+			}
 		}
 	}
 
@@ -4493,9 +4684,9 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 }
 
 // getSystemManagedEnvVars fetches existing env vars from the Component CR / ReleaseBinding and
-// identifies system-managed secret env vars (e.g., LLM provider config API keys).
+// identifies system-managed env vars (e.g., LLM provider config URL and API key).
 //
-// System-managed env vars are identified by looking up the secretRef in the DB: if it is
+// System-managed secret env vars are identified by looking up the secretRef in the DB: if it is
 // recorded in agent_env_config_variables_mapping for this agent's LLM configurations, it is
 // system-managed. This is provider-agnostic — it does not rely on secret reference name
 // patterns.
@@ -4505,7 +4696,7 @@ func isValidPromotionPath(promotionPaths []models.PromotionPath, source, target 
 // K8s Secret is different (e.g., "api-key").
 //
 // Returns:
-//   - []client.EnvVar: system-managed env vars with correct SecretKeyRef
+//   - []client.EnvVar: system-managed env vars with correct SecretKeyRef or live plain value
 //   - map[string]bool: set of system-managed env var keys (for filtering from deploy request)
 func (s *agentManagerService) getSystemManagedEnvVars(
 	ctx context.Context,
@@ -4559,6 +4750,22 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 		keySet[existing.Key] = true
 		s.logger.Info("Identified system-managed secret env var",
 			"key", existing.Key, "secretRef", existing.SecretRef, "secretKey", secretKey)
+	}
+
+	// The scan above only catches secret-backed vars; add any plain system-managed vars
+	// (e.g. the LLM provider URL) it missed, using their current live value.
+	systemKeys, err := s.agentConfigurationService.ListSystemManagedEnvVarKeys(ctx, componentName, ouID, projectName, environmentName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list system-managed env var keys: %w", err)
+	}
+	for _, existing := range existingConfigs {
+		// Never flatten a secret-backed var to a plain value — its live Value is always empty.
+		if keySet[existing.Key] || !systemKeys[existing.Key] || existing.IsSensitive || existing.SecretRef != "" {
+			continue
+		}
+		result = append(result, client.EnvVar{Key: existing.Key, Value: existing.Value})
+		keySet[existing.Key] = true
+		s.logger.Info("Identified system-managed plain env var", "key", existing.Key)
 	}
 
 	return result, keySet, nil
@@ -5021,11 +5228,50 @@ func (s *agentManagerService) GetAgentDeployments(ctx context.Context, ouID stri
 	// for all-runc setups, and converges in a single write per binding.
 	if agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
 		s.logger.Warn("isolation reconcile: failed to fetch agent for type gate", "agentName", agentName, "error", err)
-	} else if agent.Type.Type == string(utils.AgentTypeAPI) {
-		s.reconcileIsolationRuntimeClass(ctx, ouID, agentName, deployments)
+	} else {
+		if agent.Type.Type == string(utils.AgentTypeAPI) {
+			s.reconcileIsolationRuntimeClass(ctx, ouID, agentName, deployments)
+		}
+		s.resolveDeployedKindVersions(ctx, ouID, agent.KindName, deployments)
 	}
 
 	return deployments, nil
+}
+
+// resolveDeployedKindVersions stamps each deployment with the Agent Kind version
+// its image was published as, mutating deployments in place.
+//
+// The version an agent runs is a property of the deployment, not of the agent:
+// redeploying on a newer kind version — or promoting one environment and not
+// another — changes it per environment, while the component's kind-version label
+// records only what the agent was created from. The image is the link between the
+// two, since a published version's image is unique.
+//
+// Best-effort: a kind that can't be read leaves the versions empty rather than
+// failing the deployments read, which must keep working for the rest of its data.
+func (s *agentManagerService) resolveDeployedKindVersions(ctx context.Context, ouID, kindName string, deployments []*models.DeploymentResponse) {
+	if kindName == "" || len(deployments) == 0 {
+		return
+	}
+	kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+	if err != nil {
+		s.logger.Warn("Failed to resolve deployed kind versions", "kindName", kindName, "error", err)
+		return
+	}
+	versionByImage := make(map[string]string, len(kind.Versions))
+	for _, v := range kind.Versions {
+		if v.ImageId != "" {
+			versionByImage[v.ImageId] = v.Version
+		}
+	}
+	for _, deployment := range deployments {
+		if deployment == nil {
+			continue
+		}
+		// No entry means the image predates the kind or its version was deleted;
+		// leaving it empty is the honest answer, and callers render nothing.
+		deployment.KindVersion = versionByImage[deployment.ImageId]
+	}
 }
 
 // reconcileIsolationRuntimeClass ensures every deployment whose environment has an isolation tier

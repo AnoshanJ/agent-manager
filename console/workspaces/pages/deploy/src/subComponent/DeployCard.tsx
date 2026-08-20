@@ -23,7 +23,6 @@ import {
   useGetAgentResourceConfigs,
   useGetDeploymentPipeline,
   useListAgentDeployments,
-  useListAgentKindVersions,
   useUpdateDeploymentState,
 } from "@agent-management-platform/api-client";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
@@ -81,7 +80,6 @@ import {
   AgentResourceConfigsResponse,
   MetricsResponse,
   Environment,
-  AgentKindVersionResponse,
   TraceListTimeRange,
 } from "@agent-management-platform/types";
 import { extractBuildIdFromImageId } from "../utils/extractBuildIdFromImageId";
@@ -415,13 +413,11 @@ export function DeployCard(props: DeployCardProps) {
 
   const kindName = agent?.kindName;
 
-  const { data: kindVersions } = useListAgentKindVersions(
-    { orgName: orgId ?? "", kindName: kindName ?? "" },
-  );
-
-  const matchedKindVersion: AgentKindVersionResponse | undefined = kindVersions?.find(
-    (v) => v.imageId === currentDeployment?.imageId,
-  );
+  // The version running in THIS environment, resolved server-side from the image
+  // this environment's release is pinned to. Environments diverge between a deploy
+  // and its promotion, so this is per-deployment and not the agent's creation-time
+  // kind version. Absent when the image matches no published version.
+  const deployedKindVersion = currentDeployment?.kindVersion;
 
   const selectedBuildId = extractBuildIdFromImageId(currentDeployment?.imageId);
   const lastDeployedText = currentDeployment?.lastDeployed
@@ -543,13 +539,13 @@ export function DeployCard(props: DeployCardProps) {
                         absoluteRouteMap.children.org.children.catalog.children.kindDetails.path,
                         { orgId, kindId: kindName },
                       ) +
-                      (matchedKindVersion ? `?version=${matchedKindVersion.version}` : "")
+                      (deployedKindVersion ? `?version=${deployedKindVersion}` : "")
                     }
                   >
                     <ExternalLink size={16} />
                   </IconButton>
                 }
-                value={matchedKindVersion ? `v${matchedKindVersion.version}` : ""}
+                value={deployedKindVersion ? `v${deployedKindVersion}` : ""}
                 slotProps={{ input: { readOnly: true } }}
               />
             ) : (

@@ -52,6 +52,9 @@ const (
 	ActionServiceAccountConfigure Action = "service-account:configure"
 	ActionServiceAccountRemove    Action = "service-account:remove"
 
+	ActionThunderURLSet    Action = "thunder-url:set"
+	ActionThunderURLDelete Action = "thunder-url:delete"
+
 	// Identity and privilege. These are the escalation path: a record that says
 	// only "a role was updated" is useless, so each names what actually changed.
 	ActionRoleGrantPermission  Action = "role:grant-permission"
@@ -141,6 +144,7 @@ const (
 	ResourceAgentIdentity  = "agent-identity"
 	ResourceEnvironment    = "environment"
 	ResourceServiceAccount = "service-account"
+	ResourceThunderURL     = "thunder-url"
 )
 
 // class, severity and permitted detail keys next to the action itself keeps the

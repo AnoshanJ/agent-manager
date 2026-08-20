@@ -741,8 +741,7 @@ func TestGenerateMCPProxyDeploymentYAML_UpstreamURLPassthrough(t *testing.T) {
 // policy emission: mcp-auth (pinned issuer, no requiredScopes — jwt-auth would enforce
 // all of them) plus one mcp-authz rule per tool, inverted from the proxy's scope->tools rows.
 func TestAppendMCPIdentityAuthPolicies_InvertsScopesToPerToolRules(t *testing.T) {
-	on := true
-	sec := &models.SecurityConfig{Enabled: &on, Identity: &models.IdentitySecurity{Enabled: &on}}
+	sec := identityEnabledSecurity()
 	scopes := []models.MCPProxyScope{
 		{Action: "read", Tools: []string{"get_repo", "list_repos"}},
 		{Action: "admin", Tools: []string{"delete_repo", "get_repo"}},
@@ -766,9 +765,7 @@ func TestAppendMCPIdentityAuthPolicies_InvertsScopesToPerToolRules(t *testing.T)
 }
 
 func TestAppendMCPIdentityAuthPolicies_NoScopesEmitsAuthOnly(t *testing.T) {
-	on := true
-	sec := &models.SecurityConfig{Enabled: &on, Identity: &models.IdentitySecurity{Enabled: &on}}
-	out := appendMCPIdentityAuthPolicies(nil, sec, "gh-proxy", nil)
+	out := appendMCPIdentityAuthPolicies(nil, identityEnabledSecurity(), "gh-proxy", nil)
 	assert.Len(t, out, 1)
 	assert.Equal(t, "mcp-auth", out[0].Name)
 	_, hasScopes := out[0].Params["requiredScopes"]
@@ -819,4 +816,15 @@ func TestMCPProxyEnvArtifactHandleDistinguishesEndpoints(t *testing.T) {
 	if handle1 == handle2 {
 		t.Fatalf("expected distinct handles for different endpoints in the same environment")
 	}
+}
+
+// A scope bound to no tools contributes no mcp-authz rule; when it is the only
+// scope, mcp-authz is omitted entirely and the endpoint degrades to
+// authenticated-only rather than emitting an empty rule set.
+func TestAppendMCPIdentityAuthPolicies_ScopeWithNoToolsEmitsAuthOnly(t *testing.T) {
+	out := appendMCPIdentityAuthPolicies(nil, identityEnabledSecurity(), "gh-proxy", []models.MCPProxyScope{
+		{Action: "read", Tools: []string{}},
+	})
+	assert.Len(t, out, 1)
+	assert.Equal(t, "mcp-auth", out[0].Name)
 }
