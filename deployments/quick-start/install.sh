@@ -1712,6 +1712,14 @@ if [[ "${SHOW_LOCALHOST_URLS:-true}" == "true" ]]; then
   log_info "Agent Management Platform Console: http://console.amp.localhost:8080"
   log_info "Agent Management Platform API: http://api.amp.localhost:8080"
   log_info "Observability Gateway (for traces): http://default-default.gateway.localhost:19080/otel"
+
+  # Admin login for the console above. Fetched fresh from the amp-admin-credentials
+  # Secret (see wso2-amp-thunder-extension/templates/admin-credentials.yaml) rather
+  # than tracked through the install. Wrappers that set SHOW_LOCALHOST_URLS=false
+  # print their own reachable console URL and their own copy of this instead —
+  # this localhost URL would be wrong there.
+  bash "${SCRIPT_DIR}/../scripts/print-admin-credentials.sh" \
+    "http://console.amp.localhost:8080" "${THUNDER_NS}" || true
 fi
 
 # Print the default environment's Thunder ID console + admin credentials — the

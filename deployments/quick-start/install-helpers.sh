@@ -47,7 +47,11 @@ if [[ -z "${PLATFORM_RESOURCES_HELM_ARGS+x}" ]]; then
     PLATFORM_RESOURCES_HELM_ARGS=()
 fi
 if [[ -z "${THUNDER_HELM_ARGS+x}" ]]; then
-    THUNDER_HELM_ARGS=()
+    # thunder.setup.admin.password fixes the console admin login at "admin"
+    # for local convenience — the chart's own default (unset) would generate
+    # a random one instead, which production wants but is unnecessary friction
+    # on a machine only the person running this installer can reach.
+    THUNDER_HELM_ARGS=(--set thunder.setup.admin.password=admin)
 fi
 if [[ -z "${EVALUATION_HELM_ARGS+x}" ]]; then
     EVALUATION_HELM_ARGS=()
