@@ -225,6 +225,41 @@ func TestResolveTemplate_RepositoryErrorIsNotMaskedAsNotFound(t *testing.T) {
 	assert.NotErrorIs(t, err, utils.ErrLLMProviderTemplateNotFound)
 }
 
+// The built-in templates live in one process-wide store whose Get copies only one
+// level deep: Metadata is cloned, but Metadata.Auth is a pointer the clone shares with
+// the store. Handing those fields to a provider by reference would let one
+// organization's create rewrite the template every other organization then resolves,
+// so the defaults must be copied in.
+func TestApplyTemplateUpstreamDefaults_LeavesTheSharedStoreTemplateIntact(t *testing.T) {
+	store := NewLLMTemplateStore()
+	store.Load([]*models.LLMProviderTemplate{mistralaiLikeTemplate()})
+	svc := &LLMProviderService{templateStore: store}
+
+	resolved, err := svc.resolveTemplate("mistralai", "ou-acme")
+	require.NoError(t, err)
+
+	provider := providerWithUpstream(&models.UpstreamConfig{
+		Main: &models.UpstreamEndpoint{
+			Auth: &models.UpstreamAuth{Value: strPtr("sk-caller-key")},
+		},
+	})
+	applyTemplateUpstreamDefaults(provider, resolved)
+
+	// Write through every pointer the provider now holds. Aliased defaults would
+	// carry these writes back into the store.
+	auth := provider.Configuration.Upstream.Main.Auth
+	*auth.Type = "tampered-type"
+	*auth.Header = "X-Tampered"
+	*auth.Value = "tampered-value"
+
+	stored := store.Get("mistralai")
+	require.NotNil(t, stored.Metadata.Auth)
+	assert.Equal(t, "api-key", stored.Metadata.Auth.Type)
+	assert.Equal(t, "Authorization", stored.Metadata.Auth.Header)
+	assert.Equal(t, "Bearer ", stored.Metadata.Auth.ValuePrefix)
+	assert.Equal(t, "https://api.mistral.ai", stored.Metadata.EndpointURL)
+}
+
 func TestSummarizeDeploymentFailures_NamesEachGateway(t *testing.T) {
 	summary := summarizeDeploymentFailures([]DeploymentResult{
 		{GatewayID: "gw-1", Success: false, Error: "upstream url is required"},
