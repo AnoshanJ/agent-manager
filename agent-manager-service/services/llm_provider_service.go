@@ -171,11 +171,9 @@ func (s *LLMProviderService) resolveTemplate(handle, ouID string) (*models.LLMPr
 // Caller-supplied values always win, and this must run before the credential is
 // encrypted so the template's value prefix lands inside the ciphertext.
 func applyTemplateUpstreamDefaults(provider *models.LLMProvider, template *models.LLMProviderTemplate) {
-	if template.Metadata == nil {
-		return
-	}
 	meta := template.Metadata
-	if meta.EndpointURL == "" && meta.Auth == nil {
+	hasInheritableDefaults := meta != nil && (meta.EndpointURL != "" || meta.Auth != nil)
+	if !hasInheritableDefaults {
 		return
 	}
 
@@ -203,11 +201,16 @@ func applyTemplateAuthDefaults(auth *models.UpstreamAuth, templateAuth *models.L
 	if auth == nil {
 		auth = &models.UpstreamAuth{}
 	}
+	// Copied rather than aliased: for a built-in handle templateAuth points into the
+	// process-wide template store, so handing out &templateAuth.Type would let a write
+	// through the provider corrupt the template for every organization.
 	if utils.StrPointerAsStr(auth.Type, "") == "" && templateAuth.Type != "" {
-		auth.Type = &templateAuth.Type
+		authType := templateAuth.Type
+		auth.Type = &authType
 	}
 	if utils.StrPointerAsStr(auth.Header, "") == "" && templateAuth.Header != "" {
-		auth.Header = &templateAuth.Header
+		header := templateAuth.Header
+		auth.Header = &header
 	}
 	if templateAuth.ValuePrefix != "" && auth.Value != nil &&
 		!strings.HasPrefix(*auth.Value, templateAuth.ValuePrefix) {

@@ -577,11 +577,11 @@ func ConvertModelToSpecUpstreamConfig(config models.UpstreamConfig) spec.Upstrea
 // to read its header from config.Main.Auth, which panics for a provider that has a
 // sandbox credential and no main one.
 func maskedSpecUpstreamAuth(auth *models.UpstreamAuth) *spec.UpstreamAuth {
-	maskedValue := "***REDACTED***"
+	masked := redactedMarker
 	return &spec.UpstreamAuth{
 		Type:   StrPointerAsStr(auth.Type, ""),
 		Header: auth.Header,
-		Value:  &maskedValue,
+		Value:  &masked,
 	}
 }
 

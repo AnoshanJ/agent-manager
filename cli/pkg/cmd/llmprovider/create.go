@@ -140,11 +140,8 @@ func validateCreate(opts *CreateOptions) error {
 	if opts.keyRequested() && opts.AuthType == "none" {
 		v = append(v, "an API key cannot be used with --auth-type none")
 	}
-	for _, g := range opts.Gateways {
-		if strings.TrimSpace(g) == "" {
-			v = append(v, "--gateways must not contain a blank value")
-			break
-		}
+	if slices.ContainsFunc(opts.Gateways, func(g string) bool { return strings.TrimSpace(g) == "" }) {
+		v = append(v, "--gateways must not contain a blank value")
 	}
 
 	if len(v) == 0 {
@@ -189,9 +186,9 @@ func contextViolation(ctx string) string {
 }
 
 // gatewayNames returns the --gateways values that are not UUIDs, in order and
-// deduplicated. Kept pure so validateCreate can reject blanks without a client.
+// deduplicated. Kept separate so a UUID-only --gateways can skip the lookup that
+// resolving names would otherwise cost.
 func gatewayNames(raw []string) []string {
-	seen := map[string]bool{}
 	names := []string{}
 	for _, g := range raw {
 		trimmed := strings.TrimSpace(g)
@@ -201,8 +198,7 @@ func gatewayNames(raw []string) []string {
 		if _, err := uuid.Parse(trimmed); err == nil {
 			continue
 		}
-		if !seen[trimmed] {
-			seen[trimmed] = true
+		if !slices.Contains(names, trimmed) {
 			names = append(names, trimmed)
 		}
 	}

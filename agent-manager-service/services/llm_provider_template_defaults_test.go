@@ -161,6 +161,19 @@ func TestValidateProviderVersion(t *testing.T) {
 	}
 }
 
+// serviceWithTemplateRepo builds a service whose built-in store is empty, so
+// resolveTemplate always falls through to the org-template repository.
+func serviceWithTemplateRepo(
+	getByHandle func(handle, ouID string) (*models.LLMProviderTemplate, error),
+) *LLMProviderService {
+	return &LLMProviderService{
+		templateStore: NewLLMTemplateStore(),
+		templateRepo: &repomocks.LLMProviderTemplateRepositoryMock{
+			GetByHandleFunc: getByHandle,
+		},
+	}
+}
+
 func TestResolveTemplate_PrefersBuiltIn(t *testing.T) {
 	store := NewLLMTemplateStore()
 	store.Load([]*models.LLMProviderTemplate{mistralaiLikeTemplate()})
@@ -178,16 +191,11 @@ func TestResolveTemplate_FallsBackToOrgTemplate(t *testing.T) {
 		Handle:   "inhouse",
 		Metadata: &models.LLMProviderTemplateMetadata{EndpointURL: "https://llm.internal"},
 	}
-	svc := &LLMProviderService{
-		templateStore: NewLLMTemplateStore(),
-		templateRepo: &repomocks.LLMProviderTemplateRepositoryMock{
-			GetByHandleFunc: func(handle, ouID string) (*models.LLMProviderTemplate, error) {
-				assert.Equal(t, "inhouse", handle)
-				assert.Equal(t, "ou-acme", ouID)
-				return custom, nil
-			},
-		},
-	}
+	svc := serviceWithTemplateRepo(func(handle, ouID string) (*models.LLMProviderTemplate, error) {
+		assert.Equal(t, "inhouse", handle)
+		assert.Equal(t, "ou-acme", ouID)
+		return custom, nil
+	})
 
 	resolved, err := svc.resolveTemplate("inhouse", "ou-acme")
 
@@ -196,14 +204,9 @@ func TestResolveTemplate_FallsBackToOrgTemplate(t *testing.T) {
 }
 
 func TestResolveTemplate_UnknownHandleIsTemplateNotFound(t *testing.T) {
-	svc := &LLMProviderService{
-		templateStore: NewLLMTemplateStore(),
-		templateRepo: &repomocks.LLMProviderTemplateRepositoryMock{
-			GetByHandleFunc: func(_, _ string) (*models.LLMProviderTemplate, error) {
-				return nil, gorm.ErrRecordNotFound
-			},
-		},
-	}
+	svc := serviceWithTemplateRepo(func(_, _ string) (*models.LLMProviderTemplate, error) {
+		return nil, gorm.ErrRecordNotFound
+	})
 
 	_, err := svc.resolveTemplate("ghost", "ou-acme")
 
@@ -212,14 +215,9 @@ func TestResolveTemplate_UnknownHandleIsTemplateNotFound(t *testing.T) {
 
 func TestResolveTemplate_RepositoryErrorIsNotMaskedAsNotFound(t *testing.T) {
 	boom := errors.New("connection refused")
-	svc := &LLMProviderService{
-		templateStore: NewLLMTemplateStore(),
-		templateRepo: &repomocks.LLMProviderTemplateRepositoryMock{
-			GetByHandleFunc: func(_, _ string) (*models.LLMProviderTemplate, error) {
-				return nil, boom
-			},
-		},
-	}
+	svc := serviceWithTemplateRepo(func(_, _ string) (*models.LLMProviderTemplate, error) {
+		return nil, boom
+	})
 
 	_, err := svc.resolveTemplate("inhouse", "ou-acme")
 

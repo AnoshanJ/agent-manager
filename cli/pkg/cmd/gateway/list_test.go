@@ -172,8 +172,8 @@ func TestList_EmptyPrintsNoticeOnTTY(t *testing.T) {
 	}
 }
 
-// The notice names the filters, so a mistyped --env does not read as "this org has
-// no gateways" — which matters because the server drops a filter it cannot resolve.
+// The notice names the filters, so a filter that matches nothing does not read as
+// "this org has no gateways".
 func TestList_EmptyNoticeNamesActiveFilters(t *testing.T) {
 	io, _, errOut := newTextTestIO(true)
 	clientFn, _, closeFn := newTestClient(t, http.StatusOK, sampleListResponse())

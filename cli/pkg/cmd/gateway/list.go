@@ -75,18 +75,19 @@ func NewListCmd(f *cmdutil.Factory) *cobra.Command {
 			if err != nil {
 				return render.Error(opts.IO, scope, err)
 			}
-			if cmd.Flags().Changed("limit") && limit < 1 {
-				return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--limit must be >= 1"))
-			}
-			if cmd.Flags().Changed("offset") && offset < 0 {
-				return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--offset must be >= 0"))
-			}
 			opts.Org, opts.Scope = org, scope
+
 			if cmd.Flags().Changed("limit") {
+				if limit < 1 {
+					return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--limit must be >= 1"))
+				}
 				v := int32(limit)
 				opts.Limit = &v
 			}
 			if cmd.Flags().Changed("offset") {
+				if offset < 0 {
+					return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--offset must be >= 0"))
+				}
 				v := int32(offset)
 				opts.Offset = &v
 			}
@@ -175,8 +176,8 @@ func runList(ctx context.Context, o *ListOptions) error {
 	return tp.Render()
 }
 
-// emptyMessage names the active filters, so a user who mistyped --env sees why
-// the result is empty rather than concluding the org has no gateways.
+// emptyMessage names the active filters, so a filter that matches nothing reads as
+// such rather than as an org with no gateways.
 func (o *ListOptions) emptyMessage() string {
 	filters := []string{}
 	if o.Type != "" {
