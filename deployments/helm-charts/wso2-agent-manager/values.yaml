@@ -174,7 +174,11 @@ agentManagerService:
     # API Key configuration
     apiKey:
       header: "X-API-Key"
-      value: "abc-def-123"
+      # Empty by default so the chart's own randAlphaNum(32) fallback (see
+      # templates/agent-manager-service/secret.yaml) generates a real value —
+      # the same pattern encryptionKey below already uses correctly. Set this
+      # explicitly, or prefer existingSecret, for production.
+      value: ""
       existingSecret: ""
       existingSecretKey: "api-key"
 
