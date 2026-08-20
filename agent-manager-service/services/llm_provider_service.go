@@ -115,20 +115,23 @@ func validateProviderVersion(version string) error {
 }
 
 // rollbackCreatedProvider removes a provider whose every gateway deployment failed,
-// so a failed CreateAndDeploy leaves nothing behind. A rollback failure is logged
-// rather than returned: the caller needs the deployment error, which is the one that
-// explains what went wrong.
+// so a failed CreateAndDeploy leaves nothing behind. The rollback error is returned
+// as well as logged: it is not the error the caller reports — the deployment failure
+// explains what went wrong — but a rollback that failed means the provider survived,
+// and a caller told only "deployments failed" would retry the same handle and be
+// rejected with ErrLLMProviderExists by a provider it does not know exists.
 func (s *LLMProviderService) rollbackCreatedProvider(
 	ctx context.Context, created *models.LLMProvider, ouID string,
 	deploymentService *LLMProviderDeploymentService,
-) {
+) error {
 	if err := s.Delete(ctx, created.UUID.String(), ouID, deploymentService); err != nil {
 		slog.Error("LLMProviderService.CreateAndDeploy: failed to roll back provider after deployment failure",
 			"ouID", ouID, "providerUUID", created.UUID, "error", err)
-		return
+		return fmt.Errorf("failed to roll back provider %s: %w", created.UUID, err)
 	}
 	slog.Info("LLMProviderService.CreateAndDeploy: rolled back provider after deployment failure",
 		"ouID", ouID, "providerUUID", created.UUID)
+	return nil
 }
 
 // summarizeDeploymentFailures joins the per-gateway errors so the caller learns why
@@ -1147,9 +1150,17 @@ func (s *LLMProviderService) CreateAndDeploy(ctx context.Context, ouID, createdB
 	// failure and got an undeployed provider anyway, invisible until the next list.
 	if len(validGatewayIDs) > 0 && successfulDeployments == 0 {
 		slog.Error("LLMProviderService.CreateAndDeploy: all deployments failed", "ouID", ouID, "providerUUID", created.UUID, "attempted", len(validGatewayIDs))
-		s.rollbackCreatedProvider(ctx, created, ouID, deploymentService)
-		return nil, fmt.Errorf("all %d gateway deployments failed: %s",
+		failure := fmt.Sprintf("all %d gateway deployments failed: %s",
 			len(validGatewayIDs), summarizeDeploymentFailures(deploymentResults))
+
+		// The rollback error is carried as text rather than wrapped: the caller maps
+		// the HTTP status off this error, and a Delete sentinel in the chain would let
+		// an unrelated rollback sub-failure choose the status for a failed create.
+		if rollbackErr := s.rollbackCreatedProvider(ctx, created, ouID, deploymentService); rollbackErr != nil {
+			return nil, fmt.Errorf("%s (provider %q was created and could not be rolled back, delete it manually: %s)",
+				failure, created.Configuration.Handle, rollbackErr.Error())
+		}
+		return nil, errors.New(failure)
 	}
 
 	slog.Info("LLMProviderService.CreateAndDeploy: completed", "ouID", ouID, "providerUUID", created.UUID, "successfulDeployments", successfulDeployments, "totalAttempted", len(validGatewayIDs))
