@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -140,8 +141,11 @@ func validateCreate(opts *CreateOptions) error {
 	if opts.keyRequested() && opts.AuthType == "none" {
 		v = append(v, "an API key cannot be used with --auth-type none")
 	}
-	if slices.ContainsFunc(opts.Gateways, func(g string) bool { return strings.TrimSpace(g) == "" }) {
-		v = append(v, "--gateways must not contain a blank value")
+	for _, g := range opts.Gateways {
+		// Identical messages collapse: three blank values are one mistake.
+		if msg := gatewayViolation(g); msg != "" && !slices.Contains(v, msg) {
+			v = append(v, msg)
+		}
 	}
 
 	if len(v) == 0 {
@@ -152,6 +156,40 @@ func validateCreate(opts *CreateOptions) error {
 
 func isValidAuthType(t string) bool {
 	return slices.Contains(validAuthTypes, t)
+}
+
+// gatewayNameMaxLen mirrors the spec's maxLength on GatewayResponse.name.
+const gatewayNameMaxLen = 64
+
+// gatewayViolation returns a validation message when value can be neither a gateway
+// UUID nor a gateway name, or "" when it could be either. Rejecting the impossible
+// shapes here keeps them from costing a paginated walk of every gateway in the org
+// before resolution fails.
+//
+// It stops short of the spec's `^[a-z0-9-]+$` name pattern on purpose: a plausible
+// name still has to be resolved against the server, so mirroring the pattern buys
+// nothing beyond these checks and makes the CLI reject valid input the day the server
+// relaxes the rule. The checks kept are the ones cmdutil.ValidatePathParam already
+// applies to the gateway passed to `amctl gateway get`, plus the length bound.
+func gatewayViolation(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "--gateways must not contain a blank value"
+	}
+	if _, err := uuid.Parse(trimmed); err == nil {
+		return ""
+	}
+	if strings.Contains(trimmed, "/") {
+		return fmt.Sprintf("--gateways value %q must not contain '/'", trimmed)
+	}
+	if strings.ContainsFunc(trimmed, unicode.IsSpace) {
+		return fmt.Sprintf("--gateways value %q must not contain whitespace", trimmed)
+	}
+	if len(trimmed) > gatewayNameMaxLen {
+		return fmt.Sprintf("--gateways value %q is longer than a gateway name can be (at most %d characters)",
+			trimmed, gatewayNameMaxLen)
+	}
+	return ""
 }
 
 // handleRegex matches a valid resource handle: letters, digits, '-' and '_'.
@@ -206,8 +244,8 @@ func gatewayNames(raw []string) []string {
 }
 
 // parseGateways converts the raw --gateways values into typed UUIDs, resolving any
-// that are names through nameToUUID. A nil nameToUUID means names are rejected,
-// which is what validateCreate uses to check shape without reaching the server.
+// that are names through nameToUUID. A nil nameToUUID rejects every name, which is
+// what a UUID-only --gateways gets: resolveGatewayNames skips the lookup entirely.
 //
 // Duplicates are dropped after resolution, keeping the first occurrence and the
 // caller's order: a gateway named twice — or named once by name and once by UUID —
