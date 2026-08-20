@@ -33,6 +33,11 @@ type ValidationError struct {
 	// Can include field names, specific validation rules, etc.
 	// Example: "inputInterface.schema.path is required and must start with /"
 	Reason string
+
+	// Sentinel, when set, is the classification error this failure also matches
+	// under errors.Is — so a check like errors.Is(err, ErrInvalidInput) still
+	// recognises a ValidationError raised in place of a wrapped sentinel.
+	Sentinel error
 }
 
 // Error implements the error interface, returning the technical reason for logging.
@@ -40,11 +45,28 @@ func (e *ValidationError) Error() string {
 	return e.Reason
 }
 
+// Unwrap exposes the classification sentinel to errors.Is/errors.As.
+func (e *ValidationError) Unwrap() error {
+	return e.Sentinel
+}
+
 // NewValidationError creates a new ValidationError with user-friendly message and technical reason.
 func NewValidationError(message, reason string) *ValidationError {
 	return &ValidationError{
 		Message: message,
 		Reason:  reason,
+	}
+}
+
+// NewValidationErrorFor is NewValidationError for a failure that must also keep
+// matching a classification sentinel (e.g. ErrInvalidInput), so callers that
+// route on the sentinel keep working while the UI gets the short Message
+// instead of the whole technical string.
+func NewValidationErrorFor(sentinel error, message, reason string) *ValidationError {
+	return &ValidationError{
+		Message:  message,
+		Reason:   reason,
+		Sentinel: sentinel,
 	}
 }
 

@@ -376,6 +376,9 @@ func TestPromoteAgent(t *testing.T) {
 		app.ServeHTTP(rr, req)
 
 		require.Equal(t, http.StatusBadRequest, rr.Code)
-		require.Contains(t, rr.Body.String(), "is not ready yet")
+		require.Contains(t, rr.Body.String(), "still being provisioned")
+		// The console renders a failed request as "<message>: <reason>", so
+		// neither half may carry the operator-only rationale for the block.
+		require.NotContains(t, rr.Body.String(), "inherit")
 	})
 }
