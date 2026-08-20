@@ -107,7 +107,11 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
 }) => {
     const [consumerConfigOpen, setConsumerConfigOpen] = useState(false);
 
-    const { invokeUrl, isLoading, isError } = useAgentEndpointResources({
+    const {
+        invokeUrl,
+        isLoading: isEndpointLoading,
+        isError: isEndpointError,
+    } = useAgentEndpointResources({
         orgId, projectId, agentId, envId, external,
     });
 
@@ -115,10 +119,22 @@ export const EnvCapabilitiesSection: React.FC<EnvCapabilitiesSectionProps> = ({
     // only returns the lowest pipeline environment's configuration, so every
     // env's card would otherwise show the same values regardless of which
     // environment tab is selected (mirrors DeployCard.tsx's envConfig fetch).
-    const { data: configurations } = useGetAgentConfigurations(
-        { orgName: orgId, projName: projectId, agentName: agentId },
+    // orgName is withheld for external agents (nothing to fetch), matching
+    // useAgentEndpointResources' own skip pattern above.
+    const {
+        data: configurations,
+        isLoading: isConfigLoading,
+        isError: isConfigError,
+    } = useGetAgentConfigurations(
+        { orgName: external ? "" : orgId, projName: projectId, agentName: agentId },
         { environment: envId },
     );
+
+    // Combined so the card never renders a stale/default "None · Disabled"
+    // security summary while the per-env config is still loading, or silently
+    // shows the wrong posture if that fetch fails outright.
+    const isLoading = isEndpointLoading || isConfigLoading;
+    const isError = isEndpointError || isConfigError;
 
     // Mirrors DeployCard.tsx's authMode derivation so the wording matches the
     // Deploy page's own security summary.
