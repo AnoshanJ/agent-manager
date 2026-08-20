@@ -4406,7 +4406,8 @@ func (s *agentManagerService) pollForTargetIdentityReady(ctx context.Context, ou
 // provisioning, permanently failed, and revoked all look identical from
 // there. Only "still provisioning" is something a retry actually fixes; the
 // other states need a state-specific message so the caller knows what to do
-// instead of being told to simply wait and retry.
+// instead of being told to simply wait and retry. Returns the underlying read
+// failure — not a block — when the state cannot be determined at all.
 func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Context, ouID, projectName, agentName, envName string) error {
 	if s.agentThunderProvisioning == nil {
 		// AgentID provisioning is disabled for this deployment, so nothing can
@@ -4421,11 +4422,15 @@ func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Con
 			fmt.Sprintf("enable AgentID provisioning and provision %q first", envName))
 	}
 
+	// GetBindingState reserves (nil, nil) for "no binding row yet" and wraps
+	// every other failure, so an error here is an operational fault. Blocking
+	// as a retryable validation error would answer 400 for a server-side
+	// failure and tell the caller to retry something a retry cannot fix.
 	state, err := s.agentThunderProvisioning.GetBindingState(ctx, ouID, projectName, agentName, envName)
 	if err != nil {
-		s.logger.Warn("Failed to read agent thunder binding state for promotion error message, falling back to the not-provisioned-yet message",
-			"agentName", agentName, "environment", envName, "error", err)
-		state = nil
+		s.logger.Error("Failed to read agent thunder binding state while blocking a promotion",
+			"agentName", agentName, "projectName", projectName, "ouID", ouID, "environment", envName, "error", err)
+		return fmt.Errorf("read AgentID binding state for environment %q: %w", envName, err)
 	}
 
 	switch {

@@ -1163,6 +1163,34 @@ func TestPromoteAgent_IdentityBindingMissing_KeepsUIErrorBriefAndSaysRetry(t *te
 	assert.False(t, *promoteCalled)
 }
 
+// A repository failure reading the binding row is an operational fault, not a
+// caller mistake: GetBindingState reserves (nil, nil) for "no binding row yet"
+// and wraps everything else. Reporting it as a validation error would tell the
+// user to retry a promotion that a retry cannot fix, and would answer 400 for
+// a server-side failure.
+func TestPromoteAgent_BindingStateReadFails_ReportsOperationalFailureNotValidation(t *testing.T) {
+	readFailure := errors.New("read agent thunder binding state: dial tcp: connection refused")
+	s, promoteCalled := promoteAgentTestFixture(t, nil, nil)
+	logs := captureLogs(t, s)
+	stub, ok := s.agentThunderProvisioning.(*provisionForEnvIfMissingStub)
+	require.True(t, ok)
+	stub.GetBindingStateFunc = func(context.Context, string, string, string, string) (*AgentThunderBindingState, error) {
+		return nil, readFailure
+	}
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, readFailure, "the underlying failure must stay wrapped so the cause survives to the logs")
+	assert.NotErrorIs(t, err, utils.ErrInvalidInput, "a repository failure is not invalid input; classifying it as one answers 400 for a server fault")
+	assert.Nil(t, utils.IsValidationError(err), "an operational failure must not be dressed up as a user-facing validation message")
+	assert.Contains(t, logs(), "proj1", "the failure must be logged with the project context")
+	assert.False(t, *promoteCalled)
+}
+
 // A Thunder failure message is unbounded — the whole point of the split is
 // that it cannot push the UI string back over the limit. The full text must
 // still be logged verbatim.
