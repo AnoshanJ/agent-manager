@@ -1527,10 +1527,14 @@ func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerServi
 		IsDeploymentInProgressFunc: func(context.Context, string, string, string) (bool, error) {
 			return false, nil
 		},
-		ReplaceComponentEnvVarsFunc: func(context.Context, string, string, string, []client.EnvVar) error {
+		// Deploy writes env vars and file mounts to the environment's ReleaseBinding, never to
+		// the component-wide Workload. ReplaceComponentEnvVars/FileMounts are left unstubbed on
+		// purpose: a regression that writes the shared base again panics here instead of
+		// silently leaking config into every environment.
+		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
 			return nil
 		},
-		ReplaceComponentFileMountsFunc: func(context.Context, string, string, string, []client.FileVar) error {
+		ClearComponentBaseWorkloadConfigFunc: func(context.Context, string, string, string) error {
 			return nil
 		},
 		UpdateComponentDeploymentConfigFunc: func(_ context.Context, _, _, _ string, req client.ComponentDeploymentConfigRequest) error {
