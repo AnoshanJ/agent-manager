@@ -609,6 +609,16 @@ func (c *openChoreoClient) PromoteComponent(ctx context.Context, ouID, projectNa
 			if ctConfigs != nil {
 				binding.Spec.ComponentTypeEnvironmentConfigs = ctConfigs
 			}
+			// Force a pod rollout, for the same reason Deploy does: a re-promotion
+			// whose source release and resolved overrides are unchanged writes back a
+			// byte-identical spec, which Kubernetes treats as a no-op — no reconcile,
+			// no rollout — while the API and the audit record both report a successful
+			// promote. That silence also hides the fresh agent API key minted on every
+			// promote: it is written to a fixed secret location, so the reference in
+			// the spec never changes and the pod keeps serving the old key.
+			// Must come after the ctConfigs assignment above, which replaces the map
+			// holding restartedAt wholesale and would otherwise drop the stamp.
+			bumpRestartedAt(binding)
 		}); err != nil {
 			return err
 		}
