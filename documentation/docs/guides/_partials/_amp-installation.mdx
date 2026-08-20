@@ -259,6 +259,8 @@ kubectl wait --for=condition=Available \
 
 `agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
 
+`agentManagerService.config.apiKey` (the `X-API-Key` header value some internal callers use) is left unset above deliberately: the chart generates a random 32-character value itself when empty, the same way `encryptionKey` already does. Set `agentManagerService.config.apiKey.value` or `.existingSecret` explicitly only if something outside the platform needs to know this value in advance.
+
 :::warning `tlsEnabled` decides which agent invoke URL the console publishes
 `agentManagerService.config.tlsEnabled` defaults to `false`, and it is what selects between an Environment's `http` and `https` endpoint variants when the API builds an agent's invoke URL. Left at the default on an HTTPS platform, the console publishes an `http://` URL — which the browser then refuses to call from an HTTPS page, showing the request as `blocked:mixed-content` with no error anywhere in the platform. The agent itself is healthy and reachable; only the published URL is wrong.
 :::
@@ -488,7 +490,7 @@ kubectl wait --for=condition=Available \
 
 <Prod production={props.production}>
 
-`amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder:
+`amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder. It can instead be supplied through `amObserver.observer.existingSecret` (keys `existingSecretClientIdKey`/`existingSecretClientSecretKey`, default `idpClientId`/`idpClientSecret`) if you prefer to keep it out of Helm release history, the same option `thunder.clientSecret` has above:
 
 ```bash
 helm install amp-observability-traces \
