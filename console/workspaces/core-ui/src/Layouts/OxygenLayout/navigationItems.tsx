@@ -103,7 +103,7 @@ export function useNavigationItems(): Array<
     usePipelineEnvironmentsState(orgId, projectId);
 
   const externalNavItems = useExternalNavItems();
-  const { enforced, scopes } = useTokenScopes();
+  const { enforced, resolved: scopesResolved, scopes } = useTokenScopes();
 
   const navVisibility = useMemo(() => {
     const showAll = {
@@ -116,8 +116,10 @@ export function useNavigationItems(): Array<
       agentIdentities: true,
     };
     if (!enforced) return showAll;
-    // A token with no scope claim yields an empty set, so every section below
-    // resolves to false on its own — there is nothing to special-case.
+    // An unresolved token is handled below by rendering no navigation at all,
+    // not here: this map only ever describes a scope set that has been read. A
+    // read that found nothing is one of those — every section then resolves to
+    // false on its own, which is the right answer and needs no special case.
     const s = scopes;
     return {
       resources:
@@ -197,7 +199,16 @@ export function useNavigationItems(): Array<
   ).environments;
   const evaluatorsOrgRoute = absoluteRouteMap.children.org.children.evaluators;
 
-  if (isLoadingAgent || (isLoadingEnvironments && agentId)) {
+  // An unread scope set is not an empty one. Rendering the navigation before the
+  // access token has been decoded would show the sections a caller with no
+  // permissions sees, then rearrange the sidebar under them once the scopes
+  // arrive — so it waits, the same way it waits for the agent and the
+  // environment list.
+  if (
+    isLoadingAgent ||
+    (isLoadingEnvironments && agentId) ||
+    (enforced && !scopesResolved)
+  ) {
     return [];
   }
 

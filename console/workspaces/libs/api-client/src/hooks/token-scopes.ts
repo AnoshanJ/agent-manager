@@ -32,10 +32,11 @@ import { globalConfig } from "@agent-management-platform/types";
  * rather than testing scope strings by hand; it encodes the floor/production
  * rule in one place.
  *
- * The return shape is ScopeState from that module, declared there because it is
- * the rule's input rather than this hook's invention. It is not named here: a
- * second declaration of the same two fields is a second thing to keep in step,
- * and this package cannot import from shared-component without a cycle.
+ * The return shape widens ScopeState from that module — declared there because
+ * it is the rule's input rather than this hook's invention — with `resolved`,
+ * which is about the read rather than the rule. It is not named here: a second
+ * declaration of the same fields is a second thing to keep in step, and this
+ * package cannot import from shared-component without a cycle.
  */
 export function useTokenScopes(): {
   /**
@@ -44,15 +45,27 @@ export function useTokenScopes(): {
    * server gates nothing, so the console must not either.
    */
   enforced: boolean;
+  /**
+   * False while the access token is still being decoded, when `scopes` is empty
+   * only because nothing has been read yet.
+   *
+   * A caller that hides what the scope set does not reach must wait for this,
+   * or it renders the shape of a token with no permissions and then rearranges
+   * itself a moment later. It says nothing about how many scopes were found: a
+   * resolved token carrying none is resolved, and every gated surface should
+   * deny.
+   */
+  resolved: boolean;
   scopes: ReadonlySet<string>;
 } {
-  const { userInfo } = useAuthHooks();
+  const { userInfo, isLoadingAccessToken } = useAuthHooks();
   const scopeStr = userInfo?.scope;
   return useMemo(
     () => ({
       enforced: !globalConfig.disableAuth && globalConfig.rbacEnabled,
+      resolved: !isLoadingAccessToken,
       scopes: new Set((scopeStr ?? "").split(" ").filter(Boolean)),
     }),
-    [scopeStr],
+    [scopeStr, isLoadingAccessToken],
   );
 }
