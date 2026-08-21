@@ -374,7 +374,9 @@ export function PromoteAgentDrawer({
                           } as EnvironmentVariable)
                         : { key, value, isSensitive },
                   ),
-                  files: formState.files.map(toFileMount),
+                  files: formState.files
+                    .filter((f) => f.key && f.mountPath)
+                    .map(toFileMount),
                   // Only send the version when the user explicitly picked a
                   // compatible one; otherwise omit it so the backend inherits
                   // the source env's pin rather than overwriting the target with
@@ -585,7 +587,7 @@ export function PromoteAgentDrawer({
                               variant="outlined"
                               startIcon={<Plus size={14} />}
                               onClick={handleAddFile}
-                              disabled={isPending}
+                              disabled={isPending || !targetConfigReady}
                             >
                               Add
                             </Button>

@@ -508,7 +508,7 @@ export function EditDeployConfigDrawer({
                 variant="outlined"
                 startIcon={<Plus size={14} />}
                 onClick={handleAddFile}
-                disabled={isPending}
+                disabled={isPending || !seededRef.current}
               >
                 Add
               </Button>
