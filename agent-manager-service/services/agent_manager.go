@@ -2646,7 +2646,11 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 			// The component is already gone but a previous partially-completed delete may
 			// have left agent_configurations rows behind, each still holding a live LLM
 			// proxy credential, so run the same revocation cleanup here.
-			go s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), ouID, projectName, agentName, isExternalAgent)
+			go func() {
+				cleanupCtx, cancel := detachedCleanupContext(ctx)
+				defer cancel()
+				s.deleteAgentLLMConfigurations(cleanupCtx, ouID, projectName, agentName, isExternalAgent)
+			}()
 			if configErr := s.agentConfigRepo.DeleteAllByAgent(ctx, ouID, projectName, agentName); configErr != nil {
 				s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 			}
@@ -2662,10 +2666,13 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	}
 
 	// Component confirmed deleted — clean up LLM proxy resources and DB records in the
-	// background. context.WithoutCancel detaches the request deadline so the goroutine
-	// is not cancelled when the HTTP handler returns, while still inheriting any values
-	// (trace IDs, logger) from the request context.
-	go s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), ouID, projectName, agentName, isExternalAgent)
+	// background, on a context that outlives the request but is still bounded
+	// (see detachedCleanupContext).
+	go func() {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		defer cancel()
+		s.deleteAgentLLMConfigurations(cleanupCtx, ouID, projectName, agentName, isExternalAgent)
+	}()
 	if s.agentThunderProvisioning != nil {
 		go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
 	}
@@ -2697,6 +2704,20 @@ var (
 	agentConfigCleanupAttempts   = 4
 	agentConfigCleanupRetryDelay = 2 * time.Second
 )
+
+// agentCleanupTimeout bounds the detached cleanup goroutine. The retry budget above lets a
+// single configuration occupy ~14s of backoff on top of its external calls, so a many-config
+// agent could otherwise keep the goroutine alive indefinitely if a gateway stops answering.
+// Generous on purpose: the ceiling exists to stop a wedged call from pinning the goroutine for
+// the process lifetime, not to cut short revocations that are still making progress.
+const agentCleanupTimeout = 10 * time.Minute
+
+// detachedCleanupContext returns a context for post-delete cleanup that outlives the request.
+// WithoutCancel drops the request deadline while keeping its values (trace IDs, logger) so the
+// work is not cancelled when the HTTP handler returns; the timeout then puts a ceiling back on.
+func detachedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), agentCleanupTimeout)
+}
 
 // withAgentConfigCleanupRetry retries a configuration teardown with exponential backoff.
 //
