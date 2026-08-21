@@ -76,10 +76,12 @@ export interface EditDeployConfigDrawerProps {
   mode: "update" | "deploy";
   /** Required when mode === "deploy". */
   imageId?: string;
-  // Tracing/instrumentation context — supplied by DeployCard for deployed Python agents so the
-  // "Tracing - Instrumentation" section can render. Omitted by BuildCard (initial deploy) and
-  // non-Python agents, which hides the section entirely.
+  // Tracing/instrumentation context — supplied by DeployCard for deployed agents so the
+  // "Tracing - Instrumentation" section can render, and whether the Python-only
+  // instrumentation version selector is offered within it. Both omitted for Docker
+  // agents, which have no instrumentation trait and so get no section at all.
   isPythonBuildpack?: boolean;
+  isBallerinaBuildpack?: boolean;
   agentPythonVersion?: string;
   // When true (API agents, update mode), the CORS + Endpoint Authentication sections render at the
   // top of the drawer. Omitted by BuildCard (initial deploy) and non-API agents.
@@ -97,6 +99,7 @@ export function EditDeployConfigDrawer({
   title,
   mode,
   isPythonBuildpack,
+  isBallerinaBuildpack,
   agentPythonVersion,
   isApiAgent,
 }: EditDeployConfigDrawerProps) {
@@ -117,8 +120,12 @@ export function EditDeployConfigDrawer({
   const [env, setEnv] = useState<EnvironmentVariable[]>([]);
   const [files, setFiles] = useState<FileMount[]>([]);
 
-  // Tracing section (mode === "update" && Python agent only).
-  const showTracing = mode === "update" && !!isPythonBuildpack;
+  // Tracing section: the environment card's drawer only. Offered for every language the
+  // backend can instrument — Python and Ballerina alike, which is what makes it reachable
+  // for kind-based agents. The version selector below stays Python-only: the
+  // instrumentation image tags encode the Python minor (e.g. 0.4.1-python3.11).
+  const showTracing =
+    mode === "update" && (!!isPythonBuildpack || !!isBallerinaBuildpack);
   const [tracingEnabled, setTracingEnabled] = useState(false);
   const [instrumentationVersion, setInstrumentationVersion] = useState<string>("");
   const [versionDirty, setVersionDirty] = useState(false);
@@ -163,7 +170,7 @@ export function EditDeployConfigDrawer({
   // Seed the version selector for display once the catalog has loaded; re-seed while the current
   // value is not compatible (self-corrects a stale seed without clobbering a valid user choice).
   useEffect(() => {
-    if (!open || !showTracing || !buildOptions) return;
+    if (!open || !isPythonBuildpack || !buildOptions) return;
     if (versionInCompatibleSet) return;
     setInstrumentationVersion(
       pickInstrumentationVersion(
@@ -173,7 +180,7 @@ export function EditDeployConfigDrawer({
       ),
     );
   }, [
-    open, showTracing, buildOptions, compatibleInstrumentation, configurations,
+    open, isPythonBuildpack, buildOptions, compatibleInstrumentation, configurations,
     versionInCompatibleSet,
   ]);
 
@@ -219,7 +226,8 @@ export function EditDeployConfigDrawer({
         ...(showSecurity && securityRef.current ? securityRef.current.buildBody() : {}),
         ...(showTracing && {
           enableAutoInstrumentation: tracingEnabled,
-          ...(tracingEnabled && versionDirty && versionInCompatibleSet && instrumentationVersion
+          ...(isPythonBuildpack && tracingEnabled && versionDirty && versionInCompatibleSet
+            && instrumentationVersion
             ? { instrumentationVersion }
             : {}),
         }),
@@ -254,7 +262,7 @@ export function EditDeployConfigDrawer({
   }, [
     mode, env, files, environment, imageId, orgName, projName, agentName,
     showSecurity, showTracing, tracingEnabled, instrumentationVersion, versionDirty,
-    versionInCompatibleSet,
+    versionInCompatibleSet, isPythonBuildpack,
     deployAgent, updateConfigs, updateDeploySettings, onClose, pushSnackBar,
   ]);
 
@@ -386,7 +394,7 @@ export function EditDeployConfigDrawer({
                   />
                 </Stack>
 
-                {tracingEnabled && (
+                {tracingEnabled && isPythonBuildpack && (
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography variant="body2">Instrumentation Version</Typography>
                     {compatibleInstrumentation.length === 0 && buildOptions ? (
