@@ -83,7 +83,11 @@ import {
   TraceListTimeRange,
 } from "@agent-management-platform/types";
 import { extractBuildIdFromImageId } from "../utils/extractBuildIdFromImageId";
-import { normalizePythonMinor } from "../utils/instrumentation";
+import {
+  buildpackLanguage,
+  isInstrumentableLanguage,
+  normalizePythonMinor,
+} from "../utils/instrumentation";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback, useMemo, useState } from "react";
 import { EditResourceConfigsDrawer } from "./EditResourceConfigsDrawer";
@@ -371,10 +375,10 @@ export function DeployCard(props: DeployCardProps) {
   });
 
   const isApiAgent = agent?.agentType?.type === "agent-api";
-  const isPythonBuildpack =
-    agent?.build?.type === "buildpack" &&
-    "buildpack" in (agent.build ?? {}) &&
-    (agent.build as { buildpack?: { language?: string } }).buildpack?.language === "python";
+  const agentLanguage = buildpackLanguage(agent);
+  const isPythonBuildpack = agentLanguage === "python";
+  const isBallerinaBuildpack = agentLanguage === "ballerina";
+  const isInstrumentable = isInstrumentableLanguage(agentLanguage);
   const agentPythonVersion = normalizePythonMinor(
     (agent?.build as { buildpack?: { languageVersion?: string } } | undefined)
       ?.buildpack?.languageVersion,
@@ -680,7 +684,7 @@ export function DeployCard(props: DeployCardProps) {
                     </Box>
                   )}
                   {/* Tracing - Instrumentation overview */}
-                  {isPythonBuildpack && (
+                  {isInstrumentable && (
                     <Box display="flex" alignItems="center" gap={1}>
                       <Workflow size={14} style={{ opacity: 0.6 }} />
                       <Typography variant="body2">Tracing - Instrumentation</Typography>
@@ -726,6 +730,7 @@ export function DeployCard(props: DeployCardProps) {
               title="Configurations and Secrets"
               isApiAgent={isApiAgent}
               isPythonBuildpack={isPythonBuildpack}
+              isBallerinaBuildpack={isBallerinaBuildpack}
               agentPythonVersion={agentPythonVersion}
             />
           )}
