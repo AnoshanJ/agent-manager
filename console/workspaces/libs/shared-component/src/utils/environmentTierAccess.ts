@@ -46,6 +46,13 @@ export interface ScopeState {
    * own gates skip when the switch is off.
    */
   enforced: boolean;
+  /**
+   * False while the access token is still being decoded, when `scopes` is empty
+   * only because nothing has been read yet. The rule needs it because an empty
+   * set is otherwise indistinguishable from a token that genuinely carries no
+   * scopes at all.
+   */
+  resolved: boolean;
   scopes: ReadonlySet<string>;
 }
 
@@ -82,6 +89,9 @@ function deny(missingScope: string, what: string): AccessDecision {
  * and checks the floor, then the production grant. Reporting the same scope the
  * server would name keeps the tooltip and the eventual 403 consistent.
  *
+ * An unresolved token allows everything, for the same reason and with the same
+ * caveat as the unknown tier below: this is a hint, and the server decides.
+ *
  * `environment` is undefined while the environment list is still loading. The
  * tier is then unknown, and denying on a guess would flash a disabled control on
  * every page load, so only the floor is checked and the server settles the rest.
@@ -92,6 +102,12 @@ export function evaluateAgentEnvironmentAccess(
   capability?: string,
 ): AccessDecision {
   if (!state.enforced) return ALLOWED;
+  // An unread token carries an empty scope set, which the checks below would
+  // read as a token permitted nothing: every gated control disabled, each
+  // naming a scope the caller may well hold, until the decode lands a moment
+  // later. The server is the enforcement point, so the hint says nothing until
+  // it has something to say.
+  if (!state.resolved) return ALLOWED;
 
   if (capability && !state.scopes.has(capability)) {
     return deny(capability, "perform this action");

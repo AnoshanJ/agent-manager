@@ -32,11 +32,9 @@ import { globalConfig } from "@agent-management-platform/types";
  * rather than testing scope strings by hand; it encodes the floor/production
  * rule in one place.
  *
- * The return shape widens ScopeState from that module — declared there because
- * it is the rule's input rather than this hook's invention — with `resolved`,
- * which is about the read rather than the rule. It is not named here: a second
- * declaration of the same fields is a second thing to keep in step, and this
- * package cannot import from shared-component without a cycle.
+ * The return shape is ScopeState from that module, spelled out here rather than
+ * imported because this package cannot depend on shared-component without a
+ * cycle. The two have to be kept in step: the rule reads every field below.
  */
 export function useTokenScopes(): {
   /**
@@ -49,9 +47,10 @@ export function useTokenScopes(): {
    * False while the access token is still being decoded, when `scopes` is empty
    * only because nothing has been read yet.
    *
-   * A caller that hides what the scope set does not reach must wait for this,
+   * A caller that hides what the scope set does not reach has to wait for this,
    * or it renders the shape of a token with no permissions and then rearranges
-   * itself a moment later. It says nothing about how many scopes were found: a
+   * itself a moment later; evaluateAgentEnvironmentAccess does that waiting for
+   * every gated control. It says nothing about how many scopes were found: a
    * resolved token carrying none is resolved, and every gated surface should
    * deny.
    */
