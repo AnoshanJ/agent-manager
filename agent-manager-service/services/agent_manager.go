@@ -4459,9 +4459,14 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	if agent.Type.Type != string(utils.AgentTypeAPI) {
 		return fmt.Errorf("%w: deploy settings only apply to API-type agents (got %q)", utils.ErrInvalidInput, agent.Type.Type)
 	}
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName)
+	// Both validates the environment and authorizes the caller against its tier
+	// — one lookup, because requireEnvTier resolves the same environment and
+	// translates the same not-found error. The route's agent:update is the
+	// capability; this is the environment axis, and holding one does not imply
+	// the other.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, req.EnvironmentName)
 	if err != nil {
-		return translateEnvironmentError(err)
+		return err
 	}
 
 	// Resolve final settings: precedence is request → existing DB
@@ -4486,10 +4491,8 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	if err := validateOAuthSecurityConfig(apiCfg); err != nil {
 		return err
 	}
-	if targetEnv != nil {
-		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-			return err
-		}
+	if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+		return err
 	}
 	policies := buildPolicies(apiCfg)
 
@@ -4586,8 +4589,12 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, ouI
 	if _, err := s.ocClient.GetComponent(ctx, org.Name, projectName, agentName); err != nil {
 		return translateAgentError(err)
 	}
-	if _, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName); err != nil {
-		return translateEnvironmentError(err)
+	// Validating the environment and authorizing the caller against its tier are
+	// the same lookup. This path replaces the environment's entire env var and
+	// file mount set on a running deployment, so it needs the tier check for the
+	// same reason deploy does.
+	if _, err := s.requireEnvTier(ctx, ouID, req.EnvironmentName); err != nil {
+		return err
 	}
 
 	// Fetch system-managed env vars + their keys for the target env. We must filter the user's

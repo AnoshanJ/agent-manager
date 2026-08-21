@@ -32,10 +32,12 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
+	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/rbac"
+	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
@@ -255,4 +257,71 @@ func TestRequireEnvTier_DenialIsAudited(t *testing.T) {
 	// action reads the field, so a tier denial that omitted it would look like a
 	// token with no scopes at all rather than one missing this scope.
 	require.EqualValues(t, 1, event.Details["grantedScopes"])
+}
+
+// The config-update paths reach an environment as directly as a deploy does:
+// both rewrite what a running deployment executes with. UpdateAgentConfigurations
+// replaces the environment's entire env var and file mount set, and
+// UpdateAgentDeploySettings rewrites its trait configs, so a caller who may not
+// deploy to production must not be able to edit production either. These two
+// tests are that guarantee — the route's static floor is only half of it, since
+// the environment arrives in the request body.
+func TestUpdateAgentConfigurations_ProductionNeedsProductionScope(t *testing.T) {
+	setRBACEnabledForTier(t, true)
+	overridesReplaced := false
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{Name: name}, nil
+		},
+		GetComponentFunc: func(_ context.Context, _, _, _ string) (*models.AgentResponse, error) {
+			return &models.AgentResponse{Provisioning: models.Provisioning{Type: string(utils.InternalAgent)}}, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, _, name string) (*models.EnvironmentResponse, error) {
+			return &models.EnvironmentResponse{Name: name, IsProduction: true}, nil
+		},
+		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+			overridesReplaced = true
+			return nil
+		},
+	}
+	svc := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
+
+	err := svc.UpdateAgentConfigurations(
+		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentUpdate), tierOUID, "proj1", "my-agent",
+		&spec.UpdateAgentConfigurationsRequest{EnvironmentName: tierProdEnv})
+
+	require.ErrorIs(t, err, utils.ErrForbidden)
+	require.Contains(t, err.Error(), rbac.AgentEnvProduction.Scope())
+	require.False(t, overridesReplaced,
+		"a caller without the production grant must not rewrite a production deployment's env vars, secret refs or file mounts")
+}
+
+func TestUpdateAgentDeploySettings_ProductionNeedsProductionScope(t *testing.T) {
+	setRBACEnabledForTier(t, true)
+	traitConfigsUpdated := false
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{Name: name}, nil
+		},
+		GetComponentFunc: func(_ context.Context, _, _, _ string) (*models.AgentResponse, error) {
+			return &models.AgentResponse{Type: models.AgentType{Type: string(utils.AgentTypeAPI)}}, nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, _, name string) (*models.EnvironmentResponse, error) {
+			return &models.EnvironmentResponse{Name: name, IsProduction: true}, nil
+		},
+		UpdateReleaseBindingTraitConfigsFunc: func(context.Context, string, string, string, map[string]interface{}, map[string]interface{}) error {
+			traitConfigsUpdated = true
+			return nil
+		},
+	}
+	svc := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
+
+	err := svc.UpdateAgentDeploySettings(
+		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentUpdate), tierOUID, "proj1", "my-agent",
+		&spec.UpdateAgentDeploySettingsRequest{EnvironmentName: tierProdEnv})
+
+	require.ErrorIs(t, err, utils.ErrForbidden)
+	require.Contains(t, err.Error(), rbac.AgentEnvProduction.Scope())
+	require.False(t, traitConfigsUpdated,
+		"a caller without the production grant must not rewrite a production deployment's trait configs")
 }
