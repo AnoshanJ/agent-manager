@@ -147,8 +147,8 @@ func (rr *RouteRegistrar) HandleFuncWithValidationAndAnyAuthz(pattern string, ha
 
 // HandleFuncWithValidationAndAllAuthz requires the token to carry EVERY listed
 // permission. Registering with no permissions is a bug that fails at startup:
-// register would hand audit.NewRouteMetaForSurface an empty permission list, and
-// it panics rather than install an unauditable route.
+// requireScopes panics on an empty list rather than install a route that gates
+// on nothing.
 func (rr *RouteRegistrar) HandleFuncWithValidationAndAllAuthz(pattern string, handler http.HandlerFunc, perms ...rbac.Permission) {
 	rr.register(pattern, perms, RequireAllPermissions(perms...), handler)
 }

@@ -155,6 +155,16 @@ const (
 // gate, and was three copies of it before. A fourth combining rule should be a
 // scopeMode, not a fourth copy.
 func requireScopes(mode scopeMode, allowRootOU bool, perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
+	// An empty list is refused where the route table is built, not where a
+	// request arrives, because in allPermissions mode there would be no request
+	// to refuse: nothing is missing from a list of nothing, so FirstMissingScope
+	// reports the caller short of nothing and the gate opens for everyone. A
+	// route gated on no permission is a bug in the route table either way, and
+	// the route table is assembled at startup — the only place a bug in it can
+	// still be cheap to find.
+	if len(perms) == 0 {
+		panic("middleware: a route must be gated on at least one permission")
+	}
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !config.GetConfig().RBACEnabled {

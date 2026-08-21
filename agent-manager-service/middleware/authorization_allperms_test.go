@@ -93,3 +93,24 @@ func TestRequireAllPermissions_SkipsCheckWhenRBACDisabled(t *testing.T) {
 		t.Errorf("status = %d, want %d", status, http.StatusOK)
 	}
 }
+
+// TestRequireScopes_PanicsOnEmptyPermissionList covers what the panic is for:
+// with no permission in the list, the allPermissions gate finds nothing missing
+// and would admit every caller. Both variadic constructors go through the same
+// gate, so both must refuse at registration.
+func TestRequireScopes_PanicsOnEmptyPermissionList(t *testing.T) {
+	constructors := map[string]func(...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc{
+		"RequireAllPermissions": RequireAllPermissions,
+		"RequireAnyPermission":  RequireAnyPermission,
+	}
+	for name, construct := range constructors {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s() with no permissions did not panic", name)
+				}
+			}()
+			construct()
+		})
+	}
+}
