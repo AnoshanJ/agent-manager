@@ -2845,6 +2845,22 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("no environment found in deployment pipeline")
 	}
 
+	// A deploy always targets the pipeline's lowest environment, so the tier has
+	// to be checked here rather than at the edge: the route cannot know where the
+	// agent will land. Nothing is written before this point.
+	//
+	// targetEnv is resolved once, here. It used to be fetched further down, after
+	// most of the deploy request had been assembled, with a lookup failure only
+	// warned about — which meant a deploy could proceed without knowing where it
+	// was going, silently skipping the config, OAuth-issuer and trait work that
+	// needs the environment, and recording isProduction:false for what may have
+	// been a production deploy. Authorization cannot be that tolerant, so the
+	// lookup is now fail-closed and its result is reused below.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, lowestEnv)
+	if err != nil {
+		return "", err
+	}
+
 	// The cell namespace for (project, environment) is owned by a
 	// ProjectReleaseBinding. Without one the release binding this deploy creates
 	// fails to apply with `namespaces "dp-..." not found`. Ensure it here rather
@@ -2969,11 +2985,6 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 	deployReq.Files = fileVars
 	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(fileVars))
-
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
-	if err != nil {
-		s.logger.Warn("Failed to get environment details", "environment", lowestEnv, "error", err)
-	}
 
 	// Read the existing agent_configs row once so we can resolve omitted request
 	// fields from DB and preserve pinned instrumentation_version during Upsert.
@@ -3132,10 +3143,11 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 
 	// Deploy agent component in OpenChoreo (after env vars and instrumentation are configured)
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
-	// The permission gating this route is agent:deploy-non-production whatever
-	// the pipeline's lowest environment actually is, so the record has to carry
-	// the real target and whether it is production. Without that the trail
-	// cannot distinguish a sandbox push from a production one.
+	// The route declares only the tier floor, whatever the pipeline's lowest
+	// environment actually is, so the record has to carry the real target and
+	// whether it is production. Without that the trail cannot distinguish a
+	// sandbox push from a production one. The flag comes from the tier check
+	// above, which already resolved the environment.
 	deployAttempt, auditErr := audit.Begin(
 		ctx, audit.ActionAgentDeploy,
 		audit.Org(ouID),
@@ -3144,7 +3156,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		audit.Environment(lowestEnv),
 		audit.Detail("agentName", agentName),
 		audit.Detail("environment", lowestEnv),
-		audit.Detail("isProduction", targetEnv != nil && targetEnv.IsProduction),
+		audit.Detail("isProduction", targetEnv.IsProduction),
 		audit.Detail("imageId", req.ImageId),
 	)
 	if auditErr != nil {
@@ -3924,6 +3936,19 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		return fmt.Errorf("invalid promotion path: %s → %s is not allowed by the deployment pipeline", req.SourceEnvironment, req.TargetEnvironment)
 	}
 
+	// Promotion is the operation the removed agent:promote scope conflated:
+	// moving into staging and moving into production were one permission. The
+	// tier splits them, against the target the caller actually named.
+	//
+	// Named targetEnvDetails, not targetEnv: a `targetEnv` already exists further
+	// down, declared inside the gateway-artifact branch. That one stays — it is
+	// already fail-closed and lives in a conditional, so folding it into this
+	// call would mean restructuring the branch for one saved round-trip.
+	targetEnvDetails, err := s.requireEnvTier(ctx, ouID, req.TargetEnvironment)
+	if err != nil {
+		return err
+	}
+
 	// Check if a deployment is already in progress in target environment
 	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, ouID, agentName, req.TargetEnvironment)
 	if err != nil {
@@ -4262,11 +4287,10 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// A promotion is how an agent reaches production, so the record names both
 	// ends of the move rather than just the resource.
 	//
-	// isProduction is deliberately not recorded here: the target environment is
-	// only fetched inside a conditional branch above, and adding a round-trip
-	// to OpenChoreo just to enrich a record would put a network call on the
-	// promotion path. The environment name identifies the target, and the org's
-	// environment list resolves whether it is production.
+	// isProduction is recorded now that the tier check above has already
+	// resolved the target environment. It used to be omitted because enriching
+	// the record would have meant an extra OpenChoreo round-trip; that lookup is
+	// on the authorization path today, so the flag is free.
 	promoteAttempt, auditErr := audit.Begin(
 		ctx, audit.ActionAgentPromote,
 		audit.Org(ouID),
@@ -4276,6 +4300,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		audit.Detail("agentName", agentName),
 		audit.Detail("sourceEnv", req.SourceEnvironment),
 		audit.Detail("targetEnv", req.TargetEnvironment),
+		audit.Detail("isProduction", targetEnvDetails.IsProduction),
 		audit.Detail("environment", req.TargetEnvironment),
 	)
 	if auditErr != nil {
@@ -5310,11 +5335,13 @@ func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, ou
 		return fmt.Errorf("deployment state update is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 
-	// Validate environment exists
-	_, err = s.ocClient.GetEnvironment(ctx, ouID, environment)
-	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
-		return translateEnvironmentError(err)
+	// This both validates the environment exists and authorizes the caller
+	// against its tier — one lookup, because requireEnvTier resolves the same
+	// environment and translates the same not-found error. The route's
+	// agent:suspend is the capability; this is the environment axis, and holding
+	// one does not imply the other.
+	if _, err := s.requireEnvTier(ctx, ouID, environment); err != nil {
+		return err
 	}
 
 	// Convert string state to gen.ReleaseBindingSpecState

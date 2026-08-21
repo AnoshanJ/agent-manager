@@ -217,6 +217,9 @@ func TestPromoteAgent_BindingFailureAbortsBeforeAnyTargetWrite(t *testing.T) {
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
+		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
+			return &models.EnvironmentResponse{Name: envName}, nil
+		},
 		IsDeploymentInProgressFunc: func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(context.Context, string, string, string) error {
 			return boom
@@ -272,6 +275,9 @@ func TestDeployAgent_BindingFailureAbortsDeploy(t *testing.T) {
 		},
 		GetProjectDeploymentPipelineFunc: func(context.Context, string, string) (*models.DeploymentPipelineResponse, error) {
 			return threeEnvPipeline(), nil
+		},
+		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
+			return &models.EnvironmentResponse{Name: envName}, nil
 		},
 		EnsureProjectReleaseBindingFunc: func(context.Context, string, string, string) error {
 			return boom
