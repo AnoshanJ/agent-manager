@@ -62,7 +62,7 @@ import {
   normalizePythonMinor,
   pickInstrumentationVersion,
 } from "../utils/instrumentation";
-import { excludeSystemVars, sortSystemLast } from "../utils/envVars";
+import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
 
 interface PromoteAgentDrawerProps {
   open: boolean;
@@ -545,9 +545,8 @@ export function PromoteAgentDrawer({
                                   keyValue={item.key}
                                   valueValue={item.value}
                                   isSensitive={item.isSensitive ?? false}
-                                  isExistingSecret={
-                                    !!(item.secretRef && item.isSensitive)
-                                  }
+                                  isExistingSecret={isStoredSecret(item)}
+                                  keyDisabled={isStoredSecret(item)}
                                   isSystem={item.isSystem}
                                   onKeyChange={(v) =>
                                     handleEnvChange(index, "key", v)

@@ -56,7 +56,7 @@ import type {
   UpdateAgentDeploySettingsRequest,
 } from "@agent-management-platform/types";
 import { compatibleInstrumentationVersions, pickInstrumentationVersion } from "../utils/instrumentation";
-import { excludeSystemVars, sortSystemLast } from "../utils/envVars";
+import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
 import { SecurityConfigSections, type SecurityConfigHandle } from "./SecurityConfigSections";
 
 export interface EditDeployConfigDrawerProps {
@@ -479,7 +479,8 @@ export function EditDeployConfigDrawer({
                     keyValue={item.key}
                     valueValue={item.value}
                     isSensitive={item.isSensitive ?? false}
-                    isExistingSecret={!!(item.secretRef && item.isSensitive)}
+                    isExistingSecret={isStoredSecret(item)}
+                    keyDisabled={isStoredSecret(item)}
                     isSystem={item.isSystem}
                     onKeyChange={(v) => handleEnvChange(index, "key", v)}
                     onValueChange={(v) => handleEnvChange(index, "value", v)}
