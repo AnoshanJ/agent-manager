@@ -37,6 +37,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/instrumentation"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -3519,6 +3520,90 @@ func buildTraitEnvConfigs(agentName string, policies []map[string]interface{}, a
 		}
 	}
 	return traitEnvConfigs
+}
+
+// requireEnvTier authorizes the caller to act on the named environment and
+// returns it.
+//
+// The environment tier is an authorization axis of its own, about *where* an
+// action lands rather than what it is: agent:env-non-production is the floor,
+// and agent:env-production is held in addition to it to reach the environments
+// OpenChoreo flags. A production environment requires both — the production
+// grant is an extra permission stacked on the floor, not a wider substitute for
+// it. That is not a free choice: the REST routes and the two MCP tools declare
+// the floor statically and deny before this method is reached, so a rule of
+// "production grant alone is sufficient" could never fire and would leave the
+// two layers describing the same decision differently.
+//
+// The check lives here rather than in route middleware because the MCP surface
+// declares tool permissions statically (mcp/tools/authz.go addTool) and has no
+// HTTP request to read a target environment from. This is the one place both
+// surfaces pass through, and mcp/tools/authz.go's withEffectiveScopes is what
+// guarantees ctx carries the same scopes the tool gate used.
+//
+// The environment is returned even on a denial, because the caller wants the
+// production flag for its audit record and this call has already paid for the
+// lookup; it is nil only when the lookup itself failed. The lookup runs before
+// the RBAC switch is consulted for the same reason: an RBAC_ENABLED=false
+// install should still get a trail that distinguishes a production change from
+// a sandbox one. The cost is that an unresolvable environment fails the
+// operation even with RBAC disabled — deliberate, and called out in Task 5.
+//
+// Nothing here allows on failure. There is deliberately no fallback for an
+// installation where no environment carries the flag: every environment is then
+// non-production, which is what the model says and what the release notes must
+// say too.
+func (s *agentManagerService) requireEnvTier(
+	ctx context.Context, ouID, envName string,
+) (*models.EnvironmentResponse, error) {
+	env, err := s.ocClient.GetEnvironment(ctx, ouID, envName)
+	if err != nil {
+		s.logger.Error("Failed to resolve environment for the tier check",
+			"ouID", ouID, "environment", envName, "error", err)
+		return nil, translateEnvironmentError(err)
+	}
+	if !config.GetConfig().RBACEnabled {
+		return env, nil
+	}
+
+	// The floor is always required. Production adds to it rather than replacing
+	// it, so the missing scope reported is the first one the caller lacks —
+	// naming the production grant to someone who is also missing the floor would
+	// send them after the wrong permission.
+	required := []rbac.Permission{rbac.AgentEnvNonProduction}
+	if env.IsProduction {
+		required = append(required, rbac.AgentEnvProduction)
+	}
+	for _, perm := range required {
+		if jwtassertion.HasAllScopes(ctx, []string{perm.Scope()}) {
+			continue
+		}
+
+		// A middleware denial reaches the trail through recordAuthzDeny, which
+		// uses audit.Record plus audit.Skip: the deny event *replaces* the
+		// envelope, because the request never reached a handler. This denial is
+		// different — the caller did reach the service layer, and on the
+		// change-deployment-state path the controller has already opened an
+		// attempt. RecordAncillary is therefore correct here (audit/emit.go:63-71:
+		// facts about how a request was handled, envelope preserved), and the
+		// consequence is deliberate: a tier refusal writes an authz:deny
+		// alongside the envelope rather than in place of it, so "what was
+		// attempted" survives. Status is left to the envelope for the same
+		// reason. grantedScopes is set because every middleware authz:deny
+		// carries it and anything alerting on the action reads it.
+		audit.RecordAncillary(ctx, audit.ActionAuthzDeny,
+			audit.Org(ouID),
+			audit.Environment(envName),
+			audit.OutcomeOpt(audit.OutcomeDeny),
+			audit.RequiredPermissions(required...),
+			audit.Detail("reason", "missing-environment-tier-scope"),
+			audit.Detail("missingScope", perm.Scope()),
+			audit.Detail("grantedScopes", len(strings.Fields(jwtassertion.ScopesFromContext(ctx)))),
+		)
+		return env, fmt.Errorf("%w: %s is required to act on environment %q",
+			utils.ErrForbidden, perm.Scope(), envName)
+	}
+	return env, nil
 }
 
 func findLowestEnvironment(promotionPaths []models.PromotionPath) string {
