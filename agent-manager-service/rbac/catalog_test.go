@@ -127,3 +127,60 @@ func TestPredefinedRolesHoldOnlyCatalogScopes(t *testing.T) {
 		}
 	}
 }
+
+// TestPredefinedRoleSizes pins the size of each role.
+//
+// A count is a blunt assertion, and that is the point: these numbers are the
+// product decision recorded in the design doc, and a role that silently gains or
+// loses a scope is exactly the drift this file exists to catch. Changing a number
+// here should mean someone decided to.
+//
+// It is deliberately a speed bump rather than a safety net, and mostly redundant
+// once chart_parity_test.go compares the Go map and the chart set-for-set and
+// TestAdminHoldsEntireCatalog pins the catalog: between them, the only thing
+// these four numbers still catch on their own is a scope dropped from both sides
+// at once. The cost is four numbers to hand-edit on every future scope addition.
+// Keep it for the friction; do not mistake it for coverage.
+func TestPredefinedRoleSizes(t *testing.T) {
+	want := map[string]int{
+		RoleAdmin:            103,
+		RoleDeveloper:        56,
+		RoleAILead:           51,
+		RolePlatformEngineer: 69,
+	}
+	if len(PredefinedRolePermissions) != len(want) {
+		t.Fatalf("PredefinedRolePermissions has %d roles, want %d", len(PredefinedRolePermissions), len(want))
+	}
+	for role, size := range want {
+		got, ok := PredefinedRolePermissions[role]
+		if !ok {
+			t.Errorf("role %q is missing", role)
+			continue
+		}
+		if len(got) != size {
+			t.Errorf("role %q holds %d scopes, want %d", role, len(got), size)
+		}
+	}
+}
+
+// TestEveryTierGrantSitsAboveTheFloor pins the shape of the axis: the production
+// grant sits on top of the floor rather than replacing it, so a role holding it
+// without the floor could act on nothing at all — every surface denies a token
+// missing the floor before the tier is evaluated, and requireEnvTier requires
+// both for a production environment. No predefined role should be in that state.
+func TestEveryTierGrantSitsAboveTheFloor(t *testing.T) {
+	for role, perms := range PredefinedRolePermissions {
+		var floor, production bool
+		for _, perm := range perms {
+			switch perm {
+			case AgentEnvNonProduction:
+				floor = true
+			case AgentEnvProduction:
+				production = true
+			}
+		}
+		if production && !floor {
+			t.Errorf("role %q holds %s without %s", role, AgentEnvProduction, AgentEnvNonProduction)
+		}
+	}
+}
