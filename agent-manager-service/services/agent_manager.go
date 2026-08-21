@@ -2989,20 +2989,18 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// Read the existing agent_configs row once so we can resolve omitted request
 	// fields from DB and preserve pinned instrumentation_version during Upsert.
 	var existingConfig *models.AgentConfig
-	if targetEnv != nil {
-		cfg, configErr := s.agentConfigRepo.Get(ctx, ouID, projectName, agentName, targetEnv.Name)
-		switch {
-		case errors.Is(configErr, repositories.ErrAgentConfigNotFound):
-			s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
-		case configErr != nil:
-			return "", fmt.Errorf("failed to read agent config for environment %q: %w", targetEnv.Name, configErr)
-		default:
-			existingConfig = cfg
-			s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
-				"enableAutoInstrumentation", cfg.EnableAutoInstrumentation,
-				"enableApiKeySecurity", cfg.EnableApiKeySecurity,
-				"instrumentationVersion", cfg.InstrumentationVersion)
-		}
+	cfg, configErr := s.agentConfigRepo.Get(ctx, ouID, projectName, agentName, targetEnv.Name)
+	switch {
+	case errors.Is(configErr, repositories.ErrAgentConfigNotFound):
+		s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
+	case configErr != nil:
+		return "", fmt.Errorf("failed to read agent config for environment %q: %w", targetEnv.Name, configErr)
+	default:
+		existingConfig = cfg
+		s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
+			"enableAutoInstrumentation", cfg.EnableAutoInstrumentation,
+			"enableApiKeySecurity", cfg.EnableApiKeySecurity,
+			"instrumentationVersion", cfg.InstrumentationVersion)
 	}
 
 	// Resolve config values: request > DB > defaults
@@ -3018,10 +3016,8 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	if err := validateOAuthSecurityConfig(apiCfg); err != nil {
 		return "", err
 	}
-	if targetEnv != nil {
-		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-			return "", err
-		}
+	if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+		return "", err
 	}
 	enableAutoInstrumentation := tracingCfg.EnableAutoInstrumentation
 	enableApiKeySecurity := apiCfg.EnableApiKeySecurity
@@ -3095,9 +3091,6 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 
 	if isAPIAgent {
-		if targetEnv == nil {
-			return "", fmt.Errorf("cannot deploy API agent without environment details")
-		}
 		apiArtifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
 		if artifactErr != nil {
 			return "", fmt.Errorf("cannot deploy API agent without environment API artifact record: %w", artifactErr)
@@ -3189,38 +3182,36 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// instrumentation_version (captured above) preserves it across the
 	// Upsert — the repo's DoUpdates map includes that column, so omitting
 	// the value would NULL out a customer's pin on every redeploy.
-	if targetEnv != nil {
-		var deployResilienceTimeoutSeconds *int32
-		if resilienceTimeoutSeconds > 0 {
-			deployResilienceTimeoutSeconds = &resilienceTimeoutSeconds
-		}
-		agentConfig := &models.AgentConfig{
-			OUID:                      ouID,
-			ProjectName:               projectName,
-			AgentName:                 agentName,
-			EnvironmentName:           targetEnv.Name,
-			EnableAutoInstrumentation: enableAutoInstrumentation,
-			InstrumentationVersion:    existingInstrumentationVersion,
-			EnableApiKeySecurity:      apiCfg.EnableApiKeySecurity,
-			CORSEnabled:               apiCfg.CORSEnabled,
-			CORSAllowOrigins:          apiCfg.CORSAllowOrigins,
-			CORSAllowMethods:          apiCfg.CORSAllowMethods,
-			CORSAllowHeaders:          apiCfg.CORSAllowHeaders,
-			CORSAllowCredentials:      apiCfg.CORSAllowCredentials,
-			EnableOAuthSecurity:       apiCfg.EnableOAuthSecurity,
-			OAuthIssuers:              apiCfg.OAuthIssuers,
-			OAuthAudiences:            apiCfg.OAuthAudiences,
-			OAuthHeaderName:           apiCfg.OAuthHeaderName,
-			OAuthAuthHeaderPrefix:     apiCfg.OAuthAuthHeaderPrefix,
-			OAuthForwardToken:         apiCfg.OAuthForwardToken,
-			ResilienceTimeoutSeconds:  deployResilienceTimeoutSeconds,
-		}
-		if configErr := s.agentConfigRepo.Upsert(ctx, agentConfig); configErr != nil {
-			s.logger.Error("Failed to persist agent config after deploy", "agentName", agentName, "environment", lowestEnv, "error", configErr)
-			return "", fmt.Errorf("agent deployed to %q but failed to persist its config (retry to reconcile): %w", lowestEnv, configErr)
-		}
-		s.logger.Debug("Persisted instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", enableAutoInstrumentation, "instrumentationVersion", existingInstrumentationVersion)
+	var deployResilienceTimeoutSeconds *int32
+	if resilienceTimeoutSeconds > 0 {
+		deployResilienceTimeoutSeconds = &resilienceTimeoutSeconds
 	}
+	agentConfig := &models.AgentConfig{
+		OUID:                      ouID,
+		ProjectName:               projectName,
+		AgentName:                 agentName,
+		EnvironmentName:           targetEnv.Name,
+		EnableAutoInstrumentation: enableAutoInstrumentation,
+		InstrumentationVersion:    existingInstrumentationVersion,
+		EnableApiKeySecurity:      apiCfg.EnableApiKeySecurity,
+		CORSEnabled:               apiCfg.CORSEnabled,
+		CORSAllowOrigins:          apiCfg.CORSAllowOrigins,
+		CORSAllowMethods:          apiCfg.CORSAllowMethods,
+		CORSAllowHeaders:          apiCfg.CORSAllowHeaders,
+		CORSAllowCredentials:      apiCfg.CORSAllowCredentials,
+		EnableOAuthSecurity:       apiCfg.EnableOAuthSecurity,
+		OAuthIssuers:              apiCfg.OAuthIssuers,
+		OAuthAudiences:            apiCfg.OAuthAudiences,
+		OAuthHeaderName:           apiCfg.OAuthHeaderName,
+		OAuthAuthHeaderPrefix:     apiCfg.OAuthAuthHeaderPrefix,
+		OAuthForwardToken:         apiCfg.OAuthForwardToken,
+		ResilienceTimeoutSeconds:  deployResilienceTimeoutSeconds,
+	}
+	if configErr := s.agentConfigRepo.Upsert(ctx, agentConfig); configErr != nil {
+		s.logger.Error("Failed to persist agent config after deploy", "agentName", agentName, "environment", lowestEnv, "error", configErr)
+		return "", fmt.Errorf("agent deployed to %q but failed to persist its config (retry to reconcile): %w", lowestEnv, configErr)
+	}
+	s.logger.Debug("Persisted instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", enableAutoInstrumentation, "instrumentationVersion", existingInstrumentationVersion)
 
 	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "ouID", org.Name, "projectName", projectName, "environment", lowestEnv)
 	return lowestEnv, nil
@@ -4197,10 +4188,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 
 		// Each environment must have its own unique artifact UUID so the gateway controller
 		// does not confuse two environments' RestApi resources (same UUID = one overwrites the other).
-		if targetEnv != nil {
-			if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-				return err
-			}
+		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+			return err
 		}
 
 		artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)

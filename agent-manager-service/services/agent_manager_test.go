@@ -502,12 +502,14 @@ func TestRevokeAgentIdentitySecret_PipelineLookupFails_StillRevokesConservativel
 // a deploy that proceeded here would permanently drop the agent's
 // credentials until some later operation happened to re-inject them.
 func TestDeployAgent_IdentityInjectionError_AbortsDeploy(t *testing.T) {
+	// These fixtures carry no scopes, so the tier check requireEnvTier runs on
+	// the deploy and promote paths only passes with RBAC off. Stated here rather
+	// than inherited from the config default.
+	setRBACEnabledForTier(t, false)
 	boom := errors.New("secret backend unavailable")
 	deployCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: name}, nil
 		},
@@ -627,6 +629,7 @@ func shrinkPromotionIdentityPollForTest(t *testing.T) {
 // for a non-API-type internal agent (skips the large isAPIAgent branch
 // entirely), for a dev -> staging promotion pipeline.
 func promoteAgentTestFixture(t *testing.T, tgtIdentityEnvVars []client.EnvVar, tgtIdentityErr error) (*agentManagerService, *bool) {
+	setRBACEnabledForTier(t, false)
 	t.Helper()
 	shrinkPromotionIdentityPollForTest(t)
 	promoteCalled := false
@@ -646,9 +649,7 @@ func promoteAgentTestFixture(t *testing.T, tgtIdentityEnvVars []client.EnvVar, t
 				{SourceEnvironmentRef: "dev", TargetEnvironmentRefs: []models.TargetEnvironmentRef{{Name: "staging"}}},
 			}}, nil
 		},
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc:              nonProductionEnvStub(),
 		IsDeploymentInProgressFunc:      func(_ context.Context, _, _, _ string) (bool, error) { return false, nil },
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		PromoteComponentFunc: func(_ context.Context, _, _, _, _, _ string, _ []client.EnvVar, _ []client.FileVar, _, _ map[string]interface{}) error {
@@ -876,13 +877,12 @@ func TestPromoteAgent_IdentityBuildError_AbortsBeforePromoting(t *testing.T) {
 // proving the pre-promote kick-off alone is sufficient to unblock a
 // new-environment promotion, with no dependency on any post-promote step.
 func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *testing.T) {
+	setRBACEnabledForTier(t, false)
 	shrinkPromotionIdentityPollForTest(t)
 	promoteCalled := false
 	var capturedOverrides []client.EnvVar
 	ocClient := &clientmocks.OpenChoreoClientMock{
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, orgName string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: orgName}, nil
 		},
@@ -979,12 +979,11 @@ func TestPromoteAgent_KickOffThenRetry_SucceedsOnceTargetIdentityCompletes(t *te
 // let the SAME PromoteAgent call succeed, without the caller needing to
 // retry at all.
 func TestPromoteAgent_PollSucceedsWithinBudget_PromotesOnFirstCall(t *testing.T) {
+	setRBACEnabledForTier(t, false)
 	shrinkPromotionIdentityPollForTest(t)
 	promoteCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, orgName string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: orgName}, nil
 		},
@@ -1108,11 +1107,10 @@ func TestPromoteAgent_TargetProvisioningFailed_BlocksWithReprovisionMessage(t *t
 // a nil-interface panic rather than silently passing. PromoteAgent must not
 // hard-block the promotion just because no AgentID binding will ever exist.
 func TestPromoteAgent_ProvisioningDisabled_SkipsIdentityCheckAndPromotes(t *testing.T) {
+	setRBACEnabledForTier(t, false)
 	promoteCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, orgName string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: orgName}, nil
 		},
@@ -1175,11 +1173,10 @@ func TestPromoteAgent_ProvisioningDisabled_SkipsIdentityCheckAndPromotes(t *test
 // CR regardless. If PromoteAgent let this through without the target's own
 // override, the promoted pod would silently inherit that real credential.
 func TestPromoteAgent_ProvisioningDisabledButLowestEnvHasRealCredential_StillBlocks(t *testing.T) {
+	setRBACEnabledForTier(t, false)
 	promoteCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
-		GetEnvironmentFunc: func(_ context.Context, _, envName string) (*models.EnvironmentResponse, error) {
-			return &models.EnvironmentResponse{Name: envName}, nil
-		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, orgName string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: orgName}, nil
 		},
