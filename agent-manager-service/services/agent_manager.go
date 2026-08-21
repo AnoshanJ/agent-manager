@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -3955,8 +3956,13 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		return fmt.Errorf("failed to fetch target env system-managed keys: %w", err)
 	}
 	if len(srcSystemKeys) > 0 && len(tgtSystemKeys) == 0 {
-		return fmt.Errorf("%w: agent %q has LLM/system configuration in source environment %q but none in target environment %q — configure system variables in the target environment before promoting",
-			utils.ErrInvalidInput, agentName, req.SourceEnvironment, req.TargetEnvironment)
+		s.logPromotionBlocked(ouID, projectName, agentName, req.TargetEnvironment,
+			"the agent has LLM/system configuration in the source environment but none in the target — promoting would "+
+				"deploy it without the system variables it needs",
+			"sourceEnvironment", req.SourceEnvironment)
+		return utils.NewInvalidInputError(
+			fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", req.TargetEnvironment),
+			fmt.Sprintf("configure system variables in %q, then promote", req.TargetEnvironment))
 	}
 
 	// The key-presence check above cannot see a connection that is present but dead: an MCP
@@ -4330,8 +4336,50 @@ func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
 	}
 	sort.Strings(brokenByPromotion)
 
-	return fmt.Errorf("%w: agent %q uses MCP connection(s) %s, which work in environment %q but have no endpoint in %q — promoting would deploy the agent with an empty MCP URL and API key. Bind those MCP proxies to an endpoint in %q, then promote",
-		utils.ErrInvalidInput, agentName, strings.Join(brokenByPromotion, ", "), sourceEnv, targetEnv, targetEnv)
+	brokenList := strings.Join(brokenByPromotion, ", ")
+	s.logPromotionBlocked(ouID, projectName, agentName, targetEnv,
+		"MCP connection(s) resolve in the source environment but have no endpoint in the target — promoting would "+
+			"deploy the agent with an empty MCP URL and API key, so it would start and then fail on every tool call",
+		"sourceEnvironment", sourceEnv, "connections", brokenList)
+	return utils.NewInvalidInputError(
+		fmt.Sprintf("Promotion blocked: MCP connection(s) %s have no endpoint in %q",
+			briefConnectionList(brokenByPromotion), targetEnv),
+		fmt.Sprintf("bind them to an endpoint in %q, then promote", targetEnv))
+}
+
+// maxBriefUIDetail caps how much of an unbounded upstream detail (a Thunder
+// failure message) a caller-facing error echoes. These promotion errors are
+// rendered inline in the console, which shows the message and reason together,
+// so the full text goes to the log instead.
+const maxBriefUIDetail = 40
+
+// briefUIDetail bounds an opaque upstream string for display. The value is
+// sanitised first because it originates outside this service, matching how
+// every other untrusted string is clamped (see audit.clean).
+func briefUIDetail(detail string) string {
+	return utils.TruncateForLog(utils.SanitizeForLog(detail), maxBriefUIDetail)
+}
+
+// maxBriefConnectionList budgets the connection names a blocked promotion puts
+// on screen. Names are dropped whole and the remainder counted — truncating the
+// joined string mid-name would put a connection that does not exist in front of
+// the user, and the full list goes to the log either way.
+const maxBriefConnectionList = 40
+
+func briefConnectionList(names []string) string {
+	shown := 0
+	width := 0
+	for _, name := range names {
+		width += utf8.RuneCountInString(name) + len(", ")
+		if shown > 0 && width > maxBriefConnectionList {
+			break
+		}
+		shown++
+	}
+	if shown == len(names) {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s (+%d more)", strings.Join(names[:shown], ", "), len(names)-shown)
 }
 
 // promotionIdentityPollInterval/promotionIdentityPollBudget bound
@@ -4385,55 +4433,76 @@ func (s *agentManagerService) pollForTargetIdentityReady(ctx context.Context, ou
 // provisioning, permanently failed, and revoked all look identical from
 // there. Only "still provisioning" is something a retry actually fixes; the
 // other states need a state-specific message so the caller knows what to do
-// instead of being told to simply wait and retry.
+// instead of being told to simply wait and retry. Returns the underlying read
+// failure — not a block — when the state cannot be determined at all.
 func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Context, ouID, projectName, agentName, envName string) error {
+	// blocked pairs the operator-facing diagnosis (logged in full) with the
+	// short message/reason the caller sees, so every arm below states both
+	// halves once instead of repeating the log call and the sentinel.
+	blocked := func(diagnosis, message, reason string, logFields ...any) error {
+		s.logPromotionBlocked(ouID, projectName, agentName, envName, diagnosis, logFields...)
+		return utils.NewInvalidInputError(message, reason)
+	}
+
 	if s.agentThunderProvisioning == nil {
 		// AgentID provisioning is disabled for this deployment, so nothing can
 		// ever mint the target's own credential — unlike the "just triggered"
 		// case below, this will never resolve on its own by retrying.
-		return fmt.Errorf(
-			"%w: agent %q has no AgentID identity for target environment %q, and AgentID provisioning is disabled "+
-				"for this deployment — promotion is blocked to prevent the promoted pod from inheriting a "+
-				"different environment's real credentials. Enable AgentID provisioning and provision this "+
-				"environment before promoting",
-			utils.ErrInvalidInput, agentName, envName,
-		)
+		return blocked(
+			"the agent has no AgentID identity in the target environment and AgentID provisioning is disabled for this "+
+				"deployment, so nothing can ever mint the target's own credential — promoting would let the promoted pod "+
+				"inherit a different environment's real credentials",
+			fmt.Sprintf("Promotion blocked: no agent identity for %q and identity provisioning is disabled", envName),
+			fmt.Sprintf("enable AgentID provisioning and provision %q first", envName))
 	}
 
+	// GetBindingState reserves (nil, nil) for "no binding row yet" and wraps
+	// every other failure, so an error here is an operational fault. Blocking
+	// as a retryable validation error would answer 400 for a server-side
+	// failure and tell the caller to retry something a retry cannot fix.
 	state, err := s.agentThunderProvisioning.GetBindingState(ctx, ouID, projectName, agentName, envName)
 	if err != nil {
-		s.logger.Warn("Failed to read agent thunder binding state for promotion error message, falling back to a generic message",
-			"agentName", agentName, "environment", envName, "error", err)
-		state = nil
+		s.logger.Error("Failed to read agent thunder binding state while blocking a promotion",
+			"agentName", agentName, "projectName", projectName, "ouID", ouID, "environment", envName, "error", err)
+		return fmt.Errorf("read AgentID binding state for environment %q: %w", envName, err)
 	}
 
 	switch {
 	case state == nil:
-		return fmt.Errorf(
-			"%w: agent %q has no AgentID identity for target environment %q yet — provisioning was just triggered; "+
-				"check GET .../identities for this agent and retry shortly",
-			utils.ErrInvalidInput, agentName, envName,
-		)
+		return blocked(
+			"the agent has no AgentID binding in the target environment yet and provisioning was only just triggered — "+
+				"promoting before it completes would let the promoted pod inherit a different environment's real credentials",
+			fmt.Sprintf("Promotion blocked: the agent identity for %q is still being provisioned", envName),
+			"provisioning was just triggered; retry in a moment")
 	case state.Status == models.AgentThunderStatusFailed:
-		return fmt.Errorf(
-			"%w: agent %q's AgentID provisioning for target environment %q has permanently failed (%s). "+
-				"Retrying promotion will not fix this — check GET .../identities for this agent and re-provision the environment",
-			utils.ErrInvalidInput, agentName, envName, state.LastError,
-		)
+		return blocked(
+			"AgentID provisioning for the target environment has permanently failed, so retrying the promotion cannot fix "+
+				"it — the environment has to be re-provisioned first",
+			fmt.Sprintf("Promotion blocked: agent identity provisioning for %q failed", envName),
+			fmt.Sprintf("re-provision the identity, then retry (%s)", briefUIDetail(state.LastError)),
+			"lastError", state.LastError)
 	case state.Status == models.AgentThunderStatusCompleted && !state.HasSecret:
-		return fmt.Errorf(
-			"%w: agent %q's AgentID credential for target environment %q has been revoked. "+
-				"Retrying promotion will not fix this — regenerate the credential for %q before promoting",
-			utils.ErrInvalidInput, agentName, envName, envName,
-		)
+		return blocked(
+			"the agent's AgentID credential for the target environment has been revoked, so retrying the promotion cannot "+
+				"fix it — the credential has to be regenerated first",
+			fmt.Sprintf("Promotion blocked: the agent identity credential for %q was revoked", envName),
+			fmt.Sprintf("regenerate the credential for %q, then promote", envName))
 	default: // Pending / InProgress, or any other in-flight state
-		return fmt.Errorf(
-			"%w: agent %q's AgentID identity for target environment %q is not ready yet (still provisioning). "+
-				"Promotion is blocked to prevent the promoted pod from inheriting a different environment's credentials — "+
-				"check GET .../identities for this agent and retry once it shows status=completed for %q",
-			utils.ErrInvalidInput, agentName, envName, envName,
-		)
+		return blocked(
+			"the agent's AgentID identity for the target environment is still provisioning — promoting now would let the "+
+				"promoted pod inherit a different environment's real credentials",
+			fmt.Sprintf("Promotion blocked: the agent identity for %q is still being provisioned", envName),
+			"retry once provisioning completes",
+			"status", state.Status)
 	}
+}
+
+// logPromotionBlocked records why a promotion was refused. The caller only
+// ever sees the short message/reason pair the block returns, so this log is
+// the only place the whole diagnosis exists.
+func (s *agentManagerService) logPromotionBlocked(ouID, projectName, agentName, envName, diagnosis string, extra ...any) {
+	fields := []any{"agentName", agentName, "projectName", projectName, "ouID", ouID, "environment", envName}
+	s.logger.Warn("Promotion blocked: "+diagnosis, append(fields, extra...)...)
 }
 
 // UpdateAgentDeploySettings updates per-environment deploy settings (CORS, API key security,

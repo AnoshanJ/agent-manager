@@ -33,6 +33,12 @@ type ValidationError struct {
 	// Can include field names, specific validation rules, etc.
 	// Example: "inputInterface.schema.path is required and must start with /"
 	Reason string
+
+	// sentinel, when set, is the classification error this failure also matches
+	// under errors.Is — so a check like errors.Is(err, ErrInvalidInput) still
+	// recognises a ValidationError raised in place of a wrapped sentinel.
+	// Unexported so a constructor is the only way to set it.
+	sentinel error
 }
 
 // Error implements the error interface, returning the technical reason for logging.
@@ -40,21 +46,32 @@ func (e *ValidationError) Error() string {
 	return e.Reason
 }
 
+// Unwrap exposes the classification sentinel to errors.Is/errors.As.
+func (e *ValidationError) Unwrap() error {
+	return e.sentinel
+}
+
 // NewValidationError creates a new ValidationError with user-friendly message and technical reason.
 func NewValidationError(message, reason string) *ValidationError {
-	return &ValidationError{
-		Message: message,
-		Reason:  reason,
-	}
+	return &ValidationError{Message: message, Reason: reason, sentinel: nil}
+}
+
+// NewInvalidInputError is NewValidationError for a failure that must also keep
+// matching ErrInvalidInput under errors.Is, so callers that route on the
+// sentinel keep working while the UI gets the short Message instead of the
+// whole technical string.
+//
+// The sentinel is fixed rather than a parameter because every ValidationError
+// is rendered as 400 by WriteValidationErrorResponse — pairing one with a
+// not-found or conflict sentinel would still answer 400.
+func NewInvalidInputError(message, reason string) *ValidationError {
+	return &ValidationError{Message: message, Reason: reason, sentinel: ErrInvalidInput}
 }
 
 // NewValidationErrorf creates a new ValidationError with formatted reason string.
 // The message should be user-friendly, while reasonFmt is for technical details.
 func NewValidationErrorf(message, reasonFmt string, args ...interface{}) *ValidationError {
-	return &ValidationError{
-		Message: message,
-		Reason:  fmt.Sprintf(reasonFmt, args...),
-	}
+	return NewValidationError(message, fmt.Sprintf(reasonFmt, args...))
 }
 
 // IsValidationError checks if an error is a ValidationError and returns it.
