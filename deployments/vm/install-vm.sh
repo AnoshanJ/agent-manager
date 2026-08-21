@@ -194,3 +194,9 @@ cat <<EOF
   Deployed agents: https://<org>-<project>.agents.${VM_IP}.sslip.io/...
 EOF
 [[ "$EXTERNAL_GATEWAYS" == "true" ]] && echo "  Gateway control plane: https://$(vm_host cp "$VM_IP")  (connect external gateways here; registration token is secret-bearing)"
+
+# install.sh's own admin-credentials print is suppressed by SHOW_LOCALHOST_URLS=false
+# above (it only knows the unreachable localhost console URL), so print it here with
+# the real one instead.
+bash "${QS_DIR}/../scripts/print-admin-credentials.sh" \
+  "https://$(vm_host console "$VM_IP")" "${THUNDER_NS:-amp-thunder}" || true

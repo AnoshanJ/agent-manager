@@ -298,6 +298,12 @@ thunder_helm_args() {
   for k in setup bootstrap; do
     printf '%s\n' "--set" "thunder.${k}.ampConsoleClient.redirectUris[0]=https://${AMP_HOST_CONSOLE}/login"
   done
+
+  # Fixes the console admin login at "admin" for convenience — the chart's
+  # own default (unset) would generate a random one instead, which is what a
+  # publicly reachable production install wants but is unnecessary friction
+  # on a VM only the operator controls.
+  printf '%s\n' "--set" "thunder.setup.admin.password=admin"
 }
 
 # build_thunder_helm_args <ip> — sslip.io-from-IP wrapper.
