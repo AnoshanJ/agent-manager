@@ -18469,7 +18469,7 @@ components:
           example: 9c1b7a44-3e2f-4d8a-b1c5-6a9f0e2d7c81
         lastError:
           type: string
-          description: Most recent provisioning error, if the last attempt failed
+          description: Short, user-safe reason the last provisioning attempt failed (never raw upstream/database error text)
         requestedBy:
           type: string
           description: Who requested this binding, kept for audit purposes only
