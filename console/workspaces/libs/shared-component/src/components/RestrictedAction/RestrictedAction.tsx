@@ -17,7 +17,7 @@
  */
 
 import { cloneElement, type ReactElement } from "react";
-import { Tooltip } from "@mui/material";
+import { Tooltip } from "@wso2/oxygen-ui";
 import type { AccessDecision } from "../../utils/environmentTierAccess";
 
 export interface RestrictedActionProps {
@@ -37,8 +37,10 @@ export interface RestrictedActionProps {
  * matching `disabled` would render a live button whose tooltip says it may not
  * be pressed.
  *
- * A disabled MUI control emits no pointer events, so a Tooltip placed directly
- * on it never opens; the reason has to hang off an element beside it. Both the
+ * A disabled control emits no pointer events, so a Tooltip placed directly on it
+ * never opens; the reason has to hang off an element beside it. That element is
+ * focusable, because a disabled button is skipped by the tab order and a reason
+ * only reachable with a pointer is a reason keyboard users never get. Both the
  * span and the clone happen only on a denial, so an allowed control keeps
  * exactly the markup it had.
  *
@@ -50,7 +52,7 @@ export function RestrictedAction({ decision, children }: RestrictedActionProps) 
   if (decision.allowed) return children;
   return (
     <Tooltip title={decision.reason}>
-      <span style={{ display: "inline-flex" }}>
+      <span tabIndex={0} style={{ display: "inline-flex" }}>
         {cloneElement(children, { disabled: true })}
       </span>
     </Tooltip>

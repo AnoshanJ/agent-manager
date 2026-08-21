@@ -18,7 +18,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Button } from "@mui/material";
+import { Button } from "@wso2/oxygen-ui";
 import { RestrictedAction } from "./RestrictedAction";
 
 describe("RestrictedAction", () => {
@@ -32,8 +32,8 @@ describe("RestrictedAction", () => {
     expect(button).toBeEnabled();
   });
 
-  // A disabled MUI Button emits no pointer events, so the reason has to hang off
-  // a wrapper or the tooltip never opens — which is the whole point of this
+  // A disabled Button emits no pointer events, so the reason has to hang off a
+  // wrapper or the tooltip never opens — which is the whole point of this
   // component.
   it("explains a denied control on hover", async () => {
     render(
@@ -53,6 +53,29 @@ describe("RestrictedAction", () => {
         "You do not have permission to act on production environments.",
       ),
     ).toBeInTheDocument();
+  });
+
+  // The pointer is not the only way in. A disabled button is out of the tab
+  // order, so without a focusable wrapper the reason is unreachable by keyboard.
+  // The assertion stops at focusability: MUI only opens a tooltip on focus when
+  // the target matches :focus-visible, which jsdom does not model, so opening it
+  // here would be testing the environment rather than the component.
+  it("puts a denied control's reason within keyboard reach", () => {
+    render(
+      <RestrictedAction
+        decision={{
+          allowed: false,
+          missingScope: "amp:agent:env-production",
+          reason: "You do not have permission to act on production environments.",
+        }}
+      >
+        <Button>Promote</Button>
+      </RestrictedAction>,
+    );
+    const wrapper = screen.getByRole("button", { name: "Promote" })
+      .parentElement!;
+    wrapper.focus();
+    expect(wrapper).toHaveFocus();
   });
 
   // The caller passes no `disabled` of its own here: the denial alone has to
