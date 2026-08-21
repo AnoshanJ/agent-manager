@@ -65,13 +65,13 @@ cert_dns_names() {
   printf '%s\n' "$AMP_HOST_CONSOLE" "$AMP_HOST_API" "$AMP_HOST_THUNDER" \
     "$AMP_HOST_OBSERVER" "$AMP_HOST_GATEWAY"
   [[ -n "${AMP_HOST_CP:-}" ]] && printf '%s\n' "$AMP_HOST_CP"
-  # Dynamic tiers (created after install): deployed agents <org>-<project>.<AGENTS_BASE>,
-  # env-Thunder <org>-<env>.<THUNDER_HOST>, and the per-environment api-platform gateways
-  # <env>-<org>.<GATEWAY_HOST> that add-environment.sh installs. A wildcard covers each
-  # without re-issuing. The simple installer covers the same three tiers with Caddy
-  # on-demand certs; here one DNS-01 wildcard cert serves them up front.
+  # and the per-environment api-platform gateways <env>-<org>.<GATEWAY_HOST> that
+  # add-environment.sh installs. A wildcard covers each without re-issuing.
+  # Every env-Thunder handle sits directly under the base domain (no "thunder."
+  # segment — see thunder-naming.sh's thunder_host), covered by the base-domain
+  # wildcard below.
   printf '*.%s\n' "$AMP_AGENTS_BASE"
-  printf '*.%s\n' "$AMP_HOST_THUNDER"
+  printf '*.%s\n' "${AMP_HOST_THUNDER#thunder.}"
   printf '*.%s\n' "$AMP_HOST_GATEWAY"
 }
 

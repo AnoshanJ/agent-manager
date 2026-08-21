@@ -62,7 +62,13 @@ amctl llm-provider create prod-anthropic \
   --upstream-url https://api.anthropic.com \
   --api-key-stdin < anthropic-key.txt
 
-# Deploy the provider to specific AI Gateways at creation time
+# Deploy the provider to specific AI Gateways at creation time, by name or UUID
+echo "$OPENAI_API_KEY" | amctl llm-provider create shared-openai \
+  --display-name "Shared OpenAI" \
+  --template openai \
+  --api-key-stdin \
+  --gateways api-platform-default-default
+
 echo "$OPENAI_API_KEY" | amctl llm-provider create shared-openai \
   --display-name "Shared OpenAI" \
   --template openai \
@@ -83,7 +89,7 @@ amctl llm-provider create internal-proxy \
 |------|------|---------|-------------|
 | `--display-name` | string | _required_ | Human-readable display name. |
 | `--template` | string | _required_ | Provider template handle, e.g. `openai`, `anthropic`, `mistralai`. Tab-completes the live set for your org. |
-| `--version` | string | `v1` | Provider version. |
+| `--version` | string | `v1.0` | Provider version. Must match `^v\d+\.\d+$`. |
 | `--context` | string | `/` | API context path. Must start with `/` and must not end with `/` (except the root path). |
 | `--description` | string | (none) | Provider description. |
 | `--upstream-url` | string | (template default) | Override the template's upstream endpoint URL. |
@@ -91,7 +97,8 @@ amctl llm-provider create internal-proxy \
 | `--auth-header` | string | (template default) | Override the template's auth header name. |
 | `--api-key` | string | (none) | Provider API key. Leaks into shell history — prefer `--api-key-stdin`. |
 | `--api-key-stdin` | bool | `false` | Read the provider API key from stdin. |
-| `--gateways` | strings | (none) | AI Gateway UUIDs to deploy the provider to. Repeatable, or comma-separated. |
+| `--access-mode` | string | `allow_all` | Route access control for the deployed proxy: `allow_all` or `deny_all`. A proxy deployed with `deny_all` accepts no requests. |
+| `--gateways` | strings | (none) | AI Gateway names or UUIDs to deploy the provider to. Repeatable, or comma-separated. Tab-completes from [`amctl gateway list`](./gateway.mdx). |
 
 ### Built-in templates
 
@@ -106,7 +113,8 @@ Tab completion on `--template` lists the live set — built-in handles plus any 
 - A provider inherits the template's upstream URL, auth scheme, and auth header. The upstream block is sent only when you supply `--upstream-url`, `--auth-type`, or `--auth-header`, or a credential — otherwise creation defers entirely to the template.
 - `--api-key` and `--api-key-stdin` are mutually exclusive.
 - An API key cannot be combined with `--auth-type none`.
-- A provider must be associated with at least one AI Gateway to be callable by agents. Pass `--gateways` at creation, or associate gateways later from the console (see [Register an LLM Service Provider](../../guides/register-llm-service-provider.mdx)).
+- A provider must be associated with at least one AI Gateway to be callable by agents. Pass `--gateways` at creation with gateway names or UUIDs — [`amctl gateway list`](./gateway.mdx#amctl-gateway-list) shows both, along with the placement role and environment each gateway carries, and tab completion on `--gateways` lists them. Gateways can also be associated later from the console (see [Register an LLM Service Provider](../../guides/register-llm-service-provider.mdx)).
+- Only `EGRESS` and `BOTH` gateways can host an LLM proxy, and no two gateways passed to one provider may share an environment.
 
 :::tip
 Reading the key from stdin keeps it out of your shell history and process list. `--api-key-stdin` accepts a piped value (`echo "$KEY" | …`) or a redirected file (`… < key.txt`).
@@ -165,7 +173,20 @@ amctl llm-provider delete prod-openai
 amctl llm-provider delete prod-openai --yes
 ```
 
+### When deletion is refused
+
+The provider is undeployed from each of its gateways first, then removed. Deletion is refused while anything still references the provider — an LLM proxy, or an agent's LLM configuration:
+
+```
+X cannot delete LLM provider: it has associated LLM proxies. Please delete all proxies
+  before deleting the provider
+```
+
+Remove the dependents first. For an agent binding, that is [`amctl agent llm unset`](./agent.mdx).
+
 ## See Also
+
+- [`amctl gateway list`](./gateway.mdx#amctl-gateway-list) — find the gateway names and UUIDs `--gateways` accepts
 
 - [`amctl agent create`](./agent.mdx#amctl-agent-create) — attach a provider to an agent with `--llm-provider`
 - [Register an LLM Service Provider](../../guides/register-llm-service-provider.mdx) — console walkthrough and per-provider settings

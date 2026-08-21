@@ -32,6 +32,10 @@ Thunder (identity provider) must be installed before proceeding — see the Thun
 
 Install these in order — each depends on the one before it.
 
+:::warning Upgrading an existing installation? Reverse Steps 2 and 4
+The order above is for a fresh install, where no agents exist yet and the order is harmless. When upgrading an already-running platform, upgrade `wso2-amp-platform-resources-extension` (Step 4) at or before `wso2-agent-manager` (Step 2), not after: the service writes component parameters that the chart must already know how to read, so an agent created in the window between the two upgrades can have its live invoke URL change on the later chart upgrade.
+:::
+
 #### Step 1: Gateway Operator
 
 Manages API Gateway resources and enables secure, authenticated trace ingestion into the Observability Plane.
@@ -163,6 +167,8 @@ helm install amp \
   --set agentManagerService.config.keyManager.issuer="${THUNDER_PUBLIC_URL}" \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
+  --set agentManagerService.config.thunder.baseURL="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.thunder.resolveToHost="${THUNDER_INTERNAL_URL#http://}" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --timeout 1800s
 ```
@@ -217,6 +223,8 @@ helm install amp \
   --set agentManagerService.config.keyManager.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set agentManagerService.config.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
   --set agentManagerService.config.oidc.clientSecret="${AMP_API_CLIENT_SECRET}" \
+  --set agentManagerService.config.thunder.baseURL="${THUNDER_PUBLIC_URL}" \
+  --set agentManagerService.config.thunder.resolveToHost="${THUNDER_INTERNAL_URL#http://}" \
   --set agentManagerService.config.thunder.clientSecret="${AMP_SYSTEM_CLIENT_SECRET}" \
   --set agentManagerService.config.openChoreo.baseURL="http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080" \
   --set agentManagerService.config.tlsEnabled=true \
@@ -250,6 +258,8 @@ kubectl wait --for=condition=Available \
 ```
 
 `agentManagerService.config.thunder.clientSecret` can instead be supplied through `agentManagerService.config.thunder.existingSecret` (key `thunder-client-secret`) if you prefer to keep it out of Helm release history.
+
+`agentManagerService.config.apiKey` (the `X-API-Key` header value some internal callers use) is left unset above deliberately: the chart generates a random 32-character value itself when empty, the same way `encryptionKey` already does. Set `agentManagerService.config.apiKey.value` or `.existingSecret` explicitly only if something outside the platform needs to know this value in advance.
 
 :::warning `tlsEnabled` decides which agent invoke URL the console publishes
 `agentManagerService.config.tlsEnabled` defaults to `false`, and it is what selects between an Environment's `http` and `https` endpoint variants when the API builds an agent's invoke URL. Left at the default on an HTTPS platform, the console publishes an `http://` URL — which the browser then refuses to call from an HTTPS page, showing the request as `blocked:mixed-content` with no error anywhere in the platform. The agent itself is healthy and reachable; only the published URL is wrong.
@@ -285,6 +295,20 @@ resource metadata is derived from it, so
 must differ. Likewise the MCP audience entry is derived from
 `serverPublicURL` above, so `keyManager.audience` only needs setting to change
 the accepted client IDs.
+
+`thunder.baseURL` must also be the public Thunder URL, for a related but
+separate reason: every admin identity call (users, roles, groups) requests a
+token scoped to Thunder's System resource server via an RFC 8707 `resource`
+parameter derived from this value, and Thunder only recognizes the public URL
+as that resource server's registered identifier — anything else fails with
+`invalid_target`. Since the API runs in-cluster and the public hostname often
+doesn't resolve there, `thunder.resolveToHost` tells it which address to
+actually connect to while still presenting `thunder.baseURL` on the wire; set
+it to the in-cluster Thunder service (as above) whenever the public hostname
+isn't directly dialable from this cluster. Leaving `thunder.baseURL` at the
+chart default (or omitting `resolveToHost` when the public hostname can't
+resolve in-cluster) breaks every admin identity call with `invalid_target` or
+a DNS lookup failure, while the rest of the platform looks healthy.
 :::
 
 :::tip Verify
@@ -466,7 +490,7 @@ kubectl wait --for=condition=Available \
 
 <Prod production={props.production}>
 
-`amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder:
+`amObserver.observer.idpClientSecret` is the observer's own outbound identity for calls to the OpenChoreo observer, and must match the `am-observer-client` secret seeded into Thunder. It can instead be supplied through `amObserver.observer.existingSecret` (keys `existingSecretClientIdKey`/`existingSecretClientSecretKey`, default `idpClientId`/`idpClientSecret`) if you prefer to keep it out of Helm release history, the same option `thunder.clientSecret` has above:
 
 ```bash
 helm install amp-observability-traces \

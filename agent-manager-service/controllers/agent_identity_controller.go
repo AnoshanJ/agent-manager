@@ -39,9 +39,10 @@ import (
 )
 
 // AgentIdentityController exposes env-Thunder group/role management for agent
-// identities. Every handler is a passthrough to the environment's own Thunder
-// instance, resolved per request via EnvThunderResolver — AMS stores no
-// group/role state of its own. Roles carry catalog scopes as their permissions.
+// identities, resolved per request via EnvThunderResolver — AMS stores no
+// group/role state of its own. Roles carry catalog scopes as their
+// permissions. ListAgents is the exception: it reads the assignment picker
+// straight from AMS's own state, not Thunder.
 type AgentIdentityController interface {
 	// Groups
 	ListGroups(w http.ResponseWriter, r *http.Request)
@@ -562,15 +563,17 @@ func (c *agentIdentityController) CreateRole(w http.ResponseWriter, r *http.Requ
 	utils.WriteSuccessResponse(w, http.StatusCreated, role)
 }
 
-// managedRole fetches the role and treats Thunder's native Administrator role
-// as nonexistent (404, matching its exclusion from ListRoles): it carries the
-// built-in "system" scope, and exposing it through this API is how agent
+// managedRole fetches the role and treats Thunder's native Administrator role and
+// env-Thunder's own bootstrap-seeded AMP System Client Thunder Admin role as
+// nonexistent (404, matching their exclusion from ListRoles): both carry the
+// built-in "system" scope, and exposing either through this API is how agent
 // identities were acquiring env-Thunder admin — see
-// thundersvc.NativeAdministratorRoleName. Writes the error response itself when
-// ok=false. RemoveRoleAssignees deliberately skips this guard so an existing
-// mis-assignment can still be cleaned up through the same API, and the
-// read-only GetRoleAssignments/GetGroupRoles stay unguarded for the same
-// reason — finding which agents and groups to clean up requires seeing them.
+// thundersvc.NativeAdministratorRoleName and thundersvc.AMPSystemClientRoleName.
+// Writes the error response itself when ok=false. RemoveRoleAssignees deliberately
+// skips this guard so an existing mis-assignment can still be cleaned up through
+// the same API, and the read-only GetRoleAssignments/GetGroupRoles stay unguarded
+// for the same reason — finding which agents and groups to clean up requires
+// seeing them.
 func (c *agentIdentityController) managedRole(w http.ResponseWriter, r *http.Request, client thundersvc.EnvIdentityClient, roleID string) (*thundersvc.ThunderRole, bool) {
 	ctx := r.Context()
 	role, err := client.GetRole(ctx, roleID)
@@ -583,7 +586,7 @@ func (c *agentIdentityController) managedRole(w http.ResponseWriter, r *http.Req
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to get role")
 		return nil, false
 	}
-	if role.Name == thundersvc.NativeAdministratorRoleName {
+	if role.Name == thundersvc.NativeAdministratorRoleName || role.Name == thundersvc.AMPSystemClientRoleName {
 		utils.WriteErrorResponse(w, http.StatusNotFound, "Role not found")
 		return nil, false
 	}
@@ -692,8 +695,9 @@ func (c *agentIdentityController) UpdateRole(w http.ResponseWriter, r *http.Requ
 		currentByRS[p.ResourceServerID] = p.Permissions
 	}
 
-	// Reconcile every resource server the role touches — those newly desired and
-	// those it already carried (a proxy dropped from the role has have\desired = have).
+	// Reconcile every resource server the role touches — newly desired ones and
+	// ones it already had. A proxy dropped from the role has no entry in desired
+	// but still has one in currentByRS, so it must be visited to clear it.
 	rsIDs := make(map[string]struct{}, len(desired)+len(currentByRS))
 	for rsID := range desired {
 		rsIDs[rsID] = struct{}{}

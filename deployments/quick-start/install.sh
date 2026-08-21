@@ -1712,14 +1712,26 @@ if [[ "${SHOW_LOCALHOST_URLS:-true}" == "true" ]]; then
   log_info "Agent Management Platform Console: http://console.amp.localhost:8080"
   log_info "Agent Management Platform API: http://api.amp.localhost:8080"
   log_info "Observability Gateway (for traces): http://default-default.gateway.localhost:19080/otel"
+
+  # Admin login for the console above. Fetched fresh from the amp-admin-credentials
+  # Secret (see wso2-amp-thunder-extension/templates/admin-credentials.yaml) rather
+  # than tracked through the install. Wrappers that set SHOW_LOCALHOST_URLS=false
+  # print their own reachable console URL and their own copy of this instead —
+  # this localhost URL would be wrong there.
+  bash "${SCRIPT_DIR}/../scripts/print-admin-credentials.sh" \
+    "http://console.amp.localhost:8080" "${THUNDER_NS}" || true
 fi
 
 # Print the default environment's Thunder ID console + admin credentials — the
-# release/namespace/host follow the fixed ENV_NAME=default ORG_NAME=default naming
-# convention (see thunder_release_name/thunder_namespace/thunder_host in
-# deployments/scripts/thunder-naming.sh). The password lives only in a K8s Secret (never written
-# to disk by add-environment-thunder.sh), so it's fetched fresh here rather than
-# re-printed from that script's own (long since scrolled-past) console output.
+# release/namespace follow the fixed ENV_NAME=default ORG_NAME=default naming
+# convention (see thunder_release_name/thunder_namespace in
+# deployments/scripts/thunder-naming.sh), but the external URL does NOT — it is
+# built ONLY from DEFAULT_ENV_THUNDER_HANDLE (populated by install_default_env_thunder,
+# see install-helpers.sh), the registered handle learned via GET, since there is
+# no pattern computable from org/env alone. The password lives only in a K8s
+# Secret (never written to disk by add-environment-thunder.sh), so it's fetched
+# fresh here rather than re-printed from that script's own (long since
+# scrolled-past) console output.
 if [[ "${ENV_THUNDER_PROVISIONED}" == "true" ]]; then
   # Dynamically derive the coordinates using the shared naming helper.
   # Avoids hardcoded literals which would break if custom org/env names are used
@@ -1731,9 +1743,9 @@ if [[ "${ENV_THUNDER_PROVISIONED}" == "true" ]]; then
 
   ENV_THUNDER_ADMIN_PASSWORD="$(kubectl get secret "${default_release}-admin-credentials" \
     -n "${default_ns}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-  if [[ -n "${ENV_THUNDER_ADMIN_PASSWORD}" ]]; then
+  if [[ -n "${ENV_THUNDER_ADMIN_PASSWORD}" && -n "${DEFAULT_ENV_THUNDER_HANDLE:-}" ]]; then
     log_step "Default Environment Thunder ID Console"
-    log_info "URL:      http://${default_org}-${default_env}.thunder.amp.localhost:8080/console"
+    log_info "URL:      $(thunder_issuer "${DEFAULT_ENV_THUNDER_HANDLE}")/console"
     log_info "Username: admin"
     log_info "Password: ${ENV_THUNDER_ADMIN_PASSWORD}"
   fi
@@ -1742,9 +1754,18 @@ fi
 echo ""
 echo ""
 log_info "To check status: kubectl get pods -A"
-echo ""
-log_step "Uninstall Options"
-log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
-log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
-log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+
+# These hints point at ./uninstall.sh, a sibling of this script in the repo
+# checkout. Wrappers that source install.sh from a bundle (e.g. the VM installer)
+# have no such sibling left on disk — bootstrap.sh deletes the unpacked bundle on
+# exit — and tear down extra host state of their own, so they suppress these lines
+# and document their own teardown. Defaults to SHOW_LOCALHOST_URLS: both answer
+# "is this the plain local quick-start?".
+if [[ "${SHOW_UNINSTALL_HINTS:-${SHOW_LOCALHOST_URLS:-true}}" == "true" ]]; then
+  echo ""
+  log_step "Uninstall Options"
+  log_info "Uninstall platform (keep cluster):       ./uninstall.sh"
+  log_info "Uninstall and delete k3d cluster:        ./uninstall.sh --delete-cluster"
+  log_info "Full cleanup (including Colima profile):  ./uninstall.sh --delete-cluster --delete-colima"
+fi
 echo ""

@@ -170,7 +170,7 @@ func (c *openChoreoClient) Deploy(ctx context.Context, ouID, projectName, compon
 	workload := workloadResp.JSON200.Items[0]
 	workloadName := workload.Metadata.Name
 
-	// Update the container image and environment variables
+	// Update the container image
 	if workload.Spec == nil {
 		workload.Spec = &gen.WorkloadSpec{}
 	}
@@ -178,20 +178,7 @@ func (c *openChoreoClient) Deploy(ctx context.Context, ouID, projectName, compon
 		workload.Spec.Container = &gen.WorkloadContainer{}
 	}
 
-	// Update image
 	workload.Spec.Container.Image = req.ImageID
-
-	// Update environment variables if provided (nil means no change, empty slice means clear all)
-	if req.Env != nil {
-		envVars := toGenEnvVars(req.Env)
-		workload.Spec.Container.Env = &envVars
-	}
-
-	// Update file mounts if provided
-	if req.Files != nil {
-		fileVars := toGenFileVars(req.Files)
-		workload.Spec.Container.Files = &fileVars
-	}
 
 	// Update workload
 	updateResp, err := c.ocClient.UpdateWorkloadWithResponse(ctx, namespaceName, workloadName, workload)
@@ -208,15 +195,9 @@ func (c *openChoreoClient) Deploy(ctx context.Context, ouID, projectName, compon
 		})
 	}
 
-	// Set restartedAt on the ReleaseBinding to force a pod rollout.
-	// This ensures pods pick up updated secret values, since secret references
-	// in the spec don't change when the underlying secret value changes.
-	if req.Environment != "" {
-		if err := c.setRestartedAt(ctx, namespaceName, componentName, req.Environment); err != nil {
-			return fmt.Errorf("failed to set restartedAt: %w", err)
-		}
-	}
-
+	// No restartedAt stamp here. The pod rollout is triggered by the write that follows this one —
+	// ReplaceReleaseBindingWorkloadOverrides bumps restartedAt in the same update that applies the
+	// environment's env vars and file mounts, so the rollout and the config change land together.
 	return nil
 }
 
@@ -325,25 +306,6 @@ func bumpRestartedAt(rb *gen.ReleaseBinding) {
 		rb.Spec.ComponentTypeEnvironmentConfigs = &overrides
 	}
 	(*rb.Spec.ComponentTypeEnvironmentConfigs)["restartedAt"] = time.Now().Format(time.RFC3339Nano)
-}
-
-// setRestartedAt updates restartedAt on the ReleaseBinding for the given environment to trigger a pod rollout.
-// It uses a List/Get/Update cycle: List finds the binding name, then retryReleaseBindingUpdate handles
-// the Get/Update with retry on resource-version conflicts.
-func (c *openChoreoClient) setRestartedAt(ctx context.Context, namespaceName, componentName, envName string) error {
-	binding, err := c.findReleaseBindingForEnv(ctx, namespaceName, componentName, envName)
-	if err != nil {
-		return err
-	}
-	if binding == nil {
-		slog.Warn("no release binding found for environment during deploy, pod rollout may not be triggered",
-			"component", componentName, "environment", envName)
-		return nil
-	}
-
-	return c.retryReleaseBindingUpdate(ctx, namespaceName, binding.Metadata.Name, func(rb *gen.ReleaseBinding) {
-		bumpRestartedAt(rb)
-	})
 }
 
 // UpdateReleaseBindingTraitConfigs updates traitEnvironmentConfigs AND sets restartedAt on a
@@ -560,15 +522,17 @@ func (c *openChoreoClient) PromoteComponent(ctx context.Context, ouID, projectNa
 		return fmt.Errorf("failed to check target release binding: %w", err)
 	}
 
-	// Build workload overrides if env/file overrides are provided
+	// Build workload overrides if env/file overrides are provided.
+	// Nil means "the caller supplied nothing"; an empty slice means "this environment has none"
+	// and must still be written, so the target does not silently inherit the component-wide base.
 	var workloadOverrides *gen.WorkloadOverrides
-	if len(envOverrides) > 0 || len(fileOverrides) > 0 {
+	if envOverrides != nil || fileOverrides != nil {
 		container := &gen.ContainerOverride{}
-		if len(envOverrides) > 0 {
+		if envOverrides != nil {
 			envVars := toGenEnvVars(envOverrides)
 			container.Env = &envVars
 		}
-		if len(fileOverrides) > 0 {
+		if fileOverrides != nil {
 			fileVars := toGenFileVars(fileOverrides)
 			container.Files = &fileVars
 		}
@@ -609,6 +573,16 @@ func (c *openChoreoClient) PromoteComponent(ctx context.Context, ouID, projectNa
 			if ctConfigs != nil {
 				binding.Spec.ComponentTypeEnvironmentConfigs = ctConfigs
 			}
+			// Force a pod rollout, for the same reason Deploy does: a re-promotion
+			// whose source release and resolved overrides are unchanged writes back a
+			// byte-identical spec, which Kubernetes treats as a no-op — no reconcile,
+			// no rollout — while the API and the audit record both report a successful
+			// promote. That silence also hides the fresh agent API key minted on every
+			// promote: it is written to a fixed secret location, so the reference in
+			// the spec never changes and the pod keeps serving the old key.
+			// Must come after the ctConfigs assignment above, which replaces the map
+			// holding restartedAt wholesale and would otherwise drop the stamp.
+			bumpRestartedAt(binding)
 		}); err != nil {
 			return err
 		}

@@ -23,7 +23,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
@@ -512,4 +514,159 @@ func TestMCPDeployErrorIsFatal_UnrelatedError(t *testing.T) {
 	unrelatedErr := errors.New("some other error")
 	assert.False(t, mcpDeployErrorIsFatal(unrelatedErr),
 		"unrelated error must not be fatal")
+}
+
+// -----------------------------------------------------------------------------
+// mapMCPProxyWriteError — maps Postgres unique-violation constraints from the
+// proxy write path to friendly sentinels.
+// -----------------------------------------------------------------------------
+
+func TestMapMCPProxyWriteError_ProxyEnvSingleViolation(t *testing.T) {
+	svc := &MCPProxyService{}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_proxy_env_single"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	assert.ErrorIs(t, mapped, utils.ErrMCPEnvAlreadyBound)
+}
+
+func TestMapMCPProxyWriteError_EndpointEnvViolation(t *testing.T) {
+	svc := &MCPProxyService{}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_endpoint_env"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	assert.ErrorIs(t, mapped, utils.ErrMCPEnvAlreadyBound)
+}
+
+func TestMapMCPProxyWriteError_HandleConflictWithMCPProxy(t *testing.T) {
+	svc := &MCPProxyService{
+		artifactRepo: &repomocks.ArtifactRepositoryMock{
+			GetByHandleFunc: func(_, _ string) (*models.Artifact, error) {
+				return &models.Artifact{Kind: models.KindMCPProxy}, nil
+			},
+		},
+	}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_artifact_handle_ou_id"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	assert.ErrorIs(t, mapped, utils.ErrMCPProxyExists)
+}
+
+func TestMapMCPProxyWriteError_HandleConflictWithNonMCPArtifact(t *testing.T) {
+	svc := &MCPProxyService{
+		artifactRepo: &repomocks.ArtifactRepositoryMock{
+			GetByHandleFunc: func(_, _ string) (*models.Artifact, error) {
+				return &models.Artifact{Kind: models.KindLLMProvider}, nil
+			},
+		},
+	}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_artifact_handle_ou_id"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	// The conflicting artifact is an LLM provider, not an MCP proxy: must not
+	// falsely report "MCP proxy already exists".
+	assert.ErrorIs(t, mapped, utils.ErrArtifactExists)
+	assert.NotErrorIs(t, mapped, utils.ErrMCPProxyExists)
+}
+
+func TestMapMCPProxyWriteError_HandleConflictLookupFailureFallsBackToMCPProxyExists(t *testing.T) {
+	svc := &MCPProxyService{
+		artifactRepo: &repomocks.ArtifactRepositoryMock{
+			GetByHandleFunc: func(_, _ string) (*models.Artifact, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+		},
+	}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_artifact_handle_ou_id"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	assert.ErrorIs(t, mapped, utils.ErrMCPProxyExists)
+}
+
+func TestMapMCPProxyWriteError_NameVersionConflict(t *testing.T) {
+	svc := &MCPProxyService{}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "uq_artifact_name_version_ou_id"}
+
+	mapped := svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid")
+
+	assert.ErrorIs(t, mapped, utils.ErrInvalidInput)
+}
+
+func TestMapMCPProxyWriteError_UnrecognizedConstraintReturnsNil(t *testing.T) {
+	svc := &MCPProxyService{}
+	err := &pgconn.PgError{Code: "23505", ConstraintName: "some_other_constraint"}
+
+	assert.Nil(t, svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid"))
+}
+
+func TestMapMCPProxyWriteError_NonUniqueViolationReturnsNil(t *testing.T) {
+	svc := &MCPProxyService{}
+	err := &pgconn.PgError{Code: "23503", ConstraintName: "uq_proxy_env_single"}
+
+	assert.Nil(t, svc.mapMCPProxyWriteError(err, "some-handle", "org-uuid"))
+}
+
+func TestMapMCPProxyWriteError_NonPgErrorReturnsNil(t *testing.T) {
+	svc := &MCPProxyService{}
+	assert.Nil(t, svc.mapMCPProxyWriteError(errors.New("plain error"), "some-handle", "org-uuid"))
+}
+
+// TestSanitizeMCPUpstreamAuthForResponse_StripsSecretRef pins the sanitizer to the
+// contract its caller documents. SecretRef holds the AES-256-GCM ciphertext of the
+// upstream credential and is not declared on the spec's UpstreamAuth, so leaving it
+// populated shipped that ciphertext to every caller with MCP proxy read permission.
+func TestSanitizeMCPUpstreamAuthForResponse_StripsSecretRef(t *testing.T) {
+	sanitized := sanitizeMCPUpstreamAuthForResponse(&models.UpstreamAuth{
+		Type:      strPtr("api-key"),
+		Header:    strPtr("Authorization"),
+		Value:     strPtr("plaintext-upstream-key"),
+		SecretRef: strPtr("BASE64-AES-GCM-CIPHERTEXT"),
+	})
+
+	assert.Nil(t, sanitized.Value)
+	assert.Nil(t, sanitized.SecretRef)
+	assert.Equal(t, "api-key", *sanitized.Type)
+	assert.Equal(t, "Authorization", *sanitized.Header)
+}
+
+// TestSanitizeMCPUpstreamAuthForResponse_LeavesCallerIntact guards the copy: the
+// sanitizer runs on the persisted configuration, which the write path still needs.
+func TestSanitizeMCPUpstreamAuthForResponse_LeavesCallerIntact(t *testing.T) {
+	auth := &models.UpstreamAuth{
+		Type:      strPtr("api-key"),
+		SecretRef: strPtr("BASE64-AES-GCM-CIPHERTEXT"),
+	}
+
+	sanitizeMCPUpstreamAuthForResponse(auth)
+
+	assert.NotNil(t, auth.SecretRef)
+	assert.Equal(t, "BASE64-AES-GCM-CIPHERTEXT", *auth.SecretRef)
+}
+
+// TestBuildMCPEndpointDTOsForResponse_StripsUpstreamCredentials exercises the path
+// the proxy handlers actually serialize, not just the sanitizer in isolation.
+func TestBuildMCPEndpointDTOsForResponse_StripsUpstreamCredentials(t *testing.T) {
+	dtos := buildMCPEndpointDTOsForResponse([]models.MCPProxyEndpoint{
+		{
+			Handle: "primary",
+			Name:   "Primary",
+			Configuration: models.MCPEndpointConfig{
+				Upstream: &models.UpstreamEndpoint{
+					URL: "https://upstream.example",
+					Auth: &models.UpstreamAuth{
+						Type:      strPtr("api-key"),
+						SecretRef: strPtr("BASE64-AES-GCM-CIPHERTEXT"),
+					},
+				},
+			},
+		},
+	})
+
+	assert.Len(t, dtos, 1)
+	assert.Nil(t, dtos[0].Upstream.Main.Auth.Value)
+	assert.Nil(t, dtos[0].Upstream.Main.Auth.SecretRef)
 }

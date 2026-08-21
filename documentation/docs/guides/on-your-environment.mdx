@@ -102,12 +102,12 @@ Pick a base domain you control (a delegated subdomain like `amp.yourdomain.com` 
 |---|---|---|
 | `console.<base>` | Agent Manager Console | control-plane gateway LB |
 | `api-amp.<base>` | Agent Manager API (browser, `amctl`, MCP) | control-plane gateway LB |
-| `thunder.<base>` | Thunder OAuth login (+ per-environment `<org>-<env>.thunder.<base>`) | control-plane gateway LB |
+| `thunder.<base>` | Thunder OAuth login (+ per-environment `<handle>.<base>`, one unguessable host per environment) | control-plane gateway LB |
 | `cp.<base>` | Gateway control plane (external AI gateways, optional) | control-plane gateway LB |
 | `traces.<base>` | Agent Manager Observer | observability-plane gateway LB |
 | `*.agents.<base>` | Deployed-agent invocation endpoints (wildcard) | data-plane gateway LB |
 
-Concretely: `console`/`api-amp`/`thunder`/`cp` all point at the control-plane gateway (four records, or a single `*.<base>` wildcard), `traces` points at the observability-plane gateway, and `*.agents.<base>` plus the `agents.<base>` apex point at the data-plane gateway. [Step 10](#step-10-publish-dns-records) lists the exact records once the LoadBalancer addresses exist.
+Concretely: `console`/`api-amp`/`thunder`/`cp` all point at the control-plane gateway — via a single required `*.<base>` wildcard, not four separate records (per-environment Thunder hostnames are created after install and are only reachable through that wildcard) — `traces` points at the observability-plane gateway, and `*.agents.<base>` plus the `agents.<base>` apex point at the data-plane gateway. [Step 10](#step-10-publish-dns-records) lists the exact records once the LoadBalancer addresses exist.
 
 ```bash
 export VERSION="0.0.0-dev"
@@ -573,14 +573,14 @@ Thunder provides authentication and user management for the entire platform — 
 Thunder writes its issuer URL, the console client's redirect URIs, and every platform OAuth client into its database on **first boot**, seeded by a `pre-install` hook that `helm upgrade` never re-runs. The database, the secrets, and the hostnames below are all effectively frozen once this command completes — getting any of them wrong means uninstalling, discarding Thunder's data, and reinstalling. Confirm your values against [Plan Your Deployment](#plan-your-deployment) before running it.
 :::
 
-**Database.** Production installations use an external PostgreSQL. Thunder keeps three logical databases — `configdb`, `runtimedb`, and `userdb` — which can live on one server; create them and a role that owns all three before installing, then **load Thunder's schema into each one**. Nothing in the chart creates the tables for PostgreSQL: the init container only initialises the bundled SQLite files, so an empty database makes the pre-install hook fail.
+**Database.** Production installations use an external PostgreSQL. Thunder keeps four logical databases — `configdb`, `entitydb`, `runtime_transient`, and `runtime_persistent` — which can live on one server; create them and a role that owns all four before installing, then **load Thunder's schema into each one**. Nothing in the chart creates the tables for PostgreSQL: the init container only initialises the bundled SQLite files, so an empty database makes the pre-install hook fail.
 
 On a managed service (RDS, Cloud SQL, Azure Database) the admin user is **not a superuser**, and PostgreSQL 16+ only lets it create a database *owned by another role* if it holds membership in that role. Grant it first, or `CREATE DATABASE ... OWNER thunder` fails with `must be able to SET ROLE "thunder"`:
 
 ```sql
 CREATE ROLE thunder LOGIN PASSWORD '...';
 GRANT thunder TO CURRENT_USER;  -- required on managed PostgreSQL; harmless elsewhere
-CREATE DATABASE configdb OWNER thunder;  -- likewise runtimedb, userdb
+CREATE DATABASE configdb OWNER thunder;  -- likewise entitydb, runtime_transient, runtime_persistent
 ```
 
 The same applies to the Agent Manager database role in [Phase 2](#phase-2-agent-manager-installation).
@@ -591,16 +591,16 @@ The same applies to the Agent Manager database role in [Phase 2](#phase-2-agent-
 Load the schema first. The scripts ship inside the Thunder image, so copy them out of the version the chart pins and apply each to its database as the owning role:
 
 ```bash
-THUNDER_IMAGE="ghcr.io/thunder-id/thunderid:0.45.0"
+THUNDER_IMAGE="ghcr.io/thunder-id/thunderid:1.0.0"
 docker create --name thunder-schema "${THUNDER_IMAGE}"
-for db in configdb runtimedb userdb; do
+for db in configdb entitydb runtime_transient runtime_persistent; do
   docker cp "thunder-schema:/opt/thunderid/dbscripts/${db}/postgres.sql" "./thunder-${db}.sql"
   psql "postgresql://thunder@your-db.example.com:5432/${db}" -v ON_ERROR_STOP=1 -f "./thunder-${db}.sql"
 done
 docker rm thunder-schema
 ```
 
-Expect 17 tables in `configdb`, 8 in `runtimedb`, and 5 in `userdb`. If the databases are empty when you install, the `amp-thunder-extension-setup` hook fails with `Server failed to start within 60 seconds` and its pod is deleted, so `kubectl logs` shows nothing — the real error, visible only by running the binary by hand, is `relation "INBOUND_CLIENT" does not exist`.
+Expect 20 tables in `configdb`, 5 in `entitydb`, 13 in `runtime_transient`, and 7 in `runtime_persistent`. If the databases are empty when you install, the `amp-thunder-extension-setup` hook fails with `Server failed to start within 60 seconds` and its pod is deleted, so `kubectl logs` shows nothing — the real error, visible only by running the binary by hand, is `relation "INBOUND_CLIENT" does not exist`.
 
 Then store the database password in a Secret and reference it, so it never enters Helm release history:
 
@@ -627,23 +627,34 @@ thunder:
           passwordRef:
             name: thunder-db-credentials
             key: password
-      runtime:
+      entity:
         type: postgres
         postgres:
           hostname: "${THUNDER_DB_HOST}"
           port: "5432"
-          name: runtimedb
+          name: entitydb
           username: thunder
           sslmode: require
           passwordRef:
             name: thunder-db-credentials
             key: password
-      user:
+      runtime_transient:
         type: postgres
         postgres:
           hostname: "${THUNDER_DB_HOST}"
           port: "5432"
-          name: userdb
+          name: runtime_transient
+          username: thunder
+          sslmode: require
+          passwordRef:
+            name: thunder-db-credentials
+            key: password
+      runtime_persistent:
+        type: postgres
+        postgres:
+          hostname: "${THUNDER_DB_HOST}"
+          port: "5432"
+          name: runtime_persistent
           username: thunder
           sslmode: require
           passwordRef:
@@ -657,7 +668,7 @@ Set `sslmode` to `verify-full` instead if your provider gives you a CA to pin.
   </TabItem>
   <TabItem value="evaluation" label="In-pod SQLite (evaluation only)">
 
-The chart's default keeps all three databases as SQLite files on a 1Gi PVC. It cannot be shared across pods, so Thunder is permanently limited to a single replica, and the data lives and dies with that volume. Write an empty overrides file so the install command below stays the same:
+The chart's default keeps all four databases as SQLite files on a 1Gi PVC. It cannot be shared across pods, so Thunder is permanently limited to a single replica, and the data lives and dies with that volume. Write an empty overrides file so the install command below stays the same:
 
 ```bash
 echo '{}' > thunder-db-values.yaml
@@ -690,6 +701,7 @@ helm install amp-thunder-extension \
   --set thunder.bootstrap.amObserverClient.clientSecret="${AM_OBSERVER_CLIENT_SECRET}" \
   --set thunder.bootstrap.workloadPublisherClient.clientSecret="${WORKFLOW_PUBLISHER_SECRET}" \
   --set thunder.bootstrap.observerResourceReaderClient.clientSecret="${OBSERVER_READER_SECRET}" \
+  --set thunder.ocIngress.https.enabled=false \
   --values thunder-db-values.yaml \
   --timeout 1800s
 
@@ -706,6 +718,10 @@ Leaving them out breaks the platform in two ways at once. The defaults stay vali
 When verifying, note the two client families use different token-endpoint auth methods — the four `amp*` clients use HTTP Basic, these two use POST-body credentials. Testing with the wrong method returns `400`, not `401`, which is easy to misread as a rejected credential.
 :::
 
+:::warning Disable Thunder's own local-dev gateway
+`thunder.ocIngress.https.enabled` defaults to `true`. It exists so a local k3d install can reach Thunder over HTTPS without depending on the control plane's own gateway TLS — it stands up a second, dedicated Gateway plus a self-signed "AMP Local Dev CA" certificate, independent of the wildcard certificate this guide creates in [Step 5](#step-5-install-openchoreo-control-plane). On a real cluster this is redundant rather than harmful, since every other plane still gets its own LoadBalancer address — but it is still an unused Gateway and certificate with no purpose here, so turn it off with the `--set` above.
+:::
+
 :::info MCP resource identifiers
 `agentManagerMcpBaseUrl` and `observerMcpBaseUrl` become the OAuth resource-server identifiers Thunder registers for the `/mcp` endpoints. Point them at the externally reachable origins of the API and observer — the same values as `agentManagerService.config.serverPublicURL` and `amObserver.publicUrl` in Phase 2 — because Thunder rejects an authorize request with `invalid_target` unless the `resource` an MCP client asks for matches a registered identifier exactly. See the [MCP server reference](../reference/mcp-server.mdx) for the full set of settings that must move together.
 :::
@@ -715,7 +731,7 @@ When verifying, note the two client families use different token-endpoint auth m
 :::
 
 :::warning Changing these values later
-A `helm upgrade` will not change the issuer in issued tokens, the registered redirect URIs, the MCP resource identifiers, or any client secret — those live in Thunder's database, seeded by the pre-install bootstrap job. To change them you must uninstall the chart and discard its data: **delete the PVC** if you used SQLite, or **drop and recreate the three databases** if you used PostgreSQL, then reinstall. Anything already issued against the old issuer stops validating.
+A `helm upgrade` will not change the issuer in issued tokens, the registered redirect URIs, the MCP resource identifiers, or any client secret — those live in Thunder's database, seeded by the pre-install bootstrap job. To change them you must uninstall the chart and discard its data: **delete the PVC** if you used SQLite, or **drop and recreate the four databases** if you used PostgreSQL, then reinstall. Anything already issued against the old issuer stops validating.
 
 Discarding Thunder's data also **re-creates the organization**, and Agent Manager keys its own tenant data on that organization's identifier. Every organization-scoped row it holds — agents, deployments, API keys, gateways, monitors, the per-environment Thunder registration — is left pointing at the previous identifier and becomes invisible. The platform stays up and gives no error: the console reports deployment failures, agent identity resolution fails with `env-thunder not provisioned for this environment`, and the gateway cannot re-register because the environment still holds its ingress slot while the organization's gateway list reads empty.
 
@@ -729,6 +745,16 @@ kubectl exec -n ${THUNDER_NS} deploy/amp-thunder-extension-deployment -- \
   | grep -o '"issuer":"[^"]*"'
 # Expected: "issuer":"${THUNDER_PUBLIC_URL}"  (must match your THUNDER_PUBLIC_URL value)
 ```
+:::
+
+:::info Console admin password
+This install also generated the console's `admin` password — it is never a shipped default (unlike a plain `admin`/`admin` login, that would be guessable from this chart's own public source), and it is not shown anywhere in this command's output. Retrieve it with:
+
+```bash
+kubectl get secret amp-admin-credentials -n ${THUNDER_NS} -o jsonpath='{.data.password}' | base64 -d
+```
+
+Reused across reinstalls rather than rotated, so this command keeps working later too. See [Identity and Access](#identity-and-access) for what to do with this login before exposing the platform.
 :::
 
 ### Step 5: Install OpenChoreo Control Plane
@@ -752,7 +778,6 @@ spec:
   dnsNames:
     - "*.${BASE_DOMAIN}"
     - "${BASE_DOMAIN}"
-    - "*.thunder.${BASE_DOMAIN}"
   privateKey:
     rotationPolicy: Always
 EOF
@@ -761,9 +786,7 @@ kubectl wait --for=condition=Ready certificate/cp-gateway-tls \
   -n openchoreo-control-plane --timeout=300s
 ```
 
-:::note Why the third name
-A DNS wildcard matches exactly one label, so `*.${BASE_DOMAIN}` does **not** cover the per-environment Thunder hostnames that [Phase 2](#provision-thunder-identity-provider-for-the-default-environment) provisions at `<org>-<env>.thunder.${BASE_DOMAIN}`. Without `*.thunder.${BASE_DOMAIN}` the gateway serves a certificate that cannot validate for those names: routing succeeds, but every TLS-verifying client fails.
-:::
+The per-environment Thunder hostnames [Phase 2](#provision-thunder-identity-provider-for-the-default-environment) provisions (`<handle>.${BASE_DOMAIN}`) sit directly under `BASE_DOMAIN` with no fixed subdomain segment in between, so `*.${BASE_DOMAIN}` already covers them — no extra `dnsNames` entry is needed for them.
 
 Install the Control Plane with hostnames, TLS, and Thunder OIDC. The OpenChoreo API is deliberately **not** published on the gateway (`openchoreoApi.http.enabled=false`): Agent Manager and the observer call it over cluster DNS, so exposing it would only widen the platform's attack surface.
 
@@ -1321,12 +1344,11 @@ done
 
 | Record | Type | Points to |
 |---|---|---|
-| `console`, `api-amp`, `thunder`, `cp` `.${BASE_DOMAIN}` (or `*.${BASE_DOMAIN}`) | A / CNAME | control-plane gateway address |
-| `*.thunder.${BASE_DOMAIN}` | A / CNAME | control-plane gateway address |
+| `*.${BASE_DOMAIN}` | A / CNAME | control-plane gateway address |
 | `traces.${BASE_DOMAIN}` | A / CNAME | observability-plane gateway address |
 | `*.agents.${BASE_DOMAIN}` and `agents.${BASE_DOMAIN}` | A / CNAME | data-plane gateway address |
 
-The `*.thunder.${BASE_DOMAIN}` record covers the per-environment Thunder instances provisioned in Phase 2. A bare `*.${BASE_DOMAIN}` wildcard does not reach them — and note that once `*.thunder.${BASE_DOMAIN}` exists, [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592) makes `thunder.${BASE_DOMAIN}` an empty non-terminal that the broader wildcard stops covering, so keep an explicit `thunder` record in that layout.
+The `*.${BASE_DOMAIN}` wildcard is **required**, not an alternative to four explicit `console`/`api-amp`/`thunder`/`cp` records. Per-environment Thunder hostnames (`<handle>.${BASE_DOMAIN}`) are created after install and are not known up front, so only the wildcard resolves them. Four explicit records leave every environment's Thunder unreachable while the console and API keep working.
 
 Use A records for IPs (GKE, AKS) and CNAME records for hostnames (EKS). Verify resolution before continuing:
 
@@ -1390,10 +1412,18 @@ helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
   --reuse-values \
   --set agentManagerService.config.agentsBaseDomain="${AGENTS_DOMAIN}" \
   --set agentManagerService.config.agentsHttpPort=80 \
-  --set agentManagerService.config.agentsHttpsPort=443
+  --set agentManagerService.config.agentsHttpsPort=443 \
+  --set agentManagerService.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set agentManagerService.config.tlsEnabled=true \
+  --set console.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set console.config.tlsEnabled=true
 ```
 
-The two ports must match the `environment.gateway.http.port` and `https.port` you set above — the same one-port-per-listener rule, for the same reason.
+The two ports must match the `environment.gateway.http.port` and `https.port` you set above — the same one-port-per-listener rule, for the same reason. The four Thunder values are equally important: they make the API and Console agree that an environment's identity URL is `https://<handle>.${BASE_DOMAIN}`, rather than the local `amp.localhost` default.
+
+:::warning Creating later environments from the Console on custom TLS installations
+The current Console-generated command carries the Thunder base domain and TLS setting, but not the platform Thunder issuer, public JWKS URL, or CA-trust mode. Those values are required by `add-environment-thunder.sh` on a custom TLS installation. Do not use the Console-generated command for a later environment until the Console runtime configuration is extended to provide those values; this release does not yet provide a supported Console workflow for that case.
+:::
 
 Skip this and added environments still install, but their agents are published on `am-gateway.localhost`: the console shows an empty invoke URL and try-out returns `405` against its own host. The symptom appears only when you create a second environment, long after this step.
 
@@ -1412,10 +1442,14 @@ helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
   --set agentManagerService.config.agentsHttpsPort=443 \
   --set agentManagerService.config.gatewayBaseDomain="otel.${BASE_DOMAIN}" \
   --set agentManagerService.config.gatewayVhostScheme=https \
-  --set agentManagerService.config.gatewayVhostPort=443
+  --set agentManagerService.config.gatewayVhostPort=443 \
+  --set agentManagerService.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set agentManagerService.config.tlsEnabled=true \
+  --set console.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set console.config.tlsEnabled=true
 ```
 
-That needs a `*.otel.${BASE_DOMAIN}` DNS record and gateway certificate coverage — and, per [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592), adding that wildcard makes `otel.${BASE_DOMAIN}` an empty non-terminal that a broader `*.${BASE_DOMAIN}` stops covering, so keep an explicit record for it. This is the same trap the `*.thunder.${BASE_DOMAIN}` record carries.
+That needs a `*.otel.${BASE_DOMAIN}` DNS record and gateway certificate coverage — and, per [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592), adding that wildcard makes `otel.${BASE_DOMAIN}` an empty non-terminal that a broader `*.${BASE_DOMAIN}` stops covering, so keep an explicit record for it. Env-Thunder does not need a corresponding nested wildcard: each handle sits directly under `${BASE_DOMAIN}` and is already covered by `*.${BASE_DOMAIN}`.
 :::
 
 ### Provision Thunder Identity Provider for the Default Environment
@@ -1529,7 +1563,7 @@ The gateway extension was installed before this Environment's Thunder existed, s
 
 ```bash
 export ENV_THUNDER_RELEASE="amp-thunder-default-default"
-export ENV_THUNDER_ISSUER="https://default-default.thunder.${BASE_DOMAIN}"
+export ENV_THUNDER_ISSUER="<the Issuer URL printed by add-environment-thunder.sh above>"
 export ENV_THUNDER_JWKS="http://${ENV_THUNDER_RELEASE}-service.${ENV_THUNDER_RELEASE}.svc.cluster.local:8090/oauth2/jwks"
 
 helm upgrade api-platform-default-default \
@@ -1602,7 +1636,7 @@ Open the Console, log in, then create → build → deploy an agent; its invoke 
 
 Port-forwarding remains available as a debugging fallback for any individual service (all Agent Manager services are ClusterIP), e.g. `kubectl port-forward -n wso2-amp svc/amp-console 3000:3000`.
 
-**Default credentials:** `admin` / `admin` — bootstrap only; replace before exposing the platform (see [Identity and Access](#identity-and-access)).
+**Admin login:** username `admin`, with a generated password retrieved from the `amp-admin-credentials` Secret — bootstrap only; replace before exposing the platform (see [Identity and Access](#identity-and-access)).
 
 ---
 
@@ -1657,7 +1691,7 @@ Work down this table against an existing install. The **When** column matters: t
 | OpenBao sealed, persistent, and unseal keys escrowed | [Step 2](#step-2-set-up-the-secret-stores) | Any time — re-seeding required |
 | OpenSearch volume sized to retention, admin password matches OpenBao | [Step 8](#step-8-setup-observability-plane) | Any time |
 | Container registry is yours, with `tlsVerify=true` | [Phase 2](#phase-2-agent-manager-installation) | Any time — affects new builds |
-| Console `admin`/`admin` replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
+| Console admin's generated bootstrap password replaced by real users or a connected IdP | [Identity](#identity-and-access) | Any time |
 | JWT signature verification active on the API and the observer | [Identity](#identity-and-access) | Any time |
 | Gateway development mode off with encryption keys configured | [Gateway hardening](#gateway-hardening) | Both are set during installation |
 | Post-upgrade patches re-applied | [After a chart upgrade](#after-a-chart-upgrade) | After every relevant `helm upgrade` |
@@ -1680,7 +1714,13 @@ Two cautions learned the hard way. Because these use `kubectl patch`/`apply`, th
 
 ### Identity and Access
 
-The seeded `admin`/`admin` console login is for bootstrap only. Create real users in Thunder or connect your organization's identity provider before exposing the platform — see ThunderID's [Manage Users](https://thunderid.dev/docs/v1.0.x/guides/users/manage-users/) and [Manage Identity Providers](https://thunderid.dev/docs/v1.0.x/guides/identity-providers/manage-identity-providers/) guides. This is separate from [Configure Identity Providers at the Gateway](./configure-identity-providers-at-the-gateway.mdx), which covers the issuers a gateway trusts for agent endpoints.
+The console's `admin` login is not something you set on a production install: leave `thunder.setup.admin.password` unset (the guidance in [Step 4](#step-4-install-thunder-extension-identity-provider) does) and Thunder's chart generates its password itself at install time — a random 10-character value, stored in the `amp-admin-credentials` Secret in the Thunder namespace, reused across reinstalls rather than rotated — so there is never a shipped default to leave unchanged. This is different from the quick-start and VM installers, which set that same field to a fixed, memorable password on purpose, since those install onto a machine only the operator reaches. Retrieve the real value in effect either way with:
+
+```bash
+kubectl get secret amp-admin-credentials -n ${THUNDER_NS} -o jsonpath='{.data.password}' | base64 -d
+```
+
+Log in with it once, then go to the user profile menu in the console and set your own password before doing anything else — this seeded login is for bootstrap only, not a credential to keep using. Beyond that, create real users in Thunder or connect your organization's identity provider before exposing the platform — see ThunderID's [Manage Users](https://thunderid.dev/docs/v1.0.x/guides/users/manage-users/) and [Manage Identity Providers](https://thunderid.dev/docs/v1.0.x/guides/identity-providers/manage-identity-providers/) guides. This is separate from [Configure Identity Providers at the Gateway](./configure-identity-providers-at-the-gateway.mdx), which covers the issuers a gateway trusts for agent endpoints.
 
 Each environment also gets its own Thunder instance, provisioned in Phase 2, which issues agents their OAuth credentials in that environment. Those are separate installations from the platform Thunder; its admin password is generated once at provisioning and shown only in the verify step, so capture it into your secret manager then. Apply the same database and credential hygiene per environment.
 

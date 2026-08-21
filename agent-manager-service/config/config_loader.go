@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -160,6 +161,7 @@ func loadEnvs() {
 	config.IsOnPremDeployment = r.readOptionalBool("IS_ON_PREM_DEPLOYMENT", true)
 	config.ServerPublicURL = r.readOptionalString("SERVER_PUBLIC_URL", "")
 	config.ThunderHostBaseDomain = r.readOptionalString("THUNDER_HOST_BASE_DOMAIN", "amp.localhost")
+	config.ThunderAskSecret = r.readOptionalString("THUNDER_ASK_SECRET", "")
 	config.OAuthAuthorizationServers = r.readOptionalStringList("OAUTH_AUTHORIZATION_SERVERS", "")
 	config.OAuthScopesSupported = r.readOptionalStringList("OAUTH_SCOPES_SUPPORTED", "")
 
@@ -183,6 +185,20 @@ func loadEnvs() {
 	// GitHub configuration for repository API access
 	config.GitHub = GitHubConfig{
 		Token: r.readOptionalString("GITHUB_TOKEN", ""),
+	}
+
+	// Gateway manifest cache backend. "memory" (default) is process-local and only
+	// safe for a single replica; HA deployments must set this to "redis" so every
+	// replica reads and writes the same cached manifest.
+	config.GatewayManifestCache = GatewayManifestCacheConfig{
+		Backend: r.readOptionalString("GATEWAY_MANIFEST_CACHE_BACKEND", "memory"),
+		Redis: GatewayManifestCacheRedisConfig{
+			Host:       r.readOptionalString("GATEWAY_MANIFEST_CACHE_REDIS_HOST", ""),
+			Port:       int(r.readOptionalInt64("GATEWAY_MANIFEST_CACHE_REDIS_PORT", 6379)),
+			Password:   r.readOptionalString("GATEWAY_MANIFEST_CACHE_REDIS_PASSWORD", ""),
+			DB:         int(r.readOptionalInt64("GATEWAY_MANIFEST_CACHE_REDIS_DB", 0)),
+			TLSEnabled: r.readOptionalBool("GATEWAY_MANIFEST_CACHE_REDIS_TLS_ENABLED", false),
+		},
 	}
 	config.OpenChoreo = OpenChoreoConfig{
 		BaseURL:          r.readRequiredString("OPEN_CHOREO_BASE_URL"),
@@ -234,12 +250,23 @@ func loadEnvs() {
 
 	// Thunder admin API configuration for provisioning per-org OAuth apps
 	config.Thunder = ThunderConfig{
-		BaseURL:      r.readOptionalString("THUNDER_BASE_URL", ""),
-		ClientID:     r.readOptionalString("THUNDER_CLIENT_ID", ""),
-		ClientSecret: r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
+		BaseURL:       r.readOptionalString("THUNDER_BASE_URL", ""),
+		ClientID:      r.readOptionalString("THUNDER_CLIENT_ID", ""),
+		ClientSecret:  r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
+		ResolveToHost: r.readOptionalString("THUNDER_RESOLVE_TO_HOST", ""),
 	}
 	if config.Thunder.BaseURL != "" && (config.Thunder.ClientID == "" || config.Thunder.ClientSecret == "") {
 		r.errors = append(r.errors, fmt.Errorf("THUNDER_BASE_URL is set but THUNDER_CLIENT_ID and/or THUNDER_CLIENT_SECRET are missing"))
+	}
+	if config.Thunder.ResolveToHost != "" {
+		if config.Thunder.BaseURL == "" {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST requires THUNDER_BASE_URL"))
+		}
+		if host, port, err := net.SplitHostPort(config.Thunder.ResolveToHost); err != nil {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST must be host:port: %w", err))
+		} else if host == "" || port == "" {
+			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST must contain a non-empty host and port"))
+		}
 	}
 
 	config.TLSConfig = TLSConfig{
@@ -286,6 +313,7 @@ func loadEnvs() {
 	validatePostgresTLSConfig(config, r)
 	validateSecretManagerConfig(config, r)
 	validateAgentWorkloadCORSConfig(agentWorkloadConfig, r)
+	validateGatewayManifestCacheConfig(config, r)
 
 	r.logAndExitIfErrorsFound()
 
@@ -318,6 +346,35 @@ func validateSecretManagerConfig(cfg *Config, r *configReader) {
 	case d <= 0:
 		r.errors = append(r.errors, fmt.Errorf(
 			"AGENT_IDENTITY_REFRESH_INTERVAL must be a positive duration, got %q", cfg.SecretManager.AgentIdentityRefreshInterval,
+		))
+	}
+}
+
+// validGatewayManifestCacheBackends is the set of backends services.ProvideGatewayManifestCacheBackend
+// (wiring) knows how to construct. Kept as an explicit allowlist so a typo fails config
+// load with a clear message instead of silently falling back to "memory" in an HA
+// deployment that meant to opt into "redis".
+var validGatewayManifestCacheBackends = map[string]bool{
+	"memory": true,
+	"redis":  true,
+}
+
+func validateGatewayManifestCacheConfig(cfg *Config, r *configReader) {
+	backend := strings.TrimSpace(cfg.GatewayManifestCache.Backend)
+	if !validGatewayManifestCacheBackends[backend] {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_MANIFEST_CACHE_BACKEND %q is not valid (must be \"memory\" or \"redis\")", cfg.GatewayManifestCache.Backend,
+		))
+		return
+	}
+	if backend != "redis" {
+		return
+	}
+	// Only the host is mandatory: port/DB/TLS all have workable zero-value defaults,
+	// and an empty password is a legitimate (if unusual) Redis deployment.
+	if strings.TrimSpace(cfg.GatewayManifestCache.Redis.Host) == "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_MANIFEST_CACHE_REDIS_HOST is required when GATEWAY_MANIFEST_CACHE_BACKEND=redis",
 		))
 	}
 }

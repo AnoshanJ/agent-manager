@@ -184,7 +184,7 @@ type ApiDeleteLLMProviderRequest struct {
 	ctx        context.Context
 	ApiService *LLMProvidersAPIService
 	orgName    string
-	id         string
+	providerId string
 }
 
 func (r ApiDeleteLLMProviderRequest) Execute() (*http.Response, error) {
@@ -194,19 +194,23 @@ func (r ApiDeleteLLMProviderRequest) Execute() (*http.Response, error) {
 /*
 DeleteLLMProvider Delete LLM provider
 
-Delete an LLM provider
+Delete an LLM provider.
+
+The provider is undeployed from every gateway it is deployed to before it is
+removed. Deletion is refused with a 409 while anything still references the
+provider — an LLM proxy, or an agent's LLM configuration.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID
+	@param providerId Provider UUID
 	@return ApiDeleteLLMProviderRequest
 */
-func (a *LLMProvidersAPIService) DeleteLLMProvider(ctx context.Context, orgName string, id string) ApiDeleteLLMProviderRequest {
+func (a *LLMProvidersAPIService) DeleteLLMProvider(ctx context.Context, orgName string, providerId string) ApiDeleteLLMProviderRequest {
 	return ApiDeleteLLMProviderRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -223,9 +227,9 @@ func (a *LLMProvidersAPIService) DeleteLLMProviderExecute(r ApiDeleteLLMProvider
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -292,7 +296,29 @@ func (a *LLMProvidersAPIService) DeleteLLMProviderExecute(r ApiDeleteLLMProvider
 			newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
 		if localVarHTTPResponse.StatusCode == 404 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
 			var v ErrorResponse
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {
@@ -323,7 +349,7 @@ type ApiGetLLMProviderRequest struct {
 	ctx        context.Context
 	ApiService *LLMProvidersAPIService
 	orgName    string
-	id         string
+	providerId string
 }
 
 func (r ApiGetLLMProviderRequest) Execute() (*LLMProviderResponse, *http.Response, error) {
@@ -337,15 +363,15 @@ Retrieve detailed information about a specific provider
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID
+	@param providerId Provider UUID
 	@return ApiGetLLMProviderRequest
 */
-func (a *LLMProvidersAPIService) GetLLMProvider(ctx context.Context, orgName string, id string) ApiGetLLMProviderRequest {
+func (a *LLMProvidersAPIService) GetLLMProvider(ctx context.Context, orgName string, providerId string) ApiGetLLMProviderRequest {
 	return ApiGetLLMProviderRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -365,9 +391,9 @@ func (a *LLMProvidersAPIService) GetLLMProviderExecute(r ApiGetLLMProviderReques
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -474,6 +500,13 @@ type ApiListAvailableLLMPoliciesRequest struct {
 	ctx        context.Context
 	ApiService *LLMProvidersAPIService
 	orgName    string
+	providerId *string
+}
+
+// When set, scope the result to the gateways this LLM provider is deployed to, instead of every active gateway in the organization.
+func (r ApiListAvailableLLMPoliciesRequest) ProviderId(providerId string) ApiListAvailableLLMPoliciesRequest {
+	r.providerId = &providerId
+	return r
 }
 
 func (r ApiListAvailableLLMPoliciesRequest) Execute() (*LLMPolicyAvailabilityResponse, *http.Response, error) {
@@ -483,7 +516,7 @@ func (r ApiListAvailableLLMPoliciesRequest) Execute() (*LLMPolicyAvailabilityRes
 /*
 ListAvailableLLMPolicies List available LLM guardrail policies
 
-Returns full guardrail policy definitions (including parameter schemas) reported by active gateways in the organization.
+Returns full guardrail policy definitions (including parameter schemas) reported by active gateways in the organization. When providerId is given, the result is scoped to the gateways that provider is currently deployed to; otherwise it covers every active gateway in the organization.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
@@ -520,6 +553,9 @@ func (a *LLMProvidersAPIService) ListAvailableLLMPoliciesExecute(r ApiListAvaila
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	if r.providerId != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "providerId", r.providerId, "")
+	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
 
@@ -570,6 +606,17 @@ func (a *LLMProvidersAPIService) ListAvailableLLMPoliciesExecute(r ApiListAvaila
 			newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v ErrorResponse
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
 		if localVarHTTPResponse.StatusCode == 500 {
 			var v ErrorResponse
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
@@ -599,7 +646,7 @@ type ApiListLLMProviderConsumersRequest struct {
 	ctx        context.Context
 	ApiService *LLMProvidersAPIService
 	orgName    string
-	id         string
+	providerId string
 }
 
 func (r ApiListLLMProviderConsumersRequest) Execute() (*LLMProviderConsumerListResponse, *http.Response, error) {
@@ -613,15 +660,15 @@ Returns a flat list of agents and monitors that consume any LLM proxy pointing t
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID or handle
+	@param providerId Provider UUID or handle
 	@return ApiListLLMProviderConsumersRequest
 */
-func (a *LLMProvidersAPIService) ListLLMProviderConsumers(ctx context.Context, orgName string, id string) ApiListLLMProviderConsumersRequest {
+func (a *LLMProvidersAPIService) ListLLMProviderConsumers(ctx context.Context, orgName string, providerId string) ApiListLLMProviderConsumersRequest {
 	return ApiListLLMProviderConsumersRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -641,9 +688,9 @@ func (a *LLMProvidersAPIService) ListLLMProviderConsumersExecute(r ApiListLLMPro
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}/consumers"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}/consumers"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -906,7 +953,7 @@ type ApiListLLMProxiesByProviderRequest struct {
 	ctx        context.Context
 	ApiService *LLMProvidersAPIService
 	orgName    string
-	id         string
+	providerId string
 	limit      *int32
 	offset     *int32
 }
@@ -934,15 +981,15 @@ Retrieve all proxies associated with a specific provider
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID
+	@param providerId Provider UUID
 	@return ApiListLLMProxiesByProviderRequest
 */
-func (a *LLMProvidersAPIService) ListLLMProxiesByProvider(ctx context.Context, orgName string, id string) ApiListLLMProxiesByProviderRequest {
+func (a *LLMProvidersAPIService) ListLLMProxiesByProvider(ctx context.Context, orgName string, providerId string) ApiListLLMProxiesByProviderRequest {
 	return ApiListLLMProxiesByProviderRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -962,9 +1009,9 @@ func (a *LLMProvidersAPIService) ListLLMProxiesByProviderExecute(r ApiListLLMPro
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}/llm-proxies"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}/llm-proxies"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1077,7 +1124,7 @@ type ApiUpdateLLMProviderRequest struct {
 	ctx                      context.Context
 	ApiService               *LLMProvidersAPIService
 	orgName                  string
-	id                       string
+	providerId               string
 	updateLLMProviderRequest *UpdateLLMProviderRequest
 }
 
@@ -1097,15 +1144,15 @@ Update an existing LLM provider
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID
+	@param providerId Provider UUID
 	@return ApiUpdateLLMProviderRequest
 */
-func (a *LLMProvidersAPIService) UpdateLLMProvider(ctx context.Context, orgName string, id string) ApiUpdateLLMProviderRequest {
+func (a *LLMProvidersAPIService) UpdateLLMProvider(ctx context.Context, orgName string, providerId string) ApiUpdateLLMProviderRequest {
 	return ApiUpdateLLMProviderRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -1125,9 +1172,9 @@ func (a *LLMProvidersAPIService) UpdateLLMProviderExecute(r ApiUpdateLLMProvider
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1239,7 +1286,7 @@ type ApiUpdateLLMProviderCatalogStatusRequest struct {
 	ctx                             context.Context
 	ApiService                      *LLMProvidersAPIService
 	orgName                         string
-	id                              string
+	providerId                      string
 	updateLLMProviderCatalogRequest *UpdateLLMProviderCatalogRequest
 }
 
@@ -1265,15 +1312,15 @@ and will not appear in catalog queries.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param orgName Organization name/handle
-	@param id Provider UUID
+	@param providerId Provider UUID
 	@return ApiUpdateLLMProviderCatalogStatusRequest
 */
-func (a *LLMProvidersAPIService) UpdateLLMProviderCatalogStatus(ctx context.Context, orgName string, id string) ApiUpdateLLMProviderCatalogStatusRequest {
+func (a *LLMProvidersAPIService) UpdateLLMProviderCatalogStatus(ctx context.Context, orgName string, providerId string) ApiUpdateLLMProviderCatalogStatusRequest {
 	return ApiUpdateLLMProviderCatalogStatusRequest{
 		ApiService: a,
 		ctx:        ctx,
 		orgName:    orgName,
-		id:         id,
+		providerId: providerId,
 	}
 }
 
@@ -1293,9 +1340,9 @@ func (a *LLMProvidersAPIService) UpdateLLMProviderCatalogStatusExecute(r ApiUpda
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{id}/catalog"
+	localVarPath := localBasePath + "/orgs/{orgName}/llm-providers/{providerId}/catalog"
 	localVarPath = strings.Replace(localVarPath, "{"+"orgName"+"}", url.PathEscape(parameterValueToString(r.orgName, "orgName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"providerId"+"}", url.PathEscape(parameterValueToString(r.providerId, "providerId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}

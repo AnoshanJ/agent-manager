@@ -20,15 +20,15 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   Form,
+  IconButton,
   Skeleton,
   ListingTable,
   MenuItem,
   Select,
+  Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
 import { Edit, Layers, Plus, Trash } from "@wso2/oxygen-ui-icons-react";
@@ -43,6 +43,8 @@ import {
 import { LabelsEditor, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { RuntimeConfigEditor, createRuntimeConfigRow, type RuntimeConfigRow } from "./RuntimeConfigEditor";
 import { KindDescriptionField } from "./KindDescriptionField";
+import { DangerZoneCard } from "./DangerZoneCard";
+import { useDeleteVersionAction } from "./useDeleteVersionAction";
 import { useDeleteAgentKind, useGetAgent, useGetAgentBuilds, useGetAgentKind, useListAgentKindVersions, usePublishAgentKind, useUpdateAgentKind } from "@agent-management-platform/api-client";
 
 /** Order-independent equality for label maps — key insertion order shouldn't count as a change. */
@@ -64,6 +66,8 @@ export const PublishedList: React.FC = () => {
 
   const { mutate: unpublishAgentKind, isPending: isUnpublishing, isSuccess: hasUnpublished } =
     useDeleteAgentKind();
+
+  const { confirmDeleteVersion } = useDeleteVersionAction({ orgName: orgId, kindName: agentId });
 
   const { data: agentKindVersions, isLoading: isAgentKindVersionsLoading } =
     useListAgentKindVersions({ orgName: orgId, kindName: agentId! });
@@ -325,6 +329,7 @@ export const PublishedList: React.FC = () => {
                   <ListingTable.Cell width="20%">Version</ListingTable.Cell>
                   <ListingTable.Cell width="18%">Release Date</ListingTable.Cell>
                   <ListingTable.Cell>Build Name</ListingTable.Cell>
+                  <ListingTable.Cell width="5%" align="center" />
                 </ListingTable.Row>
               </ListingTable.Head>
               <ListingTable.Body>
@@ -362,6 +367,22 @@ export const PublishedList: React.FC = () => {
                         {version.buildName ?? "—"}
                       </Typography>
                     </ListingTable.Cell>
+                    <ListingTable.Cell align="center">
+                      <ListingTable.RowActions visibility="hover">
+                        <Tooltip title="Delete version">
+                          <IconButton
+                            color="error"
+                            size="small"
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              confirmDeleteVersion(version.version);
+                            }}
+                          >
+                            <Trash size={16} />
+                          </IconButton>
+                        </Tooltip>
+                      </ListingTable.RowActions>
+                    </ListingTable.Cell>
                   </ListingTable.Row>
                 ))}
               </ListingTable.Body>
@@ -370,36 +391,16 @@ export const PublishedList: React.FC = () => {
         </ListingTable.Container>
 
         {existingKind && (
-          <Card variant="outlined" sx={{ mt: 3, borderColor: "error.main" }}>
-            <CardContent
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 2,
-                "&:last-child": { pb: 2 },
-              }}
-            >
-              <Box>
-                <Typography variant="body2" fontWeight={500}>
-                  Unpublish this Agent Kind
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Removes it and all its versions from the catalog. This action cannot be undone.
-                </Typography>
-              </Box>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<Trash />}
-                disabled={isUnpublishing}
-                onClick={handleUnpublishKind}
-                sx={{ flexShrink: 0 }}
-              >
-                {isUnpublishing ? "Unpublishing..." : "Unpublish Kind"}
-              </Button>
-            </CardContent>
-          </Card>
+          <Box sx={{ mt: 3 }}>
+            <DangerZoneCard
+              title="Unpublish this Agent Kind"
+              description="Removes it and all its versions from the catalog. This action cannot be undone."
+              buttonLabel="Unpublish Kind"
+              pendingLabel="Unpublishing..."
+              isPending={isUnpublishing}
+              onClick={handleUnpublishKind}
+            />
+          </Box>
         )}
       </PageLayout>
 

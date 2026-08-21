@@ -36,7 +36,7 @@ sans="$(cert_dns_names)"
 assert_eq "cert SANs include console"          "yes" "$(grep -qxF 'console.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 assert_eq "cert SANs include cp (external gw)" "yes" "$(grep -qxF 'cp.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 assert_eq "cert SANs include agents wildcard"  "yes" "$(grep -qxF '*.agents.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
-assert_eq "cert SANs include env-Thunder wild" "yes" "$(grep -qxF '*.thunder.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
+assert_eq "cert SANs include env-Thunder wild" "yes" "$(grep -qxF '*.amp.mycompany.com' <<<"$sans" && echo yes || echo no)"
 # CP omitted when external gateways are off.
 AMP_HOST_CP="" sans_nocp="$(AMP_HOST_CP="" cert_dns_names)"
 assert_eq "cert SANs omit cp when unset"       "no"  "$(grep -qxF 'cp.amp.mycompany.com' <<<"$sans_nocp" && echo yes || echo no)"
@@ -97,7 +97,7 @@ assert_eq "unknown TLS_MODE: 1 error" "1" "$n"
 tmp_cert="$(mktemp)"; tmp_key="$(mktemp)"
 openssl req -x509 -newkey rsa:2048 -nodes -days 90 -keyout "$tmp_key" -out "$tmp_cert" \
   -subj "/CN=amp.mycompany.com" \
-  -addext "subjectAltName=DNS:console.amp.mycompany.com,DNS:api.amp.mycompany.com,DNS:thunder.amp.mycompany.com,DNS:observer.amp.mycompany.com,DNS:gateway.amp.mycompany.com,DNS:cp.amp.mycompany.com,DNS:*.agents.amp.mycompany.com,DNS:*.thunder.amp.mycompany.com,DNS:*.gateway.amp.mycompany.com" \
+  -addext "subjectAltName=DNS:console.amp.mycompany.com,DNS:api.amp.mycompany.com,DNS:thunder.amp.mycompany.com,DNS:observer.amp.mycompany.com,DNS:gateway.amp.mycompany.com,DNS:cp.amp.mycompany.com,DNS:*.agents.amp.mycompany.com,DNS:*.amp.mycompany.com,DNS:*.gateway.amp.mycompany.com" \
   >/dev/null 2>&1
 # Fail with the real cause if generation did not work (an openssl without -addext, say).
 # Every assertion below reads these files, so without this they all fail at once with
@@ -125,13 +125,15 @@ assert_eq "cert_sans count matches" "9" "$(cert_sans "$tmp_cert" | grep -c .)"
 validate_cert "$tmp_cert" "$tmp_key" 2>/dev/null
 assert_eq "full-SAN cert passes" "0" "${#CERT_ERRORS[@]}"
 
-# A *.<DOMAIN_BASE> wildcard covers the service hosts but NOT the three dynamic tiers,
-# which sit one label deeper — the single most common BYOC mistake.
+# A *.<DOMAIN_BASE> wildcard covers the service hosts AND per-environment Thunder
+# (handles sit directly under the base domain, no fixed subdomain segment), but NOT
+# the *.agents or *.gateway tiers, which sit one label deeper — the single most
+# common BYOC mistake.
 tmp_c2="$(mktemp)"; tmp_k2="$(mktemp)"
 openssl req -x509 -newkey rsa:2048 -nodes -days 90 -keyout "$tmp_k2" -out "$tmp_c2" \
   -subj "/CN=amp.mycompany.com" -addext "subjectAltName=DNS:*.amp.mycompany.com" >/dev/null 2>&1
 validate_cert "$tmp_c2" "$tmp_k2" 2>/dev/null
-assert_eq "*.<base> alone misses 3 wildcards" "3" "${#CERT_ERRORS[@]}"
+assert_eq "*.<base> alone misses 2 wildcards" "2" "${#CERT_ERRORS[@]}"
 assert_eq "missing *.gateway is named" "yes" \
   "$(printf '%s\n' "${CERT_ERRORS[@]}" | grep -qF 'missing the wildcard SAN: *.gateway.amp.mycompany.com' && echo yes || echo no)"
 
@@ -166,7 +168,7 @@ fi
 tmp_c4="$(mktemp)"; tmp_k4="$(mktemp)"
 openssl req -x509 -newkey rsa:2048 -nodes -days 90 -keyout "$tmp_k4" -out "$tmp_c4" \
   -subj "/CN=amp.mycompany.com" \
-  -addext "subjectAltName=DNS:CONSOLE.amp.mycompany.com,DNS:API.amp.mycompany.com,DNS:Thunder.amp.mycompany.com,DNS:observer.amp.mycompany.com,DNS:gateway.amp.mycompany.com,DNS:cp.amp.mycompany.com,DNS:*.Agents.amp.mycompany.com,DNS:*.thunder.amp.mycompany.com,DNS:*.gateway.amp.mycompany.com" \
+  -addext "subjectAltName=DNS:CONSOLE.amp.mycompany.com,DNS:API.amp.mycompany.com,DNS:Thunder.amp.mycompany.com,DNS:observer.amp.mycompany.com,DNS:gateway.amp.mycompany.com,DNS:cp.amp.mycompany.com,DNS:*.Agents.amp.mycompany.com,DNS:*.AMP.mycompany.com,DNS:*.gateway.amp.mycompany.com" \
   >/dev/null 2>&1
 validate_cert "$tmp_c4" "$tmp_k4" 2>/dev/null
 assert_eq "mixed-case SANs are accepted" "0" "${#CERT_ERRORS[@]}"

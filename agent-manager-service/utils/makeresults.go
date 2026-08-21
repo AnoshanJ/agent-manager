@@ -17,6 +17,8 @@
 package utils
 
 import (
+	"slices"
+
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 )
@@ -62,6 +64,19 @@ func ConvertToAgentListResponse(components []*models.AgentResponse) []spec.Agent
 	responses := make([]spec.AgentResponse, len(components))
 	for i, component := range components {
 		responses[i] = ConvertToAgentResponse(component)
+	}
+	return responses
+}
+
+func ConvertToAgentSummaryListResponse(summaries []*models.AgentSummary) []spec.AgentSummary {
+	responses := make([]spec.AgentSummary, len(summaries))
+	for i, summary := range summaries {
+		responses[i] = spec.AgentSummary{
+			Name:               summary.Name,
+			DisplayName:        summary.DisplayName,
+			ProjectName:        summary.ProjectName,
+			ProjectDisplayName: summary.ProjectDisplayName,
+		}
 	}
 	return responses
 }
@@ -113,6 +128,14 @@ func convertToInternalAgentResponse(component *models.AgentResponse) spec.AgentR
 				return nil
 			}
 			return &component.KindName
+		}(),
+		// Absent for source-built agents, and for kind-sourced agents created
+		// before the version was recorded on the component.
+		KindVersion: func() *string {
+			if component.KindVersion == "" {
+				return nil
+			}
+			return &component.KindVersion
 		}(),
 		CreatedBy: convertToCreatedBy(component.CreatedBy),
 	}
@@ -385,12 +408,18 @@ func ConvertToDeploymentDetailsResponse(deploymentDetails []*models.DeploymentRe
 			envDisplayName = &deployment.EnvironmentDisplayName
 		}
 
+		var kindVersion *string
+		if deployment.KindVersion != "" {
+			kindVersion = &deployment.KindVersion
+		}
+
 		deploymentResponse := spec.DeploymentDetailsResponse{
 			ImageId:                deployment.ImageId,
 			Status:                 deployment.Status,
 			LastDeployed:           deployment.LastDeployedAt,
 			Endpoints:              endpoints,
 			EnvironmentDisplayName: envDisplayName,
+			KindVersion:            kindVersion,
 		}
 
 		// Add to result map with environment name as key
@@ -1058,4 +1087,43 @@ func convertTraceEvaluatorScores(evals []models.TraceEvaluatorScore) []spec.Trac
 		result[i] = s
 	}
 	return result
+}
+
+// RedactSecretConfigValues returns a copy of cfg with the value of every sensitive
+// env var and file mount omitted, so a secret submitted on create is never
+// serialized back out. Mirrors the read path in GetAgentConfigurations, which
+// blanks the same fields.
+//
+// The copy is not incidental: cfg points into the decoded request body, and for
+// kind-based agents ApplySecretConfigDefaults has already written the kind's stored
+// secret defaults into the backing slices. Redacting in place would make
+// correctness depend on the order in which the service and the handler run.
+func RedactSecretConfigValues(cfg *spec.Configurations) *spec.Configurations {
+	if cfg == nil {
+		return nil
+	}
+	redacted := *cfg
+	redacted.Env = redactSensitiveEnvValues(cfg.Env)
+	redacted.Files = redactSensitiveFileValues(cfg.Files)
+	return &redacted
+}
+
+func redactSensitiveEnvValues(env []spec.EnvironmentVariable) []spec.EnvironmentVariable {
+	redacted := slices.Clone(env)
+	for i := range redacted {
+		if BoolPointerAsBool(redacted[i].IsSensitive, false) {
+			redacted[i].Value = nil
+		}
+	}
+	return redacted
+}
+
+func redactSensitiveFileValues(files []spec.FileMount) []spec.FileMount {
+	redacted := slices.Clone(files)
+	for i := range redacted {
+		if BoolPointerAsBool(redacted[i].IsSensitive, false) {
+			redacted[i].Value = nil
+		}
+	}
+	return redacted
 }

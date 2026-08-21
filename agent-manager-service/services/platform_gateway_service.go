@@ -334,20 +334,41 @@ func (s *PlatformGatewayService) ListGateways(ouID *string, filters *GatewayList
 	return listResponse, nil
 }
 
-// GetGateway retrieves a gateway by ID
-func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayResponse, error) {
-	// Validate UUID format
-	if _, err := uuid.Parse(gatewayID); err != nil {
-		return nil, errors.New("invalid UUID format")
+// resolveGateway looks the identifier up as a UUID, falling back to a name lookup
+// within the org. A non-UUID identifier used to be rejected with a bare error that
+// matched no case in handleGatewayErrors and surfaced as HTTP 500.
+func (s *PlatformGatewayService) resolveGateway(identifier, ouID string) (*models.Gateway, error) {
+	if _, err := uuid.Parse(identifier); err != nil {
+		return normalizeGatewayLookup(s.gatewayRepo.GetByNameAndOrgID(identifier, ouID))
 	}
+	return normalizeGatewayLookup(s.gatewayRepo.GetByUUID(identifier))
+}
 
-	gateway, err := s.gatewayRepo.GetByUUID(gatewayID)
+// normalizeGatewayLookup reduces either repository lookup's "no such row" shapes — a
+// gorm not-found error, the repository's own sentinel, or a nil gateway with no error
+// — to ErrGatewayNotFound, and wraps anything else with context. Both branches of
+// resolveGateway need this: a raw repository error matches no case in
+// handleGatewayErrors and surfaces as a 500, and a nil gateway returned without an
+// error is dereferenced by GetGateway.
+func normalizeGatewayLookup(gateway *models.Gateway, err error) (*models.Gateway, error) {
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, utils.ErrGatewayNotFound) {
+			return nil, utils.ErrGatewayNotFound
+		}
 		return nil, fmt.Errorf("failed to get gateway: %w", err)
 	}
-
 	if gateway == nil {
 		return nil, utils.ErrGatewayNotFound
+	}
+	return gateway, nil
+}
+
+// GetGateway retrieves a gateway by UUID or by name, matching what the spec
+// advertises for the path parameter ("Gateway UUID or name").
+func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayResponse, error) {
+	gateway, err := s.resolveGateway(gatewayID, ouID)
+	if err != nil {
+		return nil, err
 	}
 
 	if gateway.OUID != ouID {
@@ -373,8 +394,12 @@ func (s *PlatformGatewayService) GetGateway(gatewayID, ouID string) (*GatewayRes
 	return response, nil
 }
 
-// SaveGatewayPolicyManifest stores the latest gateway-reported policy manifest.
-func (s *PlatformGatewayService) SaveGatewayPolicyManifest(gatewayID string, manifest map[string]interface{}) error {
+// SaveGatewayPolicyManifest stores the latest gateway-reported policy manifest in the
+// in-process cache. Gateways re-push their full manifest on every heartbeat, so writing
+// it to the jsonb column cost a large row update per push for data that is regenerated
+// on the next push anyway. Every gateway runs the same policy bundle, so the cache keeps
+// a single newest copy shared by all of them.
+func (s *PlatformGatewayService) SaveGatewayPolicyManifest(ctx context.Context, gatewayID string, manifest map[string]interface{}) error {
 	gateway, err := s.gatewayRepo.GetByUUID(gatewayID)
 	if err != nil {
 		return err
@@ -382,11 +407,9 @@ func (s *PlatformGatewayService) SaveGatewayPolicyManifest(gatewayID string, man
 	if gateway == nil {
 		return utils.ErrGatewayNotFound
 	}
+	slog.Info("Saving gateway policy manifest for gateway", "gatewayID", gatewayID)
 
-	gateway.Manifest = manifest
-	gateway.UpdatedAt = time.Now().UTC()
-
-	return s.gatewayRepo.UpdateGateway(gateway)
+	return gatewayManifestCache.Set(ctx, manifest)
 }
 
 // UpdateGateway updates gateway details
@@ -487,7 +510,9 @@ func (s *PlatformGatewayService) DeleteGateway(gatewayID, ouID string) error {
 		return err
 	}
 
-	// Invalidate all cached tokens for this gateway
+	// Invalidate all cached tokens for this gateway. The cached policy manifest is not
+	// touched: it is one shared copy describing every gateway's policy bundle, so the
+	// gateways that remain still need it.
 	s.tokenCache.InvalidateGateway(gateway.UUID)
 	slog.Info("gateway deleted and cache invalidated", "gatewayID", gatewayID)
 

@@ -34,19 +34,34 @@ amObserver:
     # Seeded by wso2-amp-thunder-extension (amObserverClient); authorized via
     # the amp-observer-reader ClusterAuthzRoleBinding in
     # wso2-amp-platform-resources-extension. No amp:* scopes.
-    # Override idpClientSecret in production (the default is a local-dev
-    # placeholder).
+    # Generate this the same way as every other client secret in this
+    # product (e.g. AM_OBSERVER_CLIENT_SECRET="$(openssl rand -hex 32)") and
+    # pass it here AND to thunder.bootstrap.amObserverClient.clientSecret —
+    # they must match, since Thunder is what actually issued this client.
+    # Prefer existingSecret below over the inline value for production.
     # NOTE: the Thunder bootstrap job is a pre-install-only hook — on an existing install, helm upgrade does NOT create this client; re-run the bootstrap job (or reinstall the thunder extension) before rolling out this value.
     idpClientId: "am-observer-client"
+    # Unlike apiKey/encryptionKey elsewhere in this product, there is no safe
+    # empty-value fallback here: this must match whatever Thunder actually
+    # issued for amObserverClient, so it stays at the same default that chart
+    # ships (thunder.bootstrap.amObserverClient.clientSecret) rather than
+    # being emptied — override BOTH together via existingSecret in production.
     idpClientSecret: "am-observer-client-secret"
+    # Reference an existing secret for IDP credentials (recommended for production).
+    # When set, idpClientId/idpClientSecret above are ignored.
+    existingSecret: ""
+    existingSecretClientIdKey: "idpClientId"
+    existingSecretClientSecretKey: "idpClientSecret"
     defaultNamespace: "default"
   # JWT authentication — must match the agent-manager keyManager config so the
   # same user token issued by Thunder is accepted by both services. Thunder
-  # (v0.45+) stamps the resource-server identifier "amp" as the token audience,
-  # so query tokens (console/CLI) carry aud=amp. The agent-manager-service's own
+  # stamps the resource-server identifier as the token audience, so query tokens
+  # (console/CLI) carry aud=urn:wso2:amp — the amp resource server's identifier,
+  # which must stay in sync with 60-amp-resource-server.yaml in the Thunder
+  # extension chart. The agent-manager-service's own
   # amp-api-client client-credentials token (used for the monitor-run-logs
   # server-to-server call) requests the full amp:* scope set and resolves to the
-  # same "amp" resource-server audience; "amp-api-client" is listed too as a
+  # same resource-server audience; "amp-api-client" is listed too as a
   # defensive fallback for any client-credentials request that carries no scope
   # (in which case Thunder falls back to the client ID as the audience).
   # Publisher tokens (aud amp-publisher-*) are matched by a separate regex in
@@ -70,12 +85,11 @@ amObserver:
     # agentManagerService.config.keyManager.issuer — otherwise every traces
     # request 401s with "invalid issuer".
     issuer: "http://thunder.amp.localhost:8080"
-    audience: "amp,amp-api-client,am-obs-mcp"
+    audience: "urn:wso2:amp,amp-api-client,am-obs-mcp"
     # Enables scope-based authorization on the observer REST data routes.
     # Mirrors agent-manager-service's rbacEnabled. MUST stay a quoted string:
     # Helm's `default` treats boolean false as unset, which would make the
-    # kill-switch impossible to turn off (see wso2-agent-manager/values.yaml:134
-    # for the same convention).
+    # kill-switch impossible to turn off.
     rbacEnabled: "true"
   # Externally reachable base URL of this service.
   # Used as the `resource` identifier in RFC 9728 protected resource metadata

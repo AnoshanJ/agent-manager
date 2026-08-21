@@ -451,7 +451,7 @@ func (c *gatewayInternalController) PushGatewayManifest(w http.ResponseWriter, r
 	// manifest the gateway reports as installed. Recorded after the fact — the
 	// gateway is a machine client that retries, so refusing the push when the
 	// trail is unavailable would leave the mirror stale for no gain.
-	err := c.gatewayService.SaveGatewayPolicyManifest(gatewayID, manifest)
+	err := c.gatewayService.SaveGatewayPolicyManifest(r.Context(), gatewayID, manifest)
 	audit.Record(
 		r.Context(), audit.ActionGatewayPushManifest,
 		audit.Org(identity.OUID),

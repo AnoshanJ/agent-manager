@@ -23,7 +23,6 @@ import {
   useGetAgentResourceConfigs,
   useGetDeploymentPipeline,
   useListAgentDeployments,
-  useListAgentKindVersions,
   useUpdateDeploymentState,
 } from "@agent-management-platform/api-client";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
@@ -81,11 +80,14 @@ import {
   AgentResourceConfigsResponse,
   MetricsResponse,
   Environment,
-  AgentKindVersionResponse,
   TraceListTimeRange,
 } from "@agent-management-platform/types";
 import { extractBuildIdFromImageId } from "../utils/extractBuildIdFromImageId";
-import { normalizePythonMinor } from "../utils/instrumentation";
+import {
+  buildpackLanguage,
+  isInstrumentableLanguage,
+  normalizePythonMinor,
+} from "../utils/instrumentation";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback, useMemo, useState } from "react";
 import { EditResourceConfigsDrawer } from "./EditResourceConfigsDrawer";
@@ -373,10 +375,10 @@ export function DeployCard(props: DeployCardProps) {
   });
 
   const isApiAgent = agent?.agentType?.type === "agent-api";
-  const isPythonBuildpack =
-    agent?.build?.type === "buildpack" &&
-    "buildpack" in (agent.build ?? {}) &&
-    (agent.build as { buildpack?: { language?: string } }).buildpack?.language === "python";
+  const agentLanguage = buildpackLanguage(agent);
+  const isPythonBuildpack = agentLanguage === "python";
+  const isBallerinaBuildpack = agentLanguage === "ballerina";
+  const isInstrumentable = isInstrumentableLanguage(agentLanguage);
   const agentPythonVersion = normalizePythonMinor(
     (agent?.build as { buildpack?: { languageVersion?: string } } | undefined)
       ?.buildpack?.languageVersion,
@@ -415,13 +417,11 @@ export function DeployCard(props: DeployCardProps) {
 
   const kindName = agent?.kindName;
 
-  const { data: kindVersions } = useListAgentKindVersions(
-    { orgName: orgId ?? "", kindName: kindName ?? "" },
-  );
-
-  const matchedKindVersion: AgentKindVersionResponse | undefined = kindVersions?.find(
-    (v) => v.imageId === currentDeployment?.imageId,
-  );
+  // The version running in THIS environment, resolved server-side from the image
+  // this environment's release is pinned to. Environments diverge between a deploy
+  // and its promotion, so this is per-deployment and not the agent's creation-time
+  // kind version. Absent when the image matches no published version.
+  const deployedKindVersion = currentDeployment?.kindVersion;
 
   const selectedBuildId = extractBuildIdFromImageId(currentDeployment?.imageId);
   const lastDeployedText = currentDeployment?.lastDeployed
@@ -543,13 +543,13 @@ export function DeployCard(props: DeployCardProps) {
                         absoluteRouteMap.children.org.children.catalog.children.kindDetails.path,
                         { orgId, kindId: kindName },
                       ) +
-                      (matchedKindVersion ? `?version=${matchedKindVersion.version}` : "")
+                      (deployedKindVersion ? `?version=${deployedKindVersion}` : "")
                     }
                   >
                     <ExternalLink size={16} />
                   </IconButton>
                 }
-                value={matchedKindVersion ? `v${matchedKindVersion.version}` : ""}
+                value={deployedKindVersion ? `v${deployedKindVersion}` : ""}
                 slotProps={{ input: { readOnly: true } }}
               />
             ) : (
@@ -684,7 +684,7 @@ export function DeployCard(props: DeployCardProps) {
                     </Box>
                   )}
                   {/* Tracing - Instrumentation overview */}
-                  {isPythonBuildpack && (
+                  {isInstrumentable && (
                     <Box display="flex" alignItems="center" gap={1}>
                       <Workflow size={14} style={{ opacity: 0.6 }} />
                       <Typography variant="body2">Tracing - Instrumentation</Typography>
@@ -730,6 +730,7 @@ export function DeployCard(props: DeployCardProps) {
               title="Configurations and Secrets"
               isApiAgent={isApiAgent}
               isPythonBuildpack={isPythonBuildpack}
+              isBallerinaBuildpack={isBallerinaBuildpack}
               agentPythonVersion={agentPythonVersion}
             />
           )}

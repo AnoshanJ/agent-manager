@@ -33,6 +33,12 @@ type ValidationError struct {
 	// Can include field names, specific validation rules, etc.
 	// Example: "inputInterface.schema.path is required and must start with /"
 	Reason string
+
+	// sentinel, when set, is the classification error this failure also matches
+	// under errors.Is — so a check like errors.Is(err, ErrInvalidInput) still
+	// recognises a ValidationError raised in place of a wrapped sentinel.
+	// Unexported so a constructor is the only way to set it.
+	sentinel error
 }
 
 // Error implements the error interface, returning the technical reason for logging.
@@ -40,21 +46,32 @@ func (e *ValidationError) Error() string {
 	return e.Reason
 }
 
+// Unwrap exposes the classification sentinel to errors.Is/errors.As.
+func (e *ValidationError) Unwrap() error {
+	return e.sentinel
+}
+
 // NewValidationError creates a new ValidationError with user-friendly message and technical reason.
 func NewValidationError(message, reason string) *ValidationError {
-	return &ValidationError{
-		Message: message,
-		Reason:  reason,
-	}
+	return &ValidationError{Message: message, Reason: reason, sentinel: nil}
+}
+
+// NewInvalidInputError is NewValidationError for a failure that must also keep
+// matching ErrInvalidInput under errors.Is, so callers that route on the
+// sentinel keep working while the UI gets the short Message instead of the
+// whole technical string.
+//
+// The sentinel is fixed rather than a parameter because every ValidationError
+// is rendered as 400 by WriteValidationErrorResponse — pairing one with a
+// not-found or conflict sentinel would still answer 400.
+func NewInvalidInputError(message, reason string) *ValidationError {
+	return &ValidationError{Message: message, Reason: reason, sentinel: ErrInvalidInput}
 }
 
 // NewValidationErrorf creates a new ValidationError with formatted reason string.
 // The message should be user-friendly, while reasonFmt is for technical details.
 func NewValidationErrorf(message, reasonFmt string, args ...interface{}) *ValidationError {
-	return &ValidationError{
-		Message: message,
-		Reason:  fmt.Sprintf(reasonFmt, args...),
-	}
+	return NewValidationError(message, fmt.Sprintf(reasonFmt, args...))
 }
 
 // IsValidationError checks if an error is a ValidationError and returns it.
@@ -69,14 +86,17 @@ func IsValidationError(err error) *ValidationError {
 
 var (
 	// Resource not found errors
-	ErrProjectNotFound                = errors.New("project not found")
-	ErrAgentAlreadyExists             = errors.New("agent already exists")
-	ErrAgentNotFound                  = errors.New("agent not found")
-	ErrTraitNotFound                  = errors.New("trait not found")
-	ErrOrganizationNotFound           = errors.New("organization not found")
-	ErrBuildNotFound                  = errors.New("build not found")
-	ErrEnvironmentNotFound            = errors.New("environment not found")
-	ErrAgentIdentityNotProvisioned    = errors.New("agent identity not yet provisioned for this environment")
+	ErrProjectNotFound             = errors.New("project not found")
+	ErrAgentAlreadyExists          = errors.New("agent already exists")
+	ErrAgentNotFound               = errors.New("agent not found")
+	ErrTraitNotFound               = errors.New("trait not found")
+	ErrOrganizationNotFound        = errors.New("organization not found")
+	ErrBuildNotFound               = errors.New("build not found")
+	ErrEnvironmentNotFound         = errors.New("environment not found")
+	ErrAgentIdentityNotProvisioned = errors.New("agent identity not yet provisioned for this environment")
+	// ErrAgentIdentityRetryNotAllowed is returned when a retry is requested for
+	// a binding whose current status is not failed. Maps to 409.
+	ErrAgentIdentityRetryNotAllowed   = errors.New("agent identity binding is not in a failed state and cannot be retried")
 	ErrOrganizationAlreadyExists      = errors.New("organization already exists")
 	ErrProjectAlreadyExists           = errors.New("project already exists")
 	ErrDeploymentPipelineNotFound     = errors.New("deployment pipeline not found")
@@ -117,6 +137,23 @@ var (
 	ErrEnvironmentAlreadyExists = errors.New("environment already exists")
 	ErrEnvironmentHasGateways   = errors.New("environment has associated gateways")
 	ErrEnvironmentInUse         = errors.New("environment is referenced by one or more deployment pipelines")
+	// ErrThunderHandleTaken is returned when a user-supplied env-Thunder URL handle
+	// is already registered to a different (org, env) pair. Maps to 409.
+	ErrThunderHandleTaken = errors.New("thunder url handle is already in use")
+	// ErrInvalidThunderHandle is returned when a user-supplied env-Thunder URL
+	// handle fails format validation. Maps to 400.
+	ErrInvalidThunderHandle = errors.New("invalid thunder url handle")
+	// ErrThunderHandleNotFound is returned when no env-Thunder URL handle has been
+	// registered for an environment. Maps to 404.
+	ErrThunderHandleNotFound = errors.New("thunder url handle not found")
+	// ErrEnvThunderURLAlreadyClaimed is returned by EnvThunderURLRepository.Insert
+	// when a DIFFERENT concurrent request already claimed the SAME (ouID, envName)
+	// first — i.e. the (ou_id, env_name) unique constraint was violated, not the
+	// thunder_handle one. Internal-only signal between the repository and
+	// EnvironmentService.SetThunderURL: the service reacts by reading back the
+	// row that won and adopting/rejecting it, exactly as it would for an
+	// already-existing row seen up front — this never reaches a controller.
+	ErrEnvThunderURLAlreadyClaimed = errors.New("env-thunder url already claimed by a concurrent request")
 
 	// ErrGatewayIngressCapExceeded is returned when assigning an ingress-capable gateway to
 	// an environment that already has one. Maps to 409.
@@ -144,6 +181,7 @@ var (
 	ErrLLMProviderNotFound         = errors.New("LLM provider not found")
 	ErrLLMProviderExists           = errors.New("LLM provider already exists")
 	ErrLLMProviderHasProxies       = errors.New("cannot delete LLM provider: it has associated LLM proxies. Please delete all proxies before deleting the provider")
+	ErrLLMProviderUndeployFailed   = errors.New("cannot delete LLM provider: undeploying it from its gateways failed. Retry, or undeploy manually before deleting")
 	ErrLLMProxyNotFound            = errors.New("LLM proxy not found")
 	ErrLLMProxyExists              = errors.New("LLM proxy already exists")
 	ErrMCPProxyNotFound            = errors.New("MCP proxy not found")
@@ -174,6 +212,11 @@ var (
 	// Agent Configuration errors
 	ErrAgentConfigNotFound      = errors.New("agent configuration not found")
 	ErrAgentConfigAlreadyExists = errors.New("agent configuration already exists for this agent")
+	// ErrOrphanedAgentConfigsExist is returned when an agent is created with the name of a
+	// previously deleted agent whose configuration rows survived, because revoking their LLM
+	// proxy credentials failed. Configurations are keyed by agent name, so letting the create
+	// through would silently hand the new agent the old agent's un-rotated credential. Maps to 409.
+	ErrOrphanedAgentConfigsExist = errors.New("configurations from a previously deleted agent with this name have not been fully revoked")
 	// ErrAgentConfigNotExternal is returned when a user-managed API key action
 	// (create/rotate/revoke) is attempted against a configuration whose agent is
 	// managed/internal. Only external agents own their proxy API keys; managed

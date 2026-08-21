@@ -50,7 +50,7 @@ assert_cm() {
   fi
 }
 
-CLIENTS="amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
+CLIENTS="urn:wso2:amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
 
 # Defaults must stay byte-identical to the pre-derivation literals, so existing
 # installs and quick-start (which passes no overrides) are unaffected.
@@ -163,6 +163,112 @@ assert_env "sslRootCert reaches the migration job" "$MIG_TMPL" DB_SSL_ROOT_CERT 
 # and the migration hook on an otherwise working default install.
 assert_env "sslMode is ignored for the in-cluster database" \
   "$API_TMPL" DB_SSL_MODE "" --set postgresql.external.sslMode=require
+
+# secret_ref <template-path> <env-name> <name|key> [helm --set args...] -> the
+# requested field from that env var's secretKeyRef.
+secret_ref() {
+  local tmpl="$1" name="$2" field="$3" rendered
+  shift 3
+  if ! rendered="$(helm template test-release "$CHART_DIR" \
+    --show-only "$tmpl" "$@" 2>&1)"; then
+    printf 'helm template failed: %s\n' "$rendered" >&2
+    return 1
+  fi
+  awk -v n="$name" -v f="$field" '
+    $1 == "-" && $2 == "name:" { in_var = ($3 == n); next }
+    in_var && $1 == f":" {
+      value = $2
+      gsub(/^"|"$/, "", value)
+      print value
+      exit
+    }
+  ' <<<"$rendered"
+}
+
+assert_secret_ref() {
+  local label="$1" tmpl="$2" env_name="$3" field="$4" expected="$5"
+  shift 5
+  local actual
+  actual="$(secret_ref "$tmpl" "$env_name" "$field" "$@")"
+  if [[ "$expected" == "$actual" ]]; then
+    printf 'ok   - %s\n' "$label"
+  else
+    printf 'FAIL - %s\n      expected secretKeyRef.%s: %q\n      actual   secretKeyRef.%s: %q\n' \
+      "$label" "$field" "$expected" "$field" "$actual"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+# secret_has_key <key> [helm --set args...] -> yes when the chart-managed
+# agent-manager Secret emits that stringData key.
+secret_has_key() {
+  local key="$1" rendered
+  shift
+  if ! rendered="$(helm template test-release "$CHART_DIR" \
+    --show-only templates/agent-manager-service/secret.yaml "$@" 2>&1)"; then
+    printf 'helm template failed: %s\n' "$rendered" >&2
+    return 1
+  fi
+  if awk -v k="$key" '
+      $1 == "stringData:" { in_data = 1; next }
+      in_data && $1 == k":" { found = 1 }
+      END { exit(found ? 0 : 1) }
+    ' <<<"$rendered"; then
+    printf 'yes\n'
+  else
+    printf 'no\n'
+  fi
+}
+
+assert_secret_key() {
+  local label="$1" key="$2" expected="$3"
+  shift 3
+  local actual
+  actual="$(secret_has_key "$key" "$@")"
+  if [[ "$expected" == "$actual" ]]; then
+    printf 'ok   - %s\n' "$label"
+  else
+    printf 'FAIL - %s\n      expected key %q present: %s\n      actual: %s\n' \
+      "$label" "$key" "$expected" "$actual"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+# existingSecretKey belongs to an external Secret. Without existingSecret, the
+# chart-managed Secret retains its stable built-in keys and every consumer must
+# reference those keys even if a stray custom key value is supplied.
+assert_secret_key "generated Secret retains the fixed API key" api-key yes \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_key "generated Secret does not emit the external-only custom API key" custom-api-key no \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_ref "generated API Secret ignores an external-only custom key in the API" \
+  "$API_TMPL" API_KEY_VALUE key api-key \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_ref "generated API Secret ignores an external-only custom key in migrations" \
+  "$MIG_TMPL" API_KEY_VALUE key api-key \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_ref "external API Secret honors its custom key in the API" \
+  "$API_TMPL" API_KEY_VALUE key custom-api-key \
+  --set agentManagerService.config.apiKey.existingSecret=external-api \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_ref "external API Secret honors its custom key in migrations" \
+  "$MIG_TMPL" API_KEY_VALUE key custom-api-key \
+  --set agentManagerService.config.apiKey.existingSecret=external-api \
+  --set agentManagerService.config.apiKey.existingSecretKey=custom-api-key
+assert_secret_ref "generated GitHub Secret ignores an external-only custom key" \
+  "$API_TMPL" GITHUB_TOKEN key github-token \
+  --set agentManagerService.config.github.existingSecretKey=custom-github-key
+assert_secret_ref "external GitHub Secret honors its custom key" \
+  "$API_TMPL" GITHUB_TOKEN key custom-github-key \
+  --set agentManagerService.config.github.existingSecret=external-github \
+  --set agentManagerService.config.github.existingSecretKey=custom-github-key
+assert_secret_ref "generated encryption Secret ignores an external-only custom key" \
+  "$API_TMPL" ENCRYPTION_KEY key encryption-key \
+  --set agentManagerService.config.encryptionKey.existingSecretKey=custom-encryption-key
+assert_secret_ref "external encryption Secret honors its custom key" \
+  "$API_TMPL" ENCRYPTION_KEY key custom-encryption-key \
+  --set agentManagerService.config.encryptionKey.existingSecret=external-encryption \
+  --set agentManagerService.config.encryptionKey.existingSecretKey=custom-encryption-key
 
 # flatten_items <block-key> — reads YAML on stdin and prints one line per list
 # item in the first block with that key, fields joined by "; ". Flattening is

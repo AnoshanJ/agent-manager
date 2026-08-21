@@ -44,12 +44,16 @@ const (
 	ActionAgentTokenMint              Action = "agent-token:mint"
 	ActionAgentTokenRegenerateTracing Action = "agent-token:regenerate-tracing"
 
-	ActionAgentIdentityProvision        Action = "agent-identity:provision"
-	ActionAgentIdentityRegenerateSecret Action = "agent-identity:regenerate-secret"
-	ActionAgentIdentityRevokeSecret     Action = "agent-identity:revoke-secret"
+	ActionAgentIdentityProvision         Action = "agent-identity:provision"
+	ActionAgentIdentityRegenerateSecret  Action = "agent-identity:regenerate-secret"
+	ActionAgentIdentityRevokeSecret      Action = "agent-identity:revoke-secret"
+	ActionAgentIdentityRetryProvisioning Action = "agent-identity:retry-provisioning"
 
 	ActionServiceAccountConfigure Action = "service-account:configure"
 	ActionServiceAccountRemove    Action = "service-account:remove"
+
+	ActionThunderURLSet    Action = "thunder-url:set"
+	ActionThunderURLDelete Action = "thunder-url:delete"
 
 	// Identity and privilege. These are the escalation path: a record that says
 	// only "a role was updated" is useless, so each names what actually changed.
@@ -140,6 +144,7 @@ const (
 	ResourceAgentIdentity  = "agent-identity"
 	ResourceEnvironment    = "environment"
 	ResourceServiceAccount = "service-account"
+	ResourceThunderURL     = "thunder-url"
 )
 
 // class, severity and permitted detail keys next to the action itself keeps the
@@ -228,6 +233,10 @@ func init() {
 		"agentName":   KindName,
 		"environment": KindName,
 		"clientId":    KindIdentifier,
+	})
+	registerCredential(ActionAgentIdentityRetryProvisioning, map[string]FieldKind{
+		"agentName":   KindName,
+		"environment": KindName,
 	})
 
 	registerCredential(ActionServiceAccountConfigure, map[string]FieldKind{

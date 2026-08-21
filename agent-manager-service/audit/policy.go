@@ -218,9 +218,10 @@ var actionOverrides = map[string]Action{
 	"DELETE /orgs/{orgName}/projects/{projName}/llm-proxies/{id}/deployments/{deploymentId}": "llm-proxy:delete-deployment",
 
 	// One permission, several operations — agent OAuth identity.
-	"PUT /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":    "agent-identity:provision",
-	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":   "agent-identity:regenerate-secret",
-	"DELETE /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities": "agent-identity:revoke-secret",
+	"PUT /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":        "agent-identity:provision",
+	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":       "agent-identity:regenerate-secret",
+	"DELETE /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities":     "agent-identity:revoke-secret",
+	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/retry": "agent-identity:retry-provisioning",
 
 	// One permission, several operations — agent tokens.
 	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/token":                    "agent-token:mint",

@@ -16,6 +16,14 @@
  * under the License.
  */
 
+import type { EnvironmentVariable } from "@agent-management-platform/types";
+
+// Its value lives in the secret store and never reaches the console, so the key
+// it is stored under cannot be renamed here.
+export function isStoredSecret(item: EnvironmentVariable): boolean {
+  return !!(item.isSensitive && item.secretRef);
+}
+
 /**
  * Sorts system-injected entries (isSystem=true) below user-managed ones,
  * preserving relative order within each group.

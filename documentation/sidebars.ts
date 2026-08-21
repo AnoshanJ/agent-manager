@@ -27,10 +27,21 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Concepts',
       collapsed: false,
-      items: [
+      items: [                     
+        'concepts/organization',                  
+        'concepts/environment', 
+        'concepts/project',
+        'concepts/agent-lifecycle',    
+        'concepts/internal-and-external-agent',
+        'concepts/agent-kind-and-catalog',   
         'concepts/observability',
         'concepts/evaluation',
-        'concepts/agentid',
+        'concepts/agentid',             
+        'concepts/gateway',         
+        'concepts/deployment-pipeline',         
+        'concepts/agent-sandboxing',                
+        'concepts/llm-service-provider',
+        'concepts/mcp-proxy',            
       ],
     },
     {
@@ -56,6 +67,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'guides/custom-evaluators',
             'guides/evaluation-monitors',
+            'guides/configure-trace-sampling',
           ],
         },
         {
@@ -135,13 +147,16 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'CLI',
           collapsed: true,
+          // Overview is the category's landing page rather than a sibling of the
+          // individual command pages: clicking "CLI" opens it.
+          link: {type: 'doc', id: 'reference/cli/overview'},
           items: [
-            'reference/cli/overview',
             'reference/cli/login',
             'reference/cli/context',
             'reference/cli/project',
             'reference/cli/agent',
             'reference/cli/llm-provider',
+            'reference/cli/gateway',
             'reference/cli/skills',
             'reference/cli/version',
             'reference/cli/api',

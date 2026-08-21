@@ -1861,17 +1861,24 @@ func (s *agentConfigurationService) processEnvProviderChange(
 		return "", rbRes, pendingAppBinding{}, err
 	}
 
-	// Internal-agent only: inject env vars into Component/ReleaseBinding.
+	// Internal-agent only: inject env vars into ReleaseBinding/Component.
 	// SecretReference is already created/updated by secretClient.CreateSecret above.
+	//
+	// The ReleaseBinding for THIS environment is the target — the proxy URL and API key ref are
+	// per-environment, and the Component CR is component-wide, so writing them there for anything
+	// but a bootstrap default is last-write-wins across environments. The Component CR write is
+	// therefore scoped to the first environment, matching every other injection site in this file.
 	if !isExternalAgent {
 		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
-		if uvErr := s.ocClient.UpdateComponentEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envVarsToInject); uvErr != nil {
-			s.logger.Error("failed to update Component CR env vars in Scenario A — Component CR in inconsistent state", "env", envName, "err", uvErr)
+		if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); rbErr != nil {
+			s.logger.Error("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
+			return "", rbRes, pendingAppBinding{}, fmt.Errorf("failed to update release binding env vars for environment %s: %w", envName, rbErr)
 		}
+		// Bootstrap default for agents with no ReleaseBinding yet.
 		if firstEnvName != "" && envName == firstEnvName {
-			if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, firstEnvName, envVarsToInject); rbErr != nil {
-				s.logger.Warn("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
+			if uvErr := s.ocClient.UpdateComponentEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envVarsToInject); uvErr != nil {
+				s.logger.Error("failed to update Component CR env vars in Scenario A — Component CR in inconsistent state", "env", envName, "err", uvErr)
 			}
 		}
 	}
@@ -5488,18 +5495,26 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 
 // BuildSystemManagedEnvVarsFromConfig constructs system-managed env vars for a given
 // agent and environment from every DB-backed agent config. Used during promotion when
-// the target environment's ReleaseBinding doesn't have these vars yet.
+// the target environment's ReleaseBinding doesn't have these vars yet, and when building
+// a kind-sourced agent's Workload CR at creation. Returns no vars for an agent with no
+// configs, so callers need not pre-check which config types the agent has.
 func (s *agentConfigurationService) BuildSystemManagedEnvVarsFromConfig(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) ([]client.EnvVar, error) {
-	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
-	if err != nil {
-		return nil, err
-	}
-
 	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
+	}
+	// Resolve the environment only once we know there is a config to build vars for.
+	// This keeps the no-config case free of a remote environment lookup, so callers can
+	// invoke this unconditionally instead of pre-checking which config types exist.
+	if len(configs) == 0 {
+		return nil, nil
+	}
+
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
+	if err != nil {
+		return nil, err
 	}
 
 	var result []client.EnvVar

@@ -36,6 +36,7 @@ import (
 
 type AgentController interface {
 	ListAgents(w http.ResponseWriter, r *http.Request)
+	ListOrgAgents(w http.ResponseWriter, r *http.Request)
 	GetAgent(w http.ResponseWriter, r *http.Request)
 	CreateAgent(w http.ResponseWriter, r *http.Request)
 	UpdateAgentBasicInfo(w http.ResponseWriter, r *http.Request)
@@ -61,6 +62,7 @@ type AgentController interface {
 	RegenerateAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	RevokeAgentIdentitySecret(w http.ResponseWriter, r *http.Request)
 	ProvisionAgentIdentity(w http.ResponseWriter, r *http.Request)
+	RetryAgentIdentityProvisioning(w http.ResponseWriter, r *http.Request)
 	GetAgentRoles(w http.ResponseWriter, r *http.Request)
 	GetAgentGroups(w http.ResponseWriter, r *http.Request)
 }
@@ -82,6 +84,19 @@ func NewAgentController(agentService services.AgentManagerService, agentKindServ
 // If no common error matches, writes an internal server error with the provided fallback message.
 func handleCommonErrors(w http.ResponseWriter, err error, fallbackMsg string) {
 	switch {
+	// A ValidationError raised below the controller (e.g. a stored agent kind
+	// version that can't be written as a label) is still a client-side problem —
+	// report it as a 400 naming the offending value instead of letting it reach
+	// the generic 500 fallback.
+	//
+	// Keep this FIRST: a ValidationError may also match a classification
+	// sentinel (utils.NewInvalidInputError sets ErrInvalidInput), and the
+	// sentinel cases below relabel the response with a generic bucket message.
+	// Moving this case down silently replaces every such error's own
+	// user-facing Message with "Invalid input provided".
+	case utils.IsValidationError(err) != nil:
+		utils.WriteValidationErrorResponse(w, err)
+
 	// Not found errors
 	case errors.Is(err, utils.ErrOrganizationNotFound):
 		utils.WriteErrorResponseWithReason(w, http.StatusNotFound,
@@ -121,6 +136,9 @@ func handleCommonErrors(w http.ResponseWriter, err error, fallbackMsg string) {
 	case errors.Is(err, utils.ErrAgentAlreadyExists):
 		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
 			"Agent already exists", err.Error(), utils.ErrCodeAgentAlreadyExists)
+	case errors.Is(err, utils.ErrOrphanedAgentConfigsExist):
+		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
+			"Configurations from a deleted agent with this name still exist", err.Error(), utils.ErrCodeConflict)
 	case errors.Is(err, utils.ErrProjectAlreadyExists):
 		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
 			"Project already exists", err.Error(), utils.ErrCodeProjectAlreadyExists)
@@ -279,6 +297,24 @@ func (c *agentController) ListAgents(w http.ResponseWriter, r *http.Request) {
 	utils.WriteSuccessResponse(w, http.StatusOK, response)
 }
 
+func (c *agentController) ListOrgAgents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+	ouID := middleware.OUIDFromRequest(r)
+
+	agents, err := c.agentService.ListOrgAgents(ctx, ouID)
+	if err != nil {
+		log.Error("ListOrgAgents: failed to list agents", "error", err)
+		handleCommonErrors(w, err, "Failed to list agents")
+		return
+	}
+
+	response := &spec.AgentSummaryListResponse{
+		Agents: utils.ConvertToAgentSummaryListResponse(agents),
+	}
+	utils.WriteSuccessResponse(w, http.StatusOK, response)
+}
+
 func (c *agentController) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
@@ -318,7 +354,7 @@ func (c *agentController) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		ProjectName:    projName,
 		Provisioning:   payload.Provisioning,
 		AgentType:      agentType,
-		Configurations: payload.Configurations,
+		Configurations: utils.RedactSecretConfigValues(payload.Configurations),
 		Build:          payload.Build,
 		CreatedAt:      time.Now(),
 	}
@@ -489,7 +525,9 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 		handleCommonErrors(w, err, "Failed to build agent")
 		return
 	}
-	utils.WriteSuccessResponse(w, http.StatusAccepted, build)
+
+	buildResponse := utils.ConvertToBuildResponse(build)
+	utils.WriteSuccessResponse(w, http.StatusAccepted, buildResponse)
 }
 
 func (c *agentController) DeployAgent(w http.ResponseWriter, r *http.Request) {
@@ -1010,6 +1048,14 @@ func (c *agentController) PublishKind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The tag is stamped onto every agent created from this version as a label,
+	// so reject an unusable one here rather than at agent-creation time.
+	if err := utils.ValidateLabelValue(payload.GetVersion(), "version"); err != nil {
+		log.Debug("PublishKind: invalid version tag", "error", err)
+		utils.WriteValidationErrorResponse(w, err)
+		return
+	}
+
 	if payload.KindLabels != nil {
 		if err := utils.ValidateLabels(*payload.KindLabels); err != nil {
 			log.Debug("PublishKind: invalid kind labels", "error", err)
@@ -1244,6 +1290,72 @@ func (c *agentController) ProvisionAgentIdentity(w http.ResponseWriter, r *http.
 	}
 	log.Info("ProvisionAgentIdentity: completed", "orgName", orgName, "agentName", agentName, "envID", envID, "alreadyExisted", alreadyExisted)
 	utils.WriteSuccessResponse(w, status, view)
+}
+
+// RetryAgentIdentityProvisioning handles
+// POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/identities/retry
+//
+// Resets a FAILED AgentID binding back to PENDING and re-attempts
+// provisioning, for both Internal and External agents. The target
+// environment is passed in the request body, matching
+// RegenerateAgentIdentitySecret's convention for POST identity actions.
+func (c *agentController) RetryAgentIdentityProvisioning(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx)
+
+	orgName := middleware.OrgHandleFromRequest(r)
+	ouID := middleware.OUIDFromRequest(r)
+	projName := r.PathValue(utils.PathParamProjName)
+	agentName := r.PathValue(utils.PathParamAgentName)
+
+	var payload models.AgentIdentityActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Error("RetryAgentIdentityProvisioning: failed to decode request body", "error", err)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	envID := payload.Environment
+	if envID == "" {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "environment is required in the request body")
+		return
+	}
+
+	log.Info("RetryAgentIdentityProvisioning: starting", "orgName", orgName, "agentName", agentName, "envID", envID)
+
+	attempt, ok := beginAuditOrFail(
+		w, r, "RetryAgentIdentityProvisioning", "Failed to retry agent identity provisioning", audit.ActionAgentIdentityRetryProvisioning,
+		audit.Org(ouID),
+		audit.ResourceNamed(audit.ResourceAgentIdentity, agentName, agentName),
+		audit.Project(projName),
+		audit.Environment(envID),
+		audit.Detail("agentName", agentName),
+		audit.Detail("environment", envID),
+	)
+	if !ok {
+		return
+	}
+
+	view, err := c.agentService.RetryAgentIdentityProvisioning(ctx, ouID, projName, agentName, envID)
+	if err != nil {
+		attempt.Complete(ctx, err)
+		if errors.Is(err, utils.ErrAgentIdentityNotProvisioned) {
+			log.Warn("RetryAgentIdentityProvisioning: identity not yet provisioned", "orgName", orgName, "agentName", agentName, "envID", envID)
+			utils.WriteErrorResponse(w, http.StatusNotFound, "Agent identity not yet provisioned for this environment")
+			return
+		}
+		if errors.Is(err, utils.ErrAgentIdentityRetryNotAllowed) {
+			log.Warn("RetryAgentIdentityProvisioning: binding not in a failed state", "orgName", orgName, "agentName", agentName, "envID", envID)
+			utils.WriteErrorResponse(w, http.StatusConflict, "Agent identity binding is not in a failed state and cannot be retried")
+			return
+		}
+		log.Error("RetryAgentIdentityProvisioning: failed to retry provisioning", "orgName", orgName, "agentName", agentName, "envID", envID, "error", err)
+		handleCommonErrors(w, err, "Failed to retry agent identity provisioning")
+		return
+	}
+
+	attempt.Complete(ctx, nil)
+	log.Info("RetryAgentIdentityProvisioning: retry scheduled", "orgName", orgName, "agentName", agentName, "envID", envID)
+	utils.WriteSuccessResponse(w, http.StatusAccepted, view)
 }
 
 // GetAgentRoles handles

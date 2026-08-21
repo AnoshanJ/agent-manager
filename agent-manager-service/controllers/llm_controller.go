@@ -389,12 +389,18 @@ func (c *llmController) ListAvailableLLMPolicies(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 	log := logger.GetLogger(ctx)
 	ouID := middleware.OUIDFromRequest(r)
+	providerID := r.URL.Query().Get("providerId")
 
-	log.Info("ListAvailableLLMPolicies: starting", "ouID", ouID)
+	log.Info("ListAvailableLLMPolicies: starting", "ouID", ouID, "providerID", providerID)
 
-	resp, err := c.providerService.ListAvailableLLMPolicies(ctx, ouID)
+	resp, err := c.providerService.ListAvailableLLMPolicies(ctx, ouID, providerID)
 	if err != nil {
-		log.Error("ListAvailableLLMPolicies: failed", "ouID", ouID, "error", err)
+		if errors.Is(err, utils.ErrLLMProviderNotFound) {
+			log.Warn("ListAvailableLLMPolicies: provider not found", "ouID", ouID, "providerID", providerID)
+			utils.WriteErrorResponse(w, http.StatusNotFound, "LLM provider not found")
+			return
+		}
+		log.Error("ListAvailableLLMPolicies: failed", "ouID", ouID, "providerID", providerID, "error", err)
 		utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to list available LLM policies")
 		return
 	}
@@ -714,6 +720,10 @@ func (c *llmController) DeleteLLMProvider(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, utils.ErrLLMProviderHasProxies):
 			log.Warn("DeleteLLMProvider: provider has associated proxies", "ouID", ouID, "providerID", providerID)
 			utils.WriteErrorResponse(w, http.StatusConflict, utils.ErrLLMProviderHasProxies.Error())
+			return
+		case errors.Is(err, utils.ErrLLMProviderUndeployFailed):
+			log.Error("DeleteLLMProvider: undeployment failed", "ouID", ouID, "providerID", providerID, "error", err)
+			utils.WriteErrorResponse(w, http.StatusConflict, utils.ErrLLMProviderUndeployFailed.Error())
 			return
 		default:
 			log.Error("DeleteLLMProvider: failed to delete provider", "ouID", ouID, "providerID", providerID, "error", err)

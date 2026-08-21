@@ -174,8 +174,14 @@ agentManagerService:
     # API Key configuration
     apiKey:
       header: "X-API-Key"
-      value: "abc-def-123"
+      # Empty by default so the chart's own randAlphaNum(32) fallback (see
+      # templates/agent-manager-service/secret.yaml) generates a real value —
+      # the same pattern encryptionKey below already uses correctly. Set this
+      # explicitly, or prefer existingSecret, for production.
+      value: ""
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+      # the chart-managed Secret always uses the fixed key "api-key".
       existingSecretKey: "api-key"
 
     # Encryption key for secrets at rest (hex-encoded 32-byte AES-256 key)
@@ -183,7 +189,19 @@ agentManagerService:
     encryptionKey:
       value: ""
       existingSecret: ""
+      # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+      # the chart-managed Secret always uses the fixed key "encryption-key".
       existingSecretKey: "encryption-key"
+
+    # Shared secret Caddy presents on the on-demand-TLS ask endpoint
+    # (/internal/thunder-ask) so that trusted Caddy traffic can be told apart
+    # from the public internet, which reaches the same path through the api
+    # host's catch-all route. Auto-generated if not provided; deployments.vm's
+    # install-vm.sh reads the generated value back out to configure Caddy.
+    thunderAskSecret:
+      value: ""
+      existingSecret: ""
+      existingSecretKey: "thunder-ask-secret"
 
     # Kubeconfig (empty for in-cluster, or provide config)
     kubeconfig: ""
@@ -211,11 +229,13 @@ agentManagerService:
     # Key Manager configuration
     #
     # Token audiences accepted by this service. Console/CLI logins arrive with
-    # aud=amp; MCP logins arrive with serverPublicURL plus a trailing slash,
-    # which the chart appends automatically — list only client IDs here.
+    # aud=urn:wso2:amp (the amp resource server's identifier — keep in sync with
+    # 60-amp-resource-server.yaml in the Thunder extension chart); MCP logins arrive
+    # with serverPublicURL plus a trailing slash, which the chart appends
+    # automatically — list only client IDs here.
     keyManager:
       issuer: "http://thunder.amp.localhost:8080"
-      audience: "amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
+      audience: "urn:wso2:amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"
       jwksUrl: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/jwks"
 
     # Externally reachable base URL of this service.
@@ -233,13 +253,16 @@ agentManagerService:
     oauthAuthorizationServers: ""
 
     # Domain suffix env-Thunder developer-facing hostnames are built from:
-    # "<org>-<env>.thunder.<thunderHostBaseDomain>". Override on custom-domain /
+    # "<handle>.<thunderHostBaseDomain>". Override on custom-domain /
     # sslip.io installs so the reported identity-provider endpoints match the
     # actual env-Thunder hosts.
     thunderHostBaseDomain: "amp.localhost"
 
-    # Base domains add-environment.sh builds "<env>-<org>.<domain>" from. Override on
-    # custom-domain / sslip.io installs, or added environments resolve nowhere.
+    # Base domains for agent-facing hostnames. add-environment.sh prefixes
+    # "<env>-<org>." onto gatewayBaseDomain; agentsBaseDomain is used as-is
+    # (its own env/org prefixing happens later, in the gateway extension
+    # chart's HTTPRoute template). Override on custom-domain / sslip.io
+    # installs, or added environments resolve nowhere.
     agentsBaseDomain: "am-gateway.localhost"
     gatewayBaseDomain: "gateway.localhost"
 
@@ -325,17 +348,57 @@ agentManagerService:
       # token is stored there under the distinct key "workflow-plane-openbao-token".
       existingSecretKey: "openbao-token"
 
+    # Gateway-reported policy manifest cache. Manifests are large and every gateway
+    # re-pushes its whole manifest on a fixed heartbeat, so they are cached in-process
+    # rather than persisted to the database.
+    gatewayManifestCache:
+      # "memory" (default) is process-local — safe ONLY when replicaCount is 1. Set to
+      # "redis" whenever this chart is deployed with more than one replica: an
+      # in-memory cache would leave replicas disagreeing on which policies gateways
+      # report, since each replica only observes the manifest pushes routed to it.
+      backend: "memory"
+      redis:
+        host: ""
+        port: 6379
+        db: 0
+        tlsEnabled: false
+        # Redis password. When set, it is stored in the chart-managed Secret and
+        # injected via secretKeyRef — never as a plaintext env var in the pod spec.
+        # For production, use existingSecret to reference an externally-managed
+        # Secret containing the password instead. Leave both empty for a
+        # password-less Redis (e.g. local/dev).
+        password: ""
+        existingSecret: ""
+        # Key to read from existingSecret. Applies ONLY when existingSecret is set;
+        # the chart-managed Secret always uses the fixed key "gateway-manifest-cache-redis-password".
+        existingSecretKey: "gateway-manifest-cache-redis-password"
+
     # Agent resource limits — operator-configured upper bounds enforced on PUT /resource-configs
     perAgentResourceLimits:
       maxReplicas: 10
       maxCPU: "500m"
       maxMemory: "512Mi"
 
-    # Thunder admin API configuration (for per-org publisher credential provisioning)
-    # When baseURL is empty, the static amp-publisher-client credentials are used.
+    # Thunder admin API configuration (for per-org publisher credential provisioning
+    # and the identity APIs: users, roles, groups). When baseURL is empty, the
+    # static amp-publisher-client credentials are used instead for publisher
+    # provisioning, and the identity APIs are unavailable.
     thunder:
-      # Thunder API base URL
-      baseURL: "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090"
+      # Must be the PUBLIC URL, same as keyManager.issuer above. Every admin API
+      # request asks for a token scoped to Thunder's System resource server via an
+      # RFC 8707 "resource" parameter derived from this value (client.go's
+      # SystemResourceIdentifier), and Thunder only recognizes the public URL as
+      # that resource server's registered identifier — any other value fails with
+      # invalid_target. This does NOT need to be directly dialable from the pod;
+      # see resolveToHost below for that.
+      baseURL: "http://thunder.amp.localhost:8080"
+      # The host:port this service actually connects to for every Thunder request
+      # (baseURL's host is still sent as the HTTP Host header, and still drives the
+      # resource-identifier above). Needed here because baseURL is a *.localhost
+      # hostname that only resolves via the host machine's own DNS/hosts setup —
+      # it doesn't resolve from inside this pod. Leave empty only if baseURL is
+      # itself directly dialable from the pod (e.g. a real in-cluster DNS name).
+      resolveToHost: "amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090"
       # OAuth2 client ID of the system app (with Administrator role)
       clientId: "amp-system-client"
       # OAuth2 client secret of the system app
@@ -466,6 +529,13 @@ console:
     # the gateway is configured for in-cluster service discovery.
     agentManagerInternalBaseUrl: "http://amp-api.wso2-amp.svc.cluster.local:9000"
     agentManagerInternalCpHost: "amp-api-gateway-manager.wso2-amp.svc.cluster.local:9243"
+    # Base domain env-Thunder instances are hosted under, and whether this
+    # deployment serves them over TLS. Mirrors agentManagerService.config's own
+    # thunderHostBaseDomain/tlsEnabled — kept in sync so the Create Environment
+    # drawer's rendered command matches this deployment. VM/production installs
+    # override both (see deployments/vm/lib-vm.sh).
+    thunderHostBaseDomain: "amp.localhost"
+    tlsEnabled: "false"
     # Guardrails catalog URL for fetching available guardrail policies
     guardrailsCatalogUrl: "https://db720294-98fd-40f4-85a1-cc6a3b65bc9a-prod.e1-us-east-azure.choreoapis.dev/api-platform/policy-hub-api/policy-hub-public/v1.0/policies?categories=AI,Guardrails&limit=50"
     # Guardrails definition base URL for fetching policy definitions

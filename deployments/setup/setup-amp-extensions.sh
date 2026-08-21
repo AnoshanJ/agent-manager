@@ -30,7 +30,7 @@ install_thunder_extension() {
 
     # Detect an image mismatch and do a clean uninstall+install so the
     # pre-install setup job re-runs and re-bootstraps the database.
-    local target_image="ghcr.io/thunder-id/thunderid:0.45.0"
+    local target_image="ghcr.io/thunder-id/thunderid:1.0.0"
     local selector="app.kubernetes.io/instance=amp-thunder-extension"
     if helm status amp-thunder-extension -n amp-thunder &>/dev/null; then
         local current_image
@@ -72,9 +72,14 @@ install_thunder_extension() {
     # The dev stack runs amp-api on a published host port rather than behind the
     # gateway, so register that origin as a second MCP resource identifier too —
     # Thunder matches the authorize request's `resource` value exactly.
+    # thunder.setup.admin.password fixes the console admin login at "admin" for
+    # local dev convenience — the chart's own default (unset) would generate a
+    # random one instead, which is what production wants but is annoying to
+    # look up every time on a machine only you can reach anyway.
     helm upgrade --install amp-thunder-extension "${SCRIPT_DIR}/../helm-charts/wso2-amp-thunder-extension" \
         --namespace amp-thunder --create-namespace \
-        --set thunder.bootstrap.agentManagerMcpDevBaseUrl=http://localhost:9000
+        --set thunder.bootstrap.agentManagerMcpDevBaseUrl=http://localhost:9000 \
+        --set thunder.setup.admin.password=admin
     echo "✅ AMP Thunder Extension installed/upgraded successfully"
 }
 
@@ -109,7 +114,7 @@ install_evaluation_workflows() {
         --set ampEvaluation.publisher.clientId="amp-publisher-client" \
         --set networkPolicy.evaluationJob.enabled="${network_policy_enabled}" \
         --set networkPolicy.evaluationJob.devEgress.cidr="${node_cidr}" \
-        --set networkPolicy.evaluationJob.devEgress.port=8080 \
+        --set "networkPolicy.evaluationJob.devEgress.ports={8080,19080}" \
         --set "networkPolicy.evaluationJob.apiServer.cidrs[0]=${node_cidr}"
     echo "✅ Evaluation Workflows Extension installed/upgraded successfully"
 }

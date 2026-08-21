@@ -368,13 +368,13 @@ func (e CreateEnvironmentRequestIsolationTier) Valid() bool {
 
 // Defines values for CreateGitSecretRequestType.
 const (
-	CreateGitSecretRequestTypeBasic CreateGitSecretRequestType = "basic"
+	Basic CreateGitSecretRequestType = "basic"
 )
 
 // Valid indicates whether the value is a known member of the CreateGitSecretRequestType enum.
 func (e CreateGitSecretRequestType) Valid() bool {
 	switch e {
-	case CreateGitSecretRequestTypeBasic:
+	case Basic:
 		return true
 	default:
 		return false
@@ -1025,22 +1025,16 @@ func (e UpdateDeploymentStateResponseState) Valid() bool {
 
 // Defines values for UpstreamAuthType.
 const (
-	UpstreamAuthTypeApiKey UpstreamAuthType = "api-key"
-	UpstreamAuthTypeBasic  UpstreamAuthType = "basic"
-	UpstreamAuthTypeBearer UpstreamAuthType = "bearer"
-	UpstreamAuthTypeNone   UpstreamAuthType = "none"
+	ApiKey UpstreamAuthType = "api-key"
+	None   UpstreamAuthType = "none"
 )
 
 // Valid indicates whether the value is a known member of the UpstreamAuthType enum.
 func (e UpstreamAuthType) Valid() bool {
 	switch e {
-	case UpstreamAuthTypeApiKey:
+	case ApiKey:
 		return true
-	case UpstreamAuthTypeBasic:
-		return true
-	case UpstreamAuthTypeBearer:
-		return true
-	case UpstreamAuthTypeNone:
+	case None:
 		return true
 	default:
 		return false
@@ -1226,7 +1220,7 @@ type AddAgentKindVersionRequest struct {
 	// SourceProjectName Project the source agent belongs to
 	SourceProjectName string `json:"sourceProjectName"`
 
-	// Version Version tag for this release
+	// Version Version tag for this release. Stored as a Kubernetes label on every agent created from this version, so it must be at most 63 characters of letters, digits, '.', '_' or '-', starting and ending with a letter or digit.
 	Version string `json:"version"`
 }
 
@@ -1609,6 +1603,9 @@ type AgentResponse struct {
 	// KindName Name of the Agent Kind this agent was instantiated from (absent for source-built agents)
 	KindName *string `json:"kindName,omitempty"`
 
+	// KindVersion Version tag of the Agent Kind this agent was instantiated from (absent for source-built agents, and for kind-sourced agents created before the version was recorded)
+	KindVersion *string `json:"kindVersion,omitempty"`
+
 	// Labels User-defined key/value labels. Keys are 1-63 characters of [a-zA-Z0-9._-] starting and ending alphanumeric (not enforceable here as an OpenAPI 3.0 property-name pattern — validated server-side); values follow the same rules but may be empty. At most 10 labels per resource.
 	Labels       *Labels      `json:"labels,omitempty"`
 	Name         string       `json:"name"`
@@ -1632,6 +1629,19 @@ type AgentRevokeSecretResponse struct {
 	// The workload may keep referencing the revoked credential until this is confirmed
 	// or the workload is redeployed.
 	WorkloadRefreshWarning *string `json:"workloadRefreshWarning,omitempty"`
+}
+
+// AgentSummary defines model for AgentSummary.
+type AgentSummary struct {
+	DisplayName        string `json:"displayName"`
+	Name               string `json:"name"`
+	ProjectDisplayName string `json:"projectDisplayName"`
+	ProjectName        string `json:"projectName"`
+}
+
+// AgentSummaryListResponse defines model for AgentSummaryListResponse.
+type AgentSummaryListResponse struct {
+	Agents []AgentSummary `json:"agents"`
 }
 
 // AgentThunderStatus Provisioning status of one AgentID binding. Goes from `pending` to
@@ -2539,6 +2549,9 @@ type DeploymentDetailsResponse struct {
 
 	// ImageId Container image ID
 	ImageId string `json:"imageId"`
+
+	// KindVersion Agent Kind version this deployment runs, resolved from the deployed image. Per-environment, so it reflects what is actually deployed rather than the version the agent was created from. Absent for source-built agents and when the image matches no published version.
+	KindVersion *string `json:"kindVersion,omitempty"`
 
 	// LastDeployed Timestamp of last deployment
 	LastDeployed *time.Time `json:"lastDeployed,omitempty"`
@@ -4018,8 +4031,8 @@ type MCPProxyScopeRequest struct {
 	Action      string  `json:"action"`
 	Description *string `json:"description,omitempty"`
 
-	// Tools MCP tool names this scope authorizes.
-	Tools []string `json:"tools"`
+	// Tools MCP tool names this scope authorizes. May be omitted or empty to declare a scope before binding it to any tool; such a scope is grantable to roles but enforced on no tool.
+	Tools *[]string `json:"tools,omitempty"`
 }
 
 // MCPProxyScopeResponse defines model for MCPProxyScopeResponse.
@@ -4036,8 +4049,10 @@ type MCPProxyScopeResponse struct {
 
 // MCPProxyScopeUpdateRequest defines model for MCPProxyScopeUpdateRequest.
 type MCPProxyScopeUpdateRequest struct {
-	Description *string   `json:"description,omitempty"`
-	Tools       *[]string `json:"tools,omitempty"`
+	Description *string `json:"description,omitempty"`
+
+	// Tools Replaces the scope's tool list. Omit to leave it unchanged; send an empty array to unbind the scope from every tool.
+	Tools *[]string `json:"tools,omitempty"`
 }
 
 // MCPServerInfoFetchRequest defines model for MCPServerInfoFetchRequest.
@@ -4517,7 +4532,7 @@ type PublishAgentKindRequest struct {
 	// Metadata Optional interface metadata (e.g. OpenAPI spec)
 	Metadata *map[string]interface{} `json:"metadata,omitempty"`
 
-	// Version Version tag for this release
+	// Version Version tag for this release. Stored as a Kubernetes label on every agent created from this version, so it must be at most 63 characters of letters, digits, '.', '_' or '-', starting and ending with a letter or digit.
 	Version string `json:"version"`
 }
 
@@ -4834,6 +4849,34 @@ type ThunderSystemClientRequest struct {
 
 	// ClientSecret OAuth2 client secret (stored encrypted at rest).
 	ClientSecret string `json:"clientSecret"`
+}
+
+// ThunderUrlAvailabilityResponse Whether a candidate env-Thunder URL handle passes format validation
+// and is not already registered to any environment. Advisory only — see
+// checkThunderUrlAvailability.
+type ThunderUrlAvailabilityResponse struct {
+	// Available True if the handle is well-formed and not currently taken.
+	Available bool `json:"available"`
+}
+
+// ThunderUrlRequest An unguessable handle to register for an environment's env-Thunder
+// URL, replacing the predictable "<org>-<env>" pattern. Optional — omit
+// it (or send an empty string) to have the server generate one.
+type ThunderUrlRequest struct {
+	// Handle DNS-label-safe handle (lowercase alphanumeric with hyphens, no
+	// leading/trailing hyphen) that replaces "<org>-<env>" in
+	// "<handle>.<baseDomain>". Must be globally unique across
+	// all orgs/environments, and at least 10 characters (matching what
+	// the server itself generates — anything shorter is trivially
+	// guessable). Omit to auto-generate a 10-character handle.
+	Handle *string `json:"handle,omitempty"`
+}
+
+// ThunderUrlResponse The env-Thunder URL handle registered for an environment — either the
+// caller-supplied value or the value the server generated when the
+// caller left it blank.
+type ThunderUrlResponse struct {
+	Handle string `json:"handle"`
 }
 
 // TimeRange defines model for TimeRange.
@@ -5558,6 +5601,12 @@ type ListLLMProvidersParams struct {
 	Offset *int32 `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListAvailableLLMPoliciesParams defines parameters for ListAvailableLLMPolicies.
+type ListAvailableLLMPoliciesParams struct {
+	// ProviderId When set, scope the result to the gateways this LLM provider is deployed to, instead of every active gateway in the organization.
+	ProviderId *openapi_types.UUID `form:"providerId,omitempty" json:"providerId,omitempty"`
+}
+
 // GetLLMProviderDeploymentsParams defines parameters for GetLLMProviderDeployments.
 type GetLLMProviderDeploymentsParams struct {
 	// GatewayId Filter by gateway ID
@@ -5830,6 +5879,12 @@ type ListRepositoryCommitsParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// CheckThunderUrlAvailabilityParams defines parameters for CheckThunderUrlAvailability.
+type CheckThunderUrlAvailabilityParams struct {
+	// Handle The candidate env-Thunder URL handle to check.
+	Handle string `form:"handle" json:"handle"`
+}
+
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 
@@ -5853,6 +5908,9 @@ type UpdateEnvironmentJSONRequestBody = UpdateEnvironmentRequest
 
 // SetEnvironmentThunderSystemClientJSONRequestBody defines body for SetEnvironmentThunderSystemClient for application/json ContentType.
 type SetEnvironmentThunderSystemClientJSONRequestBody = ThunderSystemClientRequest
+
+// SetEnvironmentThunderUrlJSONRequestBody defines body for SetEnvironmentThunderUrl for application/json ContentType.
+type SetEnvironmentThunderUrlJSONRequestBody = ThunderUrlRequest
 
 // CreateAgentIdentityGroupJSONRequestBody defines body for CreateAgentIdentityGroup for application/json ContentType.
 type CreateAgentIdentityGroupJSONRequestBody = AgentIdentityGroupRequest
@@ -5929,14 +5987,14 @@ type UpdateLLMProviderTemplateJSONRequestBody = UpdateLLMProviderTemplateRequest
 // CreateLLMProviderJSONRequestBody defines body for CreateLLMProvider for application/json ContentType.
 type CreateLLMProviderJSONRequestBody = CreateLLMProviderRequest
 
-// UpdateLLMProviderJSONRequestBody defines body for UpdateLLMProvider for application/json ContentType.
-type UpdateLLMProviderJSONRequestBody = UpdateLLMProviderRequest
-
 // CreateLLMProviderAPIKeyJSONRequestBody defines body for CreateLLMProviderAPIKey for application/json ContentType.
 type CreateLLMProviderAPIKeyJSONRequestBody = CreateLLMAPIKeyRequest
 
 // RotateLLMProviderAPIKeyJSONRequestBody defines body for RotateLLMProviderAPIKey for application/json ContentType.
 type RotateLLMProviderAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
+
+// UpdateLLMProviderJSONRequestBody defines body for UpdateLLMProvider for application/json ContentType.
+type UpdateLLMProviderJSONRequestBody = UpdateLLMProviderRequest
 
 // UpdateLLMProviderCatalogStatusJSONRequestBody defines body for UpdateLLMProviderCatalogStatus for application/json ContentType.
 type UpdateLLMProviderCatalogStatusJSONRequestBody = UpdateLLMProviderCatalogRequest
@@ -5994,6 +6052,9 @@ type RotateAgentAPIKeyJSONRequestBody = RotateLLMAPIKeyRequest
 
 // RegenerateAgentIdentitySecretJSONRequestBody defines body for RegenerateAgentIdentitySecret for application/json ContentType.
 type RegenerateAgentIdentitySecretJSONRequestBody = AgentIdentityActionRequest
+
+// RetryAgentIdentityProvisioningJSONRequestBody defines body for RetryAgentIdentityProvisioning for application/json ContentType.
+type RetryAgentIdentityProvisioningJSONRequestBody = AgentIdentityActionRequest
 
 // CreateAgentMCPConfigJSONRequestBody defines body for CreateAgentMCPConfig for application/json ContentType.
 type CreateAgentMCPConfigJSONRequestBody = CreateAgentModelConfigRequest
