@@ -5495,18 +5495,26 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 
 // BuildSystemManagedEnvVarsFromConfig constructs system-managed env vars for a given
 // agent and environment from every DB-backed agent config. Used during promotion when
-// the target environment's ReleaseBinding doesn't have these vars yet.
+// the target environment's ReleaseBinding doesn't have these vars yet, and when building
+// a kind-sourced agent's Workload CR at creation. Returns no vars for an agent with no
+// configs, so callers need not pre-check which config types the agent has.
 func (s *agentConfigurationService) BuildSystemManagedEnvVarsFromConfig(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) ([]client.EnvVar, error) {
-	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
-	if err != nil {
-		return nil, err
-	}
-
 	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
+	}
+	// Resolve the environment only once we know there is a config to build vars for.
+	// This keeps the no-config case free of a remote environment lookup, so callers can
+	// invoke this unconditionally instead of pre-checking which config types exist.
+	if len(configs) == 0 {
+		return nil, nil
+	}
+
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
+	if err != nil {
+		return nil, err
 	}
 
 	var result []client.EnvVar

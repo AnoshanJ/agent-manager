@@ -82,8 +82,7 @@ func TestMergeKindWorkloadSystemEnvVars_InjectsLLMEnvVars(t *testing.T) {
 	s := &agentManagerService{agentConfigurationService: spy}
 
 	userVars := []client.EnvVar{{Key: "USER_VAR", Value: "v"}}
-	req := &spec.CreateAgentRequest{Name: "my-agent", ModelConfig: []spec.ModelConfigRequest{{ProviderName: "openai"}}}
-	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "org", "proj", "Development", req, userVars)
+	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", userVars)
 	require.NoError(t, err)
 	require.Equal(t, append(append([]client.EnvVar{}, userVars...), llmVars...), got,
 		"user env vars must be preserved and LLM env vars appended")
@@ -105,25 +104,21 @@ func TestMergeKindWorkloadSystemEnvVars_InjectsMCPEnvVars(t *testing.T) {
 	s := &agentManagerService{agentConfigurationService: spy}
 
 	userVars := []client.EnvVar{{Key: "USER_VAR", Value: "v"}}
-	req := &spec.CreateAgentRequest{
-		Name:      "my-agent",
-		McpConfig: []spec.MCPConfigRequest{{ProxyName: "booking"}},
-	}
-	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "org", "proj", "Development", req, userVars)
+	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", userVars)
 	require.NoError(t, err)
 	require.Equal(t, append(append([]client.EnvVar{}, userVars...), mcpVars...), got,
 		"user env vars must be preserved and MCP env vars appended")
 }
 
-// TestMergeKindWorkloadSystemEnvVars_NoSystemConfig verifies that with neither an LLM nor an MCP
-// configuration the resolver is not consulted and the user env vars pass through unchanged.
+// TestMergeKindWorkloadSystemEnvVars_NoSystemConfig verifies that an agent whose configs yield no
+// system-managed vars gets its user env vars back unchanged. The resolver is still consulted — it
+// is the authority on which configs exist — and reports the empty result itself.
 func TestMergeKindWorkloadSystemEnvVars_NoSystemConfig(t *testing.T) {
-	spy := &spyConfigService{systemEnvVarsE: errors.New("resolver must not be called")}
+	spy := &spyConfigService{systemEnvVars: nil}
 	s := &agentManagerService{agentConfigurationService: spy}
 
 	userVars := []client.EnvVar{{Key: "USER_VAR", Value: "v"}}
-	req := &spec.CreateAgentRequest{Name: "my-agent"}
-	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "org", "proj", "Development", req, userVars)
+	got, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", userVars)
 	require.NoError(t, err)
 	require.Equal(t, userVars, got)
 }
@@ -134,7 +129,6 @@ func TestMergeKindWorkloadSystemEnvVars_ResolverError(t *testing.T) {
 	spy := &spyConfigService{systemEnvVarsE: errors.New("boom")}
 	s := &agentManagerService{agentConfigurationService: spy}
 
-	req := &spec.CreateAgentRequest{Name: "my-agent", ModelConfig: []spec.ModelConfigRequest{{ProviderName: "openai"}}}
-	_, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "org", "proj", "Development", req, nil)
+	_, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", nil)
 	require.Error(t, err)
 }

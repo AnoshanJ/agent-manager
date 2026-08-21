@@ -1668,7 +1668,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 			// createAgentMCPConfigs never reach the container. The Workload CR is authoritative
 			// for these agents, so resolve those env vars from the persisted config and inject
 			// them here.
-			kindEnvVars, envErr := s.mergeKindWorkloadSystemEnvVars(ctx, ouID, projectName, firstEnv, req, kindEnvVars)
+			kindEnvVars, envErr := s.mergeKindWorkloadSystemEnvVars(ctx, req.Name, ouID, projectName, firstEnv, kindEnvVars)
 			if envErr != nil {
 				s.logger.Error("Failed to resolve system-managed env vars for kind-sourced agent workload", "agentName", req.Name, "environment", firstEnv, "error", envErr)
 				rollbackAgentCreate("system env var resolution failure")
@@ -1772,21 +1772,22 @@ func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, pro
 }
 
 // mergeKindWorkloadSystemEnvVars appends the system-managed env vars (proxy URL + API key secret
-// ref, for both LLM and MCP configurations) for the first environment onto the user-supplied env
-// vars of a kind-sourced agent. Kind-sourced agents create their Workload CR directly, bypassing
-// the build/workflow system that otherwise carries these vars into the container, so they must be
-// injected into the Workload here. When the agent has no system-managed configuration at all,
-// userEnvVars is returned unchanged.
+// ref, for every DB-backed config type) for the first environment onto the user-supplied env vars
+// of a kind-sourced agent. Kind-sourced agents create their Workload CR directly, bypassing the
+// build/workflow system that otherwise carries these vars into the container, so they must be
+// injected into the Workload here.
+//
+// The resolver is consulted unconditionally and reports what the agent's configs actually are,
+// rather than this deciding up front which config types are worth resolving. Enumerating the
+// types here is what previously dropped the env vars of an MCP-only agent, and would drop them
+// again for the next config type added.
 func (s *agentManagerService) mergeKindWorkloadSystemEnvVars(
-	ctx context.Context, ouID, projectName, firstEnv string, req *spec.CreateAgentRequest, userEnvVars []client.EnvVar,
+	ctx context.Context, agentName, ouID, projectName, firstEnv string, userEnvVars []client.EnvVar,
 ) ([]client.EnvVar, error) {
-	if len(req.ModelConfig) == 0 && len(req.McpConfig) == 0 {
-		return userEnvVars, nil
-	}
-	systemEnvVars, err := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, req.Name, ouID, projectName, firstEnv)
+	systemEnvVars, err := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, ouID, projectName, firstEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build system-managed env vars: agentName %s, ouID %s, projectName %s, env %s, error: %w",
-			req.Name, ouID, projectName, firstEnv, err)
+			agentName, ouID, projectName, firstEnv, err)
 	}
 	return append(userEnvVars, systemEnvVars...), nil
 }
