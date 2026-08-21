@@ -130,6 +130,9 @@ func handleCommonErrors(w http.ResponseWriter, err error, fallbackMsg string) {
 	case errors.Is(err, utils.ErrAgentAlreadyExists):
 		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
 			"Agent already exists", err.Error(), utils.ErrCodeAgentAlreadyExists)
+	case errors.Is(err, utils.ErrOrphanedAgentConfigsExist):
+		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
+			"Configurations from a deleted agent with this name still exist", err.Error(), utils.ErrCodeConflict)
 	case errors.Is(err, utils.ErrProjectAlreadyExists):
 		utils.WriteErrorResponseWithReason(w, http.StatusConflict,
 			"Project already exists", err.Error(), utils.ErrCodeProjectAlreadyExists)

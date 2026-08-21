@@ -194,6 +194,11 @@ var (
 	// Agent Configuration errors
 	ErrAgentConfigNotFound      = errors.New("agent configuration not found")
 	ErrAgentConfigAlreadyExists = errors.New("agent configuration already exists for this agent")
+	// ErrOrphanedAgentConfigsExist is returned when an agent is created with the name of a
+	// previously deleted agent whose configuration rows survived, because revoking their LLM
+	// proxy credentials failed. Configurations are keyed by agent name, so letting the create
+	// through would silently hand the new agent the old agent's un-rotated credential. Maps to 409.
+	ErrOrphanedAgentConfigsExist = errors.New("configurations from a previously deleted agent with this name have not been fully revoked")
 	// ErrAgentConfigNotExternal is returned when a user-managed API key action
 	// (create/rotate/revoke) is attempted against a configuration whose agent is
 	// managed/internal. Only external agents own their proxy API keys; managed
