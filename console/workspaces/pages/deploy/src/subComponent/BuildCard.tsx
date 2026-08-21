@@ -369,7 +369,7 @@ export function BuildCard(props: BuildCardProps) {
         />
 
         {/* Deployment Drawer */}
-        {currentKindVersion && (
+        {currentKindVersion && initialEnvironment && (
           <EditDeployConfigDrawer
             open={isDrawerOpen}
             onClose={handleCloseDrawer}
@@ -378,8 +378,8 @@ export function BuildCard(props: BuildCardProps) {
             orgName={orgId || ""}
             projName={projectId || ""}
             agentName={agentId || ""}
-            environment={initialEnvironment?.name || "development"}
-            title={`Configure and Deploy to ${initialEnvironment?.displayName ?? initialEnvironment?.name ?? "Environment"} Environment`}
+            environment={initialEnvironment.name}
+            title={`Configure and Deploy to ${initialEnvironment.displayName ?? initialEnvironment.name} Environment`}
           />
         )}
       </>
@@ -496,7 +496,7 @@ export function BuildCard(props: BuildCardProps) {
       />
 
       {/* Deployment Drawer */}
-      {currentBuild?.imageId && (
+      {currentBuild?.imageId && initialEnvironment && (
         <EditDeployConfigDrawer
           open={isDrawerOpen}
           onClose={handleCloseDrawer}
@@ -505,8 +505,8 @@ export function BuildCard(props: BuildCardProps) {
           orgName={orgId || ""}
           projName={projectId || ""}
           agentName={agentId || ""}
-          environment={initialEnvironment?.name || "development"}
-          title={`Configure and Deploy to ${initialEnvironment?.displayName ?? initialEnvironment?.name ?? "Environment"} Environment`}
+          environment={initialEnvironment.name}
+          title={`Configure and Deploy to ${initialEnvironment.displayName ?? initialEnvironment.name} Environment`}
         />
       )}
     </>
