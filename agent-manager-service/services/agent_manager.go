@@ -1448,6 +1448,11 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 		return translateOrgError(err)
 	}
 
+	// Preflight: refuse the name while a deleted agent's configurations still hold it.
+	if err := s.checkNoOrphanedConfigs(ctx, ouID, projectName, req.Name); err != nil {
+		return err
+	}
+
 	if req.Provisioning.Repository != nil && req.Provisioning.Repository.SecretRef.Get() != nil {
 		if err := s.validateGitSecretExists(ctx, ouID, req.Provisioning.Repository.GetSecretRef()); err != nil {
 			return err
@@ -2639,6 +2644,14 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 		translatedErr := translateAgentError(err)
 		if errors.Is(translatedErr, utils.ErrAgentNotFound) {
 			s.logger.Warn("Agent not found during deletion, delete is idempotent", "agentName", agentName, "ouID", ouID, "projectName", projectName)
+			// The component is already gone but a previous partially-completed delete may
+			// have left agent_configurations rows behind, each still holding a live LLM
+			// proxy credential, so run the same revocation cleanup here.
+			go func() {
+				cleanupCtx, cancel := detachedCleanupContext(ctx)
+				defer cancel()
+				s.deleteAgentLLMConfigurations(cleanupCtx, ouID, projectName, agentName, isExternalAgent)
+			}()
 			if configErr := s.agentConfigRepo.DeleteAllByAgent(ctx, ouID, projectName, agentName); configErr != nil {
 				s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 			}
@@ -2654,15 +2667,20 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	}
 
 	// Component confirmed deleted — clean up LLM proxy resources and DB records in the
-	// background. context.WithoutCancel detaches the request deadline so the goroutine
-	// is not cancelled when the HTTP handler returns, while still inheriting any values
-	// (trace IDs, logger) from the request context.
-	go s.deleteAgentLLMConfigurations(context.WithoutCancel(ctx), ouID, projectName, agentName, isExternalAgent)
+	// background, on a context that outlives the request but is still bounded
+	// (see detachedCleanupContext).
+	go func() {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		defer cancel()
+		s.deleteAgentLLMConfigurations(cleanupCtx, ouID, projectName, agentName, isExternalAgent)
+	}()
 	if s.agentThunderProvisioning != nil {
 		go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
 	}
 
-	// Cleanup agent configs from database
+	// Cleanup agent_configs (per-environment instrumentation, CORS and security settings).
+	// Unrelated to the LLM proxy records the goroutine above revokes, so it does not wait
+	// on them: leaving these rows behind would let a same-named agent inherit them.
 	if configErr := s.agentConfigRepo.DeleteAllByAgent(ctx, ouID, projectName, agentName); configErr != nil {
 		s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 		// Don't fail the deletion - configs will be orphaned but harmless
@@ -2676,6 +2694,67 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 
 	s.logger.Debug("Agent deleted from OpenChoreo successfully", "ouID", ouID, "agentName", agentName)
 	return nil
+}
+
+// Agent-deletion cleanup runs detached from the request (see deleteAgentLLMConfigurations),
+// so it can afford to wait out the transient gateway/secret-store failures that make
+// revocation fail while the cluster is under load — the failure mode this path was
+// reported for. Four attempts at a doubling delay spans ~14s per configuration.
+// Variables rather than constants so tests can shrink the delay; production never reassigns them.
+var (
+	agentConfigCleanupAttempts   = 4
+	agentConfigCleanupRetryDelay = 2 * time.Second
+)
+
+// agentCleanupTimeout bounds the detached cleanup goroutine. The retry budget above lets a
+// single configuration occupy ~14s of backoff on top of its external calls, so a many-config
+// agent could otherwise keep the goroutine alive indefinitely if a gateway stops answering.
+// Generous on purpose: the ceiling exists to stop a wedged call from pinning the goroutine for
+// the process lifetime, not to cut short revocations that are still making progress.
+const agentCleanupTimeout = 10 * time.Minute
+
+// detachedCleanupContext returns a context for post-delete cleanup that outlives the request.
+// WithoutCancel drops the request deadline while keeping its values (trace IDs, logger) so the
+// work is not cancelled when the HTTP handler returns; the timeout then puts a ceiling back on.
+func detachedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), agentCleanupTimeout)
+}
+
+// withAgentConfigCleanupRetry retries a configuration teardown with exponential backoff.
+//
+// Every external step of DeleteForAgentDeletion tolerates an already-gone resource — the
+// proxy/provider revocations swallow their not-found sentinels and DeleteSecret is
+// idempotent by contract — so re-running it after a partial success finishes the
+// remaining steps instead of double-deleting. That is what makes retrying on *any* error
+// safe here: the error it returns is a joined summary of which steps failed, not a typed
+// sentinel that could be classified as transient or permanent.
+//
+// A permanent failure therefore costs the full attempt budget before giving up. That is
+// the accepted trade: an un-revoked credential stays live until someone intervenes, so
+// spending a few seconds to rule out a transient cause is worth more than failing fast.
+func withAgentConfigCleanupRetry(ctx context.Context, logger *slog.Logger, configUUID string, fn func() error) error {
+	var lastErr error
+	for attempt := range agentConfigCleanupAttempts {
+		lastErr = fn()
+		if lastErr == nil {
+			if attempt > 0 {
+				logger.Info("Configuration teardown succeeded on retry", "configUUID", configUUID, "attempt", attempt+1)
+			}
+			return nil
+		}
+		if attempt == agentConfigCleanupAttempts-1 {
+			break
+		}
+		delay := agentConfigCleanupRetryDelay << attempt
+		logger.Warn("Configuration teardown failed, retrying",
+			"configUUID", configUUID, "attempt", attempt+1, "retryIn", delay, "error", lastErr)
+		select {
+		case <-ctx.Done():
+			return lastErr
+		case <-time.After(delay):
+		}
+	}
+	return lastErr
 }
 
 // cleanupAgentMonitors removes all monitors owned by an agent. Best-effort: orphaned
@@ -2710,6 +2789,37 @@ func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, 
 	}
 }
 
+// checkNoOrphanedConfigs refuses to create an agent whose name still has agent_configurations
+// rows attached to it.
+//
+// Configurations are keyed by (ou_id, project_name, agent_id) where agent_id is the agent's
+// *name*, not a per-instance identity, and DeleteForAgentDeletion deliberately keeps a row
+// whose external teardown failed so the proxy, key and deployment it names can still be found
+// and revoked. Those two facts together mean a new agent created with a deleted agent's name
+// would adopt the surviving rows — and with them a live, un-rotated LLM proxy credential — with
+// nothing in the UI to distinguish it from a fresh binding. Refusing the create is what keeps
+// that from happening silently; deleting the agent again re-runs the revocation and clears the
+// name once it succeeds.
+//
+// A list failure is fatal here rather than best-effort: without the list we cannot tell a clean
+// name from an orphaned one, and guessing wrong leaks a credential.
+func (s *agentManagerService) checkNoOrphanedConfigs(ctx context.Context, ouID, projectName, agentName string) error {
+	listResp, err := s.agentConfigurationService.List(ctx, ouID, projectName, agentName, 1, 0)
+	if err != nil {
+		s.logger.Error("Failed to check for orphaned agent configurations before create",
+			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
+		return fmt.Errorf("failed to check for leftover configurations for agent %s: %w", agentName, err)
+	}
+	if listResp.Pagination.Count == 0 {
+		return nil
+	}
+
+	s.logger.Error("Refusing to create agent: configurations from a previously deleted agent with this name were not fully revoked",
+		"agentName", agentName, "ouID", ouID, "projectName", projectName, "orphanedConfigs", listResp.Pagination.Count)
+	return fmt.Errorf("%w: %d configuration(s) for agent %q in project %q remain; deletion cleanup may still be running, so retry shortly, then delete the agent again to re-attempt revoking them, or use a different name",
+		utils.ErrOrphanedAgentConfigsExist, listResp.Pagination.Count, agentName, projectName)
+}
+
 // deleteAgentLLMConfigurations removes all LLM and MCP configurations for an agent during agent deletion.
 // isExternalAgent must be resolved by the caller before the component is deleted so this function
 // requires no OC calls. Calls DeleteForAgentDeletion which skips Component/Workload/ReleaseBinding
@@ -2728,8 +2838,16 @@ func (s *agentManagerService) deleteAgentLLMConfigurations(ctx context.Context, 
 			s.logger.Warn("Failed to parse config UUID during agent deletion", "uuid", cfg.UUID, "type", cfg.Type, "error", parseErr)
 			continue
 		}
-		if delErr := s.agentConfigurationService.DeleteForAgentDeletion(ctx, configUUID, ouID, projectName, agentName, isExternalAgent); delErr != nil {
-			s.logger.Warn("Failed to delete configuration during agent deletion", "configUUID", cfg.UUID, "type", cfg.Type, "error", delErr)
+		delErr := withAgentConfigCleanupRetry(ctx, s.logger, cfg.UUID, func() error {
+			return s.agentConfigurationService.DeleteForAgentDeletion(ctx, configUUID, ouID, projectName, agentName, isExternalAgent)
+		})
+		if delErr != nil {
+			// DeleteForAgentDeletion keeps the agent_configurations row when any external
+			// step failed, so the record of what still needs revoking survives. Creating an
+			// agent with this name is refused until it is gone (see checkNoOrphanedConfigs).
+			s.logger.Error("Gave up revoking configuration during agent deletion; its LLM proxy credential may still be live",
+				"configUUID", cfg.UUID, "type", cfg.Type, "agentName", agentName, "ouID", ouID,
+				"attempts", agentConfigCleanupAttempts, "error", delErr)
 		}
 	}
 
