@@ -20,17 +20,6 @@ import { useMemo } from "react";
 import { useAuthHooks } from "@agent-management-platform/auth";
 import { globalConfig } from "@agent-management-platform/types";
 
-/** The scopes on the current access token, and whether they are enforced. */
-export interface TokenScopeState {
-  /**
-   * False when this deployment does not enforce RBAC. It mirrors the service's
-   * RBAC_ENABLED switch (plus disableAuth, where there is no token at all): the
-   * server gates nothing, so the console must not either.
-   */
-  enforced: boolean;
-  scopes: ReadonlySet<string>;
-}
-
 /**
  * Reads the scope claim off the current access token.
  *
@@ -42,8 +31,21 @@ export interface TokenScopeState {
  * useAgentEnvironmentAccess from @agent-management-platform/shared-component
  * rather than testing scope strings by hand; it encodes the floor/production
  * rule in one place.
+ *
+ * The return shape is ScopeState from that module, declared there because it is
+ * the rule's input rather than this hook's invention. It is not named here: a
+ * second declaration of the same two fields is a second thing to keep in step,
+ * and this package cannot import from shared-component without a cycle.
  */
-export function useTokenScopes(): TokenScopeState {
+export function useTokenScopes(): {
+  /**
+   * False when this deployment does not enforce RBAC. It mirrors the service's
+   * RBAC_ENABLED switch (plus disableAuth, where there is no token at all): the
+   * server gates nothing, so the console must not either.
+   */
+  enforced: boolean;
+  scopes: ReadonlySet<string>;
+} {
   const { userInfo } = useAuthHooks();
   const scopeStr = userInfo?.scope;
   return useMemo(

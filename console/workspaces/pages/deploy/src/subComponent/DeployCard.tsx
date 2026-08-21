@@ -23,7 +23,6 @@ import {
   useGetAgentResourceConfigs,
   useGetDeploymentPipeline,
   useListAgentDeployments,
-  useListEnvironments,
   useUpdateDeploymentState,
 } from "@agent-management-platform/api-client";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
@@ -69,6 +68,7 @@ import {
 } from "@wso2/oxygen-ui";
 import {
   AGENT_SUSPEND_SCOPE,
+  ALLOWED,
   DeploymentStatus,
   EnvStatus,
   IsolationTierBadge,
@@ -318,11 +318,7 @@ export function DeployCard(props: DeployCardProps) {
     projName: projectId,
   });
 
-  // Every environment in the org, for the tier of this card's own environment
-  // and of the ones it can promote into. The list is already in the query cache
-  // — the Deploy page fetches it to lay these cards out.
-  const { data: environments } = useListEnvironments({ orgName: orgId });
-  const environmentAccess = useAgentEnvironmentAccess();
+  const environmentAccess = useAgentEnvironmentAccess(orgId);
 
   // Suspend and re-deploy both go through the deployment-state route, which
   // demands the capability AND the tier of the environment being changed.
@@ -352,14 +348,9 @@ export function DeployCard(props: DeployCardProps) {
       pipeline?.promotionPaths.find(
         (p) => p.sourceEnvironmentRef === currentEnvironment.name,
       )?.targetEnvironmentRefs ?? [];
-    const decisions = targets.map((t) =>
-      environmentAccess(environments?.find((e) => e.name === t.name)),
-    );
-    return (
-      decisions.find((d) => d.allowed) ??
-      decisions[0] ?? { allowed: true, reason: "" }
-    );
-  }, [pipeline, currentEnvironment.name, environments, environmentAccess]);
+    const decisions = targets.map((t) => environmentAccess(t.name));
+    return decisions.find((d) => d.allowed) ?? decisions[0] ?? ALLOWED;
+  }, [pipeline, currentEnvironment.name, environmentAccess]);
   const { mutate: updateDeploymentState, isPending: isUpdating } =
     useUpdateDeploymentState();
 
@@ -792,7 +783,6 @@ export function DeployCard(props: DeployCardProps) {
                       size="small"
                       onClick={handleStop}
                       disabled={
-                        !deploymentStateAccess.allowed ||
                         isUpdating ||
                         currentDeployment?.status !== DeploymentStatus.ACTIVE
                       }
@@ -815,7 +805,7 @@ export function DeployCard(props: DeployCardProps) {
                       color="success"
                       size="small"
                       onClick={handleRedeploy}
-                      disabled={!deploymentStateAccess.allowed || isUpdating}
+                      disabled={isUpdating}
                     >
                       Re-deploy
                     </Button>
@@ -830,7 +820,7 @@ export function DeployCard(props: DeployCardProps) {
                         size="small"
                         startIcon={<ArrowRightFromLine size={16} />}
                         onClick={handleOpenPromoteDrawer}
-                        disabled={!promoteAccess.allowed || !isEnvironmentActive}
+                        disabled={!isEnvironmentActive}
                       >
                         Promote
                       </Button>

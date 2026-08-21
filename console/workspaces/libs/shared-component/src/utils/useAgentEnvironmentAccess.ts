@@ -17,7 +17,10 @@
  */
 
 import { useCallback } from "react";
-import { useTokenScopes } from "@agent-management-platform/api-client";
+import {
+  useListEnvironments,
+  useTokenScopes,
+} from "@agent-management-platform/api-client";
 
 import {
   evaluateAgentEnvironmentAccess,
@@ -27,17 +30,35 @@ import {
 
 /**
  * Hook form of {@link evaluateAgentEnvironmentAccess}, bound to the current
- * token. Returns a stable callback so a caller can evaluate several
- * environments — the promotion targets of one card, say — in a single render.
+ * token and to `orgName`'s environments.
+ *
+ * The target may be named instead of passed as an object. Turning a name into a
+ * tier was the same useListEnvironments lookup at every call site, so it lives
+ * here: a caller that already holds the environment passes it, and one that
+ * holds only the name — a promotion target, a ?deployPanel link's environment —
+ * passes that. The list is already in the query cache, since the Deploy page
+ * fetches it to lay its cards out, so naming the environment costs no request.
+ *
+ * Returns a stable callback so a caller can evaluate several environments — the
+ * promotion targets of one card, say — in a single render.
  */
-export function useAgentEnvironmentAccess(): (
-  environment: EnvironmentTier | undefined,
-  ...capabilities: string[]
+export function useAgentEnvironmentAccess(
+  orgName: string | undefined,
+): (
+  environment: EnvironmentTier | string | undefined,
+  capability?: string,
 ) => AccessDecision {
   const state = useTokenScopes();
+  const { data: environments } = useListEnvironments({ orgName });
   return useCallback(
-    (environment: EnvironmentTier | undefined, ...capabilities: string[]) =>
-      evaluateAgentEnvironmentAccess(state, environment, ...capabilities),
-    [state],
+    (environment: EnvironmentTier | string | undefined, capability?: string) =>
+      evaluateAgentEnvironmentAccess(
+        state,
+        typeof environment === "string"
+          ? environments?.find((e) => e.name === environment)
+          : environment,
+        capability,
+      ),
+    [state, environments],
   );
 }

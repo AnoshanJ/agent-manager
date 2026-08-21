@@ -19,7 +19,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -133,13 +132,11 @@ func (reg *toolRegistry) authzMiddleware() gomcp.Middleware {
 			if !config.GetConfig().RBACEnabled {
 				return next(ctx, method, req)
 			}
-			for _, perm := range perms {
-				if !jwtassertion.HasAllScopes(ctx, []string{perm.Scope()}) {
-					recordToolDeny(ctx, call.Params.Name, "missing-scope",
-						audit.RequiredPermissions(perm),
-						audit.Detail("missingScope", perm.Scope()))
-					return denyResult(fmt.Sprintf("insufficient permissions: this tool requires the %s scope", perm.Scope())), nil
-				}
+			if missing, short := jwtassertion.FirstMissingScope(ctx, perms...); short {
+				recordToolDeny(ctx, call.Params.Name, "missing-scope",
+					audit.RequiredPermissions(missing),
+					audit.Detail("missingScope", missing.Scope()))
+				return denyResult(fmt.Sprintf("insufficient permissions: this tool requires the %s scope", missing.Scope())), nil
 			}
 			return next(ctx, method, req)
 		}
@@ -160,7 +157,7 @@ func withEffectiveScopes(ctx context.Context, call *gomcp.CallToolRequest) conte
 	if call.Extra == nil || call.Extra.TokenInfo == nil {
 		return ctx
 	}
-	return jwtassertion.ContextWithScopes(ctx, strings.Join(call.Extra.TokenInfo.Scopes, " "))
+	return jwtassertion.ContextWithScopeList(ctx, call.Extra.TokenInfo.Scopes)
 }
 
 // sessionOrgMatchesRequest reports whether the organization on the per-request

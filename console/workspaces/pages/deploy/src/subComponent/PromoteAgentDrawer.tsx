@@ -146,11 +146,7 @@ export function PromoteAgentDrawer({
   // Promotion is gated on the tier of the environment being promoted INTO, so
   // every target is decided separately: a caller may hold staging and not
   // production even though both are downstream of here.
-  const environmentAccess = useAgentEnvironmentAccess();
-  const targetAccess = useCallback(
-    (name: string) => environmentAccess(environments?.find((e) => e.name === name)),
-    [environmentAccess, environments],
-  );
+  const targetAccess = useAgentEnvironmentAccess(orgId);
   const selectedTargetAccess = targetAccess(formState.targetEnvironment);
 
   const {
@@ -720,11 +716,7 @@ export function PromoteAgentDrawer({
                   type="submit"
                   variant="contained"
                   color="primary"
-                  disabled={
-                    isPending ||
-                    !formState.targetEnvironment ||
-                    !selectedTargetAccess.allowed
-                  }
+                  disabled={isPending || !formState.targetEnvironment}
                 >
                   {isPending ? "Promoting..." : "Promote"}
                 </Button>

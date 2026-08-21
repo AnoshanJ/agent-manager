@@ -106,14 +106,22 @@ func TestAdminHoldsEntireCatalog(t *testing.T) {
 	}
 }
 
+// catalogScopes returns the catalog as a set, for the parity checks that compare
+// it against a role, a chart document or an allowlist.
+func catalogScopes(t *testing.T) map[Permission]bool {
+	t.Helper()
+	out := make(map[Permission]bool)
+	for _, perm := range declaredPermissions(t) {
+		out[perm] = true
+	}
+	return out
+}
+
 // TestPredefinedRolesHoldOnlyCatalogScopes catches a role granting a scope that
 // no longer exists — the state a removed constant leaves behind, and the one the
 // Thunder resource-server tree silently drops on import.
 func TestPredefinedRolesHoldOnlyCatalogScopes(t *testing.T) {
-	catalog := make(map[Permission]bool)
-	for _, perm := range declaredPermissions(t) {
-		catalog[perm] = true
-	}
+	catalog := catalogScopes(t)
 	for role, perms := range PredefinedRolePermissions {
 		seen := make(map[Permission]bool, len(perms))
 		for _, perm := range perms {

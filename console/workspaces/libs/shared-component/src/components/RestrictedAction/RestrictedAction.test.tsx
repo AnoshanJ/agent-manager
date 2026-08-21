@@ -44,7 +44,7 @@ describe("RestrictedAction", () => {
           reason: "You do not have permission to act on production environments.",
         }}
       >
-        <Button disabled>Promote</Button>
+        <Button>Promote</Button>
       </RestrictedAction>,
     );
     fireEvent.mouseOver(screen.getByRole("button", { name: "Promote" }).parentElement!);
@@ -53,5 +53,23 @@ describe("RestrictedAction", () => {
         "You do not have permission to act on production environments.",
       ),
     ).toBeInTheDocument();
+  });
+
+  // The caller passes no `disabled` of its own here: the denial alone has to
+  // disable the control, or a wrapper whose tooltip says "you may not press
+  // this" ships beside a button that can be pressed.
+  it("disables a denied control the caller left enabled", () => {
+    render(
+      <RestrictedAction
+        decision={{
+          allowed: false,
+          missingScope: "amp:agent:env-production",
+          reason: "You do not have permission to act on production environments.",
+        }}
+      >
+        <Button>Promote</Button>
+      </RestrictedAction>,
+    );
+    expect(screen.getByRole("button", { name: "Promote" })).toBeDisabled();
   });
 });

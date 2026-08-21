@@ -64,7 +64,7 @@ export function BuildCard(props: BuildCardProps) {
   // initialEnvironment is, so that is the environment whose tier decides it.
   // The tier is the whole check here: unlike the deployment-state route, deploy
   // declares no capability scope beside it.
-  const environmentAccess = useAgentEnvironmentAccess();
+  const environmentAccess = useAgentEnvironmentAccess(orgId);
   const deployAccess = environmentAccess(initialEnvironment);
 
   const { data: agent, isLoading: isAgentLoading } = useGetAgent({
@@ -349,7 +349,7 @@ export function BuildCard(props: BuildCardProps) {
                   color="primary"
                   fullWidth
                   onClick={handleOpenDeployment}
-                  disabled={!currentKindVersion || !deployAccess.allowed}
+                  disabled={!currentKindVersion}
                   startIcon={<Rocket size={16} />}
                 >
                   Configure & Deploy
@@ -474,7 +474,6 @@ export function BuildCard(props: BuildCardProps) {
                 fullWidth
                 onClick={handleOpenDeployment}
                 disabled={
-                  !deployAccess.allowed ||
                   !currentBuild ||
                   (currentBuild.status !== "Completed" &&
                     currentBuild.status !== "Succeeded")

@@ -41,6 +41,7 @@ import {
   useSnackBar,
 } from "@agent-management-platform/views";
 import {
+  ALLOWED,
   RestrictedAction,
   useAgentEnvironmentAccess,
   useConfirmationDialog,
@@ -50,7 +51,6 @@ import {
   useAgentBuildOptions,
   useDeployAgent,
   useGetAgentConfigurations,
-  useListEnvironments,
   useRegenerateTracingToken,
   useUpdateAgentConfigurations,
   useUpdateAgentDeploySettings,
@@ -116,12 +116,9 @@ export function EditDeployConfigDrawer({
   // the target environment's tier. The buttons that open it are gated too, but
   // the drawer also opens straight from a ?deployPanel=open link, so the control
   // that actually deploys carries the check as well.
-  const { data: environments } = useListEnvironments({ orgName });
-  const environmentAccess = useAgentEnvironmentAccess();
+  const environmentAccess = useAgentEnvironmentAccess(orgName);
   const deployAccess =
-    mode === "deploy"
-      ? environmentAccess(environments?.find((e) => e.name === environment))
-      : { allowed: true, reason: "" };
+    mode === "deploy" ? environmentAccess(environment) : ALLOWED;
   const securityRef = useRef<SecurityConfigHandle>(null);
   const [securityValid, setSecurityValid] = useState(true);
 
@@ -553,10 +550,7 @@ export function EditDeployConfigDrawer({
                 color="primary"
                 onClick={handleSave}
                 disabled={
-                  !deployAccess.allowed ||
-                  isPending ||
-                  isRegenerating ||
-                  (showSecurity && !securityValid)
+                  isPending || isRegenerating || (showSecurity && !securityValid)
                 }
                 startIcon={isPending ? <CircularProgress size={16} /> : undefined}
               >

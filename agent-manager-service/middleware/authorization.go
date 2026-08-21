@@ -19,7 +19,6 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
@@ -51,17 +50,6 @@ func recordAuthzDeny(r *http.Request, reason string, opts ...audit.Option) {
 
 	audit.Record(ctx, audit.ActionAuthzDeny, all...)
 	audit.Skip(ctx)
-}
-
-// grantedScopeCount reports how many scopes the caller presented. The count is
-// recorded instead of the scopes themselves: it distinguishes "token with no
-// scopes at all" from "token missing this one scope" without copying a
-// potentially huge claim into every record.
-func grantedScopeCount(claims *jwtassertion.TokenClaims) int {
-	if claims == nil {
-		return 0
-	}
-	return len(strings.Fields(claims.Scope))
 }
 
 // RequireOrgMatch returns a middleware that:
@@ -121,7 +109,7 @@ func resolveOrgFromToken() func(http.HandlerFunc) http.HandlerFunc {
 // required amp: scope. When RBAC_ENABLED=false the check is skipped entirely,
 // allowing zero-downtime rollout.
 func RequirePermission(perm rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
-	return requirePermission(perm, false)
+	return requireScopes(allPermissions, false, perm)
 }
 
 // RequirePermissionAllowRootOU behaves like RequirePermission but additionally
@@ -130,10 +118,43 @@ func RequirePermission(perm rbac.Permission) func(http.HandlerFunc) http.Handler
 // endpoints (currently: gateway registration during org bootstrap) — do not
 // apply broadly to user-facing routes.
 func RequirePermissionAllowRootOU(perm rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
-	return requirePermission(perm, true)
+	return requireScopes(allPermissions, true, perm)
 }
 
-func requirePermission(perm rbac.Permission, allowRootOU bool) func(http.HandlerFunc) http.HandlerFunc {
+// RequireAnyPermission returns a middleware that passes if the token carries at least
+// one of the given permissions (OR semantics). Use this for endpoints that are
+// legitimately reachable via multiple roles (e.g. environments read needed by both
+// the environment manager and the LLM-provider viewer).
+func RequireAnyPermission(perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
+	return requireScopes(anyPermission, false, perms...)
+}
+
+// RequireAllPermissions returns a middleware that passes only if the token carries
+// every one of the given permissions (AND semantics). Use it where an operation is
+// gated on more than one independent axis — the deployment-state route needs both
+// the capability (agent:suspend) and the environment tier
+// (agent:env-non-production) — so holding one axis does not admit the other.
+func RequireAllPermissions(perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
+	return requireScopes(allPermissions, false, perms...)
+}
+
+// scopeMode says how a route's permissions combine.
+type scopeMode int
+
+const (
+	// allPermissions admits only a caller holding every one of them.
+	allPermissions scopeMode = iota
+	// anyPermission admits a caller holding at least one.
+	anyPermission
+)
+
+// requireScopes is the one gate behind RequirePermission, RequireAnyPermission
+// and RequireAllPermissions. They differ only in how the permissions combine and
+// in what the refusal names; everything around that — the RBAC_ENABLED
+// short-circuit, the root-OU bypass, the audited denial, the 403 — is the same
+// gate, and was three copies of it before. A fourth combining rule should be a
+// scopeMode, not a fourth copy.
+func requireScopes(mode scopeMode, allowRootOU bool, perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !config.GetConfig().RBACEnabled {
@@ -155,87 +176,40 @@ func requirePermission(perm rbac.Permission, allowRootOU bool) func(http.Handler
 					// how the caller got in, the envelope says what they then did.
 					audit.RecordAncillary(
 						r.Context(), audit.ActionAuthzRootOUBypass,
-						audit.RequiredPermissions(perm),
+						audit.RequiredPermissions(perms...),
 						audit.Detail("rootOUBypass", true),
 					)
 					next(w, r)
 					return
 				}
 			}
-			if !jwtassertion.HasAllScopes(r.Context(), []string{perm.Scope()}) {
-				recordAuthzDeny(
-					r, "missing-scope",
-					audit.RequiredPermissions(perm),
-					audit.Detail("missingScope", perm.Scope()),
-					audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
-				)
-				utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
-				return
-			}
-			next(w, r)
-		}
-	}
-}
 
-// RequireAnyPermission returns a middleware that passes if the token carries at least
-// one of the given permissions (OR semantics). Use this for endpoints that are
-// legitimately reachable via multiple roles (e.g. environments read needed by both
-// the environment manager and the LLM-provider viewer).
-func RequireAnyPermission(perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !config.GetConfig().RBACEnabled {
-				next(w, r)
-				return
+			reason := "missing-scope"
+			opts := []audit.Option{
+				audit.RequiredPermissions(perms...),
+				audit.Detail("grantedScopes", jwtassertion.GrantedScopeCount(r.Context())),
 			}
-			for _, perm := range perms {
-				if jwtassertion.HasAllScopes(r.Context(), []string{perm.Scope()}) {
+			if mode == anyPermission {
+				if jwtassertion.HoldsAnyScope(r.Context(), perms...) {
 					next(w, r)
 					return
 				}
-			}
-			// The caller held none of the acceptable permissions, so record all
-			// of them rather than singling one out as "the" missing scope.
-			recordAuthzDeny(
-				r, "missing-any-scope",
-				audit.RequiredPermissions(perms...),
-				audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
-			)
-			utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
-		}
-	}
-}
-
-// RequireAllPermissions returns a middleware that passes only if the token carries
-// every one of the given permissions (AND semantics). Use it where an operation is
-// gated on more than one independent axis — the deployment-state route needs both
-// the capability (agent:suspend) and the environment tier
-// (agent:env-non-production) — so holding one axis does not admit the other.
-//
-// The record names the first missing permission as the missing scope because that
-// is the one that decided the outcome, and lists all of them as required so the
-// event says what the route actually demands.
-func RequireAllPermissions(perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !config.GetConfig().RBACEnabled {
-				next(w, r)
-				return
-			}
-			for _, perm := range perms {
-				if jwtassertion.HasAllScopes(r.Context(), []string{perm.Scope()}) {
-					continue
+				// The caller held none of the acceptable permissions, so record all
+				// of them rather than singling one out as "the" missing scope.
+				reason = "missing-any-scope"
+			} else {
+				missing, short := jwtassertion.FirstMissingScope(r.Context(), perms...)
+				if !short {
+					next(w, r)
+					return
 				}
-				recordAuthzDeny(
-					r, "missing-scope",
-					audit.RequiredPermissions(perms...),
-					audit.Detail("missingScope", perm.Scope()),
-					audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
-				)
-				utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
-				return
+				// The record names the first missing permission as the missing scope
+				// because that is the one that decided the outcome, and lists all of
+				// them as required so the event says what the route actually demands.
+				opts = append(opts, audit.Detail("missingScope", missing.Scope()))
 			}
-			next(w, r)
+			recordAuthzDeny(r, reason, opts...)
+			utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
 		}
 	}
 }

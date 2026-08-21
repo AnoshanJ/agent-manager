@@ -76,7 +76,7 @@ describe("evaluateAgentEnvironmentAccess", () => {
     expect(decision.missingScope).toBe(AGENT_ENV_NON_PRODUCTION_SCOPE);
   });
 
-  it("requires the capability scopes alongside the tier", () => {
+  it("requires the capability scope alongside the tier", () => {
     const decision = evaluateAgentEnvironmentAccess(
       { enforced: true, scopes: new Set([AGENT_ENV_NON_PRODUCTION_SCOPE]) },
       staging,

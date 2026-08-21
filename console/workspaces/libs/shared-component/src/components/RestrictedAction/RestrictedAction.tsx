@@ -16,23 +16,31 @@
  * under the License.
  */
 
-import type { ReactElement } from "react";
+import { cloneElement, type ReactElement } from "react";
 import { Tooltip } from "@mui/material";
 import type { AccessDecision } from "../../utils/environmentTierAccess";
 
 export interface RestrictedActionProps {
   decision: AccessDecision;
-  /** The control itself. The caller still owns its `disabled` prop. */
-  children: ReactElement;
+  /**
+   * The control itself. A denial disables it, so the caller's own `disabled`
+   * expression carries only its own conditions.
+   */
+  children: ReactElement<{ disabled?: boolean }>;
 }
 
 /**
- * Explains why a control the caller's scopes do not reach is disabled.
+ * Disables a control the caller's scopes do not reach, and explains why.
+ *
+ * Owning the `disabled` prop rather than trusting the caller to repeat the
+ * decision is what makes the denial unstateable in half: a wrapper without the
+ * matching `disabled` would render a live button whose tooltip says it may not
+ * be pressed.
  *
  * A disabled MUI control emits no pointer events, so a Tooltip placed directly
- * on it never opens; the reason has to hang off an element beside it. That is
- * all this component does — and only when the decision is a denial, so an
- * allowed control keeps exactly the markup it had.
+ * on it never opens; the reason has to hang off an element beside it. Both the
+ * span and the clone happen only on a denial, so an allowed control keeps
+ * exactly the markup it had.
  *
  * Disabling rather than hiding is deliberate: an absent Promote button is
  * already how the console says "this environment has no downstream target", and
@@ -42,7 +50,9 @@ export function RestrictedAction({ decision, children }: RestrictedActionProps) 
   if (decision.allowed) return children;
   return (
     <Tooltip title={decision.reason}>
-      <span style={{ display: "inline-flex" }}>{children}</span>
+      <span style={{ display: "inline-flex" }}>
+        {cloneElement(children, { disabled: true })}
+      </span>
     </Tooltip>
   );
 }

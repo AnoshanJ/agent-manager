@@ -43,12 +43,11 @@ import {
   useLocation,
   useParams,
 } from "react-router-dom";
+import { absoluteRouteMap } from "@agent-management-platform/types";
 import {
-  absoluteRouteMap,
-  globalConfig,
-} from "@agent-management-platform/types";
-import { useAuthHooks } from "@agent-management-platform/auth";
-import { useGetAgent } from "@agent-management-platform/api-client";
+  useGetAgent,
+  useTokenScopes,
+} from "@agent-management-platform/api-client";
 import { usePipelineEnvironmentsState } from "@agent-management-platform/shared-component";
 import { thunderInstancesMetadata } from "@agent-management-platform/env-thunders/metadata";
 import { useExternalNavItems } from "@agent-management-platform/views";
@@ -104,7 +103,7 @@ export function useNavigationItems(): Array<
     usePipelineEnvironmentsState(orgId, projectId);
 
   const externalNavItems = useExternalNavItems();
-  const { userInfo } = useAuthHooks();
+  const { enforced, scopes } = useTokenScopes();
 
   const navVisibility = useMemo(() => {
     const showAll = {
@@ -116,20 +115,10 @@ export function useNavigationItems(): Array<
       identityGroups: true,
       agentIdentities: true,
     };
-    if (globalConfig.disableAuth || !globalConfig.rbacEnabled) return showAll;
-    const scopeStr = userInfo?.scope;
-    if (!scopeStr) {
-      return {
-        resources: false,
-        evaluation: false,
-        infrastructure: false,
-        identityUsers: false,
-        identityRoles: false,
-        identityGroups: false,
-        agentIdentities: false,
-      };
-    }
-    const s = new Set(scopeStr.split(" ").filter(Boolean));
+    if (!enforced) return showAll;
+    // A token with no scope claim yields an empty set, so every section below
+    // resolves to false on its own — there is nothing to special-case.
+    const s = scopes;
     return {
       resources:
         s.has("amp:llm-provider:read") ||
@@ -159,7 +148,7 @@ export function useNavigationItems(): Array<
       // agent-identity API and belong to its scope.
       agentIdentities: s.has("amp:agent-identity:read"),
     };
-  }, [userInfo?.scope]);
+  }, [enforced, scopes]);
 
   const defaultEnv =
     envId ?? (environments.length > 0 ? environments[0]?.name : "");

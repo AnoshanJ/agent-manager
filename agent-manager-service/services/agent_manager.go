@@ -3586,11 +3586,7 @@ func (s *agentManagerService) requireEnvTier(
 	if env.IsProduction {
 		required = append(required, rbac.AgentEnvProduction)
 	}
-	for _, perm := range required {
-		if jwtassertion.HasAllScopes(ctx, []string{perm.Scope()}) {
-			continue
-		}
-
+	if perm, short := jwtassertion.FirstMissingScope(ctx, required...); short {
 		// A middleware denial reaches the trail through recordAuthzDeny, which
 		// uses audit.Record plus audit.Skip: the deny event *replaces* the
 		// envelope, because the request never reached a handler. This denial is
@@ -3610,7 +3606,7 @@ func (s *agentManagerService) requireEnvTier(
 			audit.RequiredPermissions(required...),
 			audit.Detail("reason", "missing-environment-tier-scope"),
 			audit.Detail("missingScope", perm.Scope()),
-			audit.Detail("grantedScopes", len(strings.Fields(jwtassertion.ScopesFromContext(ctx)))),
+			audit.Detail("grantedScopes", jwtassertion.GrantedScopeCount(ctx)),
 		)
 		return env, fmt.Errorf("%w: %s is required to act on environment %q",
 			utils.ErrForbidden, perm.Scope(), envName)
@@ -3940,11 +3936,10 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// moving into staging and moving into production were one permission. The
 	// tier splits them, against the target the caller actually named.
 	//
-	// Named targetEnvDetails, not targetEnv: a `targetEnv` already exists further
-	// down, declared inside the gateway-artifact branch. That one stays — it is
-	// already fail-closed and lives in a conditional, so folding it into this
-	// call would mean restructuring the branch for one saved round-trip.
-	targetEnvDetails, err := s.requireEnvTier(ctx, ouID, req.TargetEnvironment)
+	// This resolves the target environment once for the whole promotion — the
+	// gateway-artifact branch below reads it rather than fetching it again, as
+	// the deploy path already does with its own requireEnvTier result.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, req.TargetEnvironment)
 	if err != nil {
 		return err
 	}
@@ -4202,10 +4197,6 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 
 		// Each environment must have its own unique artifact UUID so the gateway controller
 		// does not confuse two environments' RestApi resources (same UUID = one overwrites the other).
-		targetEnv, targetEnvErr := s.ocClient.GetEnvironment(ctx, ouID, req.TargetEnvironment)
-		if targetEnvErr != nil {
-			return fmt.Errorf("failed to fetch target environment details: %w", targetEnvErr)
-		}
 		if targetEnv != nil {
 			if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
 				return err
@@ -4300,7 +4291,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		audit.Detail("agentName", agentName),
 		audit.Detail("sourceEnv", req.SourceEnvironment),
 		audit.Detail("targetEnv", req.TargetEnvironment),
-		audit.Detail("isProduction", targetEnvDetails.IsProduction),
+		audit.Detail("isProduction", targetEnv.IsProduction),
 		audit.Detail("environment", req.TargetEnvironment),
 	)
 	if auditErr != nil {

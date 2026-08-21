@@ -62,7 +62,7 @@ export interface AccessDecision {
   reason: string;
 }
 
-const ALLOWED: AccessDecision = { allowed: true, reason: "" };
+export const ALLOWED: AccessDecision = { allowed: true, reason: "" };
 
 function deny(missingScope: string, what: string): AccessDecision {
   return {
@@ -74,7 +74,8 @@ function deny(missingScope: string, what: string): AccessDecision {
 
 /**
  * Decides whether the caller may act on `environment`, given the capability
- * scopes the operation also needs.
+ * scope the operation also needs — deploy and promote declare none beside the
+ * tier, the deployment-state route declares agent:suspend.
  *
  * Order matches the server's: the route's static capability check runs first
  * (middleware.RequireAllPermissions), then the service resolves the environment
@@ -88,14 +89,12 @@ function deny(missingScope: string, what: string): AccessDecision {
 export function evaluateAgentEnvironmentAccess(
   state: ScopeState,
   environment: EnvironmentTier | undefined,
-  ...capabilities: string[]
+  capability?: string,
 ): AccessDecision {
   if (!state.enforced) return ALLOWED;
 
-  for (const capability of capabilities) {
-    if (!state.scopes.has(capability)) {
-      return deny(capability, "perform this action");
-    }
+  if (capability && !state.scopes.has(capability)) {
+    return deny(capability, "perform this action");
   }
   if (!state.scopes.has(AGENT_ENV_NON_PRODUCTION_SCOPE)) {
     return deny(AGENT_ENV_NON_PRODUCTION_SCOPE, "act on deployment environments");

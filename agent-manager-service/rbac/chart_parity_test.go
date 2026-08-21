@@ -142,11 +142,7 @@ func TestResourceServerTreeMatchesCatalog(t *testing.T) {
 		}
 	}
 
-	goSide := make(map[Permission]bool)
-	for _, perm := range declaredPermissions(t) {
-		goSide[perm] = true
-	}
-	diffScopeSets(t, "resource-server tree", goSide, chartSide)
+	diffScopeSets(t, "resource-server tree", catalogScopes(t), chartSide)
 }
 
 // TestRoleDocumentsMatchPredefinedRoles keeps the documentation map and the
@@ -216,9 +212,5 @@ func TestAmpScopesAllowlistCoversCatalog(t *testing.T) {
 		}
 	}
 
-	goSide := make(map[Permission]bool)
-	for _, perm := range declaredPermissions(t) {
-		goSide[perm] = true
-	}
-	diffScopeSets(t, "ampScopes allowlist", goSide, chartSide)
+	diffScopeSets(t, "ampScopes allowlist", catalogScopes(t), chartSide)
 }
