@@ -126,9 +126,10 @@ func TestMergeKindWorkloadSystemEnvVars_NoSystemConfig(t *testing.T) {
 // TestMergeKindWorkloadSystemEnvVars_ResolverError verifies the resolver error is propagated so the
 // caller can roll back the partially-created agent rather than deploying without system keys.
 func TestMergeKindWorkloadSystemEnvVars_ResolverError(t *testing.T) {
-	spy := &spyConfigService{systemEnvVarsE: errors.New("boom")}
+	resolverErr := errors.New("boom")
+	spy := &spyConfigService{systemEnvVarsE: resolverErr}
 	s := &agentManagerService{agentConfigurationService: spy}
 
 	_, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", nil)
-	require.Error(t, err)
+	require.ErrorIs(t, err, resolverErr, "resolver error must stay unwrappable so callers can inspect it")
 }

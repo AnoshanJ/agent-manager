@@ -1670,7 +1670,8 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 			// them here.
 			kindEnvVars, envErr := s.mergeKindWorkloadSystemEnvVars(ctx, req.Name, ouID, projectName, firstEnv, kindEnvVars)
 			if envErr != nil {
-				s.logger.Error("Failed to resolve system-managed env vars for kind-sourced agent workload", "agentName", req.Name, "environment", firstEnv, "error", envErr)
+				s.logger.Error("Failed to resolve system-managed env vars for kind-sourced agent workload",
+					"agentName", req.Name, "ouID", ouID, "projectName", projectName, "environment", firstEnv, "error", envErr)
 				rollbackAgentCreate("system env var resolution failure")
 				return envErr
 			}
