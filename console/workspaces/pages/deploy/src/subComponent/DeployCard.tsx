@@ -23,6 +23,7 @@ import {
   useGetAgentResourceConfigs,
   useGetDeploymentPipeline,
   useListAgentDeployments,
+  useListEnvironments,
   useUpdateDeploymentState,
 } from "@agent-management-platform/api-client";
 import { NoDataFound, TextInput } from "@agent-management-platform/views";
@@ -67,12 +68,15 @@ import {
   useTheme,
 } from "@wso2/oxygen-ui";
 import {
+  AGENT_SUSPEND_SCOPE,
   DeploymentStatus,
   EnvStatus,
   IsolationTierBadge,
   ResourceMetricChip,
+  RestrictedAction,
   formatUsagePercent,
   getUsagePercentVariant,
+  useAgentEnvironmentAccess,
 } from "@agent-management-platform/shared-component";
 import { EditDeployConfigDrawer } from "./EditDeployConfigDrawer";
 import {
@@ -314,6 +318,19 @@ export function DeployCard(props: DeployCardProps) {
     projName: projectId,
   });
 
+  // Every environment in the org, for the tier of this card's own environment
+  // and of the ones it can promote into. The list is already in the query cache
+  // — the Deploy page fetches it to lay these cards out.
+  const { data: environments } = useListEnvironments({ orgName: orgId });
+  const environmentAccess = useAgentEnvironmentAccess();
+
+  // Suspend and re-deploy both go through the deployment-state route, which
+  // demands the capability AND the tier of the environment being changed.
+  const deploymentStateAccess = environmentAccess(
+    currentEnvironment,
+    AGENT_SUSPEND_SCOPE,
+  );
+
   const hasPromotionTarget = useMemo(() => {
     if (!pipeline) return false;
     // Only show Promote when this environment has at least one downstream
@@ -325,6 +342,24 @@ export function DeployCard(props: DeployCardProps) {
         (p.targetEnvironmentRefs?.length ?? 0) > 0,
     );
   }, [pipeline, currentEnvironment.name]);
+
+  // Promote opens a drawer that can target any environment downstream of this
+  // one, so the button stays live while the caller can reach at least one of
+  // them; the drawer gates each target on its own. When none is reachable the
+  // first denial is what the tooltip explains.
+  const promoteAccess = useMemo(() => {
+    const targets =
+      pipeline?.promotionPaths.find(
+        (p) => p.sourceEnvironmentRef === currentEnvironment.name,
+      )?.targetEnvironmentRefs ?? [];
+    const decisions = targets.map((t) =>
+      environmentAccess(environments?.find((e) => e.name === t.name)),
+    );
+    return (
+      decisions.find((d) => d.allowed) ??
+      decisions[0] ?? { allowed: true, reason: "" }
+    );
+  }, [pipeline, currentEnvironment.name, environments, environmentAccess]);
   const { mutate: updateDeploymentState, isPending: isUpdating } =
     useUpdateDeploymentState();
 
@@ -750,49 +785,56 @@ export function DeployCard(props: DeployCardProps) {
                 </Tooltip>
                 <Stack direction="row" justifyContent="right" spacing={1} alignItems="center">
                 {currentDeployment?.status !== DeploymentStatus.SUSPENDED && (
-                  <Button
-                    startIcon={<PauseCircle size={16} />}
-                    variant="text"
-                    size="small"
-                    onClick={handleStop}
-                    disabled={
-                      isUpdating ||
-                      currentDeployment?.status !== DeploymentStatus.ACTIVE
-                    }
-                  >
-                    Suspend
-                  </Button>
+                  <RestrictedAction decision={deploymentStateAccess}>
+                    <Button
+                      startIcon={<PauseCircle size={16} />}
+                      variant="text"
+                      size="small"
+                      onClick={handleStop}
+                      disabled={
+                        !deploymentStateAccess.allowed ||
+                        isUpdating ||
+                        currentDeployment?.status !== DeploymentStatus.ACTIVE
+                      }
+                    >
+                      Suspend
+                    </Button>
+                  </RestrictedAction>
                 )}
                 {currentDeployment?.status === DeploymentStatus.SUSPENDED && (
-                  <Button
-                    startIcon={
-                      isUpdating ? (
-                        <CircularProgress size={14} />
-                      ) : (
-                        <PlayCircle size={16} />
-                      )
-                    }
-                    variant="text"
-                    color="success"
-                    size="small"
-                    onClick={handleRedeploy}
-                    disabled={isUpdating}
-                  >
-                    Re-deploy
-                  </Button>
+                  <RestrictedAction decision={deploymentStateAccess}>
+                    <Button
+                      startIcon={
+                        isUpdating ? (
+                          <CircularProgress size={14} />
+                        ) : (
+                          <PlayCircle size={16} />
+                        )
+                      }
+                      variant="text"
+                      color="success"
+                      size="small"
+                      onClick={handleRedeploy}
+                      disabled={!deploymentStateAccess.allowed || isUpdating}
+                    >
+                      Re-deploy
+                    </Button>
+                  </RestrictedAction>
                 )}
                 {hasPromotionTarget && (
                   <>
                     <Divider orientation="vertical" flexItem />
-                    <Button
-                      variant="contained"
-                      size="small"
-                      startIcon={<ArrowRightFromLine size={16} />}
-                      onClick={handleOpenPromoteDrawer}
-                      disabled={!isEnvironmentActive}
-                    >
-                      Promote
-                    </Button>
+                    <RestrictedAction decision={promoteAccess}>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<ArrowRightFromLine size={16} />}
+                        onClick={handleOpenPromoteDrawer}
+                        disabled={!promoteAccess.allowed || !isEnvironmentActive}
+                      >
+                        Promote
+                      </Button>
+                    </RestrictedAction>
                   </>
                 )}
                 </Stack>

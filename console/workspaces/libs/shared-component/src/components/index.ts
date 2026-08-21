@@ -42,6 +42,10 @@ export * from "./EditFormSkeleton";
 export * from "./ListingSkeletonRows";
 export * from "./ResilienceTimeoutFields";
 export {
+  RestrictedAction,
+  type RestrictedActionProps,
+} from "./RestrictedAction/RestrictedAction";
+export {
   PolicyListSection,
   type PolicyListSectionProps,
   type PolicySelection,

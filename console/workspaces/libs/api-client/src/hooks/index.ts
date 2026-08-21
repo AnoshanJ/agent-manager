@@ -46,4 +46,5 @@ export * from './agent-build-options';
 export * from './thunder-instances';
 export * from './mcp-proxy-scopes';
 export * from './agent-identity';
+export * from './token-scopes';
 export { extractServerErrorMessage } from './react-query-notifications';

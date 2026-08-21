@@ -47,6 +47,10 @@ import { BuildSelectorDrawer } from "./BuildSelectorDrawer";
 import { KindVersionSelectorDrawer } from "./KindVersionSelectorDrawer";
 import { format } from "date-fns";
 import { Environment } from "@agent-management-platform/types";
+import {
+  RestrictedAction,
+  useAgentEnvironmentAccess,
+} from "@agent-management-platform/shared-component";
 
 interface BuildCardProps {
   initialEnvironment?: Environment;
@@ -55,6 +59,13 @@ export function BuildCard(props: BuildCardProps) {
   const { initialEnvironment } = props;
   const { orgId, projectId, agentId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // A deploy always lands in the pipeline's lowest environment, which is what
+  // initialEnvironment is, so that is the environment whose tier decides it.
+  // The tier is the whole check here: unlike the deployment-state route, deploy
+  // declares no capability scope beside it.
+  const environmentAccess = useAgentEnvironmentAccess();
+  const deployAccess = environmentAccess(initialEnvironment);
 
   const { data: agent, isLoading: isAgentLoading } = useGetAgent({
     orgName: orgId,
@@ -332,16 +343,18 @@ export function BuildCard(props: BuildCardProps) {
 
               <Divider />
 
-              <Button
-                variant="contained"
-                color="primary"
-                fullWidth
-                onClick={handleOpenDeployment}
-                disabled={!currentKindVersion}
-                startIcon={<Rocket size={16} />}
-              >
-                Configure & Deploy
-              </Button>
+              <RestrictedAction decision={deployAccess}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  onClick={handleOpenDeployment}
+                  disabled={!currentKindVersion || !deployAccess.allowed}
+                  startIcon={<Rocket size={16} />}
+                >
+                  Configure & Deploy
+                </Button>
+              </RestrictedAction>
             </Stack>
           </CardContent>
         </Card>
@@ -454,20 +467,23 @@ export function BuildCard(props: BuildCardProps) {
 
             <Divider />
             {/* Selected Build Details */}
-            <Button
-              variant="contained"
-              color="primary"
-              fullWidth
-              onClick={handleOpenDeployment}
-              disabled={
-                !currentBuild ||
-                (currentBuild.status !== "Completed" &&
-                  currentBuild.status !== "Succeeded")
-              }
-              startIcon={<Rocket size={16} />}
-            >
-              Configure & Deploy
-            </Button>
+            <RestrictedAction decision={deployAccess}>
+              <Button
+                variant="contained"
+                color="primary"
+                fullWidth
+                onClick={handleOpenDeployment}
+                disabled={
+                  !deployAccess.allowed ||
+                  !currentBuild ||
+                  (currentBuild.status !== "Completed" &&
+                    currentBuild.status !== "Succeeded")
+                }
+                startIcon={<Rocket size={16} />}
+              >
+                Configure & Deploy
+              </Button>
+            </RestrictedAction>
           </Stack>
         </CardContent>
       </Card>
