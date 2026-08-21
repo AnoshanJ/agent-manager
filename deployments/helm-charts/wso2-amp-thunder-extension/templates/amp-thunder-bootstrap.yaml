@@ -458,11 +458,10 @@ data:
           - { name: Update, handle: update, description: "Update agent configuration and resource configs" }
           - { name: Delete, handle: delete, description: "Delete an agent" }
           - { name: Build, handle: build, description: "Trigger an agent build" }
-          - { name: Promote, handle: promote, description: "Promote an agent deployment across environments" }
           - { name: Rollback, handle: rollback, description: "Rollback an agent deployment" }
           - { name: Suspend, handle: suspend, description: "Suspend or stop an agent deployment" }
-          - { name: Deploy Non-Production, handle: deploy-non-production, description: "Deploy an agent to a non-production environment" }
-          - { name: Deploy Production, handle: deploy-production, description: "Deploy an agent to a production environment" }
+          - { name: Act on Non-Production Environments, handle: env-non-production, description: "Deploy, promote, or suspend an agent in a non-production environment" }
+          - { name: Act on Production Environments, handle: env-production, description: "Deploy, promote, or suspend an agent in an environment flagged isProduction" }
           - { name: Manage Token, handle: token-manage, description: "Generate agent tokens" }
           - { name: Manage API Key, handle: api-key-manage, description: "Create, update, and delete agent API keys" }
       - name: Agent Kind
@@ -608,9 +607,8 @@ data:
           - "amp:agent:update"
           - "amp:agent:delete"
           - "amp:agent:build"
-          - "amp:agent:deploy-non-production"
-          - "amp:agent:deploy-production"
-          - "amp:agent:promote"
+          - "amp:agent:env-non-production"
+          - "amp:agent:env-production"
           - "amp:agent:rollback"
           - "amp:agent:suspend"
           - "amp:agent:token-manage"
@@ -694,7 +692,7 @@ data:
           - "amp:agent:update"
           - "amp:agent:delete"
           - "amp:agent:build"
-          - "amp:agent:deploy-non-production"
+          - "amp:agent:env-non-production"
           - "amp:agent:token-manage"
           - "amp:agent:api-key-manage"
           - "amp:monitor:create"
@@ -756,7 +754,7 @@ data:
           - "amp:agent-kind:read"
           - "amp:agent:read"
           - "amp:agent:build"
-          - "amp:agent:deploy-non-production"
+          - "amp:agent:env-non-production"
           - "amp:agent:api-key-manage"
           - "amp:monitor:read"
           - "amp:monitor:score-read"
@@ -800,9 +798,8 @@ data:
           - "amp:agent:read"
           - "amp:agent:build"
           - "amp:agent:api-key-manage"
-          - "amp:agent:deploy-non-production"
-          - "amp:agent:deploy-production"
-          - "amp:agent:promote"
+          - "amp:agent:env-non-production"
+          - "amp:agent:env-production"
           - "amp:agent:rollback"
           - "amp:agent:suspend"
           - "amp:monitor:read"

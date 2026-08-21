@@ -206,7 +206,11 @@ var actionOverrides = map[string]Action{
 	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/publish-kind": "agent-kind:publish",
 
 	// One permission, several operations — deployment lifecycle.
-	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/deployments":                "agent:deploy",
+	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/deployments": "agent:deploy",
+	// Gated on the environment tier, not on a promote-specific scope. Without
+	// this override the derived action would be agent:env-non-production, which
+	// names the axis rather than the operation.
+	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/promote":                    "agent:promote",
 	"POST /orgs/{orgName}/projects/{projName}/agents/{agentName}/deployments/state":          "agent:change-deployment-state",
 	"POST /orgs/{orgName}/llm-providers/{providerId}/deployments":                            "llm-provider:deploy",
 	"POST /orgs/{orgName}/llm-providers/{providerId}/deployments/undeploy":                   "llm-provider:undeploy",

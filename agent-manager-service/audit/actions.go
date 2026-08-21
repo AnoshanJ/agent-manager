@@ -173,8 +173,8 @@ var identityResources = map[string]bool{
 var deploymentVerbs = map[string]bool{
 	"deploy": true, "undeploy": true, "promote": true, "build": true,
 	"suspend": true, "resume": true, "restore": true,
-	"change-deployment-state": true, "deploy-production": true,
-	"deploy-non-production": true, "rollback": true,
+	"change-deployment-state": true, "env-production": true,
+	"env-non-production": true, "rollback": true,
 }
 
 // credentialVerbs mark credential handling wherever it appears — an

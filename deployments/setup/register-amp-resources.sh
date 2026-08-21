@@ -299,11 +299,10 @@ register_amp_permissions() {
     create_action "$rs_id" "$r_agent"        "Update"                 "update"                 "Update agent configuration and resource configs"
     create_action "$rs_id" "$r_agent"        "Delete"                 "delete"                 "Delete an agent"
     create_action "$rs_id" "$r_agent"        "Build"                  "build"                  "Trigger an agent build"
-    create_action "$rs_id" "$r_agent"        "Promote"                "promote"                "Promote an agent deployment across environments"
     create_action "$rs_id" "$r_agent"        "Rollback"               "rollback"               "Rollback an agent deployment"
     create_action "$rs_id" "$r_agent"        "Suspend"                "suspend"                "Suspend or stop an agent deployment"
-    create_action "$rs_id" "$r_agent"        "Deploy Non-Production"  "deploy-non-production"  "Deploy an agent to a non-production environment"
-    create_action "$rs_id" "$r_agent"        "Deploy Production"      "deploy-production"      "Deploy an agent to a production environment"
+    create_action "$rs_id" "$r_agent"        "Act on Non-Production Environments" "env-non-production" "Deploy, promote, or suspend an agent in a non-production environment"
+    create_action "$rs_id" "$r_agent"        "Act on Production Environments"     "env-production"     "Deploy, promote, or suspend an agent in an environment flagged isProduction"
     create_action "$rs_id" "$r_agent"        "Manage Token"           "token-manage"           "Generate agent tokens"
     create_action "$rs_id" "$r_agent"        "Manage API Key"         "api-key-manage"         "Create, update, and delete agent API keys"
 

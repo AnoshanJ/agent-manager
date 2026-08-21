@@ -157,14 +157,11 @@ const (
 
 // Agent permissions
 const (
-	AgentCreate              Permission = "agent:create"
-	AgentRead                Permission = "agent:read"
-	AgentUpdate              Permission = "agent:update"
-	AgentDelete              Permission = "agent:delete"
-	AgentBuild               Permission = "agent:build"
-	AgentDeployNonProduction Permission = "agent:deploy-non-production"
-	AgentDeployProduction    Permission = "agent:deploy-production"
-	AgentPromote             Permission = "agent:promote"
+	AgentCreate Permission = "agent:create"
+	AgentRead   Permission = "agent:read"
+	AgentUpdate Permission = "agent:update"
+	AgentDelete Permission = "agent:delete"
+	AgentBuild  Permission = "agent:build"
 	// The environment tier is an authorization axis of its own, about where an
 	// action lands rather than what it is. AgentEnvNonProduction is the floor —
 	// "may act on environments at all" — and AgentEnvProduction is held in
