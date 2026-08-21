@@ -21,6 +21,7 @@ import {
   Box,
   Button,
   CircularProgress,
+  Divider,
   Form,
   MenuItem,
   Select,
@@ -52,11 +53,16 @@ import {
 } from "@agent-management-platform/api-client";
 import type {
   EnvironmentVariable,
-  FileMount,
   UpdateAgentDeploySettingsRequest,
 } from "@agent-management-platform/types";
 import { compatibleInstrumentationVersions, pickInstrumentationVersion } from "../utils/instrumentation";
 import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
+import {
+  type FileMountRow,
+  newFileMountRow,
+  seedFileMountRows,
+  toFileMount,
+} from "../utils/fileMounts";
 import { SecurityConfigSections, type SecurityConfigHandle } from "./SecurityConfigSections";
 
 export interface EditDeployConfigDrawerProps {
@@ -115,7 +121,7 @@ export function EditDeployConfigDrawer({
   );
 
   const [env, setEnv] = useState<EnvironmentVariable[]>([]);
-  const [files, setFiles] = useState<FileMount[]>([]);
+  const [files, setFiles] = useState<FileMountRow[]>([]);
 
   // Tracing section (mode === "update" && Python agent only).
   const showTracing = mode === "update" && !!isPythonBuildpack;
@@ -152,7 +158,7 @@ export function EditDeployConfigDrawer({
         isSystem: e.isSystem,
       }),
     ) ?? []));
-    setFiles(cfg?.files ?? []);
+    setFiles(seedFileMountRows(cfg?.files));
     setTracingEnabled(configurations.enableAutoInstrumentation ?? false);
     setInstrumentationVersion("");
     setVersionDirty(false);
@@ -194,7 +200,9 @@ export function EditDeployConfigDrawer({
         return { key, value, isSensitive };
       },
     );
-    const validFiles = files.filter((f) => f.key && f.mountPath);
+    const validFiles = files
+      .filter((f) => f.key && f.mountPath)
+      .map(toFileMount);
 
     if (mode === "update") {
       if (showSecurity && securityRef.current && !securityRef.current.validate()) {
@@ -339,7 +347,7 @@ export function EditDeployConfigDrawer({
 
   // ── File handlers ─────────────────────────────────────────────────────────
   const handleAddFile = useCallback(() => {
-    setFiles((prev) => [{ key: "", mountPath: "", value: "" }, ...prev]);
+    setFiles((prev) => [newFileMountRow(), ...prev]);
   }, []);
 
   const handleFileChange = useCallback(
@@ -510,11 +518,10 @@ export function EditDeployConfigDrawer({
                 No file mounts. Click Add to define them.
               </Typography>
             ) : (
-              <Stack spacing={1}>
+              <Stack spacing={1} divider={<Divider />}>
                 {files.map((file, index) => (
                   <FileMountEditor
-                    key={index}
-                    index={index}
+                    key={file.id}
                     keyValue={file.key}
                     mountPathValue={file.mountPath}
                     contentValue={file.value}

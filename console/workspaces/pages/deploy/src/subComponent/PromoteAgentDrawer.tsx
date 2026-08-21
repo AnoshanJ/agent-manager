@@ -55,7 +55,6 @@ import {
 import type {
   Environment,
   EnvironmentVariable,
-  FileMount,
 } from "@agent-management-platform/types";
 import {
   compatibleInstrumentationVersions,
@@ -63,6 +62,12 @@ import {
   pickInstrumentationVersion,
 } from "../utils/instrumentation";
 import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
+import {
+  type FileMountRow,
+  newFileMountRow,
+  seedFileMountRows,
+  toFileMount,
+} from "../utils/fileMounts";
 
 interface PromoteAgentDrawerProps {
   open: boolean;
@@ -77,7 +82,7 @@ interface PromoteFormState {
   targetEnvironment: string;
   useConfigFromSourceEnv: boolean;
   env: EnvironmentVariable[];
-  files: FileMount[];
+  files: FileMountRow[];
   instrumentationVersion: string;
   // True once the user explicitly picks a version. When false, the version is
   // omitted from the promote request so the backend inherits the source env's
@@ -227,7 +232,7 @@ export function PromoteAgentDrawer({
     setFormState((prev) => ({
       ...prev,
       env: displayEnv,
-      files: cfg?.files ?? [],
+      files: seedFileMountRows(cfg?.files),
     }));
     setFilledForTarget(target);
   }, [
@@ -320,7 +325,7 @@ export function PromoteAgentDrawer({
   const handleAddFile = useCallback(() => {
     setFormState((prev) => ({
       ...prev,
-      files: [{ key: "", mountPath: "", value: "" }, ...prev.files],
+      files: [newFileMountRow(), ...prev.files],
     }));
   }, []);
 
@@ -369,7 +374,7 @@ export function PromoteAgentDrawer({
                           } as EnvironmentVariable)
                         : { key, value, isSensitive },
                   ),
-                  files: formState.files,
+                  files: formState.files.map(toFileMount),
                   // Only send the version when the user explicitly picked a
                   // compatible one; otherwise omit it so the backend inherits
                   // the source env's pin rather than overwriting the target with
@@ -590,11 +595,10 @@ export function PromoteAgentDrawer({
                               No file mounts. Click Add to define them.
                             </Typography>
                           ) : (
-                            <Stack spacing={1}>
+                            <Stack spacing={1} divider={<Divider />}>
                               {formState.files.map((file, index) => (
                                 <FileMountEditor
-                                  key={index}
-                                  index={index}
+                                  key={file.id}
                                   keyValue={file.key}
                                   mountPathValue={file.mountPath}
                                   contentValue={file.value}
