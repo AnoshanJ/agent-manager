@@ -145,6 +145,14 @@ func (rr *RouteRegistrar) HandleFuncWithValidationAndAnyAuthz(pattern string, ha
 	rr.register(pattern, perms, RequireAnyPermission(perms...), handler)
 }
 
+// HandleFuncWithValidationAndAllAuthz requires the token to carry EVERY listed
+// permission. Registering with no permissions is a bug that fails at startup:
+// register would hand audit.NewRouteMetaForSurface an empty permission list, and
+// it panics rather than install an unauditable route.
+func (rr *RouteRegistrar) HandleFuncWithValidationAndAllAuthz(pattern string, handler http.HandlerFunc, perms ...rbac.Permission) {
+	rr.register(pattern, perms, RequireAllPermissions(perms...), handler)
+}
+
 func (rr *RouteRegistrar) HandleFuncWithValidationAndDynamicAuthz(pattern string, resolver PermissionResolver, handler http.HandlerFunc) {
 	// The permission is resolved per request, so none is known at registration
 	// time. The resolved one is recorded on the event by RequireDynamicPermission.

@@ -228,6 +228,40 @@ func RequireAnyPermission(perms ...rbac.Permission) func(http.HandlerFunc) http.
 	}
 }
 
+// RequireAllPermissions returns a middleware that passes only if the token carries
+// every one of the given permissions (AND semantics). Use it where an operation is
+// gated on more than one independent axis — the deployment-state route needs both
+// the capability (agent:suspend) and the environment tier
+// (agent:env-non-production) — so holding one axis does not admit the other.
+//
+// The record names the first missing permission as the missing scope because that
+// is the one that decided the outcome, and lists all of them as required so the
+// event says what the route actually demands.
+func RequireAllPermissions(perms ...rbac.Permission) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !config.GetConfig().RBACEnabled {
+				next(w, r)
+				return
+			}
+			for _, perm := range perms {
+				if jwtassertion.HasAllScopes(r.Context(), []string{perm.Scope()}) {
+					continue
+				}
+				recordAuthzDeny(
+					r, "missing-scope",
+					audit.RequiredPermissions(perms...),
+					audit.Detail("missingScope", perm.Scope()),
+					audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
+				)
+				utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
+				return
+			}
+			next(w, r)
+		}
+	}
+}
+
 // PermissionResolver resolves the required permission at request time.
 // Return *ResolverError to signal expected failures with a specific status code
 // (use NewResolverInputError for 400, NewResolverForbiddenError for 403).
