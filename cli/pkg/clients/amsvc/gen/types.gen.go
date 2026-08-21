@@ -1329,7 +1329,7 @@ type AgentIdentityEnvironmentView struct {
 	// EnvironmentName Environment this binding belongs to
 	EnvironmentName string `json:"environmentName"`
 
-	// LastError Most recent provisioning error, if the last attempt failed
+	// LastError Short, user-safe reason the last provisioning attempt failed (never raw upstream/database error text)
 	LastError *string `json:"lastError,omitempty"`
 
 	// ProvisioningType Whether the agent runs on the platform (`internal`) or outside it (`external`)

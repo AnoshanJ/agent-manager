@@ -4084,7 +4084,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			"sourceEnvironment", req.SourceEnvironment)
 		return utils.NewInvalidInputError(
 			fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", req.TargetEnvironment),
-			fmt.Sprintf("configure system variables in %q, then promote", req.TargetEnvironment))
+			fmt.Sprintf("configure system variables in %q, then promote", req.TargetEnvironment),
+		)
 	}
 
 	// The key-presence check above cannot see a connection that is present but dead: an MCP
@@ -4466,7 +4467,8 @@ func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
 	return utils.NewInvalidInputError(
 		fmt.Sprintf("Promotion blocked: MCP connection(s) %s have no endpoint in %q",
 			briefConnectionList(brokenByPromotion), targetEnv),
-		fmt.Sprintf("bind them to an endpoint in %q, then promote", targetEnv))
+		fmt.Sprintf("bind them to an endpoint in %q, then promote", targetEnv),
+	)
 }
 
 // maxBriefUIDetail caps how much of an unbounded upstream detail (a Thunder
@@ -4575,7 +4577,8 @@ func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Con
 				"deployment, so nothing can ever mint the target's own credential — promoting would let the promoted pod "+
 				"inherit a different environment's real credentials",
 			fmt.Sprintf("Promotion blocked: no agent identity for %q and identity provisioning is disabled", envName),
-			fmt.Sprintf("enable AgentID provisioning and provision %q first", envName))
+			fmt.Sprintf("enable AgentID provisioning and provision %q first", envName),
+		)
 	}
 
 	// GetBindingState reserves (nil, nil) for "no binding row yet" and wraps
@@ -4595,27 +4598,31 @@ func (s *agentManagerService) buildPromotionIdentityBlockedError(ctx context.Con
 			"the agent has no AgentID binding in the target environment yet and provisioning was only just triggered — "+
 				"promoting before it completes would let the promoted pod inherit a different environment's real credentials",
 			fmt.Sprintf("Promotion blocked: the agent identity for %q is still being provisioned", envName),
-			"provisioning was just triggered; retry in a moment")
+			"provisioning was just triggered; retry in a moment",
+		)
 	case state.Status == models.AgentThunderStatusFailed:
 		return blocked(
 			"AgentID provisioning for the target environment has permanently failed, so retrying the promotion cannot fix "+
 				"it — the environment has to be re-provisioned first",
 			fmt.Sprintf("Promotion blocked: agent identity provisioning for %q failed", envName),
 			fmt.Sprintf("re-provision the identity, then retry (%s)", briefUIDetail(state.LastError)),
-			"lastError", state.LastError)
+			"lastError", state.LastError,
+		)
 	case state.Status == models.AgentThunderStatusCompleted && !state.HasSecret:
 		return blocked(
 			"the agent's AgentID credential for the target environment has been revoked, so retrying the promotion cannot "+
 				"fix it — the credential has to be regenerated first",
 			fmt.Sprintf("Promotion blocked: the agent identity credential for %q was revoked", envName),
-			fmt.Sprintf("regenerate the credential for %q, then promote", envName))
+			fmt.Sprintf("regenerate the credential for %q, then promote", envName),
+		)
 	default: // Pending / InProgress, or any other in-flight state
 		return blocked(
 			"the agent's AgentID identity for the target environment is still provisioning — promoting now would let the "+
 				"promoted pod inherit a different environment's real credentials",
 			fmt.Sprintf("Promotion blocked: the agent identity for %q is still being provisioned", envName),
 			"retry once provisioning completes",
-			"status", state.Status)
+			"status", state.Status,
+		)
 	}
 }
 
