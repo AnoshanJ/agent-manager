@@ -1663,14 +1663,16 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				kindEnvVars = createAgentReq.Configurations.Env
 				kindFileVars = createAgentReq.Configurations.Files
 			}
-			// Kind-sourced agents bypass the build/workflow system, so the LLM env vars
-			// written into the Component workflow params by createAgentLLMConfigs never reach
-			// the container. The Workload CR is authoritative for these agents, so resolve the
-			// system-managed LLM env vars from the persisted config and inject them here.
-			kindEnvVars, envErr := s.mergeKindWorkloadLLMEnvVars(ctx, req.Name, ouID, projectName, firstEnv, kindEnvVars, len(req.ModelConfig) > 0)
+			// Kind-sourced agents bypass the build/workflow system, so the system-managed env
+			// vars written into the Component workflow params by createAgentLLMConfigs and
+			// createAgentMCPConfigs never reach the container. The Workload CR is authoritative
+			// for these agents, so resolve those env vars from the persisted config and inject
+			// them here.
+			kindEnvVars, envErr := s.mergeKindWorkloadSystemEnvVars(ctx, req.Name, ouID, projectName, firstEnv, kindEnvVars)
 			if envErr != nil {
-				s.logger.Error("Failed to resolve LLM env vars for kind-sourced agent workload", "agentName", req.Name, "environment", firstEnv, "error", envErr)
-				rollbackAgentCreate("LLM env var resolution failure")
+				s.logger.Error("Failed to resolve system-managed env vars for kind-sourced agent workload",
+					"agentName", req.Name, "ouID", ouID, "projectName", projectName, "environment", firstEnv, "error", envErr)
+				rollbackAgentCreate("system env var resolution failure")
 				return envErr
 			}
 			kindEndpoints := inputInterfaceToEndpoints(createAgentReq.InputInterface, req.Name)
@@ -1770,23 +1772,25 @@ func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, pro
 	return nil
 }
 
-// mergeKindWorkloadLLMEnvVars appends the system-managed LLM env vars (proxy URL + API key
-// secret ref) for the first environment onto the user-supplied env vars of a kind-sourced agent.
-// Kind-sourced agents create their Workload CR directly, bypassing the build/workflow system that
-// otherwise carries these vars into the container, so they must be injected into the Workload here.
-// When the agent has no LLM configuration, userEnvVars is returned unchanged.
-func (s *agentManagerService) mergeKindWorkloadLLMEnvVars(
-	ctx context.Context, agentName, ouID, projectName, firstEnv string, userEnvVars []client.EnvVar, hasModelConfig bool,
+// mergeKindWorkloadSystemEnvVars appends the system-managed env vars (proxy URL + API key secret
+// ref, for every DB-backed config type) for the first environment onto the user-supplied env vars
+// of a kind-sourced agent. Kind-sourced agents create their Workload CR directly, bypassing the
+// build/workflow system that otherwise carries these vars into the container, so they must be
+// injected into the Workload here.
+//
+// The resolver is consulted unconditionally and reports what the agent's configs actually are,
+// rather than this deciding up front which config types are worth resolving. Enumerating the
+// types here is what previously dropped the env vars of an MCP-only agent, and would drop them
+// again for the next config type added.
+func (s *agentManagerService) mergeKindWorkloadSystemEnvVars(
+	ctx context.Context, agentName, ouID, projectName, firstEnv string, userEnvVars []client.EnvVar,
 ) ([]client.EnvVar, error) {
-	if !hasModelConfig {
-		return userEnvVars, nil
-	}
-	llmEnvVars, err := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, ouID, projectName, firstEnv)
+	systemEnvVars, err := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, agentName, ouID, projectName, firstEnv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build system-managed LLM env vars: agentName %s, ouID %s, projectName %s, env %s, error: %w",
+		return nil, fmt.Errorf("failed to build system-managed env vars: agentName %s, ouID %s, projectName %s, env %s, error: %w",
 			agentName, ouID, projectName, firstEnv, err)
 	}
-	return append(userEnvVars, llmEnvVars...), nil
+	return append(userEnvVars, systemEnvVars...), nil
 }
 
 func (s *agentManagerService) createAgentLLMConfigs(
