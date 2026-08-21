@@ -853,7 +853,8 @@ func (s *agentThunderProvisioningService) recordFailure(ctx context.Context, bin
 
 	// Full cause goes to the log; LastError below is sanitized for the UI.
 	s.logger.Error("Agent thunder provisioning attempt failed",
-		"bindingID", binding.ID, "agentName", binding.AgentName, "envName", binding.EnvironmentName,
+		"ouID", binding.OUID, "projectName", binding.ProjectName, "bindingID", binding.ID,
+		"agentName", binding.AgentName, "envName", binding.EnvironmentName,
 		"attempt", attemptsSoFar, "exhausted", exhausted, "error", cause)
 
 	update := repositories.AgentThunderAttemptUpdate{
