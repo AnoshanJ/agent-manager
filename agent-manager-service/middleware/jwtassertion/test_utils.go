@@ -93,6 +93,5 @@ func extractOrgFromPath(path string) string {
 // HasAllScopes reads. ContextWithTokenClaims alone is not enough for tests that
 // exercise scope checks, because HasAllScopes uses a separate context key.
 func ContextWithTokenClaimsAndScope(ctx context.Context, claims *TokenClaims) context.Context {
-	ctx = ContextWithTokenClaims(ctx, claims)
-	return context.WithValue(ctx, scopesKey, claims.Scope)
+	return ContextWithScopes(ContextWithTokenClaims(ctx, claims), claims.Scope)
 }

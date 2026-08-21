@@ -293,6 +293,25 @@ func GetJWTFromContext(ctx context.Context) string {
 	return token
 }
 
+// ContextWithScopes returns ctx carrying scopes as a space-separated string,
+// where HasAllScopes reads them. Use it at any entry point that establishes an
+// effective scope set out of band from the HTTP assertion middleware — the MCP
+// tool gate does, because its per-request token, not the session, decides the
+// call.
+func ContextWithScopes(ctx context.Context, scopes string) context.Context {
+	return context.WithValue(ctx, scopesKey, scopes)
+}
+
+// ScopesFromContext returns the effective scopes HasAllScopes would judge
+// against, space-separated, or "" if none were established. Read it rather than
+// TokenClaims.Scope anywhere the answer must match the one the gate gave: on the
+// MCP surface those two differ by design, and the whole point of
+// ContextWithScopes is that this is the authoritative set.
+func ScopesFromContext(ctx context.Context) string {
+	scopes, _ := ctx.Value(scopesKey).(string)
+	return scopes
+}
+
 func HasAllScopes(ctx context.Context, requiredScopes []string) bool {
 	scopes, ok := ctx.Value(scopesKey).(string)
 	if !ok {
