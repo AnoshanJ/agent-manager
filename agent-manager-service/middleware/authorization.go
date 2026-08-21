@@ -17,7 +17,6 @@
 package middleware
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -63,27 +62,6 @@ func grantedScopeCount(claims *jwtassertion.TokenClaims) int {
 		return 0
 	}
 	return len(strings.Fields(claims.Scope))
-}
-
-// ResolverError is returned by a PermissionResolver to signal an expected failure
-// with a specific HTTP status code and message. Use NewResolverInputError for bad
-// request data (400) and NewResolverForbiddenError for explicit deny (403).
-// Any other error type from a resolver is treated as an internal failure (500).
-type ResolverError struct {
-	StatusCode int
-	Message    string
-}
-
-func (e *ResolverError) Error() string { return e.Message }
-
-// NewResolverInputError returns a ResolverError that maps to 400 Bad Request.
-func NewResolverInputError(msg string) *ResolverError {
-	return &ResolverError{StatusCode: http.StatusBadRequest, Message: msg}
-}
-
-// NewResolverForbiddenError returns a ResolverError that maps to 403 Forbidden.
-func NewResolverForbiddenError(msg string) *ResolverError {
-	return &ResolverError{StatusCode: http.StatusForbidden, Message: msg}
 }
 
 // RequireOrgMatch returns a middleware that:
@@ -251,54 +229,6 @@ func RequireAllPermissions(perms ...rbac.Permission) func(http.HandlerFunc) http
 				recordAuthzDeny(
 					r, "missing-scope",
 					audit.RequiredPermissions(perms...),
-					audit.Detail("missingScope", perm.Scope()),
-					audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
-				)
-				utils.WriteErrorResponse(w, http.StatusForbidden, "insufficient permissions")
-				return
-			}
-			next(w, r)
-		}
-	}
-}
-
-// PermissionResolver resolves the required permission at request time.
-// Return *ResolverError to signal expected failures with a specific status code
-// (use NewResolverInputError for 400, NewResolverForbiddenError for 403).
-// Any other error is treated as an internal failure and results in a 500 response.
-type PermissionResolver func(r *http.Request) (rbac.Permission, error)
-
-// RequireDynamicPermission returns a middleware that resolves the required permission
-// at request time via resolver, then checks the token scope. Use this for endpoints
-// where the required permission depends on request data (e.g. deploy target environment).
-func RequireDynamicPermission(resolver PermissionResolver) func(http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !config.GetConfig().RBACEnabled {
-				next(w, r)
-				return
-			}
-			perm, err := resolver(r)
-			if err != nil {
-				var re *ResolverError
-				if errors.As(err, &re) {
-					if re.StatusCode == http.StatusForbidden {
-						recordAuthzDeny(r, "resolver-denied")
-					}
-					utils.WriteErrorResponse(w, re.StatusCode, re.Message)
-				} else {
-					utils.WriteErrorResponse(w, http.StatusInternalServerError, "internal error resolving permission")
-				}
-				return
-			}
-			if !jwtassertion.HasAllScopes(r.Context(), []string{perm.Scope()}) {
-				// The route declares no permission at registration time, so this
-				// is the only place the required scope becomes known — without
-				// recording it here the event would say nothing about what was
-				// demanded.
-				recordAuthzDeny(
-					r, "missing-scope",
-					audit.RequiredPermissions(perm),
 					audit.Detail("missingScope", perm.Scope()),
 					audit.Detail("grantedScopes", grantedScopeCount(jwtassertion.GetTokenClaims(r.Context()))),
 				)

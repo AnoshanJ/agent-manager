@@ -153,12 +153,6 @@ func (rr *RouteRegistrar) HandleFuncWithValidationAndAllAuthz(pattern string, ha
 	rr.register(pattern, perms, RequireAllPermissions(perms...), handler)
 }
 
-func (rr *RouteRegistrar) HandleFuncWithValidationAndDynamicAuthz(pattern string, resolver PermissionResolver, handler http.HandlerFunc) {
-	// The permission is resolved per request, so none is known at registration
-	// time. The resolved one is recorded on the event by RequireDynamicPermission.
-	rr.register(pattern, nil, RequireDynamicPermission(resolver), handler)
-}
-
 // registerRootOU mirrors register but uses the root-OU org resolution variant.
 func (rr *RouteRegistrar) registerRootOU(
 	pattern string,
