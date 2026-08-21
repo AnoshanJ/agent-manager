@@ -39,7 +39,8 @@ func TestHandleCommonErrors_ValidationErrorWithSentinel_KeepsItsOwnMessage(t *te
 
 	handleCommonErrors(rr, utils.NewInvalidInputError(
 		"Promotion blocked: the agent identity for \"staging\" is still being provisioned",
-		"retry once provisioning completes"), "Failed to promote agent")
+		"retry once provisioning completes",
+	), "Failed to promote agent")
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	var body spec.ErrorResponse
