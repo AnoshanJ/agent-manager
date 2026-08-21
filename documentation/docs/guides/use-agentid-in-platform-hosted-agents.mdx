@@ -110,15 +110,22 @@ def get_agent_access_token(resource: str) -> str:
 
         # Only the first caller to see this resource's cache expired refreshes
         # it; everyone else waits for that result below instead of firing its
-        # own request.
-        event = _refresh_events.setdefault(resource, threading.Event())
-        is_refresher = not event.is_set() or resource not in _cached_tokens
-        if is_refresher:
-            event.clear()
+        # own request. The event is tracked only while that refresh is in
+        # flight, so the next expiry starts a fresh one.
+        event = _refresh_events.get(resource)
+        if event is None:
+            event = threading.Event()
+            _refresh_events[resource] = event
+            is_refresher = True
+        else:
+            is_refresher = False
 
     if not is_refresher:
         event.wait(timeout=15)
-        return _cached_tokens[resource]
+        with _cache_lock:
+            if resource in _cached_tokens and time.time() < _cached_expiries[resource]:
+                return _cached_tokens[resource]
+        raise RuntimeError(f"Token refresh failed or timed out for {resource}")
 
     try:
         response = requests.post(
@@ -141,6 +148,8 @@ def get_agent_access_token(resource: str) -> str:
 
         return _cached_tokens[resource]
     finally:
+        with _cache_lock:
+            _refresh_events.pop(resource, None)
         event.set()
 ```
 
