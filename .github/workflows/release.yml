@@ -155,6 +155,15 @@ jobs:
           TARGET_RELEASE: ${{ inputs.target_version }}
         shell: bash
 
+      - name: Update start.sh
+        run: |
+          bash .github/scripts/update-install-helpers.sh \
+            "$TARGET_RELEASE" \
+            "./deployments/quick-start/start.sh"
+        env:
+          TARGET_RELEASE: ${{ inputs.target_version }}
+        shell: bash
+
       - name: Commit version updates
         id: commit-changes
         run: |
@@ -622,10 +631,14 @@ jobs:
             echo "Prebuilt \`amctl\` binaries (Linux, macOS, Windows) and \`checksums.txt\` are attached to this release."
 
             echo ""
-            echo "### VM install bundle"
-            echo "\`amp-vm-bundle-${VERSION}.tar.gz\` and \`bootstrap.sh\` are attached for the one-command VM install:"
+            echo "### Install bundle"
+            echo "\`wso2-agent-manager-${VERSION}.tar.gz\` bundles both the VM and quick-start installers. \`bootstrap.sh\` and \`start.sh\` are also attached standalone as the one-command entry points:"
             echo '```'
+            echo "# VM install"
             echo "curl -fsSL https://github.com/${REGISTRY_ORG}/agent-manager/releases/download/amp/v${VERSION}/bootstrap.sh | sudo bash -s -- simple --host <PUBLIC_IP> --version ${VERSION}"
+            echo ""
+            echo "# Quick-start (local dev container)"
+            echo "curl -fsSL https://github.com/${REGISTRY_ORG}/agent-manager/releases/download/amp/v${VERSION}/start.sh -o start.sh && chmod +x start.sh && ./start.sh"
             echo '```'
           } > /tmp/release-body.md
 
@@ -644,7 +657,7 @@ jobs:
           name: amctl-dist
           path: dist/
 
-      - name: Package VM install bundle
+      - name: Package install bundle
         run: |
           bash .github/scripts/build-vm-bundle.sh \
             "$TARGET_RELEASE" \

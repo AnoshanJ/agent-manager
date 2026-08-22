@@ -49,6 +49,7 @@ var authzBearingRegistrars = map[string]bool{
 	"HandleFuncWithValidationAndAuthz":            true,
 	"HandleFuncWithValidationAndAuthzAllowRootOU": true,
 	"HandleFuncWithValidationAndAnyAuthz":         true,
+	"HandleFuncWithValidationAndAllAuthz":         true,
 	"HandleFuncWithValidationAndDynamicAuthz":     true,
 }
 
@@ -169,10 +170,10 @@ var declaredButUnenforcedPermissions = map[string]string{
 	// rbac/predefined_roles.go and what the API actually checks. Removing an
 	// entry from this map (because the route now enforces it) is the fix; this
 	// map exists to stop the list growing silently.
-	"AgentDeployProduction": "NOT ENFORCED: POST .../deployments statically requires " +
-		"AgentDeployNonProduction regardless of the target environment's IsProduction flag, and " +
-		"promotion into a production environment requires only AgentPromote. " +
-		"middleware.RequireDynamicPermission exists for exactly this and is used by no route",
+	"AgentEnvProduction": "NOT ENFORCED BY A ROUTE REGISTRAR: the tier a deploy/promote/config-update " +
+		"lands in is only known once the request body or pipeline is resolved, so no route can " +
+		"declare it statically. services.requireEnvTier checks it dynamically in the service layer " +
+		"once the target environment's IsProduction flag is known.",
 	"AgentRollback": "NOT ENFORCED: no rollback route consults it",
 	"OrgAssignRole": "NOT ENFORCED: role assignment goes through " +
 		"POST /identities/roles/{roleID}/assignees/add, which requires RoleUpdate instead",
@@ -490,7 +491,7 @@ func registrarPermissions(call *ast.CallExpr) []string {
 		if len(call.Args) > 1 {
 			args = call.Args[1:2]
 		}
-	case "HandleFuncWithValidationAndAnyAuthz":
+	case "HandleFuncWithValidationAndAnyAuthz", "HandleFuncWithValidationAndAllAuthz":
 		if len(call.Args) > 2 {
 			args = call.Args[2:]
 		}

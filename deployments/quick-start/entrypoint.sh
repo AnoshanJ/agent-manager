@@ -27,8 +27,19 @@ export DEBUG='${DEBUG}'
 EOF
 chown wso2-amp:wso2-amp /home/wso2-amp/.env_from_docker
 
-# Switch to wso2-amp user and start interactive bash
+# Run the installer automatically as wso2-amp, then hand off to an interactive
+# login shell regardless of install outcome — install.sh is idempotent (see its
+# helm/k3d existence checks), so re-running it from that shell (or after a
+# container restart) is always safe, and a failed install still needs a shell
+# to inspect logs/kubectl state.
 # The '-' flag starts a login shell, which sources ~/.bash_profile
 # which in turn sources ~/.bashrc.
 # Note: kubeconfig setup happens in .bashrc automatically
-exec su - wso2-amp
+if [ "${SKIP_AUTO_INSTALL:-false}" != "true" ]; then
+    exec su - wso2-amp -c '
+        ./install.sh
+        exec bash -i
+    '
+else
+    exec su - wso2-amp
+fi
