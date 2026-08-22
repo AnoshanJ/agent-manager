@@ -3784,7 +3784,8 @@ func (s *agentManagerService) requireEnvTier(
 		// attempted" survives. Status is left to the envelope for the same
 		// reason. grantedScopes is set because every middleware authz:deny
 		// carries it and anything alerting on the action reads it.
-		audit.RecordAncillary(ctx, audit.ActionAuthzDeny,
+		audit.RecordAncillary(
+			ctx, audit.ActionAuthzDeny,
 			audit.Org(ouID),
 			audit.Environment(envName),
 			audit.OutcomeOpt(audit.OutcomeDeny),
