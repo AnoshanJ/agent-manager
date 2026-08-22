@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
+VERSION="${VERSION#v}"
 
 log "Checking prerequisites..."
 
