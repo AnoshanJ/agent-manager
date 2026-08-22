@@ -20,6 +20,7 @@ import React, { useRef } from "react";
 import {
     Box,
     Button,
+    Divider,
     FormControlLabel,
     IconButton,
     Stack,
@@ -71,6 +72,7 @@ export const createRuntimeConfigRow = (
     isSecret: false,
     isMandatory: false,
     defaultValue: "",
+    description: "",
     ...overrides,
 });
 
@@ -80,6 +82,7 @@ export interface RuntimeConfigRow {
     isSecret: boolean;
     isMandatory?: boolean;
     defaultValue?: string;
+    description?: string;
 }
 
 export interface RuntimeConfigEditorProps {
@@ -109,98 +112,108 @@ const ConfigRow: React.FC<ConfigRowProps> = ({
     onUpdateMany,
     onRemove,
 }) => (
-    <Stack key={row.id} direction="row" spacing={1} alignItems="top" justifyContent="flex-start">
-        <Box sx={{ width: 180 }}>
-            {readonlyKey ? (
-                <Typography variant="body2" fontWeight={600}>{row.key}</Typography>
-            ) : (
-                <>
-                    <TextInput
-                        placeholder="Key"
-                        value={row.key}
-                        onChange={(e) => onUpdate("key", e.target.value.replace(/\s/g, "_"))}
-                        onPaste={(e) => {
-                            const pasted = e.clipboardData.getData("text");
-                            const equalsIdx = pasted.indexOf("=");
-                            if (equalsIdx === -1) return;
-                            const pastedKey = pasted.slice(0, equalsIdx).trim();
-                            const pastedValue = stripQuotes(pasted.slice(equalsIdx + 1).trim());
-                            if (!pastedKey) return;
-                            e.preventDefault();
-                            onUpdateMany({
-                                key: pastedKey.replace(/\s/g, "_"),
-                                defaultValue: pastedValue,
-                            });
-                        }}
-                        fullWidth
-                        size="small"
-                        error={!!keyError}
-                    />
-                    {keyError && (
-                        <Typography variant="caption" color="error.main">
-                            {keyError}
-                        </Typography>
-                    )}
-                </>
-            )}
-        </Box>
+    <Stack key={row.id} spacing={0.5}>
+        <Stack direction="row" spacing={1} alignItems="top" justifyContent="flex-start">
+            <Box sx={{ width: 180 }}>
+                {readonlyKey ? (
+                    <Typography variant="body2" fontWeight={600}>{row.key}</Typography>
+                ) : (
+                    <>
+                        <TextInput
+                            placeholder="Key"
+                            value={row.key}
+                            onChange={(e) => onUpdate("key", e.target.value.replace(/\s/g, "_"))}
+                            onPaste={(e) => {
+                                const pasted = e.clipboardData.getData("text");
+                                const equalsIdx = pasted.indexOf("=");
+                                if (equalsIdx === -1) return;
+                                const pastedKey = pasted.slice(0, equalsIdx).trim();
+                                const pastedValue = stripQuotes(pasted.slice(equalsIdx + 1).trim());
+                                if (!pastedKey) return;
+                                e.preventDefault();
+                                onUpdateMany({
+                                    key: pastedKey.replace(/\s/g, "_"),
+                                    defaultValue: pastedValue,
+                                });
+                            }}
+                            fullWidth
+                            size="small"
+                            error={!!keyError}
+                        />
+                        {keyError && (
+                            <Typography variant="caption" color="error.main">
+                                {keyError}
+                            </Typography>
+                        )}
+                    </>
+                )}
+            </Box>
 
-        <Box sx={{ width: 180 }}>
-            {/* readonlyKey means this row came from an already-published version: its
-             * defaultValue is whatever the backend returned, which for a secret item is
-             * a placeholder that only signals whether a default exists, never the real
-             * value. A fresh "Create new version" row (readonlyKey unset) still gets a
-             * normal, fully-editable field so authors can type a real secret default. */}
-            <TextInput
-                placeholder={
-                    readonlyKey && row.isSecret
-                        ? (row.defaultValue ? "•••••••• (hidden)" : "Not set")
-                        : "Default value"
-                }
-                value={readonlyKey && row.isSecret ? "" : (row.defaultValue ?? "")}
-                onChange={(e) => onUpdate("defaultValue", e.target.value)}
-                fullWidth
-                size="small"
-                disabled={readonlyKey && row.isSecret}
-                type={row.isSecret && !readonlyKey ? "password" : "text"}
-                showPasswordToggle={row.isSecret && !readonlyKey}
-            />
-        </Box>
-        <Box display="flex" flexDirection="row" flexGrow={1} alignItems="start" pl={2} pt={0.5} gap={1}>
-            <FormControlLabel
-                control={
-                    <Switch
-                        size="small"
-                        checked={row.isMandatory ?? false}
-                        onChange={(_, checked) => onUpdate("isMandatory", checked)}
-                    />
-                }
-                label="Mandatory"
-                sx={{ mr: 0, minWidth: 105 }}
-            />
-            <FormControlLabel
-                control={
-                    <Switch
-                        size="small"
-                        checked={row.isSecret}
-                        onChange={(_, checked) => onUpdate("isSecret", checked)}
-                    />
-                }
-                label="Secret"
-                sx={{ mr: 0, minWidth: 80 }}
-            />
-            {!readonlyKey && (
-                <IconButton
+            <Box sx={{ width: 180 }}>
+                {/* readonlyKey means this row came from an already-published version: its
+                 * defaultValue is whatever the backend returned, which for a secret item is
+                 * a placeholder that only signals whether a default exists, never the real
+                 * value. A fresh "Create new version" row (readonlyKey unset) still gets a
+                 * normal, fully-editable field so authors can type a real secret default. */}
+                <TextInput
+                    placeholder={
+                        readonlyKey && row.isSecret
+                            ? (row.defaultValue ? "•••••••• (hidden)" : "Not set")
+                            : "Default value"
+                    }
+                    value={readonlyKey && row.isSecret ? "" : (row.defaultValue ?? "")}
+                    onChange={(e) => onUpdate("defaultValue", e.target.value)}
+                    fullWidth
                     size="small"
-                    onClick={onRemove}
-                    disabled={!canRemove}
-                    aria-label="Remove row"
-                    color="error"
-                >
-                    <Trash size={16} />
-                </IconButton>
-            )}
-        </Box>
+                    disabled={readonlyKey && row.isSecret}
+                    type={row.isSecret && !readonlyKey ? "password" : "text"}
+                    showPasswordToggle={row.isSecret && !readonlyKey}
+                />
+            </Box>
+            <Box display="flex" flexDirection="row" flexGrow={1} alignItems="start" pl={2} pt={0.5} gap={1}>
+                <FormControlLabel
+                    control={
+                        <Switch
+                            size="small"
+                            checked={row.isMandatory ?? false}
+                            onChange={(_, checked) => onUpdate("isMandatory", checked)}
+                        />
+                    }
+                    label="Mandatory"
+                    sx={{ mr: 0, minWidth: 105 }}
+                />
+                <FormControlLabel
+                    control={
+                        <Switch
+                            size="small"
+                            checked={row.isSecret}
+                            onChange={(_, checked) => onUpdate("isSecret", checked)}
+                        />
+                    }
+                    label="Secret"
+                    sx={{ mr: 0, minWidth: 80 }}
+                />
+                {!readonlyKey && (
+                    <IconButton
+                        size="small"
+                        onClick={onRemove}
+                        disabled={!canRemove}
+                        aria-label="Remove row"
+                        color="error"
+                    >
+                        <Trash size={16} />
+                    </IconButton>
+                )}
+            </Box>
+        </Stack>
+        <TextInput
+            label="Description"
+            placeholder="Optional"
+            value={row.description ?? ""}
+            onChange={(e) => onUpdate("description", e.target.value)}
+            fullWidth
+            size="small"
+        />
     </Stack>
 );
 
@@ -269,7 +282,7 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
     };
 
     return (
-        <Stack spacing={1} pt={1}>
+        <Stack spacing={1.5} pt={1} divider={<Divider />}>
             {rows.map((row, i) => (
                 <ConfigRow
                     key={row.id}

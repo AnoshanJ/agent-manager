@@ -33,6 +33,6 @@ export function displayAgentSubType(subType?: string) {
     case "custom-api":
       return "Custom API";
     case "chat-api":
-      return "Chat API";
+      return "Chat";
   }
 }
