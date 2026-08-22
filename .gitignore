@@ -85,3 +85,7 @@ __pycache__/
 local-scripts/
 
 website/
+
+samples/insurance-support-agent/web/node_modules/
+samples/insurance-support-agent/web/dist/
+samples/insurance-support-agent/web/*.tsbuildinfo
