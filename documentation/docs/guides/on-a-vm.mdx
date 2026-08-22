@@ -421,7 +421,7 @@ Download and unpack the versioned install bundle, then generate an annotated con
 ```bash
 # on the VM
 VER=<AMP_VERSION>   # e.g. an amp/v* release tag, without the "amp/v" prefix
-curl -fsSL "https://github.com/wso2/agent-manager/releases/download/amp/v${VER}/amp-vm-bundle-${VER}.tar.gz" | tar xz
+curl -fsSL "https://github.com/wso2/agent-manager/releases/download/amp/v${VER}/wso2-agent-manager-${VER}.tar.gz" | tar xz
 deployments/vm/install-advanced.sh --init > amp-config.env
 chmod 600 amp-config.env
 ```
