@@ -7,7 +7,7 @@ the gateway.
 The agent works on its own — deploy it and chat from **Try It**. The login flow
 is an optional second step, and the UI runs with or without it.
 
-The browser client is a separate app with its own README — see [`web/`](web/README.md).
+The browser client is a separate app with its own README — see [`web/`](../web/README.md).
 
 ## What is in here
 
@@ -18,7 +18,7 @@ The browser client is a separate app with its own README — see [`web/`](web/RE
 | `tools.py`           | Five tools: list policies, list claims, lookup, claim status, file claim |
 | `data.py`            | In-memory policies and claims — no database to set up                    |
 | `system_prompt.py`   | The agent's instructions. Edit this to change behaviour.                 |
-| `web/`               | React + TypeScript chat client. See `web/README.md`.                     |
+| `../web/`            | React + TypeScript chat client. See `../web/README.md`.                  |
 
 The agent handles five things: list the customer's policies, list their claims,
 show the full cover on one policy, check a claim's status, and open a new claim.
@@ -52,7 +52,7 @@ curl -X POST http://localhost:10150/chat \
   -d '{"session_id":"s1","message":"What policies do I have?"}'
 ```
 
-Then run the web client against it — see [`web/README.md`](web/README.md) for
+Then run the web client against it — see [`web/README.md`](../web/README.md) for
 setup.
 
 ## Environment variables
@@ -87,7 +87,7 @@ supply in `OPENAI_API_KEY` is then the gateway's key.
 | **Description**       | `Customer support agent for policies and claims` |
 | **GitHub Repository** | `https://github.com/wso2/agent-manager`          |
 | **Branch**            | `main`                                           |
-| **App Path**          | `/samples/insurance-support-agent`               |
+| **App Path**          | `/samples/insurance-support/agent`               |
 | **Language**          | `Python`                                         |
 | **Language Version**  | `3.11`                                           |
 | **Start Command**     | `python main.py`                                 |
@@ -109,7 +109,7 @@ Review and click **Deploy**. The build takes roughly 6-10 minutes.
 ## 2. Invoke the agent
 
 Use **Try It** in the left navigation, or point the web client at the deployed
-agent — see [`web/README.md`](web/README.md).
+agent — see [`web/README.md`](../web/README.md).
 
 ## Observability
 
