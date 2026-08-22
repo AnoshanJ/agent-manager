@@ -2,13 +2,19 @@
 # Render assertions for wso2-amp-platform-resources-extension.
 # Run: bash deployments/helm-charts/wso2-amp-platform-resources-extension/tests/render.sh
 #
-# Covers the shell quoting of the amp-generate-workload build step. Argo escapes
-# a substituted parameter for JSON, never for the shell, so a parameter carrying
-# user text that is interpolated into the step's script becomes shell source: one
-# apostrophe in a file mount closes the string early and the rest of the script
-# is reparsed as code. The build then dies on a bare `(` far from the real cause
-# and Argo reports only a missing output artifact (see issue #1639). The values
-# have to reach the container as env vars, which the shell never parses.
+# Covers the shell quoting of the build steps. Argo escapes a substituted
+# parameter for JSON, never for the shell, so a parameter carrying user text that
+# is interpolated into a step's script becomes shell source: one apostrophe in a
+# file mount closes the string early and the rest of the script is reparsed as
+# code. The build then dies on a bare `(` far from the real cause and Argo
+# reports only a missing output artifact (see issue #1639). A separator such as
+# `;` needs no quote at all -- it just runs. The values have to reach the
+# container as env vars, which the shell never parses.
+#
+# Three groups of assertions: the amp-generate-workload step it started with,
+# then checkout-source, where the repository URL, branch and commit arrive the
+# same way, then the whole chart, since every build step runs `sh -c` over a
+# block scalar and the property has to hold for all of them.
 set -uo pipefail
 
 CHART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -168,6 +174,86 @@ if [[ -z "$QUOTED_ASSIGNMENT" ]]; then
   printf 'ok   - no Argo parameter is assigned inside a single-quoted string\n'
 else
   printf 'FAIL - an Argo parameter is assigned inside a single-quoted string\n%s\n' "$QUOTED_ASSIGNMENT"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# --- checkout-source ---------------------------------------------------------
+# The repository URL, branch and commit are user input on the same path, and this
+# step holds the git credential secret, so a spliced value runs next to it.
+# script_body and env_value both read $RENDERED, so pointing that at the next
+# template reuses every assertion above.
+CHECKOUT_TMPL=templates/cluster-workflow-templates/checkout-source.yaml
+
+if ! RENDERED="$(helm template test-release "$CHART_DIR" --show-only "$CHECKOUT_TMPL" 2>&1)"; then
+  printf 'FAIL - helm template failed for %s\n%s\n' "$CHECKOUT_TMPL" "$RENDERED"
+  exit 1
+fi
+
+SCRIPT="$(script_body)"
+
+if [[ -z "$SCRIPT" ]]; then
+  printf 'FAIL - could not extract the checkout script from %s\n' "$CHECKOUT_TMPL"
+  exit 1
+fi
+
+assert_param_via_env BRANCH workflow.parameters.branch
+assert_param_via_env REPO workflow.parameters.git-repo
+assert_param_via_env COMMIT workflow.parameters.commit
+
+if [[ -z "$(sh -n <<<"$SCRIPT" 2>&1)" ]]; then
+  printf 'ok   - checkout-source parses under sh\n'
+else
+  printf 'FAIL - checkout-source does not parse under sh\n      %s\n' "$(sh -n <<<"$SCRIPT" 2>&1)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# Reaching git as an env var removes the shell, but not the option parser: an
+# unquoted expansion still word-splits, and a ref opening with a dash is read as
+# a flag rather than a branch.
+if grep -qF -- '--branch "$BRANCH"' <<<"$SCRIPT"; then
+  printf 'ok   - the clone quotes the branch it expands\n'
+else
+  printf 'FAIL - the branch expansion in the clone is unquoted\n'
+  FAILURES=$((FAILURES + 1))
+fi
+
+if grep -qE '^ *-\*\)' <<<"$SCRIPT"; then
+  printf 'ok   - a ref opening with a dash is rejected before it reaches git\n'
+else
+  printf 'FAIL - nothing stops a ref opening with a dash from becoming a git option\n'
+  FAILURES=$((FAILURES + 1))
+fi
+
+# --- Every build step in the chart -------------------------------------------
+# The defect was one quoting style in one step, then the same style in another.
+# This is the property itself, so a step added later cannot reintroduce it: no
+# Argo parameter may appear anywhere inside a script a shell parses. Scoped to
+# block scalars under args:, because an argv list is passed to exec, not to sh.
+if ! CHART_RENDERED="$(helm template test-release "$CHART_DIR" 2>&1)"; then
+  printf 'FAIL - helm template failed for the chart\n%s\n' "$CHART_RENDERED"
+  exit 1
+fi
+
+SPLICED="$(awk '
+  function ind(s) { match(s, /^ */); return RLENGTH }
+  /^# Source: / { src = $3; next }
+  !in_script && $0 ~ /^ *args:$/ { pending = 1; ai = ind($0); next }
+  pending {
+    if ($0 ~ /^[ ]*$/) next
+    pending = 0
+    if ($0 ~ /^ *- \|-?$/) in_script = 1
+    next
+  }
+  in_script {
+    if ($0 !~ /^[ ]*$/ && ind($0) <= ai) { in_script = 0; next }
+    if ($0 ~ /\{\{(workflow|inputs)\.parameters/) printf "      %s: %s\n", src, $0
+  }
+' <<<"$CHART_RENDERED")"
+
+if [[ -z "$SPLICED" ]]; then
+  printf 'ok   - no Argo parameter is spliced into a shell script anywhere in the chart\n'
+else
+  printf 'FAIL - Argo parameters are spliced into shell scripts\n%s\n' "$SPLICED"
   FAILURES=$((FAILURES + 1))
 fi
 
