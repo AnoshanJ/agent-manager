@@ -36,6 +36,7 @@ Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY=<your-key>
+export CORS_ALLOW_ORIGINS="http://localhost:13000"
 PORT=10150 python main.py
 ```
 
@@ -51,6 +52,7 @@ curl -X POST http://localhost:10150/chat \
 Then run the UI against it — no login, since no provider is configured:
 
 ```bash
+source .venv/bin/activate
 AGENT_URL=http://localhost:10150/chat python frontend/serve.py
 ```
 
