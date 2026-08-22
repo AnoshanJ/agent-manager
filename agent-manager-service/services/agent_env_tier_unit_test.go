@@ -127,7 +127,8 @@ func TestRequireEnvTier_ProductionEnvAllowedWithBothScopes(t *testing.T) {
 	svc, _ := tierService(map[string]bool{tierProdEnv: true}, nil)
 
 	env, err := svc.requireEnvTier(
-		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentEnvProduction), tierOUID, tierProdEnv)
+		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentEnvProduction), tierOUID, tierProdEnv,
+	)
 	require.NoError(t, err)
 	require.True(t, env.IsProduction)
 }
@@ -288,7 +289,8 @@ func TestUpdateAgentConfigurations_ProductionNeedsProductionScope(t *testing.T) 
 
 	err := svc.UpdateAgentConfigurations(
 		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentUpdate), tierOUID, "proj1", "my-agent",
-		&spec.UpdateAgentConfigurationsRequest{EnvironmentName: tierProdEnv})
+		&spec.UpdateAgentConfigurationsRequest{EnvironmentName: tierProdEnv},
+	)
 
 	require.ErrorIs(t, err, utils.ErrForbidden)
 	require.Contains(t, err.Error(), rbac.AgentEnvProduction.Scope())
@@ -318,7 +320,8 @@ func TestUpdateAgentDeploySettings_ProductionNeedsProductionScope(t *testing.T) 
 
 	err := svc.UpdateAgentDeploySettings(
 		tierCtx(t, rbac.AgentEnvNonProduction, rbac.AgentUpdate), tierOUID, "proj1", "my-agent",
-		&spec.UpdateAgentDeploySettingsRequest{EnvironmentName: tierProdEnv})
+		&spec.UpdateAgentDeploySettingsRequest{EnvironmentName: tierProdEnv},
+	)
 
 	require.ErrorIs(t, err, utils.ErrForbidden)
 	require.Contains(t, err.Error(), rbac.AgentEnvProduction.Scope())
