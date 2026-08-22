@@ -85,6 +85,7 @@ start_caddy() {
     -v /opt/amp/Caddyfile:/etc/caddy/Caddyfile:ro \
     caddy:2
   verify_caddy_up
+  prewarm_fixed_host_certs "$VM_IP" "$EXTERNAL_GATEWAYS"
 }
 
 run_install() {
