@@ -220,6 +220,7 @@ export const PublishedList: React.FC = () => {
       .filter((r) => r.key.trim() !== "")
       .map((r) => ({
         name: r.key.trim(),
+        description: r.description?.trim() || undefined,
         isSecret: r.isSecret,
         isMandatory: r.isMandatory ?? false,
         defaultValue: r.defaultValue?.trim() || null,
