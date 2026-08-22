@@ -35,8 +35,17 @@ chown wso2-amp:wso2-amp /home/wso2-amp/.env_from_docker
 # The '-' flag starts a login shell, which sources ~/.bash_profile
 # which in turn sources ~/.bashrc.
 # Note: kubeconfig setup happens in .bashrc automatically
+#
+# `su - wso2-amp -c '...'` runs the command via a non-interactive login shell,
+# which on this base image does not reliably source ~/.bash_profile/~/.bashrc
+# before running the -c command (only the final `exec bash -i` — a genuinely
+# interactive shell — sources it). Without that, PATH lacks /usr/local/bin
+# (see .bashrc's comment on BusyBox su resetting PATH) and k3d/kubectl/helm
+# are not found. Source .bashrc explicitly before running install.sh so the
+# very first run has the same PATH as every subsequent interactive re-run.
 if [ "${SKIP_AUTO_INSTALL:-false}" != "true" ]; then
     exec su - wso2-amp -c '
+        source ~/.bashrc
         ./install.sh
         exec bash -i
     '
