@@ -38,9 +38,9 @@ import { absoluteRouteMap } from "@agent-management-platform/types";
 import { LabelChips, SwaggerSpecViewer, parseOpenApiSpecContent } from "@agent-management-platform/shared-component";
 import { useGetAgentKind, useGetBuild, useListKindAgents, useListProjects, useGetAgentKindVersion } from "@agent-management-platform/api-client";
 import { SectionCard } from "./SectionCard";
-import { Clock, ExternalLink, Layers, Plus, Tag } from "@wso2/oxygen-ui-icons-react";
+import { Clock, ExternalLink, BookOpenText, Plus, Tag } from "@wso2/oxygen-ui-icons-react";
 
-const KIND_AVATAR = { children: <Layers size={32} />, color: "primary.main" };
+const KIND_AVATAR = { children: <BookOpenText size={32} />, color: "primary.main" };
 
 export const CatalogKindDetails: React.FC = () => {
   const navigate = useNavigate();

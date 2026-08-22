@@ -31,7 +31,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Edit, Layers, Plus, Trash } from "@wso2/oxygen-ui-icons-react";
+import { Edit, BookOpenText, Plus, Trash } from "@wso2/oxygen-ui-icons-react";
 import { generatePath, Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { DrawerWrapper, DrawerHeader, DrawerContent, TextInput, PageLayout, DescriptionCard } from "@agent-management-platform/views";
 import {
@@ -319,7 +319,7 @@ export const PublishedList: React.FC = () => {
             </Box>
           ) : versions.length === 0 ? (
             <ListingTable.EmptyState
-              illustration={<Layers size={64} />}
+              illustration={<BookOpenText size={64} />}
               title="No versions published yet"
               description="Publish a build as a version to make this Agent Kind available in the catalog."
             />
