@@ -167,19 +167,11 @@ func TestSystemManagedMCPURLMissingEnvMappingReturnsEmptyURL(t *testing.T) {
 // pod is handed for its LLM proxy. The pod's NetworkPolicy only permits egress to gateway
 // namespaces on the runtime port, so the public vhost here is a dead address.
 func TestSystemManagedLLMURLUsesGatewayRuntimeURL(t *testing.T) {
-	contextPath := "/llm/proxy"
-	svc, envUUID, configUUID := llmURLFixture(t, &models.Gateway{
-		UUID:       uuid.New(),
-		Vhost:      "https://gateway.example.com",
-		RuntimeURL: "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893",
-	}, &contextPath)
+	gateway := newGateway(t, models.GatewayRoleEgress, true)
+	gateway.Vhost = "https://gateway.example.com"
+	gateway.RuntimeURL = "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893"
 
-	url, err := svc.systemManagedLLMURL(context.Background(), &models.AgentConfiguration{
-		UUID:        configUUID,
-		Name:        "model",
-		ProjectName: "project",
-		AgentID:     "agent",
-	}, "org", "dev", envUUID)
+	url, err := callSystemManagedLLMURL(t, gateway, "/llm/proxy")
 
 	require.NoError(t, err)
 	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy", url)
@@ -188,28 +180,20 @@ func TestSystemManagedLLMURLUsesGatewayRuntimeURL(t *testing.T) {
 // TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL guards the fallback: a gateway with no
 // in-cluster address must abort the injection rather than hand the pod a vhost it cannot reach.
 func TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL(t *testing.T) {
-	contextPath := "/llm/proxy"
-	svc, envUUID, configUUID := llmURLFixture(t, &models.Gateway{
-		UUID:  uuid.New(),
-		Vhost: "https://gateway.example.com",
-	}, &contextPath)
+	gateway := newGateway(t, models.GatewayRoleEgress, true)
+	gateway.Vhost = "https://gateway.example.com"
+	gateway.RuntimeURL = ""
 
-	_, err := svc.systemManagedLLMURL(context.Background(), &models.AgentConfiguration{
-		UUID:        configUUID,
-		Name:        "model",
-		ProjectName: "project",
-		AgentID:     "agent",
-	}, "org", "dev", envUUID)
+	_, err := callSystemManagedLLMURL(t, gateway, "/llm/proxy")
 
 	require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
 }
 
-// llmURLFixture wires an agentConfigurationService whose single LLM mapping resolves to gateway.
-func llmURLFixture(t *testing.T, gateway *models.Gateway, contextPath *string) (*agentConfigurationService, uuid.UUID, uuid.UUID) {
+// callSystemManagedLLMURL resolves the LLM URL for a config whose single mapping is deployed
+// to gateway, reusing gatewayFixtureRepo so gateway lookup behaves as the real SQL does.
+func callSystemManagedLLMURL(t *testing.T, gateway *models.Gateway, contextPath string) (string, error) {
 	t.Helper()
-	configUUID := uuid.New()
-	envUUID := uuid.New()
-	proxyUUID := uuid.New()
+	configUUID, envUUID, proxyUUID := uuid.New(), uuid.New(), uuid.New()
 	svc := &agentConfigurationService{
 		envMappingRepo: &repomocks.EnvAgentModelMappingRepositoryMock{
 			GetByConfigAndEnvFunc: func(_ context.Context, gotConfigUUID, gotEnvUUID uuid.UUID) (*models.EnvAgentModelMapping, error) {
@@ -222,7 +206,7 @@ func llmURLFixture(t *testing.T, gateway *models.Gateway, contextPath *string) (
 					LLMProxy: &models.LLMProxy{
 						UUID:          proxyUUID,
 						Handle:        "acme-openai-proxy",
-						Configuration: models.LLMProxyConfig{Context: contextPath},
+						Configuration: models.LLMProxyConfig{Context: &contextPath},
 					},
 				}, nil
 			},
@@ -243,17 +227,13 @@ func llmURLFixture(t *testing.T, gateway *models.Gateway, contextPath *string) (
 				},
 			},
 		},
-		gatewayRepo: &repomocks.GatewayRepositoryMock{
-			EnvironmentMappingExistsFunc: func(gotGatewayID, gotEnvID string) (bool, error) {
-				require.Equal(t, gateway.UUID.String(), gotGatewayID)
-				require.Equal(t, envUUID.String(), gotEnvID)
-				return true, nil
-			},
-			GetByUUIDFunc: func(gotGatewayID string) (*models.Gateway, error) {
-				require.Equal(t, gateway.UUID.String(), gotGatewayID)
-				return gateway, nil
-			},
-		},
+		gatewayRepo: gatewayFixtureRepo(t, envUUID.String(), []*models.Gateway{gateway}),
 	}
-	return svc, envUUID, configUUID
+
+	return svc.systemManagedLLMURL(context.Background(), &models.AgentConfiguration{
+		UUID:        configUUID,
+		Name:        "model",
+		ProjectName: "project",
+		AgentID:     "agent",
+	}, "org", "dev", envUUID)
 }

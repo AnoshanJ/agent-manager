@@ -377,6 +377,21 @@ func buildLLMEnvVars(templates []EnvConfigTemplate, proxyURL, secretRefName stri
 	}
 }
 
+// internalLLMEnvVars builds a platform-hosted agent's LLM env vars against the gateway's
+// in-cluster address, the only one its pod can route to. Every LLM injection site goes
+// through here so the choice of address is made once rather than re-decided per site.
+// Its sibling buildMCPEnvVars still takes a plain URL: an MCP proxy's address is
+// legitimately public, since it doubles as the OAuth resource identifier.
+func internalLLMEnvVars(
+	templates []EnvConfigTemplate, gateway *models.Gateway, contextPath *string, secretRefName string,
+) ([]client.EnvVar, error) {
+	proxyURL, err := buildInternalProxyURL(gateway, contextPath)
+	if err != nil {
+		return nil, err
+	}
+	return buildLLMEnvVars(templates, proxyURL, secretRefName), nil
+}
+
 func buildMCPEnvVars(templates []EnvConfigTemplate, proxyURL, secretRefName string) []client.EnvVar {
 	var envVars []client.EnvVar
 	for _, t := range templates {
@@ -1264,16 +1279,13 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 		// The Component CR (global, shared across envs) is updated once after the loop using the
 		// first-environment's vars to avoid last-write-wins clobbering (HIGH-3).
 		if !isExternalAgent {
-			// The agent pod reaches the gateway in-cluster; its NetworkPolicy has no route to the vhost.
-			internalProxyURL, urlErr := buildInternalProxyURL(gateway, proxyContext)
+			// Build the two env vars (URL plain, API key via secretKeyRef).
+			envVarsToInject, urlErr := internalLLMEnvVars(envConfigTemplates, gateway, proxyContext, secretRefName)
 			if urlErr != nil {
 				s.rollbackProxies(ctx, rollbackResources, ouID)
 				s.compensatingDeleteConfig(ctx, config.UUID, ouID)
 				return nil, fmt.Errorf("failed to resolve internal proxy URL for environment %s: %w", envName, urlErr)
 			}
-
-			// Build the two env vars (URL plain, API key via secretKeyRef).
-			envVarsToInject := buildLLMEnvVars(envConfigTemplates, internalProxyURL, secretRefName)
 
 			// Step 3: Inject per-environment URL and API key ref into the ReleaseBinding.
 			// Each environment gets its own ReleaseBinding with the correct per-env proxy URL,
@@ -1296,7 +1308,8 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 		s.logger.Info(
 			"Created proxy and deployment for environment",
 			"environment", envName,
-			"proxyURL", proxyURL,
+			// Public address of the proxy — NOT what a platform agent's pod is handed.
+			"proxyPublicURL", proxyURL,
 			"proxyUUID", proxy.UUID,
 		)
 	}
@@ -1896,11 +1909,10 @@ func (s *agentConfigurationService) processEnvProviderChange(
 	// but a bootstrap default is last-write-wins across environments. The Component CR write is
 	// therefore scoped to the first environment, matching every other injection site in this file.
 	if !isExternalAgent {
-		proxyURL, urlErr := buildInternalProxyURL(gateway, proxy.Configuration.Context)
+		envVarsToInject, urlErr := internalLLMEnvVars(envConfigTemplates, gateway, proxy.Configuration.Context, secretRefName)
 		if urlErr != nil {
 			return "", rbRes, pendingAppBinding{}, fmt.Errorf("failed to resolve internal proxy URL for environment %s: %w", envName, urlErr)
 		}
-		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); rbErr != nil {
 			s.logger.Error("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
 			return "", rbRes, pendingAppBinding{}, fmt.Errorf("failed to update release binding env vars for environment %s: %w", envName, rbErr)
@@ -2177,13 +2189,11 @@ func (s *agentConfigurationService) processNewEnv(
 	// last-write-wins clobbering across multiple environments (HIGH-3).
 	if !isExternalAgent {
 		// Reuse the gateway already resolved for deployment (resolveGatewayForProvider)
-		proxyURL, urlErr := buildInternalProxyURL(gateway, proxy.Configuration.Context)
+		envVarsToInject, urlErr := internalLLMEnvVars(envConfigTemplates, gateway, proxy.Configuration.Context, secretRefName)
 		if urlErr != nil {
 			s.rollbackProxies(ctx, []rollbackResource{rbRes}, ouID)
 			return rollbackResource{}, pendingAppBinding{}, fmt.Errorf("failed to resolve internal proxy URL for environment %s: %w", envName, urlErr)
 		}
-
-		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		// Inject per-env URL into the ReleaseBinding for this specific environment.
 		if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); rbErr != nil {
 			s.logger.Warn("failed to patch ReleaseBinding in Scenario C", "env", envName, "err", rbErr)
@@ -3181,11 +3191,6 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 								s.logger.Warn("Phase 1b: failed to resolve gateway for re-injection", "environment", envName, "err", gwErr)
 								continue
 							}
-							proxyURL, urlErr := buildInternalProxyURL(gateway, mapping.LLMProxy.Configuration.Context)
-							if urlErr != nil {
-								s.logger.Warn("Phase 1b: failed to resolve internal proxy URL for re-injection", "environment", envName, "err", urlErr)
-								continue
-							}
 							// Use persisted SecretReference from DB rather than deriving from mutable config name.
 							envVars1b, varErr1b := s.envVariableRepo.ListByConfigAndEnv(ctx, existingConfig.UUID, mapping.EnvironmentUUID)
 							secretRefName := ""
@@ -3206,7 +3211,11 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 								s.logger.Warn("Phase 1b: no persisted SecretReference found, skipping re-injection", "environment", envName)
 								continue
 							}
-							envVarsToInject := buildLLMEnvVars(newEnvConfigTemplates, proxyURL, secretRefName)
+							envVarsToInject, urlErr := internalLLMEnvVars(newEnvConfigTemplates, gateway, mapping.LLMProxy.Configuration.Context, secretRefName)
+							if urlErr != nil {
+								s.logger.Warn("Phase 1b: failed to resolve internal proxy URL for re-injection", "environment", envName, "err", urlErr)
+								continue
+							}
 							s.logger.Info("Phase 1b: atomically replacing env vars in ReleaseBinding",
 								"environment", envName, "keysToRemove", changedOldKeys, "envVarsToAdd", len(envVarsToInject))
 							if rbErr := s.ocClient.ReplaceReleaseBindingEnvVars(ctx, ouID, projectName, agentName, envName, changedOldKeys, envVarsToInject); rbErr != nil {
@@ -5601,6 +5610,9 @@ func (s *agentConfigurationService) BuildSystemManagedEnvVarsFromConfig(
 	return result, nil
 }
 
+// systemManagedLLMURL returns the gateway's IN-CLUSTER address for the config's LLM proxy.
+// Its only consumer builds Workload/ReleaseBinding CRs, i.e. addresses read by an agent pod.
+// Do not reuse it for an API response — see systemManagedMCPURL for the public counterpart.
 func (s *agentConfigurationService) systemManagedLLMURL(
 	ctx context.Context, config *models.AgentConfiguration, ouID, environmentName string, envUUID uuid.UUID,
 ) (string, error) {
@@ -5627,6 +5639,9 @@ func (s *agentConfigurationService) systemManagedLLMURL(
 	return buildInternalProxyURL(gateway, mapping.LLMProxy.Configuration.Context)
 }
 
+// systemManagedMCPURL returns the PUBLIC address for the config's MCP proxy. Unlike its LLM
+// counterpart it must stay public: the same URL is the OAuth resource identifier, so an
+// in-cluster address here would put an unroutable audience in every AgentID token.
 func (s *agentConfigurationService) systemManagedMCPURL(
 	ctx context.Context, config *models.AgentConfiguration, ouID, environmentName string, envUUID uuid.UUID,
 ) (string, error) {
