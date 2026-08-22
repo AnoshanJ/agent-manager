@@ -579,7 +579,6 @@ jobs:
         package-charts,
         build-amctl,
       ]
-    if: ${{ !contains(inputs.target_version, '-rc') }}
     runs-on:
       - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
