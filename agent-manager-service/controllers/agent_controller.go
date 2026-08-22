@@ -520,7 +520,7 @@ func (c *agentController) BuildAgent(w http.ResponseWriter, r *http.Request) {
 		log.Debug("BuildAgent: commitId not provided, using latest commit")
 	}
 	if err := utils.ValidateGitCommitID(commitId); err != nil {
-		log.Error("BuildAgent: invalid commitId", "error", err)
+		log.Debug("BuildAgent: invalid commitId", "error", err)
 		utils.WriteValidationErrorResponse(w, err)
 		return
 	}

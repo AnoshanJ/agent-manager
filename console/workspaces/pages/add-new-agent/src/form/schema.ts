@@ -57,6 +57,9 @@ const isBuildPath = (value: string): boolean =>
   !value.includes('..') &&
   (value === '/' || !value.endsWith('/'));
 
+// Only the host and the owner/repo segments; the backend pins the same shape.
+const gitHubRepoUrlRe = /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\.git)?\/?$/;
+
 // Base fields shared by both flows
 const baseAgentFields = {
   displayName: z
@@ -102,7 +105,7 @@ export const createAgentSchema = z.object({
     .min(1, 'Repository URL is required')
     .max(2048, 'Repository URL must be at most 2048 characters')
     .url('Must be a valid URL')
-    .refine((value) => /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\.git)?\/?$/.test(value), {
+    .refine((value) => gitHubRepoUrlRe.test(value), {
       message: 'Must be a GitHub repository URL, e.g. https://github.com/owner/repo',
     }),
   // A branch name is an argument to git, so the allowlist covers the characters
