@@ -13,7 +13,7 @@ const constantsFile = fs.readFileSync('./docs/_constants.md', 'utf-8');
 const dockerTagMatch = constantsFile.match(/quickStartDockerTag:\s*['"]([^'"]+)['"]/);
 const quickStartDockerTag = dockerTagMatch ? dockerTagMatch[1] : latestVersion;
 
-// Where the announcement bar's link points. A version like "v1.0.0-RC1" is a real
+// Where the announcement bar's link points. A version like "v1.0.0-rc1" is a real
 // release tag; a train like "v0.18.x" never is (that release was tagged v0.18.0), so
 // anything not shaped like an exact version links to the release list instead of a 404.
 const releaseUrl = /^v\d+\.\d+\.\d+/.test(latestVersion)
