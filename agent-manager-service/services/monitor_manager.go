@@ -1445,7 +1445,7 @@ func (s *monitorManagerService) resolveMonitorSecretRef(ctx context.Context, ouI
 // monitorProxyName derives the LLM proxy handle for a monitor's provider. The
 // monitor UUID suffix guarantees uniqueness across monitors. The provider is
 // represented by an 8-char sha256 fingerprint rather than a truncated name
-// substring — a substring can get squeezed out entirely once the monitor name
+// substring - a substring can get squeezed out entirely once the monitor name
 // consumes the length budget, so two different providers derive the *same*
 // handle and provisioning fails with "LLM proxy already exists" (see
 // monitor_proxy_name_test.go). A fixed-length hash can't be starved out that
