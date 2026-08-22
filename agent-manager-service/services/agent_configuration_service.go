@@ -322,15 +322,33 @@ func ensureURLScheme(host string) string {
 	return "https://" + host
 }
 
-// buildProxyURL constructs the proxy base URL from the gateway's public vhost and
+// buildPublicProxyURL constructs the proxy base URL from the gateway's public vhost and
 // an optional context path. Every agent — sandboxed included — gets the public
 // URL so the address always matches the identity resource identifier.
-func buildProxyURL(gateway *models.Gateway, contextPath *string) string {
+func buildPublicProxyURL(gateway *models.Gateway, contextPath *string) string {
 	base := ensureURLScheme(gateway.Vhost)
 	if contextPath != nil {
 		return fmt.Sprintf("%s%s", base, *contextPath)
 	}
 	return base
+}
+
+// errGatewayRuntimeURLUnregistered means the gateway has no in-cluster address recorded, so
+// no internal caller can reach it. Falling back to the public vhost would hairpin the caller
+// out through an ingress its NetworkPolicy denies, so this fails closed.
+var errGatewayRuntimeURLUnregistered = errors.New("gateway has no runtimeUrl registered")
+
+// buildInternalProxyURL constructs the proxy base URL from the gateway's in-cluster runtime
+// address, for callers that run inside the cluster.
+func buildInternalProxyURL(gateway *models.Gateway, contextPath *string) (string, error) {
+	base := strings.TrimSpace(gateway.RuntimeURL)
+	if base == "" {
+		return "", fmt.Errorf("%w: %s", errGatewayRuntimeURLUnregistered, gateway.UUID)
+	}
+	if contextPath != nil {
+		return fmt.Sprintf("%s%s", base, *contextPath), nil
+	}
+	return base, nil
 }
 
 // buildLLMEnvVars constructs the two env vars (URL and API key) from the env config templates.
@@ -1187,7 +1205,7 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 		if proxy != nil {
 			proxyContext = proxy.Configuration.Context
 		}
-		proxyURL := buildProxyURL(gateway, proxyContext)
+		proxyURL := buildPublicProxyURL(gateway, proxyContext)
 
 		// Capture credentials for external agents.
 		if isExternalAgent {
@@ -1869,7 +1887,7 @@ func (s *agentConfigurationService) processEnvProviderChange(
 	// but a bootstrap default is last-write-wins across environments. The Component CR write is
 	// therefore scoped to the first environment, matching every other injection site in this file.
 	if !isExternalAgent {
-		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
+		proxyURL := buildPublicProxyURL(gateway, proxy.Configuration.Context)
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		if rbErr := s.ocClient.UpdateReleaseBindingEnvVars(ctx, ouID, config.ProjectName, config.AgentID, envName, envVarsToInject); rbErr != nil {
 			s.logger.Error("failed to patch ReleaseBinding in Scenario A", "env", envName, "err", rbErr)
@@ -2147,7 +2165,7 @@ func (s *agentConfigurationService) processNewEnv(
 	// last-write-wins clobbering across multiple environments (HIGH-3).
 	if !isExternalAgent {
 		// Reuse the gateway already resolved for deployment (resolveGatewayForProvider)
-		proxyURL := buildProxyURL(gateway, proxy.Configuration.Context)
+		proxyURL := buildPublicProxyURL(gateway, proxy.Configuration.Context)
 
 		envVarsToInject := buildLLMEnvVars(envConfigTemplates, proxyURL, secretRefName)
 		// Inject per-env URL into the ReleaseBinding for this specific environment.
@@ -3147,7 +3165,7 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 								s.logger.Warn("Phase 1b: failed to resolve gateway for re-injection", "environment", envName, "err", gwErr)
 								continue
 							}
-							proxyURL := buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context)
+							proxyURL := buildPublicProxyURL(gateway, mapping.LLMProxy.Configuration.Context)
 							// Use persisted SecretReference from DB rather than deriving from mutable config name.
 							envVars1b, varErr1b := s.envVariableRepo.ListByConfigAndEnv(ctx, existingConfig.UUID, mapping.EnvironmentUUID)
 							secretRefName := ""
@@ -5586,7 +5604,7 @@ func (s *agentConfigurationService) systemManagedLLMURL(
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve gateway for LLM proxy in %s: %w", environmentName, err)
 	}
-	return buildProxyURL(gateway, mapping.LLMProxy.Configuration.Context), nil
+	return buildPublicProxyURL(gateway, mapping.LLMProxy.Configuration.Context), nil
 }
 
 func (s *agentConfigurationService) systemManagedMCPURL(
