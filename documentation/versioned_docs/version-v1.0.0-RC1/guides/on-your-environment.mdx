@@ -197,12 +197,6 @@ Keep this shell session for the whole install, and store the values in your secr
 
 :::
 
-:::info External AI gateways
-
-AI gateways running outside this cluster connect through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Phase 2 passes this hostname to the Agent Manager install; nothing else is needed beyond the DNS record. See [Register an AI Gateway](./register-ai-gateway.mdx).
-
-:::
-
 ---
 
 ## Phase 1: OpenChoreo Platform
@@ -1827,8 +1821,6 @@ Two constraints are worth knowing before you choose:
 - A gateway's role is fixed when it first registers. A later `helm upgrade` with a different `gateway.type` only logs a drift warning — it never rewrites the role — so an environment's topology cannot be switched in place. Moving an existing environment to a split topology means deleting and recreating it.
 
 `REGULAR` and `AI` are still accepted as input, mapping to `BOTH` and `EGRESS`, but they are deprecated; prefer the role names.
-
-AI gateways can also run **outside** the cluster (for example, close to a private LLM endpoint), connecting back through the control-plane gateway at `https://${CP_GW_PUBLIC_HOST}`. Register those as `EGRESS`, since they serve outbound traffic only — see [Register an AI Gateway](./register-ai-gateway.mdx). The WSO2 [AI Gateway Kubernetes deployment guide](https://wso2.com/api-platform/docs/ai-gateway/1.1.0/deployment-modes/kubernetes/gateway-operator/) covers running one under the gateway operator.
 
 ### Build Workflows
 
