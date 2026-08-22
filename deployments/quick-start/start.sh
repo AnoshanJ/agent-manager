@@ -5,8 +5,9 @@
 # so it can be fetched and run directly on the host:
 #   curl -fsSL <URL>/start.sh -o start.sh && chmod +x start.sh && ./start.sh
 #
-# It only checks host prerequisites and launches the dev container; the container
-# itself runs install.sh automatically once it starts (see entrypoint.sh).
+# It only checks host prerequisites and launches the dev container; install.sh
+# is not run automatically — run it yourself from the container shell once it
+# starts.
 set -euo pipefail
 
 # Stamped to the release version at build time (see .github/scripts/update-install-helpers.sh
@@ -23,7 +24,7 @@ usage() {
 Usage: ./start.sh [--version vX.Y.Z]
 
 Checks local prerequisites, then launches the Agent Manager quick-start dev
-container. Installation runs automatically once the container starts.
+container. Run ./install.sh from the container shell to install the platform.
 
   --version   Quick-start image tag to run (default: the version this script
               shipped with, or $QUICK_START_VERSION if set)
@@ -64,7 +65,7 @@ case "$ARCH" in
 esac
 
 log "Starting quick-start dev container (${IMAGE}:v${VERSION})"
-log "The container will run install.sh automatically once it starts (~15-20 minutes)."
+log "Run ./install.sh from the container shell to install the platform (~15-20 minutes)."
 exec docker run --rm -it --name amp-quick-start \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --network=host \
