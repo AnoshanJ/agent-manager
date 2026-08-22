@@ -89,18 +89,53 @@ spec:
             if [ -z "$FILE_MOUNTS" ] || [ "$FILE_MOUNTS" = "null" ]; then FILE_MOUNTS='[]'; fi
             if [ -z "$ENDPOINTS" ] || [ "$ENDPOINTS" = "null" ]; then ENDPOINTS='[]'; fi
 
+            # An endpoint name becomes a key in the Workload CR, so a repeated name
+            # would drop every earlier endpoint that shares it. Fail instead.
+            DUPLICATE_ENDPOINTS=$(printf '%s' "$ENDPOINTS" \
+              | jq -r '[.[].name] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')
+            if [ -n "$DUPLICATE_ENDPOINTS" ]; then
+              echo "Error: duplicate endpoint names: ${DUPLICATE_ENDPOINTS}"
+              exit 1
+            fi
+
             # --- Step 1: Resolve endpoint schemas that point at a file in the source tree ---
             # The file is read with jq --rawfile so its contents are JSON-encoded by
             # jq and never pass through the shell or through YAML text assembly.
+            #
+            # The path is validated by the API before it gets here, which stops "..",
+            # but not a symlink committed in the repository: this container mounts its
+            # service account token, and whatever is read lands in the Workload CR the
+            # caller can read back. So the target is canonicalised and required to stay
+            # inside the checkout.
+            SOURCE_ROOT=$(realpath "$SOURCE_PATH" 2>/dev/null || true)
             ENDPOINT_COUNT=$(printf '%s' "$ENDPOINTS" | jq 'length')
             i=0
             while [ "$i" -lt "$ENDPOINT_COUNT" ]; do
               schema_content=$(printf '%s' "$ENDPOINTS" | jq -r --argjson i "$i" '.[$i].schemaContent // ""')
               schema_file=$(printf '%s' "$ENDPOINTS" | jq -r --argjson i "$i" '.[$i].schemaFilePath // ""')
-              if [ -z "$schema_content" ] && [ -n "$schema_file" ] && [ -f "${SOURCE_PATH}${schema_file}" ]; then
-                ENDPOINTS=$(printf '%s' "$ENDPOINTS" | jq --argjson i "$i" \
-                  --rawfile content "${SOURCE_PATH}${schema_file}" '.[$i].schemaContent = $content')
+              if [ -n "$schema_content" ] || [ -z "$schema_file" ]; then
+                i=$((i + 1))
+                continue
               fi
+
+              resolved=$(realpath "${SOURCE_PATH}${schema_file}" 2>/dev/null || true)
+              if [ -z "$resolved" ] || [ ! -f "$resolved" ]; then
+                # Pre-existing behaviour is to carry on without a schema; say so
+                # rather than leaving the endpoint silently schema-less.
+                echo "Warning: schema file '${schema_file}' not found; endpoint will have no schema"
+                i=$((i + 1))
+                continue
+              fi
+              case "$resolved" in
+                "$SOURCE_ROOT"/*) ;;
+                *)
+                  echo "Error: schema file '${schema_file}' resolves outside the repository checkout"
+                  exit 1
+                  ;;
+              esac
+
+              ENDPOINTS=$(printf '%s' "$ENDPOINTS" | jq --argjson i "$i" \
+                --rawfile content "$resolved" '.[$i].schemaContent = $content')
               i=$((i + 1))
             done
 
