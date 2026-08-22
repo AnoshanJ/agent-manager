@@ -4866,9 +4866,8 @@ type ThunderUrlRequest struct {
 	// Handle DNS-label-safe handle (lowercase alphanumeric with hyphens, no
 	// leading/trailing hyphen) that replaces "<org>-<env>" in
 	// "<handle>.<baseDomain>". Must be globally unique across
-	// all orgs/environments, and at least 10 characters (matching what
-	// the server itself generates — anything shorter is trivially
-	// guessable). Omit to auto-generate a 10-character handle.
+	// all orgs/environments, and at least 3 characters. Omit to
+	// auto-generate a 10-character handle.
 	Handle *string `json:"handle,omitempty"`
 }
 

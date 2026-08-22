@@ -14471,11 +14471,10 @@ components:
             DNS-label-safe handle (lowercase alphanumeric with hyphens, no
             leading/trailing hyphen) that replaces "<org>-<env>" in
             "<handle>.<baseDomain>". Must be globally unique across
-            all orgs/environments, and at least 10 characters (matching what
-            the server itself generates — anything shorter is trivially
-            guessable). Omit to auto-generate a 10-character handle.
+            all orgs/environments, and at least 3 characters. Omit to
+            auto-generate a 10-character handle.
           pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-          minLength: 10
+          minLength: 3
           maxLength: 63
           example: x7f2q9kzab
 
@@ -14491,7 +14490,7 @@ components:
         handle:
           type: string
           pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-          minLength: 10
+          minLength: 3
           maxLength: 63
           example: x7f2q9kzab
 
