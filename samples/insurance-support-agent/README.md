@@ -7,6 +7,8 @@ the gateway.
 The agent works on its own — deploy it and chat from **Try It**. The login flow
 is an optional second step, and the UI runs with or without it.
 
+The browser client is a separate app with its own README — see [`web/`](web/README.md).
+
 ## What is in here
 
 | Path                 | Purpose                                                                  |
@@ -15,7 +17,8 @@ is an optional second step, and the UI runs with or without it.
 | `agent.py`           | Strands agent and OpenAI model wiring                                    |
 | `tools.py`           | Five tools: list policies, list claims, lookup, claim status, file claim |
 | `data.py`            | In-memory policies and claims — no database to set up                    |
-| `frontend/`          | The invoking service: a single-page UI that calls the agent              |
+| `system_prompt.py`   | The agent's instructions. Edit this to change behaviour.                 |
+| `web/`               | React + TypeScript chat client. See `web/README.md`.                     |
 
 The agent handles five things: list the customer's policies, list their claims,
 show the full cover on one policy, check a claim's status, and open a new claim.
@@ -28,7 +31,7 @@ Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
 ## Prerequisites
 
 - An OpenAI API key
-- Python 3.11+ to run the agent or the UI locally
+- Python 3.11+ to run the agent locally
 
 ## Run locally
 
@@ -36,7 +39,7 @@ Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY=<your-key>
-export CORS_ALLOW_ORIGINS="http://localhost:13000"
+export CORS_ALLOW_ORIGINS="http://localhost:5173"
 PORT=10150 python main.py
 ```
 
@@ -49,14 +52,8 @@ curl -X POST http://localhost:10150/chat \
   -d '{"session_id":"s1","message":"What policies do I have?"}'
 ```
 
-Then run the UI against it — no login, since no provider is configured:
-
-```bash
-source .venv/bin/activate
-AGENT_URL=http://localhost:10150/chat python frontend/serve.py
-```
-
-Open <http://localhost:13000>.
+Then run the web client against it — see [`web/README.md`](web/README.md) for
+setup.
 
 ## Environment variables
 
@@ -73,16 +70,6 @@ Open <http://localhost:13000>.
 
 Set `OPENAI_BASE_URL` when routing model calls through a gateway; the key you
 supply in `OPENAI_API_KEY` is then the gateway's key.
-
-### Frontend (`frontend/serve.py`)
-
-| Variable         | Required | Default                       | Purpose                                           |
-| ---------------- | -------- | ----------------------------- | ------------------------------------------------- |
-| `AGENT_URL`      | yes      | `http://localhost:10150/chat` | Full chat URL — local or the deployed gateway URL |
-| `OIDC_ISSUER`    | no       | —                             | Issuer base URL; discovery is appended            |
-| `OIDC_CLIENT_ID` | no       | —                             | **Unset means no login** — the UI chats directly  |
-| `OIDC_SCOPES`    | no       | `openid profile email`        | Requested scopes                                  |
-| `UI_PORT`        | no       | `13000`                       | UI port                                           |
 
 ## 1. Deploy in Agent Manager
 
@@ -121,76 +108,8 @@ Review and click **Deploy**. The build takes roughly 6-10 minutes.
 
 ## 2. Invoke the agent
 
-Use **Try It** in the left navigation, or point the UI at the deployed agent:
-
-```bash
-AGENT_URL=https://<your-agent-url>/chat python frontend/serve.py
-```
-
-## 3. Optional: secure the agent with OAuth2
-
-The gateway validates the caller's JWT; the agent itself does no auth work. The
-UI performs an OpenID Connect authorization-code flow with PKCE as a public
-client, then sends the access token as `Authorization: Bearer`.
-
-### With the bundled identity provider (Thunder)
-
-Every installation ships ThunderID, already registered with the gateway as
-`ThunderKeyManager`, so there is no identity provider to add.
-
-1. **Create an OAuth application in Thunder.** It must be a public client with
-   PKCE — grant type `authorization_code`, token endpoint auth method `none`,
-   and callback URL `http://localhost:13000/`. Note the client ID and the Thunder
-   issuer URL.
-2. **Enable OAuth on the agent.** Open the agent, click **Deploy** →
-   **Configure & Deploy**, and under **Endpoint Authentication** select
-   **OAuth**, then choose `ThunderKeyManager`.
-3. **Run the UI with the provider configured:**
-
-   ```bash
-   export AGENT_URL=https://<your-agent-url>/chat
-   export OIDC_ISSUER=<thunder-issuer-url>
-   export OIDC_CLIENT_ID=<client-id-from-step-1>
-   python frontend/serve.py
-   ```
-
-Open <http://localhost:13000> and sign in. The UI greets you using the `given_name`
-claim from the ID token, then chats through the gateway.
-
-To confirm the gateway is enforcing the token, call the agent without one:
-
-```bash
-curl -i -X POST https://<your-agent-url>/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"s1","message":"hello"}'
-```
-
-This should return `401`.
-
-### What this sample deliberately leaves out
-
-Conversation history is kept in memory, keyed on the `session_id` the caller
-sends. The gateway authenticates the caller, but the agent never reads the token,
-so it cannot tell one signed-in customer from another — anyone holding a valid
-token who knows a `session_id` could resume that conversation. A real deployment
-should key sessions on the authenticated subject (and move them out of process
-memory). The store here is capped and evicts oldest-first, which is enough for a
-demo and nothing more.
-
-### With another provider (Asgardeo, Okta, ...)
-
-The UI is provider-agnostic — it reads the issuer's
-`.well-known/openid-configuration` and uses whatever endpoints it advertises.
-
-1. Create the equivalent application with your provider — a **single-page
-   application** / public client with PKCE and callback `http://localhost:13000/`.
-2. Register the provider once in the console under **Gateways → Identity
-   Providers**: paste the issuer URL and let discovery populate the issuer and
-   JWKS URI.
-3. Select that provider in step 2 above instead of `ThunderKeyManager`, and set
-   `OIDC_ISSUER` and `OIDC_CLIENT_ID` to its values.
-
-Nothing else changes.
+Use **Try It** in the left navigation, or point the web client at the deployed
+agent — see [`web/README.md`](web/README.md).
 
 ## Observability
 
