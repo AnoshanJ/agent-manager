@@ -426,13 +426,12 @@ This chart also ships `amp-build-workflow-egress`, a `NetworkPolicy` on the `wor
 
 Builds keep **unrestricted egress to the public internet on every port**, IPv4 and IPv6, which is what base images, package registries, and mirrors need. What is withheld is RFC1918, `169.254.0.0/16` (the metadata endpoint), `100.64.0.0/10`, and the IPv6 private and link-local ranges — minus the two re-allowances builds cannot work without: your API server (Argo reports step status there) and your registry. Left at their RFC1918 defaults those two span far more than the intended hosts, so narrow them.
 
-This policy lands in `workflows-<environment>`, which OpenChoreo does not create until a workflow first runs there. The chart creates it if it is absent, so a fresh install works either way; an environment you add later needs its own render with `networkPolicy.buildWorkflows.namespace` set.
+This policy lands in `workflows-<environment>`, which OpenChoreo does not create until a workflow first runs there. The chart creates it if it is absent, so a fresh install works either way. If builds run in more than one workflow namespace on your install, name them all in `networkPolicy.buildWorkflows.namespaces` — one policy is rendered per entry, and a namespace left off the list has no policy.
 
-Two cases need a `--set`:
+Two cases need a `--set`. `kubectl -n default get endpoints kubernetes` prints an address, not a subnet, so turn it into a host CIDR with `/32` (`172.19.0.2` becomes `172.19.0.2/32`) or use the control-plane subnet it sits in if you know it:
 
 ```bash
-  # your control-plane subnet, from `kubectl -n default get endpoints kubernetes`
-  --set "networkPolicy.buildWorkflows.apiServer.cidrs[0]=<control-plane-subnet>" \
+  --set "networkPolicy.buildWorkflows.apiServer.cidrs[0]=<api-server-ip>/32" \
   # the subnet your registry is on, if it is not reached over the public internet
   --set "networkPolicy.buildWorkflows.registry.cidrs[0]=<registry-subnet>"
 ```
