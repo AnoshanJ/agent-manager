@@ -35,6 +35,8 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 )
 
+// repoConfigForTest builds the minimal RepositoryConfig the validator reads:
+// secretRef is left unset, which means a public repository.
 func repoConfigForTest(url, branch, appPath string) *spec.RepositoryConfig {
 	return &spec.RepositoryConfig{
 		Url:     url,
@@ -43,6 +45,9 @@ func repoConfigForTest(url, branch, appPath string) *spec.RepositoryConfig {
 	}
 }
 
+// TestValidateRepoDetails covers the repository fields together, since the
+// validator short-circuits: a case has to keep the other two fields valid for its
+// own field to be the one under test.
 func TestValidateRepoDetails(t *testing.T) {
 	const (
 		okURL     = "https://github.com/wso2/agent-manager"
@@ -121,6 +126,8 @@ func TestValidateRepoDetails(t *testing.T) {
 	}
 }
 
+// TestIsValidGitHubBranch pins both halves of the check: the character allowlist,
+// and the git refname rules a character class cannot express.
 func TestIsValidGitHubBranch(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -172,6 +179,8 @@ func TestIsValidGitHubBranch(t *testing.T) {
 	}
 }
 
+// TestValidateGitCommitID pins the accepted abbreviation range at both ends, an
+// empty value meaning "latest on the branch", and rejection of anything non-hex.
 func TestValidateGitCommitID(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -181,11 +190,14 @@ func TestValidateGitCommitID(t *testing.T) {
 		// Empty means "latest commit on the branch".
 		{"empty", "", false},
 		{"abbreviated", "ee4f70e4", false},
-		{"shortest accepted", "ee4f70e", false},
+		{"rev-parse --short length", "ee4f70e", false},
+		// git's own minimum abbreviation, and what existing callers may send.
+		{"shortest accepted", "abc1", false},
+		{"six characters", "abc123", false},
 		{"full sha", "ee4f70e4cba1234567890abcdef1234567890abc", false},
 		{"upper case", "EE4F70E4", false},
 
-		{"too short", "ee4f70", true},
+		{"too short", "abc", true},
 		{"too long", strings.Repeat("a", 41), true},
 		{"non-hexadecimal", "zzzzzzz", true},
 		// The first eight characters of the commit also become part of the image
@@ -211,6 +223,8 @@ func TestValidateGitCommitID(t *testing.T) {
 	}
 }
 
+// TestValidateBuildConfigurationDockerfilePath exercises the shared path rules
+// through the docker build branch, which is the other caller of validateSafePath.
 func TestValidateBuildConfigurationDockerfilePath(t *testing.T) {
 	tests := []struct {
 		name           string

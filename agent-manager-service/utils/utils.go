@@ -1323,8 +1323,11 @@ func isValidGitHubBranch(branch string) bool {
 	return true
 }
 
-// gitCommitIDRe matches an abbreviated or full SHA-1 object name.
-var gitCommitIDRe = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+// gitCommitIDRe matches an abbreviated or full SHA-1 object name. The lower bound
+// is git's own minimum abbreviation length rather than the 7 that
+// "git rev-parse --short" happens to emit, so a caller passing a shorter
+// abbreviation is not rejected here and left to fail against the real repository.
+var gitCommitIDRe = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // ValidateGitCommitID validates an optional commit to build. An empty value means
 // "use the latest commit on the branch" and is accepted. The commit reaches git
@@ -1336,8 +1339,8 @@ func ValidateGitCommitID(commitID string) error {
 	}
 	if !gitCommitIDRe.MatchString(commitID) {
 		return NewValidationError(
-			"Invalid commit. Provide a commit SHA of 7 to 40 hexadecimal characters",
-			"commitId must be a hexadecimal git object name of 7 to 40 characters",
+			"Invalid commit. Provide a commit SHA of 4 to 40 hexadecimal characters",
+			"commitId must be a hexadecimal git object name of 4 to 40 characters",
 		)
 	}
 	return nil
