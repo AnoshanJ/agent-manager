@@ -125,7 +125,7 @@ spec:
             # Endpoints
             if [ -n "$ENDPOINTS" ] && [ "$ENDPOINTS" != "null" ] && [ "$ENDPOINTS" != "[]" ]; then
               echo "  endpoints:" >> "$OUT"
-              while read -r ep; do
+              echo "$ENDPOINTS" | jq -c '.[]' | while read -r ep; do
                 NAME=$(echo "$ep" | jq -r '.name')
                 TYPE=$(echo "$ep" | jq -r '.type // "HTTP"')
                 PORT=$(echo "$ep" | jq -r '.port')
@@ -155,7 +155,7 @@ spec:
                   echo "        content: |" >> "$OUT"
                   sed 's/^/          /' "$SOURCE_PATH$SCHEMA_FILE_PATH" >> "$OUT"
                 fi
-              done < <(echo "$ENDPOINTS" | jq -c '.[]')
+              done
             fi
 
             echo "Workload CR saved to $OUT"

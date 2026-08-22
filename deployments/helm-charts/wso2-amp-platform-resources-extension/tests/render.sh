@@ -87,14 +87,12 @@ BENIGN_FILE_MOUNTS='[{"key":"policy","mountPath":"/etc/policy.txt","value":"plai
 BENIGN_APP_PATH='.'
 
 # assert_parses <label> <endpoints> <env-vars> <file-mounts> <app-path>
-# Checked with bash rather than sh: the script uses process substitution, which a
-# POSIX shell rejects on its own and which would mask the quoting defect behind an
-# unrelated parse error. Unbalanced quoting is a syntax error in every shell, so
-# bash -n reproduces the same failure the build hits in its own image.
+# Checked with sh, which is what the step's container runs the script under, so a
+# bashism that a bash-backed image happens to tolerate cannot pass unnoticed.
 assert_parses() {
   local label="$1" err
   err="$(V_ENDPOINTS="$2" V_ENV_VARS="$3" V_FILE_MOUNTS="$4" V_APP_PATH="$5" \
-    resolve <<<"$SCRIPT" | bash -n 2>&1)"
+    resolve <<<"$SCRIPT" | sh -n 2>&1)"
   if [[ -z "$err" ]]; then
     printf 'ok   - generate-workload parses with %s\n' "$label"
   else
