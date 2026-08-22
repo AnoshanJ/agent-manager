@@ -1588,7 +1588,7 @@ ENV_THUNDER_PROVISIONED=false
 if ! install_default_env_thunder; then
     log_error "Default environment Thunder provisioning failed"
     echo "Re-run manually once the platform is ready:"
-    echo "  ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"
+    echo "  ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default THUNDER_HANDLE=default-idp \\"
     echo "  AMP_API_URL=${AMP_API_URL:-http://api.amp.localhost:8080/api/v1} \\"
     echo "  IDP_TOKEN_URL=${IDP_TOKEN_URL:-http://thunder.amp.localhost:8080/oauth2/token} \\"
     # install_default_env_thunder() prefers the bundled script and falls back to

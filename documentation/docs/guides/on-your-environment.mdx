@@ -1476,6 +1476,7 @@ Platform Thunder's certificate comes from a real, publicly-trusted CA, so env-Th
 ENV_NAME=default \
 DISPLAY_NAME="Default" \
 ORG_NAME=default \
+THUNDER_HANDLE=default-idp \
 WAIT_TIMEOUT=300s \
 AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
 IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
@@ -1523,6 +1524,7 @@ Keeping your system bundle in there too (rather than only the one CA) matters be
 ENV_NAME=default \
 DISPLAY_NAME="Default" \
 ORG_NAME=default \
+THUNDER_HANDLE=default-idp \
 WAIT_TIMEOUT=300s \
 AMP_API_URL="${API_PUBLIC_URL}/api/v1" \
 IDP_TOKEN_URL="${THUNDER_PUBLIC_URL}/oauth2/token" \
@@ -1539,10 +1541,9 @@ bash add-environment-thunder.sh
   </TabItem>
 </Tabs>
 
-To choose a meaningful handle for this Environment's ThunderID instance (e.g.
-`env-idp-prod` instead of a random string), add
-`THUNDER_HANDLE=<3-63-character-handle>` to either command above; otherwise
-Agent Manager generates one. The script prints the resulting issuer as
+Both commands above register `default-idp` as this Environment's handle.
+`THUNDER_HANDLE` is optional (3-63 characters); change it or omit it to have
+Agent Manager generate one instead. The script prints the resulting issuer as
 `https://<handle>.${BASE_DOMAIN}`.
 
 :::info

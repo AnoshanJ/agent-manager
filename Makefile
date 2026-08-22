@@ -142,13 +142,14 @@ setup-openchoreo:
 # migrated (store_via_ams needs it) — hence after dev-migrate, not in setup-openchoreo.sh.
 setup-default-env-thunder:
 	@ENV_NAME=default DISPLAY_NAME="Default" ORG_NAME=default \
+	  THUNDER_HANDLE=default-idp \
 	  WAIT_TIMEOUT=300s \
 	  AMP_API_URL="http://localhost:9000/api/v1" \
 	  bash deployments/scripts/add-environment-thunder.sh \
 	  && echo "✅ Default environment Thunder ID instance provisioned" \
 	  || { \
 	    echo "⚠️  Default-env Thunder provisioning failed — continuing with remaining setup steps."; \
-	    echo "    Re-run manually: ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default \\"; \
+	    echo "    Re-run manually: ENV_NAME=default DISPLAY_NAME=Default ORG_NAME=default THUNDER_HANDLE=default-idp \\"; \
 	    echo "      AMP_API_URL=http://localhost:9000/api/v1 \\"; \
 	    echo "      bash deployments/scripts/add-environment-thunder.sh"; \
 	  }
