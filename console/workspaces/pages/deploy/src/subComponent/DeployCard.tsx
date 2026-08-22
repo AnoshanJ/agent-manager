@@ -155,33 +155,33 @@ function ResourceConfigsPanel({
   const lastMemory = metrics?.memory?.length
     ? metrics.memory[metrics.memory.length - 1]?.value
     : undefined;
-  const lastCpuRequest = metrics?.cpuRequests?.length
-    ? metrics.cpuRequests[metrics.cpuRequests.length - 1]?.value
+  const lastCpuLimit = metrics?.cpuLimits?.length
+    ? metrics.cpuLimits[metrics.cpuLimits.length - 1]?.value
     : undefined;
-  const lastMemoryRequest = metrics?.memoryRequests?.length
-    ? metrics.memoryRequests[metrics.memoryRequests.length - 1]?.value
+  const lastMemoryLimit = metrics?.memoryLimits?.length
+    ? metrics.memoryLimits[metrics.memoryLimits.length - 1]?.value
     : undefined;
-  const cpuRequest = resourceConfigs?.resources?.requests?.cpu ?? "—";
-  const memoryRequest = resourceConfigs?.resources?.requests?.memory ?? "—";
+  const cpuLimit = resourceConfigs?.resources?.limits?.cpu ?? "—";
+  const memoryLimit = resourceConfigs?.resources?.limits?.memory ?? "—";
   const cpuPercent =
-    lastCpu !== undefined && lastCpuRequest !== undefined && lastCpuRequest > 0
-      ? formatUsagePercent(lastCpu, lastCpuRequest)
+    lastCpu !== undefined && lastCpuLimit !== undefined && lastCpuLimit > 0
+      ? formatUsagePercent(lastCpu, lastCpuLimit)
       : undefined;
   const memoryPercent =
     lastMemory !== undefined &&
-      lastMemoryRequest !== undefined &&
-      lastMemoryRequest > 0
-      ? formatUsagePercent(lastMemory, lastMemoryRequest)
+      lastMemoryLimit !== undefined &&
+      lastMemoryLimit > 0
+      ? formatUsagePercent(lastMemory, lastMemoryLimit)
       : undefined;
   const cpuVariant =
-    lastCpu !== undefined && lastCpuRequest !== undefined && lastCpuRequest > 0
-      ? getUsagePercentVariant(lastCpu, lastCpuRequest)
+    lastCpu !== undefined && lastCpuLimit !== undefined && lastCpuLimit > 0
+      ? getUsagePercentVariant(lastCpu, lastCpuLimit)
       : undefined;
   const memoryVariant =
     lastMemory !== undefined &&
-      lastMemoryRequest !== undefined &&
-      lastMemoryRequest > 0
-      ? getUsagePercentVariant(lastMemory, lastMemoryRequest)
+      lastMemoryLimit !== undefined &&
+      lastMemoryLimit > 0
+      ? getUsagePercentVariant(lastMemory, lastMemoryLimit)
       : undefined;
 
   if (isLoading) {
@@ -221,20 +221,20 @@ function ResourceConfigsPanel({
       <ResourceMetricChip
         icon={<Cpu size={16} />}
         label="CPU"
-        primaryValue={cpuRequest}
+        primaryValue={cpuLimit}
         secondaryValue={cpuPercent}
         secondaryTooltip={
-          cpuPercent ? "Current usage as % of requested." : undefined
+          cpuPercent ? "Current usage as % of limit." : undefined
         }
         secondaryVariant={cpuVariant}
       />
       <ResourceMetricChip
         icon={<MemoryStick size={16} />}
         label="Memory"
-        primaryValue={memoryRequest}
+        primaryValue={memoryLimit}
         secondaryValue={memoryPercent}
         secondaryTooltip={
-          memoryPercent ? "Current usage as % of requested." : undefined
+          memoryPercent ? "Current usage as % of limit." : undefined
         }
         secondaryVariant={memoryVariant}
       />
