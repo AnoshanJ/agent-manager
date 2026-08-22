@@ -38,6 +38,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/instrumentation"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -2967,6 +2968,22 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", fmt.Errorf("no environment found in deployment pipeline")
 	}
 
+	// A deploy always targets the pipeline's lowest environment, so the tier has
+	// to be checked here rather than at the edge: the route cannot know where the
+	// agent will land. Nothing is written before this point.
+	//
+	// targetEnv is resolved once, here. It used to be fetched further down, after
+	// most of the deploy request had been assembled, with a lookup failure only
+	// warned about — which meant a deploy could proceed without knowing where it
+	// was going, silently skipping the config, OAuth-issuer and trait work that
+	// needs the environment, and recording isProduction:false for what may have
+	// been a production deploy. Authorization cannot be that tolerant, so the
+	// lookup is now fail-closed and its result is reused below.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, lowestEnv)
+	if err != nil {
+		return "", err
+	}
+
 	// The cell namespace for (project, environment) is owned by a
 	// ProjectReleaseBinding. Without one the release binding this deploy creates
 	// fails to apply with `namespaces "dp-..." not found`. Ensure it here rather
@@ -3103,28 +3120,21 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 	s.logger.Debug("Processed file mounts", "agentName", agentName, "count", len(overrideFileVars))
 
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, lowestEnv)
-	if err != nil {
-		s.logger.Warn("Failed to get environment details", "environment", lowestEnv, "error", err)
-	}
-
 	// Read the existing agent_configs row once so we can resolve omitted request
 	// fields from DB and preserve pinned instrumentation_version during Upsert.
 	var existingConfig *models.AgentConfig
-	if targetEnv != nil {
-		cfg, configErr := s.agentConfigRepo.Get(ctx, ouID, projectName, agentName, targetEnv.Name)
-		switch {
-		case errors.Is(configErr, repositories.ErrAgentConfigNotFound):
-			s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
-		case configErr != nil:
-			return "", fmt.Errorf("failed to read agent config for environment %q: %w", targetEnv.Name, configErr)
-		default:
-			existingConfig = cfg
-			s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
-				"enableAutoInstrumentation", cfg.EnableAutoInstrumentation,
-				"enableApiKeySecurity", cfg.EnableApiKeySecurity,
-				"instrumentationVersion", cfg.InstrumentationVersion)
-		}
+	cfg, configErr := s.agentConfigRepo.Get(ctx, ouID, projectName, agentName, targetEnv.Name)
+	switch {
+	case errors.Is(configErr, repositories.ErrAgentConfigNotFound):
+		s.logger.Debug("No config in database, using defaults", "agentName", agentName, "environment", targetEnv.Name)
+	case configErr != nil:
+		return "", fmt.Errorf("failed to read agent config for environment %q: %w", targetEnv.Name, configErr)
+	default:
+		existingConfig = cfg
+		s.logger.Debug("Read config from database", "agentName", agentName, "environment", targetEnv.Name,
+			"enableAutoInstrumentation", cfg.EnableAutoInstrumentation,
+			"enableApiKeySecurity", cfg.EnableApiKeySecurity,
+			"instrumentationVersion", cfg.InstrumentationVersion)
 	}
 
 	// Resolve config values: request > DB > defaults
@@ -3140,10 +3150,8 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	if err := validateOAuthSecurityConfig(apiCfg); err != nil {
 		return "", err
 	}
-	if targetEnv != nil {
-		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-			return "", err
-		}
+	if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+		return "", err
 	}
 	enableAutoInstrumentation := tracingCfg.EnableAutoInstrumentation
 	enableApiKeySecurity := apiCfg.EnableApiKeySecurity
@@ -3206,9 +3214,6 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// environment's ReleaseBinding instead — see applyEnvScopedWorkloadConfig.
 
 	if isAPIAgent {
-		if targetEnv == nil {
-			return "", fmt.Errorf("cannot deploy API agent without environment details")
-		}
 		apiArtifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
 		if artifactErr != nil {
 			return "", fmt.Errorf("cannot deploy API agent without environment API artifact record: %w", artifactErr)
@@ -3255,10 +3260,11 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// This updates the Workload image only; env vars and file mounts are applied per-environment
 	// via the release binding below.
 	s.logger.Debug("Deploying agent component in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", req.ImageId)
-	// The permission gating this route is agent:deploy-non-production whatever
-	// the pipeline's lowest environment actually is, so the record has to carry
-	// the real target and whether it is production. Without that the trail
-	// cannot distinguish a sandbox push from a production one.
+	// The route declares only the tier floor, whatever the pipeline's lowest
+	// environment actually is, so the record has to carry the real target and
+	// whether it is production. Without that the trail cannot distinguish a
+	// sandbox push from a production one. The flag comes from the tier check
+	// above, which already resolved the environment.
 	deployAttempt, auditErr := audit.Begin(
 		ctx, audit.ActionAgentDeploy,
 		audit.Org(ouID),
@@ -3267,7 +3273,7 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		audit.Environment(lowestEnv),
 		audit.Detail("agentName", agentName),
 		audit.Detail("environment", lowestEnv),
-		audit.Detail("isProduction", targetEnv != nil && targetEnv.IsProduction),
+		audit.Detail("isProduction", targetEnv.IsProduction),
 		audit.Detail("imageId", req.ImageId),
 	)
 	if auditErr != nil {
@@ -3307,38 +3313,36 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// instrumentation_version (captured above) preserves it across the
 	// Upsert — the repo's DoUpdates map includes that column, so omitting
 	// the value would NULL out a customer's pin on every redeploy.
-	if targetEnv != nil {
-		var deployResilienceTimeoutSeconds *int32
-		if resilienceTimeoutSeconds > 0 {
-			deployResilienceTimeoutSeconds = &resilienceTimeoutSeconds
-		}
-		agentConfig := &models.AgentConfig{
-			OUID:                      ouID,
-			ProjectName:               projectName,
-			AgentName:                 agentName,
-			EnvironmentName:           targetEnv.Name,
-			EnableAutoInstrumentation: enableAutoInstrumentation,
-			InstrumentationVersion:    existingInstrumentationVersion,
-			EnableApiKeySecurity:      apiCfg.EnableApiKeySecurity,
-			CORSEnabled:               apiCfg.CORSEnabled,
-			CORSAllowOrigins:          apiCfg.CORSAllowOrigins,
-			CORSAllowMethods:          apiCfg.CORSAllowMethods,
-			CORSAllowHeaders:          apiCfg.CORSAllowHeaders,
-			CORSAllowCredentials:      apiCfg.CORSAllowCredentials,
-			EnableOAuthSecurity:       apiCfg.EnableOAuthSecurity,
-			OAuthIssuers:              apiCfg.OAuthIssuers,
-			OAuthAudiences:            apiCfg.OAuthAudiences,
-			OAuthHeaderName:           apiCfg.OAuthHeaderName,
-			OAuthAuthHeaderPrefix:     apiCfg.OAuthAuthHeaderPrefix,
-			OAuthForwardToken:         apiCfg.OAuthForwardToken,
-			ResilienceTimeoutSeconds:  deployResilienceTimeoutSeconds,
-		}
-		if configErr := s.agentConfigRepo.Upsert(ctx, agentConfig); configErr != nil {
-			s.logger.Error("Failed to persist agent config after deploy", "agentName", agentName, "environment", lowestEnv, "error", configErr)
-			return "", fmt.Errorf("agent deployed to %q but failed to persist its config (retry to reconcile): %w", lowestEnv, configErr)
-		}
-		s.logger.Debug("Persisted instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", enableAutoInstrumentation, "instrumentationVersion", existingInstrumentationVersion)
+	var deployResilienceTimeoutSeconds *int32
+	if resilienceTimeoutSeconds > 0 {
+		deployResilienceTimeoutSeconds = &resilienceTimeoutSeconds
 	}
+	agentConfig := &models.AgentConfig{
+		OUID:                      ouID,
+		ProjectName:               projectName,
+		AgentName:                 agentName,
+		EnvironmentName:           targetEnv.Name,
+		EnableAutoInstrumentation: enableAutoInstrumentation,
+		InstrumentationVersion:    existingInstrumentationVersion,
+		EnableApiKeySecurity:      apiCfg.EnableApiKeySecurity,
+		CORSEnabled:               apiCfg.CORSEnabled,
+		CORSAllowOrigins:          apiCfg.CORSAllowOrigins,
+		CORSAllowMethods:          apiCfg.CORSAllowMethods,
+		CORSAllowHeaders:          apiCfg.CORSAllowHeaders,
+		CORSAllowCredentials:      apiCfg.CORSAllowCredentials,
+		EnableOAuthSecurity:       apiCfg.EnableOAuthSecurity,
+		OAuthIssuers:              apiCfg.OAuthIssuers,
+		OAuthAudiences:            apiCfg.OAuthAudiences,
+		OAuthHeaderName:           apiCfg.OAuthHeaderName,
+		OAuthAuthHeaderPrefix:     apiCfg.OAuthAuthHeaderPrefix,
+		OAuthForwardToken:         apiCfg.OAuthForwardToken,
+		ResilienceTimeoutSeconds:  deployResilienceTimeoutSeconds,
+	}
+	if configErr := s.agentConfigRepo.Upsert(ctx, agentConfig); configErr != nil {
+		s.logger.Error("Failed to persist agent config after deploy", "agentName", agentName, "environment", lowestEnv, "error", configErr)
+		return "", fmt.Errorf("agent deployed to %q but failed to persist its config (retry to reconcile): %w", lowestEnv, configErr)
+	}
+	s.logger.Debug("Persisted instrumentation config to database", "agentName", agentName, "environment", lowestEnv, "enableAutoInstrumentation", enableAutoInstrumentation, "instrumentationVersion", existingInstrumentationVersion)
 
 	s.logger.Info("Agent deployed successfully to "+lowestEnv, "agentName", agentName, "ouID", org.Name, "projectName", projectName, "environment", lowestEnv)
 	return lowestEnv, nil
@@ -3715,6 +3719,86 @@ func buildTraitEnvConfigs(agentName string, policies []map[string]interface{}, a
 	return traitEnvConfigs
 }
 
+// requireEnvTier authorizes the caller to act on the named environment and
+// returns it.
+//
+// The environment tier is an authorization axis of its own, about *where* an
+// action lands rather than what it is: agent:env-non-production is the floor,
+// and agent:env-production is held in addition to it to reach the environments
+// OpenChoreo flags. A production environment requires both — the production
+// grant is an extra permission stacked on the floor, not a wider substitute for
+// it. That is not a free choice: the REST routes and the two MCP tools declare
+// the floor statically and deny before this method is reached, so a rule of
+// "production grant alone is sufficient" could never fire and would leave the
+// two layers describing the same decision differently.
+//
+// The check lives here rather than in route middleware because the MCP surface
+// declares tool permissions statically (mcp/tools/authz.go addTool) and has no
+// HTTP request to read a target environment from. This is the one place both
+// surfaces pass through, and mcp/tools/authz.go's withEffectiveScopes is what
+// guarantees ctx carries the same scopes the tool gate used.
+//
+// The environment is returned even on a denial, because the caller wants the
+// production flag for its audit record and this call has already paid for the
+// lookup; it is nil only when the lookup itself failed. The lookup runs before
+// the RBAC switch is consulted for the same reason: an RBAC_ENABLED=false
+// install should still get a trail that distinguishes a production change from
+// a sandbox one. The cost is that an unresolvable environment fails the
+// operation even with RBAC disabled — deliberate, and called out in Task 5.
+//
+// Nothing here allows on failure. There is deliberately no fallback for an
+// installation where no environment carries the flag: every environment is then
+// non-production, which is what the model says and what the release notes must
+// say too.
+func (s *agentManagerService) requireEnvTier(
+	ctx context.Context, ouID, envName string,
+) (*models.EnvironmentResponse, error) {
+	env, err := s.ocClient.GetEnvironment(ctx, ouID, envName)
+	if err != nil {
+		s.logger.Error("Failed to resolve environment for the tier check",
+			"ouID", ouID, "environment", envName, "error", err)
+		return nil, translateEnvironmentError(err)
+	}
+	if !config.GetConfig().RBACEnabled {
+		return env, nil
+	}
+
+	// The floor is always required. Production adds to it rather than replacing
+	// it, so the missing scope reported is the first one the caller lacks —
+	// naming the production grant to someone who is also missing the floor would
+	// send them after the wrong permission.
+	required := []rbac.Permission{rbac.AgentEnvNonProduction}
+	if env.IsProduction {
+		required = append(required, rbac.AgentEnvProduction)
+	}
+	if perm, short := jwtassertion.FirstMissingScope(ctx, required...); short {
+		// A middleware denial reaches the trail through recordAuthzDeny, which
+		// uses audit.Record plus audit.Skip: the deny event *replaces* the
+		// envelope, because the request never reached a handler. This denial is
+		// different — the caller did reach the service layer, and on the
+		// change-deployment-state path the controller has already opened an
+		// attempt. RecordAncillary is therefore correct here (audit/emit.go:63-71:
+		// facts about how a request was handled, envelope preserved), and the
+		// consequence is deliberate: a tier refusal writes an authz:deny
+		// alongside the envelope rather than in place of it, so "what was
+		// attempted" survives. Status is left to the envelope for the same
+		// reason. grantedScopes is set because every middleware authz:deny
+		// carries it and anything alerting on the action reads it.
+		audit.RecordAncillary(ctx, audit.ActionAuthzDeny,
+			audit.Org(ouID),
+			audit.Environment(envName),
+			audit.OutcomeOpt(audit.OutcomeDeny),
+			audit.RequiredPermissions(required...),
+			audit.Detail("reason", "missing-environment-tier-scope"),
+			audit.Detail("missingScope", perm.Scope()),
+			audit.Detail("grantedScopes", jwtassertion.GrantedScopeCount(ctx)),
+		)
+		return env, fmt.Errorf("%w: %s is required to act on environment %q",
+			utils.ErrForbidden, perm.Scope(), envName)
+	}
+	return env, nil
+}
+
 func findLowestEnvironment(promotionPaths []models.PromotionPath) string {
 	if len(promotionPaths) == 0 {
 		return ""
@@ -4033,6 +4117,18 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		return fmt.Errorf("invalid promotion path: %s → %s is not allowed by the deployment pipeline", req.SourceEnvironment, req.TargetEnvironment)
 	}
 
+	// Promotion is the operation the removed agent:promote scope conflated:
+	// moving into staging and moving into production were one permission. The
+	// tier splits them, against the target the caller actually named.
+	//
+	// This resolves the target environment once for the whole promotion — the
+	// gateway-artifact branch below reads it rather than fetching it again, as
+	// the deploy path already does with its own requireEnvTier result.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, req.TargetEnvironment)
+	if err != nil {
+		return err
+	}
+
 	// Check if a deployment is already in progress in target environment
 	inProgress, err := s.ocClient.IsDeploymentInProgress(ctx, ouID, agentName, req.TargetEnvironment)
 	if err != nil {
@@ -4311,14 +4407,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 
 		// Each environment must have its own unique artifact UUID so the gateway controller
 		// does not confuse two environments' RestApi resources (same UUID = one overwrites the other).
-		targetEnv, targetEnvErr := s.ocClient.GetEnvironment(ctx, ouID, req.TargetEnvironment)
-		if targetEnvErr != nil {
-			return fmt.Errorf("failed to fetch target environment details: %w", targetEnvErr)
-		}
-		if targetEnv != nil {
-			if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-				return err
-			}
+		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+			return err
 		}
 
 		artifact, artifactErr := ensureAgentEnvAPIArtifact(s.db, s.artifactRepo, ouID, projectName, agentName, targetEnv.UUID)
@@ -4396,11 +4486,10 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	// A promotion is how an agent reaches production, so the record names both
 	// ends of the move rather than just the resource.
 	//
-	// isProduction is deliberately not recorded here: the target environment is
-	// only fetched inside a conditional branch above, and adding a round-trip
-	// to OpenChoreo just to enrich a record would put a network call on the
-	// promotion path. The environment name identifies the target, and the org's
-	// environment list resolves whether it is production.
+	// isProduction is recorded now that the tier check above has already
+	// resolved the target environment. It used to be omitted because enriching
+	// the record would have meant an extra OpenChoreo round-trip; that lookup is
+	// on the authorization path today, so the flag is free.
 	promoteAttempt, auditErr := audit.Begin(
 		ctx, audit.ActionAgentPromote,
 		audit.Org(ouID),
@@ -4410,6 +4499,7 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 		audit.Detail("agentName", agentName),
 		audit.Detail("sourceEnv", req.SourceEnvironment),
 		audit.Detail("targetEnv", req.TargetEnvironment),
+		audit.Detail("isProduction", targetEnv.IsProduction),
 		audit.Detail("environment", req.TargetEnvironment),
 	)
 	if auditErr != nil {
@@ -4657,9 +4747,14 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	if agent.Type.Type != string(utils.AgentTypeAPI) {
 		return fmt.Errorf("%w: deploy settings only apply to API-type agents (got %q)", utils.ErrInvalidInput, agent.Type.Type)
 	}
-	targetEnv, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName)
+	// Both validates the environment and authorizes the caller against its tier
+	// — one lookup, because requireEnvTier resolves the same environment and
+	// translates the same not-found error. The route's agent:update is the
+	// capability; this is the environment axis, and holding one does not imply
+	// the other.
+	targetEnv, err := s.requireEnvTier(ctx, ouID, req.EnvironmentName)
 	if err != nil {
-		return translateEnvironmentError(err)
+		return err
 	}
 
 	// Resolve final settings: precedence is request → existing DB
@@ -4684,10 +4779,8 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	if err := validateOAuthSecurityConfig(apiCfg); err != nil {
 		return err
 	}
-	if targetEnv != nil {
-		if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
-			return err
-		}
+	if err := s.validateOAuthIssuersInEnvironment(targetEnv.UUID, apiCfg); err != nil {
+		return err
 	}
 	policies := buildPolicies(apiCfg)
 
@@ -4784,8 +4877,12 @@ func (s *agentManagerService) UpdateAgentConfigurations(ctx context.Context, ouI
 	if _, err := s.ocClient.GetComponent(ctx, org.Name, projectName, agentName); err != nil {
 		return translateAgentError(err)
 	}
-	if _, err := s.ocClient.GetEnvironment(ctx, ouID, req.EnvironmentName); err != nil {
-		return translateEnvironmentError(err)
+	// Validating the environment and authorizing the caller against its tier are
+	// the same lookup. This path replaces the environment's entire env var and
+	// file mount set on a running deployment, so it needs the tier check for the
+	// same reason deploy does.
+	if _, err := s.requireEnvTier(ctx, ouID, req.EnvironmentName); err != nil {
+		return err
 	}
 
 	// Fetch system-managed env vars + their keys for the target env. We must filter the user's
@@ -5529,11 +5626,13 @@ func (s *agentManagerService) UpdateAgentDeploymentState(ctx context.Context, ou
 		return fmt.Errorf("deployment state update is not supported for agent type: '%s'", agent.Provisioning.Type)
 	}
 
-	// Validate environment exists
-	_, err = s.ocClient.GetEnvironment(ctx, ouID, environment)
-	if err != nil {
-		s.logger.Error("Failed to validate environment", "environment", environment, "ouID", ouID, "error", err)
-		return translateEnvironmentError(err)
+	// This both validates the environment exists and authorizes the caller
+	// against its tier — one lookup, because requireEnvTier resolves the same
+	// environment and translates the same not-found error. The route's
+	// agent:suspend is the capability; this is the environment axis, and holding
+	// one does not imply the other.
+	if _, err := s.requireEnvTier(ctx, ouID, environment); err != nil {
+		return err
 	}
 
 	// Convert string state to gen.ReleaseBindingSpecState

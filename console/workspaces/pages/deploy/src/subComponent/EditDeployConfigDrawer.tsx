@@ -40,7 +40,12 @@ import {
   DEFAULT_TOKEN_EXPIRY,
   useSnackBar,
 } from "@agent-management-platform/views";
-import { useConfirmationDialog } from "@agent-management-platform/shared-component";
+import {
+  ALLOWED,
+  RestrictedAction,
+  useAgentEnvironmentAccess,
+  useConfirmationDialog,
+} from "@agent-management-platform/shared-component";
 import {
   extractServerErrorMessage,
   useAgentBuildOptions,
@@ -109,6 +114,14 @@ export function EditDeployConfigDrawer({
   // CORS + Endpoint Authentication live in a child component that owns its own state; we collect
   // its payload on Apply via the imperative handle.
   const showSecurity = mode === "update" && !!isApiAgent;
+
+  // In deploy mode this drawer's Apply calls the deploy route, which is gated on
+  // the target environment's tier. The buttons that open it are gated too, but
+  // the drawer also opens straight from a ?deployPanel=open link, so the control
+  // that actually deploys carries the check as well.
+  const environmentAccess = useAgentEnvironmentAccess(orgName);
+  const deployAccess =
+    mode === "deploy" ? environmentAccess(environment) : ALLOWED;
   const securityRef = useRef<SecurityConfigHandle>(null);
   const [securityValid, setSecurityValid] = useState(true);
 
@@ -540,15 +553,19 @@ export function EditDeployConfigDrawer({
             <Button variant="outlined" onClick={onClose} disabled={isPending}>
               Cancel
             </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSave}
-              disabled={isPending || isRegenerating || (showSecurity && !securityValid)}
-              startIcon={isPending ? <CircularProgress size={16} /> : undefined}
-            >
-              {isPending ? "Applying..." : mode === "deploy" ? "Apply & Deploy" : "Apply"}
-            </Button>
+            <RestrictedAction decision={deployAccess}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleSave}
+                disabled={
+                  isPending || isRegenerating || (showSecurity && !securityValid)
+                }
+                startIcon={isPending ? <CircularProgress size={16} /> : undefined}
+              >
+                {isPending ? "Applying..." : mode === "deploy" ? "Apply & Deploy" : "Apply"}
+              </Button>
+            </RestrictedAction>
           </Box>
         </Form.Stack>
       </DrawerContent>

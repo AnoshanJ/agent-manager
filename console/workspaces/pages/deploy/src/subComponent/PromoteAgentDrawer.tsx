@@ -58,6 +58,10 @@ import type {
   FileMount,
 } from "@agent-management-platform/types";
 import {
+  RestrictedAction,
+  useAgentEnvironmentAccess,
+} from "@agent-management-platform/shared-component";
+import {
   compatibleInstrumentationVersions,
   normalizePythonMinor,
   pickInstrumentationVersion,
@@ -138,6 +142,12 @@ export function PromoteAgentDrawer({
       environments?.find((e) => e.name === name)?.displayName ?? name,
     [environments],
   );
+
+  // Promotion is gated on the tier of the environment being promoted INTO, so
+  // every target is decided separately: a caller may hold staging and not
+  // production even though both are downstream of here.
+  const targetAccess = useAgentEnvironmentAccess(orgId);
+  const selectedTargetAccess = targetAccess(formState.targetEnvironment);
 
   const {
     mutateAsync: promoteAgent,
@@ -424,6 +434,14 @@ export function PromoteAgentDrawer({
               </Alert>
             )}
 
+            {!selectedTargetAccess.allowed && (
+              <Alert severity="warning">
+                <Typography variant="body2">
+                  {selectedTargetAccess.reason}
+                </Typography>
+              </Alert>
+            )}
+
             {targetEnvOptions.length > 1 && (
               <>
                 <Form.Section>
@@ -446,7 +464,11 @@ export function PromoteAgentDrawer({
                           <em>Select target environment</em>
                         </MenuItem>
                         {targetEnvOptions.map((t) => (
-                          <MenuItem key={t.name} value={t.name}>
+                          <MenuItem
+                            key={t.name}
+                            value={t.name}
+                            disabled={!targetAccess(t.name).allowed}
+                          >
                             {envDisplayName(t.name)}
                           </MenuItem>
                         ))}
@@ -688,14 +710,16 @@ export function PromoteAgentDrawer({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                variant="contained"
-                color="primary"
-                disabled={isPending || !formState.targetEnvironment}
-              >
-                {isPending ? "Promoting..." : "Promote"}
-              </Button>
+              <RestrictedAction decision={selectedTargetAccess}>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  disabled={isPending || !formState.targetEnvironment}
+                >
+                  {isPending ? "Promoting..." : "Promote"}
+                </Button>
+              </RestrictedAction>
             </Box>
           </Stack>
         </form>
