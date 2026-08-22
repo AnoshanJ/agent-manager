@@ -95,7 +95,6 @@ const sidebars: SidebarsConfig = {
           label: 'Platform Administration',
           collapsed: true,
           items: [
-            'guides/register-ai-gateway',
             {
               type: 'doc',
               id: 'guides/register-llm-service-provider',
