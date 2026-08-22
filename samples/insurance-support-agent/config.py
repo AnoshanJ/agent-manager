@@ -1,8 +1,4 @@
-"""Instance configuration, read from env at startup.
-
-``OPENAI_BASE_URL`` points the OpenAI client at any OpenAI-compatible endpoint
-(an AM LLM provider, a gateway, a proxy) instead of api.openai.com.
-"""
+"""Instance configuration, read from env at startup."""
 
 from __future__ import annotations
 

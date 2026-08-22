@@ -25,17 +25,14 @@ log = logging.getLogger("insurance-support")
 
 CONFIG = Config.from_env()
 
-# Demo-grade conversation store. Sessions are keyed on the caller-supplied
-# session_id alone, so anyone who knows an id can resume that conversation —
-# a real deployment must key on the authenticated subject instead.
+# Demo-grade: keyed on the caller-supplied session_id, not the authenticated subject.
 MAX_SESSIONS = 500
 SESSIONS: "OrderedDict[str, Agent]" = OrderedDict()
 _sessions_lock = threading.Lock()
 
 app = FastAPI(title="Insurance Support Agent", version="1.0.0")
 
-# Off unless set: deployed agents get CORS from the gateway, and a second set of
-# headers from here would make browsers reject the response.
+# Deployed agents get CORS from the gateway; a second set of headers breaks browsers.
 _cors_origins = [o for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o]
 if _cors_origins:
     app.add_middleware(
@@ -58,8 +55,7 @@ class ChatResponse(BaseModel):
 
 
 def _agent_for(session_id: str) -> Agent:
-    # FastAPI runs this sync endpoint on a threadpool, so the lookup, the insert
-    # and the eviction all have to happen under one lock.
+    # Sync endpoint runs on a threadpool, so lookup, insert and eviction share one lock.
     with _sessions_lock:
         agent = SESSIONS.get(session_id)
         if agent is None:
@@ -87,8 +83,7 @@ def chat(req: ChatRequest) -> ChatResponse:
     try:
         result = _agent_for(session_id)(req.message)
     except Exception as exc:
-        # Upstream errors can carry gateway URLs and provider payloads; log them,
-        # do not return them.
+        # Upstream errors can carry gateway URLs and provider payloads — log, do not return.
         log.exception("agent invocation failed")
         raise HTTPException(status_code=500, detail="agent invocation failed") from exc
 
