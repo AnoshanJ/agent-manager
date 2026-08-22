@@ -11493,6 +11493,9 @@ components:
         dockerfilePath:
           type: string
           description: Path to the Dockerfile relative to the app path (e.g. "Dockerfile" or "docker/Dockerfile")
+          pattern: "^/[A-Za-z0-9._\\-/]*$"
+          maxLength: 1024
+          example: "/Dockerfile"
 
     BuildpackBuild:
       type: object
@@ -11985,6 +11988,11 @@ components:
         - limit
         - offset
     # Repository Configuration
+    # The patterns below document the contract; they are not what enforces it.
+    # This service has no OpenAPI request-validation middleware, so every rule
+    # here is also implemented in Go (agent-manager-service/utils/utils.go). These
+    # values become arguments to git and to the container build inside the build
+    # pod, so keep the two in step when changing either.
     RepositoryConfig:
       type: object
       description: Git repository configuration
@@ -11997,13 +12005,20 @@ components:
         url:
           type: string
           description: URL of the git repository
+          pattern: "^https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(?:\\.git)?/?$"
+          maxLength: 2048
+          example: "https://github.com/wso2/agent-manager"
         branch:
           type: string
           description: Branch to use
+          pattern: "^[A-Za-z0-9._@+/-]+$"
+          maxLength: 255
+          example: "main"
         appPath:
           type: string
           description: Path within the repository where the source code resides
-          pattern: "^/.*"
+          pattern: "^/[A-Za-z0-9._\\-/]*$"
+          maxLength: 1024
           example: "/my-agent"
         secretRef:
           type: string
