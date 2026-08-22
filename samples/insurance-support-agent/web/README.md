@@ -28,7 +28,7 @@ the agent must run with `CORS_ALLOW_ORIGINS=http://localhost:5173`.
 
 | Variable              | Required             | Default                | Purpose                                                                   |
 | --------------------- | --------------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `VITE_AGENT_URL`      | yes                  | —                      | Base or full `/chat` URL. `/chat` is appended when it isn't already there |
+| `VITE_AGENT_URL`      | no                   | `http://localhost:10150/chat` | Base or full `/chat` URL; `/chat` is appended when it isn't already there |
 | `VITE_AUTH_MODE`      | no                   | `none`                 | `none` or `oidc`                                                          |
 | `VITE_OIDC_ISSUER`    | required when `oidc` | —                      | Issuer base URL; `/.well-known/openid-configuration` is appended         |
 | `VITE_OIDC_CLIENT_ID` | required when `oidc` | —                      | Public client ID                                                          |
@@ -45,7 +45,7 @@ URL. Pointing straight at the agent bypasses the thing being secured.
 ## The two modes
 
 In `none` mode, the client sends no token — it posts straight to the agent,
-and the header shows an amber `● no login` badge. This only works against an
+and the header shows a `● no login` badge. This only works against an
 unprotected agent.
 
 In `oidc` mode, the client shows a sign-in screen and performs an
@@ -114,7 +114,8 @@ Conversation history lives in process memory keyed on the caller-supplied
 the token, so it cannot tell one signed-in customer from another — anyone
 holding a valid token who knows a `session_id` can resume that conversation. A
 real deployment should key sessions on the authenticated subject and move them
-out of process memory.
+out of process memory. The store is also capped at 500 sessions and evicts the
+oldest first, which is enough for a demo and nothing more.
 
 ## Use your provider's SDK instead
 
@@ -187,7 +188,10 @@ a configuration one.
 The published SDK (`@thunderid/react` 1.0.6) exposes `useThunderID()` with a
 `getAccessToken(): Promise<string>` accessor alongside `isSignedIn`,
 `isLoading`, `user`, `signIn` and `signOut` — so this adapter maps directly
-onto the same `Auth` shape as the others.
+onto the same `Auth` shape as the others. The SDK types `user` as `any` and
+its own docs are inconsistent about its claim shape, so confirm the actual
+fields against the version you install rather than trusting the optional
+chain below blindly.
 
 ```tsx
 import { useThunderID } from "@thunderid/react";
@@ -200,7 +204,7 @@ export function useThunderIDAdapter(): Auth {
   return {
     mode: "thunderid",
     status: isLoading ? "loading" : isSignedIn ? "signed-in" : "signed-out",
-    user: user ? { name: user.givenName ?? user.displayName } : undefined,
+    user: user ? { name: user.name?.givenName ?? user.givenName ?? user.displayName } : undefined,
     signIn: () => void signIn(),
     signOut: () => void signOut(),
     getAccessToken: () => (isSignedIn ? getAccessToken() : Promise.resolve(null)),
