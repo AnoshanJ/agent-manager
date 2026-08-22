@@ -93,6 +93,22 @@ for rule in policy["spec"]["egress"]:
 '
 
 # Every rule carrying port 5000, so an unset in-cluster namespace can be shown to render none.
+NS_RULE_PODS=$READ_NETPOL'
+import os
+want = os.environ["WANT_NS_PORT"]
+for rule in policy["spec"]["egress"]:
+    ports = [str(p["port"]) for p in rule.get("ports") or []]
+    if want not in ports:
+        continue
+    for t in rule.get("to") or []:
+        ns = (t.get("namespaceSelector") or {}).get("matchLabels", {})
+        if not ns:
+            continue
+        pod = (t.get("podSelector") or {}).get("matchLabels", {})
+        print(ns["kubernetes.io/metadata.name"] + "|" + ",".join(ports) + "|"
+              + ",".join(f"{k}={v}" for k, v in sorted(pod.items())))
+'
+
 NS_RULE_PORTS=$READ_NETPOL'
 for rule in policy["spec"]["egress"]:
     if "5000" in [str(p["port"]) for p in rule.get("ports") or []]:
@@ -193,6 +209,31 @@ assert "enabled=false renders no policy at all" \
   "ABSENT" \
   "$READ_NETPOL"'print("PRESENT")' \
   --set "networkPolicy.buildWorkflows.enabled=false"
+
+# One policy per namespace: a multi-environment install must not leave the environments it
+# did not name unprotected.
+assert "one policy and one namespace render per configured namespace" \
+  "NP:workflows-default,workflows-staging NS:workflows-default,workflows-staging" \
+  '
+import sys, yaml
+np, ns = [], []
+for doc in yaml.safe_load_all(sys.stdin):
+    if not doc:
+        continue
+    if doc.get("kind") == "NetworkPolicy" and doc["metadata"]["name"] == "amp-build-workflow-egress":
+        np.append(doc["metadata"]["namespace"])
+    if doc.get("kind") == "Namespace":
+        ns.append(doc["metadata"]["name"])
+print("NP:" + ",".join(sorted(np)) + " NS:" + ",".join(sorted(ns)))
+' \
+  --set "networkPolicy.buildWorkflows.namespaces={workflows-default,workflows-staging}"
+
+# Without a podSelector the rule reaches every pod in the registry's namespace.
+WANT_NS_PORT=5000 assert "in-cluster registry rule carries the registry podSelector" \
+  "openchoreo-workflow-plane|5000|app=docker-registry" \
+  "$NS_RULE_PODS" \
+  --set "networkPolicy.buildWorkflows.registry.inCluster.namespace=openchoreo-workflow-plane" \
+  --set "networkPolicy.buildWorkflows.registry.inCluster.podLabels.app=docker-registry"
 
 assert "the policy lands in workflows-<environment.name>" \
   "workflows-staging" \
