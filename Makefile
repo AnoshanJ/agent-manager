@@ -285,7 +285,8 @@ thunder-up:
 	@helm dependency update deployments/helm-charts/wso2-amp-thunder-extension
 	@helm upgrade --install amp-thunder-extension deployments/helm-charts/wso2-amp-thunder-extension \
 		--namespace amp-thunder --create-namespace \
-		--set thunder.bootstrap.agentManagerMcpDevBaseUrl=http://localhost:9000
+		--set thunder.bootstrap.agentManagerMcpDevBaseUrl=http://localhost:9000 \
+		--set thunder.setup.admin.password=admin
 	@echo "⏳ Waiting for Platform Thunder deployment..."
 	@kubectl rollout status deployment -n amp-thunder -l app.kubernetes.io/instance=amp-thunder-extension --timeout=120s 2>/dev/null || true
 	@echo "✅ Platform Thunder is up and running!"
