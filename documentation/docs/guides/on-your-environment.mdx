@@ -1539,6 +1539,12 @@ bash add-environment-thunder.sh
   </TabItem>
 </Tabs>
 
+To choose a meaningful handle for this Environment's ThunderID instance (e.g.
+`env-idp-prod` instead of a random string), add
+`THUNDER_HANDLE=<3-63-character-handle>` to either command above; otherwise
+Agent Manager generates one. The script prints the resulting issuer as
+`https://<handle>.${BASE_DOMAIN}`.
+
 :::info
 Only the Let's Encrypt path can use `SKIP_CA_BUNDLE_TRUST=true` — it's specifically for a certificate that's already backed by a CA every trust store already knows. For a Corporate CA, that flag doesn't help you: setting it to `true` skips the fetch outright, and simply omitting it falls back to the script's own auto-detect, which looks for a secret named `amp-local-root-ca-secret` — a name the Corporate CA tab in Step 3 never creates. `PLATFORM_THUNDER_CA_PEM` sidesteps that entirely by pulling whatever certificate is actually being served, live, regardless of what you named things, but it only solves trust *inside the cluster*. The `CURL_CA_BUNDLE` step above is a separate fix for trust on **your own machine**, where this script's own `curl` calls run. (Running with the self-signed evaluation chain? See the [nip.io appendix](#appendix-installing-without-a-domain-nipio).)
 :::
