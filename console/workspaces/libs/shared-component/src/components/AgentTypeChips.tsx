@@ -36,7 +36,7 @@ export function AgentTypeChips(
     <>
       {provisioning?.type !== "internal" ? (
         <Chip
-          label={`Type: ${displayProvisionTypes(provisioning?.type)}`}
+          label={displayProvisionTypes(provisioning?.type)}
           size="small"
           variant="outlined"
           sx={CHIP_SX}
@@ -44,7 +44,7 @@ export function AgentTypeChips(
       ) : (
         agentType?.subType && (
           <Chip
-            label={`Type: ${displayAgentSubType(agentType.subType)}`}
+            label={displayAgentSubType(agentType.subType)}
             size="small"
             variant="outlined"
             sx={CHIP_SX}
