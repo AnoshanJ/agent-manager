@@ -34,6 +34,16 @@ spec:
               secretKeyRef:
                 name: '{{ "{{" }}inputs.parameters.workload-publisher-secret-name{{ "}}" }}'
                 key: workload-publisher-oauth
+          # User text reaches the script as env vars, never as shell source: Argo
+          # escapes a substituted parameter for JSON but not for the shell (#1639).
+          - name: ENDPOINTS
+            value: '{{ "{{" }}workflow.parameters.endpoints{{ "}}" }}'
+          - name: ENV_VARS
+            value: '{{ "{{" }}workflow.parameters.environment-variables{{ "}}" }}'
+          - name: FILE_MOUNTS
+            value: '{{ "{{" }}workflow.parameters.file-mounts{{ "}}" }}'
+          - name: APP_PATH
+            value: '{{ "{{" }}workflow.parameters.app-path{{ "}}" }}'
         image: ghcr.io/openchoreo/podman-runner:v1.0
         command:
           - sh
@@ -51,10 +61,8 @@ spec:
             COMPONENT_NAME={{ "{{" }}workflow.parameters.component-name{{ "}}" }}
             NAMESPACE={{ "{{" }}workflow.parameters.namespace-name{{ "}}" }}
 
-            ENDPOINTS='{{ "{{" }}workflow.parameters.endpoints{{ "}}" }}'
-            ENV_VARS='{{ "{{" }}workflow.parameters.environment-variables{{ "}}" }}'
-            FILE_MOUNTS='{{ "{{" }}workflow.parameters.file-mounts{{ "}}" }}'
-            SOURCE_PATH="/mnt/vol/source/{{ "{{" }}workflow.parameters.app-path{{ "}}" }}"
+            # ENDPOINTS, ENV_VARS, FILE_MOUNTS and APP_PATH come from the env.
+            SOURCE_PATH="/mnt/vol/source/${APP_PATH}"
             OUT="/mnt/vol/workload-cr.yaml"
 
             # Base workload
