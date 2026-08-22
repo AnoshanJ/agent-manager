@@ -1,18 +1,24 @@
 {{- if .Values.networkPolicy.buildWorkflows.enabled }}
-{{- $buildNamespace := .Values.networkPolicy.buildWorkflows.namespace | default (printf "workflows-%s" (.Values.environment.name | default "default")) }}
+{{- $bw := .Values.networkPolicy.buildWorkflows }}
+{{- $namespaces := without ($bw.namespaces | default list) "" nil }}
+{{- if not $namespaces }}
+{{- $namespaces = list (printf "workflows-%s" (.Values.environment.name | default "default")) }}
+{{- end }}
+{{- range $namespace := $namespaces }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: amp-build-workflow-egress
-  namespace: {{ $buildNamespace }}
+  namespace: {{ $namespace }}
   labels:
-{{- include "amp-build-extension.labels" . | nindent 4 }}
+{{- include "amp-build-extension.labels" $ | nindent 4 }}
 spec:
   # generate-workload-cr is unlabelled and so unselected: it calls the OpenChoreo API and
   # Thunder, and runs no user content.
   podSelector:
     matchLabels:
-{{- include "amp.buildWorkflowPodLabels" . | nindent 6 }}
+{{- include "amp.buildWorkflowPodLabels" $ | nindent 6 }}
   policyTypes: [Egress]
   egress:
     # Matched post-DNAT: every rule names the backing pod's address and containerPort, not the Service's.
@@ -21,10 +27,10 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.networkPolicy.buildWorkflows.dns.namespace }}
+              kubernetes.io/metadata.name: {{ $bw.dns.namespace }}
           podSelector:
             matchLabels:
-              {{ .Values.networkPolicy.buildWorkflows.dns.podLabel.key }}: {{ .Values.networkPolicy.buildWorkflows.dns.podLabel.value }}
+              {{ $bw.dns.podLabel.key }}: {{ $bw.dns.podLabel.value }}
       ports:
         - port: 53
           protocol: UDP
@@ -36,19 +42,17 @@ spec:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            {{- $excluded := without (.Values.networkPolicy.buildWorkflows.internet.excludedCidrs | default list) "" nil }}
-            {{- with $excluded }}
+            {{- with without ($bw.internet.excludedCidrs | default list) "" nil }}
             except:
               {{- range . }}
               - {{ . }}
               {{- end }}
             {{- end }}
-        {{- $v6 := without (.Values.networkPolicy.buildWorkflows.internet.excludedCidrsV6 | default list) "" nil }}
-        {{- if .Values.networkPolicy.buildWorkflows.internet.ipv6 }}
+        {{- if $bw.internet.ipv6 }}
         # A policy with only an IPv4 block denies all IPv6 egress, so dual-stack builds fail.
         - ipBlock:
             cidr: ::/0
-            {{- with $v6 }}
+            {{- with without ($bw.internet.excludedCidrsV6 | default list) "" nil }}
             except:
               {{- range . }}
               - {{ . }}
@@ -56,7 +60,7 @@ spec:
             {{- end }}
         {{- end }}
 
-    {{- with .Values.networkPolicy.buildWorkflows.apiServer }}
+    {{- with $bw.apiServer }}
     {{- $cidrs := without (.cidrs | default list) "" nil }}
     {{- if and $cidrs .ports }}
     # wait reports WorkflowTaskResults here; no pod backs the API server, so ipBlock. Pods
@@ -75,7 +79,7 @@ spec:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.networkPolicy.buildWorkflows.registry }}
+    {{- with $bw.registry }}
     {{- $cidrs := without (.cidrs | default list) "" nil }}
     {{- if and $cidrs .ports }}
     # publish-image pushes here and build-image pulls cached buildpacks; reached on the node
@@ -91,17 +95,21 @@ spec:
           protocol: TCP
         {{- end }}
     {{- end }}
-    {{- end }}
 
-    {{- with .Values.networkPolicy.buildWorkflows.registry }}
     {{- with .inCluster }}
     {{- if and .namespace .ports }}
     # A registry addressed by Service DNS is matched post-DNAT, so this names the registry
-    # pod's namespace and its containerPort — the Service's own port never matches.
+    # pod's namespace and its containerPort — the Service's own port never matches. Without
+    # podLabels this reaches every pod in that namespace on those ports.
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .namespace }}
+          {{- with .podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
       ports:
         {{- range .ports }}
         - port: {{ . }}
@@ -111,8 +119,9 @@ spec:
     {{- end }}
     {{- end }}
 
-    {{- with .Values.networkPolicy.buildWorkflows.extraEgress }}
+    {{- with $bw.extraEgress }}
     # Private-network destinations a build needs: self-hosted git, internal registry, proxy.
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- end }}
 {{- end }}

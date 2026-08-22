@@ -259,9 +259,10 @@ networkPolicy:
   buildWorkflows:
     # -- Enable the build-workflow egress NetworkPolicy
     enabled: true
-    # -- Namespace OpenChoreo runs this environment's Argo workflows in.
-    # Empty derives "workflows-<environment.name>".
-    namespace: ""
+    # -- Namespaces OpenChoreo runs Argo workflows in, one policy rendered per entry.
+    # Empty derives the single "workflows-<environment.name>"; list every environment's
+    # workflow namespace on an install that has more than one.
+    namespaces: []
     dns:
       namespace: kube-system
       podLabel:
@@ -304,6 +305,9 @@ networkPolicy:
       # port. Unset by default; registry.<baseDomain> and other public endpoints need no rule.
       inCluster:
         namespace: ""
+        # -- Labels of the registry pod. Leave empty and the rule reaches every pod in that
+        # namespace on the ports below; set it to scope the rule to the registry itself.
+        podLabels: {}
         ports: [5000]
     # -- Extra egress rules, appended verbatim (NetworkPolicyEgressRule list).
     extraEgress: []

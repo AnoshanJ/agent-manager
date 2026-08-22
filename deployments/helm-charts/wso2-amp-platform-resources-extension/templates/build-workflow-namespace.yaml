@@ -1,7 +1,13 @@
 {{- if .Values.networkPolicy.buildWorkflows.enabled }}
-{{- $buildNamespace := .Values.networkPolicy.buildWorkflows.namespace | default (printf "workflows-%s" (.Values.environment.name | default "default")) }}
-{{- if ne $buildNamespace .Release.Namespace }}
-{{- if not (lookup "v1" "Namespace" "" $buildNamespace) }}
+{{- $bw := .Values.networkPolicy.buildWorkflows }}
+{{- $namespaces := without ($bw.namespaces | default list) "" nil }}
+{{- if not $namespaces }}
+{{- $namespaces = list (printf "workflows-%s" (.Values.environment.name | default "default")) }}
+{{- end }}
+{{- range $namespace := $namespaces }}
+{{- if ne $namespace $.Release.Namespace }}
+{{- if not (lookup "v1" "Namespace" "" $namespace) }}
+---
 # OpenChoreo does not create this namespace until a workflow first runs there, so rendering
 # only the NetworkPolicy fails a fresh install with `namespaces "<name>" not found`.
 #
@@ -16,11 +22,12 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ $buildNamespace }}
+  name: {{ $namespace }}
   annotations:
     helm.sh/resource-policy: keep
   labels:
-{{- include "amp-build-extension.labels" . | nindent 4 }}
+{{- include "amp-build-extension.labels" $ | nindent 4 }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
