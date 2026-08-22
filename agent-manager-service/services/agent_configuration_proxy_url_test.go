@@ -27,7 +27,8 @@ import (
 )
 
 func TestBuildPublicProxyURLUsesVhost(t *testing.T) {
-	// RuntimeURL present but must be ignored: every agent gets the public URL.
+	// RuntimeURL present but must be ignored: this is the address handed to callers
+	// outside the cluster — external agents and MCP's resource identifier.
 	gateway := &models.Gateway{
 		Vhost:      "https://dev-acme.gateway.example.com",
 		RuntimeURL: "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893",
@@ -38,6 +39,9 @@ func TestBuildPublicProxyURLUsesVhost(t *testing.T) {
 }
 
 func TestBuildMCPProxyURLUsesGatewayVhost(t *testing.T) {
+	// MCP keeps the public vhost even with a RuntimeURL registered: this URL doubles as
+	// the OAuth resource identifier (MCPResourceServerIdentifier), so an in-cluster
+	// address here would put an unroutable audience in every AgentID token.
 	gateway := &models.Gateway{
 		Vhost:      "https://gateway.example.com",
 		RuntimeURL: "http://runtime.acme-dev:22893",
