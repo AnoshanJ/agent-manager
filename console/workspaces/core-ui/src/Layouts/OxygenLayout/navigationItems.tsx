@@ -31,7 +31,7 @@ import {
   Code,
   MonitorCheck,
   BrainCircuit,
-  Layers,
+  BookOpenText,
   DoorClosedLocked,
   ServerCrash,
   Server,
@@ -614,7 +614,7 @@ export function useNavigationItems(): Array<
           {
             label: "Publish",
             type: "item",
-            icon: <Layers size={20} />,
+            icon: <BookOpenText size={20} />,
             isActive: !!matchPath(
               absoluteRouteMap.children.org.children.projects.children.agents
                 .children.publish.wildPath,
@@ -794,7 +794,7 @@ export function useNavigationItems(): Array<
       {
         label: "Agent Catalog",
         type: "item",
-        icon: <Layers size={20} />,
+        icon: <BookOpenText size={20} />,
         href: generatePath(
           absoluteRouteMap.children.org.children.catalog.path,
           { orgId },
