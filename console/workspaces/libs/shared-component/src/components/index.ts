@@ -16,6 +16,7 @@
  * under the License.
  */
 
+export * from "./AgentTypeChips";
 export * from "./BuildLogs";
 export * from "./BuildPanel";
 export * from "./BuildSteps";

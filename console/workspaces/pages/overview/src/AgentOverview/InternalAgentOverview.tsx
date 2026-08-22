@@ -98,8 +98,6 @@ export const InternalAgentOverview = () => {
                     orgId={orgId ?? ""}
                     kindName={agent!.kindName!}
                     kindVersion={deployedKindVersion}
-                    framework={agent?.agentType?.type}
-                    model={agent?.agentType?.subType}
                 />
             ) : (
                 orgId && projectId && agentId && (
