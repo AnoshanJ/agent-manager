@@ -13,7 +13,6 @@ set -euo pipefail
 # for the equivalent 0.0.0-dev -> version substitution pattern applied to this file).
 DEFAULT_VERSION="0.0.0-dev"
 IMAGE="${QUICK_START_IMAGE:-ghcr.io/wso2/amp-quick-start}"
-MIN_FREE_DISK_GB=20
 
 log() { printf '\033[0;34m[start]\033[0m %s\n' "$*"; }
 warn() { printf '\033[0;33m[start] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -63,21 +62,6 @@ case "$ARCH" in
   x86_64|amd64|arm64|aarch64) log "Detected architecture: ${ARCH}" ;;
   *) warn "Unrecognized architecture '${ARCH}' — the quick-start image is published for amd64/arm64 only" ;;
 esac
-
-# Check free space on the filesystem backing Docker's data (falls back to /var if
-# docker info doesn't expose it, e.g. on some rootless/Colima setups).
-DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var)"
-if command -v df >/dev/null 2>&1; then
-  AVAIL_KB="$(df -Pk "$DOCKER_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
-  if [[ -n "${AVAIL_KB:-}" ]]; then
-    AVAIL_GB=$((AVAIL_KB / 1024 / 1024))
-    if (( AVAIL_GB < MIN_FREE_DISK_GB )); then
-      warn "Only ~${AVAIL_GB} GB free on ${DOCKER_ROOT} — the full platform install (k3d node images, OpenChoreo, AMP) can need ${MIN_FREE_DISK_GB}+ GB. Installation may fail partway through if space runs out."
-    else
-      log "Free disk space on ${DOCKER_ROOT}: ~${AVAIL_GB} GB"
-    fi
-  fi
-fi
 
 log "Starting quick-start dev container (${IMAGE}:v${VERSION})"
 log "The container will run install.sh automatically once it starts (~15-20 minutes)."
