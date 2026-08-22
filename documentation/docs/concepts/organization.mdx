@@ -44,7 +44,7 @@ The split between those last two is the useful part: an AI Lead governs *what ag
 
 ### Production Is a Separate Permission
 
-Deploying an agent isn't one permission it's two. `amp:agent:deploy-non-production` and `amp:agent:deploy-production` are distinct scopes, so a Developer can iterate freely in development and staging while production deployment, promotion, rollback, and suspension stay with Platform Engineers and admins.
+Acting on an environment isn't one permission — it's two. `amp:agent:env-non-production` and `amp:agent:env-production` are distinct scopes checked alongside the operation's own, so a Developer can deploy, promote, and iterate freely across every environment that isn't flagged as production, while production stays with Platform Engineers and admins.
 
 This is what makes a [Deployment Pipeline](./deployment-pipeline.mdx) a real control rather than a convention, the pipeline defines the path an agent takes through environments, and the permission split decides who is allowed to move it along that path.
 

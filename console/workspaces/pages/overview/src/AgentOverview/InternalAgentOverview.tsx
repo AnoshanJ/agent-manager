@@ -98,8 +98,6 @@ export const InternalAgentOverview = () => {
                     orgId={orgId ?? ""}
                     kindName={agent!.kindName!}
                     kindVersion={deployedKindVersion}
-                    framework={agent?.agentType?.type}
-                    model={agent?.agentType?.subType}
                 />
             ) : (
                 orgId && projectId && agentId && (
@@ -110,8 +108,6 @@ export const InternalAgentOverview = () => {
                         repository={agent?.provisioning?.repository}
                         latestBuild={buildList?.builds[0]}
                         isBuildsLoading={isBuildsLoading}
-                        framework={agent?.agentType?.type}
-                        model={agent?.agentType?.subType}
                         build={agent?.build}
                     />
                 )
