@@ -97,10 +97,6 @@ components:
         session_id:
           type: string
           description: Conversation identifier; generated when omitted
-        context:
-          type: object
-          additionalProperties: true
-          description: Optional caller-supplied context
     ChatResponse:
       type: object
       required:

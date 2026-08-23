@@ -7,7 +7,6 @@ import logging
 import threading
 import uuid
 from collections import OrderedDict
-from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -46,7 +45,6 @@ if _cors_origins:
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
-    context: dict[str, Any] | None = None
 
 
 class ChatResponse(BaseModel):
