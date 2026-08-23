@@ -15,7 +15,7 @@ export function Composer({
       onSubmit={(e) => {
         e.preventDefault();
         const trimmed = text.trim();
-        if (!trimmed) return;
+        if (!trimmed || disabled) return;
         setText("");
         onSend(trimmed);
       }}

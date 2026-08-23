@@ -28,7 +28,12 @@ export default function App() {
           { id: crypto.randomUUID(), role: "agent", text: reply.response },
         ]);
       } catch (err) {
-        const failure = err instanceof AgentError ? err.message : (err as Error).message;
+        const failure =
+          err instanceof AgentError
+            ? err.kind === "rejected"
+              ? "Your session needs signing in again."
+              : err.message
+            : (err as Error).message;
         setMessages((prev) => [
           ...prev,
           { id: crypto.randomUUID(), role: "error", text: failure },
@@ -41,7 +46,13 @@ export default function App() {
   );
 
   if (auth.status === "error") return <ConfigError message={auth.error ?? "Unknown"} />;
-  if (auth.status === "loading") return null;
+  if (auth.status === "loading") {
+    return (
+      <div className="grid h-full place-items-center bg-surface">
+        <p className="text-sm text-muted">Signing in…</p>
+      </div>
+    );
+  }
   if (auth.status === "signed-out") return <LoginScreen />;
 
   return (
