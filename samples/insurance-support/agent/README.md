@@ -111,6 +111,18 @@ Review and click **Deploy**. The build takes roughly 6-10 minutes.
 Use **Try It** in the left navigation, or point the web client at the deployed
 agent — see [`web/README.md`](../web/README.md).
 
+## Known limits
+
+The agent keys conversation history on the caller-supplied `session_id`, not
+the authenticated subject — the gateway checks the token, but the agent never
+reads it, so it can't tell one signed-in customer from another. Anyone holding
+a valid token who knows a `session_id` can resume that conversation. Sessions
+also live in process memory, capped at 500 with the oldest evicted first —
+fine for a demo, not for a real deployment. Both should be fixed (key on the
+authenticated subject, move storage out of process) before this goes further
+than a sample. See [`../web/README.md`](../web/README.md#known-limits) for the
+client-side implications.
+
 ## Observability
 
 Leave **auto instrumentation** enabled (it is on by default). The platform's

@@ -37,10 +37,14 @@ the agent must run with `CORS_ALLOW_ORIGINS=http://localhost:5173`.
 
 ## Pointing at a deployed agent
 
-Set `VITE_AGENT_URL` in `.env`, or append `?agent=<url>` to the page URL for a
-single browser load — the value is then persisted to `localStorage` until you
-load the page with `?agent=reset`. Either way, this must be the **gateway**
-URL. Pointing straight at the agent bypasses the thing being secured.
+Set `VITE_AGENT_URL` in `.env`, or append `?agent=<url>` to the page URL — the
+value persists to `localStorage` until you load the page with `?agent=reset`.
+The override only takes effect in `none` mode: in `oidc` mode it is ignored
+entirely (not read, not stored, and any value stored from an earlier `none`
+visit is not used either), because honouring it would send the signed-in
+user's access token to whatever origin the URL names. Either way, this must
+be the **gateway** URL. Pointing straight at the agent bypasses the thing
+being secured.
 
 ## The two modes
 
@@ -51,9 +55,11 @@ unprotected agent.
 In `oidc` mode, the client shows a sign-in screen and performs an
 authorization-code flow with PKCE as a public client. The access token is kept
 in `sessionStorage`, and once signed in the header shows the signed-in name
-and a **Sign out** button. If `VITE_AUTH_MODE=oidc` is set but the issuer or
-client id is missing, the client shows a configuration screen naming the
-missing variable rather than silently falling back to no-login.
+and a **Sign out** button. `VITE_AUTH_MODE` is trimmed and lower-cased before
+matching, so `OIDC`, `Oidc` and ` oidc ` all resolve to `oidc`. If it's set
+but the issuer or client id is missing, or if it's set to something that
+isn't `none` or `oidc`, the client shows a configuration screen naming the
+problem rather than silently falling back to no-login.
 
 ## Register the callback URL
 
@@ -134,8 +140,14 @@ export interface Auth {
 ```
 
 To use a different provider's SDK, add a file under `src/lib/auth/` that
-returns this shape, and register it in `src/lib/auth/index.tsx`. Nothing else
-in the app changes, because `App.tsx` and `api.ts` only ever call `useAuth()`.
+returns this shape. `App.tsx` only ever calls `useAuth()` (`api.ts` takes the
+token as a plain argument), so the rest of the chat UI doesn't change. Wiring
+in a genuinely new mode — one `AuthMode` doesn't already cover — is still
+three edits:
+
+1. Add the mode to `AuthMode` and `resolveMode()` in `src/lib/config.ts`.
+2. Select it in `src/lib/auth/index.tsx`.
+3. Mount the vendor's provider in `src/main.tsx`.
 
 <details><summary>Adapter: Auth0 (<code>@auth0/auth0-react</code>)</summary>
 
