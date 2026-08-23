@@ -82,7 +82,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         result = _agent_for(session_id)(req.message)
     except Exception as exc:
         # Upstream errors can carry gateway URLs and provider payloads — log, do not return.
-        log.exception("agent invocation failed")
+        log.exception("agent invocation failed", extra={"session_id": session_id})
         raise HTTPException(status_code=500, detail="agent invocation failed") from exc
 
     return ChatResponse(response=str(result), session_id=session_id)
