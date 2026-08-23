@@ -12,7 +12,10 @@ export function LoginScreen() {
           <Shield className="h-7 w-7" />
         </div>
         <h1 className="text-xl font-bold text-ink">{CONFIG.companyName} Support</h1>
-        <p className="mb-6 mt-2 text-sm text-muted">Sign in to talk to an adviser.</p>
+        <p className="mb-6 mt-2 text-sm text-muted">
+          Sign in to talk with an insurance agent. Check your cover, track a claim, or open a
+          new one.
+        </p>
         <button
           type="button"
           onClick={auth.signIn}

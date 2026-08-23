@@ -1,5 +1,5 @@
 const SUGGESTIONS = [
-  { q: "What can you do?", hint: "See everything this adviser handles" },
+  { q: "What can you do?", hint: "See everything this agent handles" },
   { q: "What policies do I have?", hint: "Cover, premiums and renewal dates" },
   { q: "What is happening with my claims?", hint: "Status and next steps" },
   { q: "What am I covered for on OZ-AUTO-4417?", hint: "Full cover on one policy" },

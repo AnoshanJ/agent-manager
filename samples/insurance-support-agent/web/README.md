@@ -54,9 +54,9 @@ unprotected agent.
 
 In `oauth` mode, the client shows a sign-in screen and performs an
 authorization-code flow with PKCE as a public client. The access token is kept
-in `sessionStorage`, and once signed in the header shows the signed-in name
-and a **Sign out** button. `VITE_AUTH_MODE` is trimmed and lower-cased before
-matching, so `OAUTH`, `OAuth` and ` oauth ` all resolve to `oauth`. If it's set
+in `sessionStorage`, and once signed in the header shows a **Sign out** button.
+`VITE_AUTH_MODE` is trimmed and lower-cased before matching, so `OAUTH`,
+`OAuth` and ` oauth ` all resolve to `oauth`. If it's set
 but the issuer or client id is missing, or if it's set to something that
 isn't `none` or `oauth`, the client shows a configuration screen naming the
 problem rather than silently falling back to no-login.
