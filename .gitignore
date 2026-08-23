@@ -86,8 +86,8 @@ local-scripts/
 
 website/
 
-samples/insurance-support/web/node_modules/
-samples/insurance-support/web/dist/
-samples/insurance-support/web/*.tsbuildinfo
-samples/insurance-support/agent/.venv/
-samples/insurance-support/**/__pycache__/
+samples/insurance-support-agent/web/node_modules/
+samples/insurance-support-agent/web/dist/
+samples/insurance-support-agent/web/*.tsbuildinfo
+samples/insurance-support-agent/agent/.venv/
+samples/insurance-support-agent/**/__pycache__/
