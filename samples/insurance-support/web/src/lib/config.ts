@@ -19,18 +19,22 @@ export function chatEndpoint(base: string): string {
 
 const AGENT_KEY = "insurance.agentUrl";
 
-function resolveAgentUrl(): string {
+// Only safe when no token will ever be attached (mode "none") — otherwise ?agent=
+// would send the access token to whatever origin the URL names.
+function resolveAgentUrl(mode: AuthMode): string {
   const configured = import.meta.env.VITE_AGENT_URL ?? "";
   let override: string | null = null;
   try {
     const q = new URLSearchParams(window.location.search).get("agent");
     if (q === "reset") {
       window.localStorage.removeItem(AGENT_KEY);
-    } else if (q) {
-      window.localStorage.setItem(AGENT_KEY, q);
-      override = q;
-    } else {
-      override = window.localStorage.getItem(AGENT_KEY);
+    } else if (mode === "none") {
+      if (q) {
+        window.localStorage.setItem(AGENT_KEY, q);
+        override = q;
+      } else {
+        override = window.localStorage.getItem(AGENT_KEY);
+      }
     }
   } catch {
     override = null;
@@ -38,20 +42,36 @@ function resolveAgentUrl(): string {
   return chatEndpoint(override || configured);
 }
 
-function resolveMode(): AuthMode {
-  return import.meta.env.VITE_AUTH_MODE === "oidc" ? "oidc" : "none";
+const VALID_MODES: AuthMode[] = ["none", "oidc"];
+
+function normalizedMode(): string {
+  return (import.meta.env.VITE_AUTH_MODE ?? "").trim().toLowerCase();
 }
 
+function resolveMode(): AuthMode {
+  const raw = normalizedMode();
+  return raw === "oidc" ? "oidc" : "none";
+}
+
+const RAW_AUTH_MODE = import.meta.env.VITE_AUTH_MODE ?? "";
+const AUTH_MODE = resolveMode();
+
 export const CONFIG: AppConfig = {
-  agentUrl: resolveAgentUrl(),
-  authMode: resolveMode(),
-  issuer: (import.meta.env.VITE_OIDC_ISSUER ?? "").replace(/\/+$/, ""),
+  agentUrl: resolveAgentUrl(AUTH_MODE),
+  authMode: AUTH_MODE,
+  issuer: (import.meta.env.VITE_OIDC_ISSUER ?? "")
+    .replace(/\/+$/, "")
+    .replace(/\/\.well-known\/openid-configuration$/, ""),
   clientId: import.meta.env.VITE_OIDC_CLIENT_ID ?? "",
   scopes: import.meta.env.VITE_OIDC_SCOPES ?? "openid profile email",
   companyName: import.meta.env.VITE_COMPANY_NAME ?? "O2 Insurance",
 };
 
 export function configError(): string | null {
+  const raw = normalizedMode();
+  if (raw && !VALID_MODES.includes(raw as AuthMode)) {
+    return `VITE_AUTH_MODE="${RAW_AUTH_MODE}" is not a recognised mode. Use "none" or "oidc".`;
+  }
   if (CONFIG.authMode !== "oidc") return null;
   const missing = [
     CONFIG.issuer ? null : "VITE_OIDC_ISSUER",
