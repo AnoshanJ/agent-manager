@@ -15,7 +15,7 @@ obtain a token and attach it as `Authorization: Bearer` on every request.
 ## Quick start
 
 ```bash
-cd samples/insurance-support/web
+cd samples/insurance-support-agent/web
 npm install
 cp .env.example .env
 npm run dev

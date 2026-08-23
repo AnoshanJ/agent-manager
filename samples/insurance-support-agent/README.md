@@ -7,18 +7,18 @@ the gateway.
 The agent works on its own — deploy it and chat from **Try It**. The login flow
 is an optional second step, and the UI runs with or without it.
 
-The browser client is a separate app with its own README — see [`web/`](../web/README.md).
+The browser client is a separate app with its own README — see [`web/`](web/README.md).
 
 ## What is in here
 
-| Path                 | Purpose                                                                  |
-| -------------------- | ------------------------------------------------------------------------ |
-| `main.py` / `app.py` | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`)       |
-| `agent.py`           | Strands agent and OpenAI model wiring                                    |
-| `tools.py`           | Five tools: list policies, list claims, lookup, claim status, file claim |
-| `data.py`            | In-memory policies and claims — no database to set up                    |
-| `system_prompt.py`   | The agent's instructions. Edit this to change behaviour.                 |
-| `../web/`            | React + TypeScript chat client. See `../web/README.md`.                  |
+| Path                       | Purpose                                                                  |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `agent/main.py`, `app.py`  | FastAPI service exposing `POST /chat`, port 8000 (override `PORT`)       |
+| `agent/agent.py`           | Strands agent and OpenAI model wiring                                    |
+| `agent/tools.py`           | Five tools: list policies, list claims, lookup, claim status, file claim |
+| `agent/data.py`            | In-memory policies and claims — no database to set up                    |
+| `agent/system_prompt.py`   | The agent's instructions. Edit this to change behaviour.                 |
+| `web/`                     | React + TypeScript chat client. See [`web/README.md`](web/README.md).    |
 
 The agent handles five things: list the customer's policies, list their claims,
 show the full cover on one policy, check a claim's status, and open a new claim.
@@ -36,6 +36,7 @@ Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
 ## Run locally
 
 ```bash
+cd agent
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY=<your-key>
@@ -52,7 +53,7 @@ curl -X POST http://localhost:10150/chat \
   -d '{"session_id":"s1","message":"What policies do I have?"}'
 ```
 
-Then run the web client against it — see [`web/README.md`](../web/README.md) for
+Then run the web client against it — see [`web/README.md`](web/README.md) for
 setup.
 
 ## Environment variables
@@ -75,7 +76,7 @@ supply in `OPENAI_API_KEY` is then the gateway's key.
 
 ### Step 1: Create the agent
 
-1. Navigate to the **Default** project
+1. Navigate to a project
 2. Select the **Platform-Hosted Agent** card
 3. Pick **Source Code** as the source type
 
@@ -87,7 +88,7 @@ supply in `OPENAI_API_KEY` is then the gateway's key.
 | **Description**       | `Customer support agent for policies and claims` |
 | **GitHub Repository** | `https://github.com/wso2/agent-manager`          |
 | **Branch**            | `main`                                           |
-| **App Path**          | `/samples/insurance-support/agent`               |
+| **App Path**          | `/samples/insurance-support-agent/agent`               |
 | **Language**          | `Python`                                         |
 | **Language Version**  | `3.11`                                           |
 | **Start Command**     | `python main.py`                                 |
@@ -109,7 +110,7 @@ Review and click **Deploy**. The build takes roughly 6-10 minutes.
 ## 2. Invoke the agent
 
 Use **Try It** in the left navigation, or point the web client at the deployed
-agent — see [`web/README.md`](../web/README.md).
+agent — see [`web/README.md`](web/README.md).
 
 ## Known limits
 
@@ -120,7 +121,7 @@ a valid token who knows a `session_id` can resume that conversation. Sessions
 also live in process memory, capped at 500 with the oldest evicted first —
 fine for a demo, not for a real deployment. Both should be fixed (key on the
 authenticated subject, move storage out of process) before this goes further
-than a sample. See [`../web/README.md`](../web/README.md#known-limits) for the
+than a sample. See [`web/README.md`](web/README.md#known-limits) for the
 client-side implications.
 
 ## Observability
@@ -132,11 +133,12 @@ no tracing code and does not install `strands-agents[otel]`.
 
 Two details matter if you adapt this sample:
 
-- `app.py` sets `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`
+- `agent/app.py` sets `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`
   before importing Strands. Without it, tool input and output are not recorded
   as span attributes and the trace view shows tool spans without their data.
-- `requirements.txt` pins `wrapt==1.17.3`. Strands otherwise resolves wrapt 2.x,
-  which removed an argument that the platform's auto-instrumentation still uses.
+- `agent/requirements.txt` pins `wrapt==1.17.3`. Strands otherwise resolves
+  wrapt 2.x, which removed an argument that the platform's auto-instrumentation
+  still uses.
 
 Disabling auto instrumentation removes the OpenTelemetry SDK from the image
 entirely, so the agent would then need to install and configure its own
