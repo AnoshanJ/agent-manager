@@ -1,4 +1,5 @@
 import type { Message } from "@/lib/types";
+import { Markdown } from "./Markdown";
 import { Shield } from "./Shield";
 
 const TONE: Record<Message["role"], string> = {
@@ -18,10 +19,12 @@ export function MessageBubble({ message }: { message: Message }) {
       >
         {mine ? "You" : <Shield className="h-4 w-4" />}
       </div>
-      <div
-        className={`max-w-[80%] whitespace-pre-wrap rounded-card px-4 py-3 text-sm ${TONE[message.role]}`}
-      >
-        {message.text}
+      <div className={`max-w-[80%] rounded-card px-4 py-3 text-sm ${TONE[message.role]}`}>
+        {message.role === "agent" ? (
+          <Markdown text={message.text} />
+        ) : (
+          <span className="whitespace-pre-wrap">{message.text}</span>
+        )}
       </div>
     </div>
   );

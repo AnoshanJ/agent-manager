@@ -61,6 +61,11 @@ but the issuer or client id is missing, or if it's set to something that
 isn't `none` or `oauth`, the client shows a configuration screen naming the
 problem rather than silently falling back to no-login.
 
+## The chat window
+
+Agent replies are rendered as Markdown — headings, bold text, lists and tables
+come through formatted rather than as raw `**` and `###`.
+
 ## Register the callback URL
 
 Register `http://localhost:5173/` as the callback URL with your identity
