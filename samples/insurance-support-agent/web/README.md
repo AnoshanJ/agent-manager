@@ -64,7 +64,10 @@ problem rather than silently falling back to no-login.
 ## The chat window
 
 Agent replies are rendered as Markdown — headings, bold text, lists and tables
-come through formatted rather than as raw `**` and `###`.
+come through formatted rather than as raw `**` and `###`. **New chat** in the
+header clears the transcript and starts a fresh `session_id`, so the agent
+begins with no history; a reply still in flight from the old conversation is
+discarded rather than appended to the new one.
 
 ## Register the callback URL
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { AgentError, sendMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -14,20 +14,32 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
   const [messages, setMessages] = useState<Message[]>([]);
   const [pending, setPending] = useState(false);
+  // Bumped by New chat, so a reply from the abandoned conversation is dropped.
+  const conversation = useRef(0);
+
+  const newChat = useCallback(() => {
+    conversation.current += 1;
+    setSessionId(crypto.randomUUID());
+    setMessages([]);
+    setPending(false);
+  }, []);
 
   const send = useCallback(
     async (text: string) => {
+      const epoch = conversation.current;
       setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
       setPending(true);
       try {
         const token = await auth.getAccessToken();
         const reply = await sendMessage({ message: text, sessionId, token });
+        if (conversation.current !== epoch) return;
         setSessionId(reply.session_id);
         setMessages((prev) => [
           ...prev,
           { id: crypto.randomUUID(), role: "agent", text: reply.response },
         ]);
       } catch (err) {
+        if (conversation.current !== epoch) return;
         const failure =
           err instanceof AgentError
             ? err.kind === "rejected"
@@ -39,7 +51,7 @@ export default function App() {
           { id: crypto.randomUUID(), role: "error", text: failure },
         ]);
       } finally {
-        setPending(false);
+        if (conversation.current === epoch) setPending(false);
       }
     },
     [auth, sessionId],
@@ -57,7 +69,7 @@ export default function App() {
 
   return (
     <div className="mx-auto flex h-full max-w-app flex-col border-x border-border-subtle bg-surface">
-      <ChatHeader />
+      <ChatHeader onNewChat={newChat} />
       <MessageList messages={messages} pending={pending} onSuggestion={send} />
       <Composer disabled={pending} onSend={send} />
     </div>

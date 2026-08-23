@@ -3,7 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { AuthBadge } from "./AuthBadge";
 import { Shield } from "./Shield";
 
-export function ChatHeader() {
+export function ChatHeader({ onNewChat }: { onNewChat: () => void }) {
   const auth = useAuth();
 
   return (
@@ -16,6 +16,13 @@ export function ChatHeader() {
         <div className="text-xs text-muted">Policies and claims</div>
       </div>
       <AuthBadge />
+      <button
+        type="button"
+        onClick={onNewChat}
+        className="rounded-lg border border-border-subtle px-3 py-1.5 text-sm text-ink hover:bg-brand-soft"
+      >
+        New chat
+      </button>
       {auth.mode !== "none" && auth.status === "signed-in" ? (
         <button
           type="button"
