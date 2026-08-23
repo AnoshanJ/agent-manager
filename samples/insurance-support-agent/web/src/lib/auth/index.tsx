@@ -2,17 +2,17 @@ import { createContext, useContext, type ReactNode } from "react";
 
 import { CONFIG, configError } from "@/lib/config";
 import { useNoneAuth } from "./none";
-import { useOidcAuth } from "./oidc";
+import { useOauthAuth } from "./oauth";
 import type { Auth } from "./types";
 
 const AuthContext = createContext<Auth | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const none = useNoneAuth();
-  const oidc = useOidcAuth();
+  const oauth = useOauthAuth();
   const problem = configError();
 
-  let value: Auth = CONFIG.authMode === "oidc" ? oidc : none;
+  let value: Auth = CONFIG.authMode === "oauth" ? oauth : none;
   if (problem) {
     value = { ...value, status: "error", error: problem };
   }

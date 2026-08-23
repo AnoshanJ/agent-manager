@@ -18,7 +18,7 @@ const redirectUri = () => window.location.origin + "/";
 
 async function discover(): Promise<Discovery> {
   const res = await fetch(`${CONFIG.issuer}/.well-known/openid-configuration`);
-  if (!res.ok) throw new Error(`OIDC discovery failed (${res.status}) at ${CONFIG.issuer}`);
+  if (!res.ok) throw new Error(`OpenID discovery failed (${res.status}) at ${CONFIG.issuer}`);
   return (await res.json()) as Discovery;
 }
 
@@ -50,7 +50,7 @@ function nameFromIdToken(idToken: string | undefined): string | undefined {
   }
 }
 
-export function useOidcAuth(): Auth {
+export function useOauthAuth(): Auth {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [error, setError] = useState<string | undefined>();
   const [name, setName] = useState<string | undefined>();
@@ -172,7 +172,7 @@ export function useOidcAuth(): Auth {
   }, []);
 
   return {
-    mode: "oidc",
+    mode: "oauth",
     status,
     user: name ? { name } : undefined,
     signIn,

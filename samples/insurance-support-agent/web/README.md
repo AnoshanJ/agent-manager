@@ -26,20 +26,20 @@ the agent must run with `CORS_ALLOW_ORIGINS=http://localhost:5173`.
 
 ## Environment variables
 
-| Variable              | Required             | Default                | Purpose                                                                   |
-| --------------------- | --------------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `VITE_AGENT_URL`      | no                   | `http://localhost:8000/chat` | Base or full `/chat` URL; `/chat` is appended when it isn't already there |
-| `VITE_AUTH_MODE`      | no                   | `none`                 | `none` or `oidc`                                                          |
-| `VITE_OIDC_ISSUER`    | required when `oidc` | —                      | Issuer base URL; `/.well-known/openid-configuration` is appended         |
-| `VITE_OIDC_CLIENT_ID` | required when `oidc` | —                      | Public client ID                                                          |
-| `VITE_OIDC_SCOPES`    | no                   | `openid profile email` | Requested scopes                                                          |
-| `VITE_COMPANY_NAME`   | no                   | `O2 Insurance`         | Used in the chat header                                                   |
+| Variable               | Required              | Default                      | Purpose                                                                  |
+| ---------------------- | --------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| `VITE_AGENT_URL`       | no                    | `http://localhost:8000/chat` | Base or full `/chat` URL; `/chat` is appended when it isn't already there |
+| `VITE_AUTH_MODE`       | no                    | `none`                       | `none` or `oauth`                                                        |
+| `VITE_OAUTH_ISSUER`    | required when `oauth` | —                            | Issuer base URL; `/.well-known/openid-configuration` is appended         |
+| `VITE_OAUTH_CLIENT_ID` | required when `oauth` | —                            | Public client ID                                                         |
+| `VITE_OAUTH_SCOPES`    | no                    | `openid profile email`       | Requested scopes                                                         |
+| `VITE_COMPANY_NAME`    | no                    | `O2 Insurance`               | Used in the chat header                                                  |
 
 ## Pointing at a deployed agent
 
 Set `VITE_AGENT_URL` in `.env`, or append `?agent=<url>` to the page URL — the
 value persists to `localStorage` until you load the page with `?agent=reset`.
-The override only takes effect in `none` mode: in `oidc` mode it is ignored
+The override only takes effect in `none` mode: in `oauth` mode it is ignored
 entirely (not read, not stored, and any value stored from an earlier `none`
 visit is not used either), because honouring it would send the signed-in
 user's access token to whatever origin the URL names. Either way, this must
@@ -52,13 +52,13 @@ In `none` mode, the client sends no token — it posts straight to the agent,
 and the header shows a `● no login` badge. This only works against an
 unprotected agent.
 
-In `oidc` mode, the client shows a sign-in screen and performs an
+In `oauth` mode, the client shows a sign-in screen and performs an
 authorization-code flow with PKCE as a public client. The access token is kept
 in `sessionStorage`, and once signed in the header shows the signed-in name
 and a **Sign out** button. `VITE_AUTH_MODE` is trimmed and lower-cased before
-matching, so `OIDC`, `Oidc` and ` oidc ` all resolve to `oidc`. If it's set
+matching, so `OAUTH`, `OAuth` and ` oauth ` all resolve to `oauth`. If it's set
 but the issuer or client id is missing, or if it's set to something that
-isn't `none` or `oidc`, the client shows a configuration screen naming the
+isn't `none` or `oauth`, the client shows a configuration screen naming the
 problem rather than silently falling back to no-login.
 
 ## Register the callback URL
@@ -82,7 +82,7 @@ Every installation ships ThunderID, already registered with the gateway as
 3. **Run the client with the provider configured:**
 
    ```bash
-   VITE_AUTH_MODE=oidc VITE_OIDC_ISSUER=<thunder-issuer-url> VITE_OIDC_CLIENT_ID=<client-id-from-step-1> npm run dev
+   VITE_AUTH_MODE=oauth VITE_OAUTH_ISSUER=<thunder-issuer-url> VITE_OAUTH_CLIENT_ID=<client-id-from-step-1> npm run dev
    ```
 
    Or set the same values in `.env` and run `npm run dev` as usual.
@@ -98,7 +98,7 @@ The client is discovery-driven — it reads the issuer's
    Providers**: paste the issuer URL and let discovery populate the issuer and
    JWKS URI.
 3. Select that provider instead of `ThunderKeyManager` when enabling OAuth on
-   the agent, and set `VITE_OIDC_ISSUER` and `VITE_OIDC_CLIENT_ID` to its
+   the agent, and set `VITE_OAUTH_ISSUER` and `VITE_OAUTH_CLIENT_ID` to its
    values.
 
 Nothing else changes.

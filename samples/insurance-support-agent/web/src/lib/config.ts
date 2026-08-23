@@ -1,4 +1,4 @@
-export type AuthMode = "none" | "oidc";
+export type AuthMode = "none" | "oauth";
 
 export interface AppConfig {
   agentUrl: string;
@@ -41,7 +41,7 @@ function resolveAgentUrl(mode: AuthMode): string {
   return chatEndpoint(override || configured);
 }
 
-const VALID_MODES: AuthMode[] = ["none", "oidc"];
+const VALID_MODES: AuthMode[] = ["none", "oauth"];
 
 function normalizedMode(): string {
   return (import.meta.env.VITE_AUTH_MODE ?? "").trim().toLowerCase();
@@ -49,7 +49,7 @@ function normalizedMode(): string {
 
 function resolveMode(): AuthMode {
   const raw = normalizedMode();
-  return raw === "oidc" ? "oidc" : "none";
+  return raw === "oauth" ? "oauth" : "none";
 }
 
 const RAW_AUTH_MODE = import.meta.env.VITE_AUTH_MODE ?? "";
@@ -58,24 +58,24 @@ const AUTH_MODE = resolveMode();
 export const CONFIG: AppConfig = {
   agentUrl: resolveAgentUrl(AUTH_MODE),
   authMode: AUTH_MODE,
-  issuer: (import.meta.env.VITE_OIDC_ISSUER ?? "")
+  issuer: (import.meta.env.VITE_OAUTH_ISSUER ?? "")
     .replace(/\/+$/, "")
     .replace(/\/\.well-known\/openid-configuration$/, ""),
-  clientId: import.meta.env.VITE_OIDC_CLIENT_ID ?? "",
-  scopes: import.meta.env.VITE_OIDC_SCOPES ?? "openid profile email",
+  clientId: import.meta.env.VITE_OAUTH_CLIENT_ID ?? "",
+  scopes: import.meta.env.VITE_OAUTH_SCOPES ?? "openid profile email",
   companyName: import.meta.env.VITE_COMPANY_NAME ?? "O2 Insurance",
 };
 
 export function configError(): string | null {
   const raw = normalizedMode();
   if (raw && !VALID_MODES.includes(raw as AuthMode)) {
-    return `VITE_AUTH_MODE="${RAW_AUTH_MODE}" is not a recognised mode. Use "none" or "oidc".`;
+    return `VITE_AUTH_MODE="${RAW_AUTH_MODE}" is not a recognised mode. Use "none" or "oauth".`;
   }
-  if (CONFIG.authMode !== "oidc") return null;
+  if (CONFIG.authMode !== "oauth") return null;
   const missing = [
-    CONFIG.issuer ? null : "VITE_OIDC_ISSUER",
-    CONFIG.clientId ? null : "VITE_OIDC_CLIENT_ID",
+    CONFIG.issuer ? null : "VITE_OAUTH_ISSUER",
+    CONFIG.clientId ? null : "VITE_OAUTH_CLIENT_ID",
   ].filter(Boolean);
   if (!missing.length) return null;
-  return `VITE_AUTH_MODE=oidc needs ${missing.join(" and ")}. Set it in web/.env and restart the dev server.`;
+  return `VITE_AUTH_MODE=oauth needs ${missing.join(" and ")}. Set it in web/.env and restart the dev server.`;
 }
