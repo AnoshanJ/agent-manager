@@ -9,7 +9,7 @@ obtain a token and attach it as `Authorization: Bearer` on every request.
 ## Prerequisites
 
 - Node 20+ (`node -v`)
-- An agent to talk to — running locally on port 10150, or deployed and
+- An agent to talk to — running locally on port 8000, or deployed and
   reachable behind the gateway
 
 ## Quick start
@@ -28,7 +28,7 @@ the agent must run with `CORS_ALLOW_ORIGINS=http://localhost:5173`.
 
 | Variable              | Required             | Default                | Purpose                                                                   |
 | --------------------- | --------------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `VITE_AGENT_URL`      | no                   | `http://localhost:10150/chat` | Base or full `/chat` URL; `/chat` is appended when it isn't already there |
+| `VITE_AGENT_URL`      | no                   | `http://localhost:8000/chat` | Base or full `/chat` URL; `/chat` is appended when it isn't already there |
 | `VITE_AUTH_MODE`      | no                   | `none`                 | `none` or `oidc`                                                          |
 | `VITE_OIDC_ISSUER`    | required when `oidc` | —                      | Issuer base URL; `/.well-known/openid-configuration` is appended         |
 | `VITE_OIDC_CLIENT_ID` | required when `oidc` | —                      | Public client ID                                                          |

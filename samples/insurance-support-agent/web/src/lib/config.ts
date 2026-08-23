@@ -13,7 +13,7 @@ const CHAT_PATH = "/chat";
 
 export function chatEndpoint(base: string): string {
   const b = (base || "").trim().replace(/\/+$/, "");
-  if (!b) return `http://localhost:10150${CHAT_PATH}`;
+  if (!b) return `http://localhost:8000${CHAT_PATH}`;
   return b.endsWith(CHAT_PATH) ? b : b + CHAT_PATH;
 }
 

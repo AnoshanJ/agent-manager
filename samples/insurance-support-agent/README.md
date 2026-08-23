@@ -41,14 +41,15 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY=<your-key>
 export CORS_ALLOW_ORIGINS="http://localhost:5173"
-PORT=10150 python main.py
+python main.py
 ```
 
-If `python` still resolves outside the venv (pyenv shims are a common cause),
-call the interpreter directly: `./.venv/bin/python main.py`.
+The agent listens on port 8000. If `python` still resolves outside the venv
+(pyenv shims are a common cause), call the interpreter directly:
+`./.venv/bin/python main.py`.
 
 ```bash
-curl -X POST http://localhost:10150/chat \
+curl -X POST http://localhost:8000/chat \
   -H 'Content-Type: application/json' \
   -d '{"session_id":"s1","message":"What policies do I have?"}'
 ```
