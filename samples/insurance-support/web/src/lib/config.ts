@@ -19,8 +19,7 @@ export function chatEndpoint(base: string): string {
 
 const AGENT_KEY = "insurance.agentUrl";
 
-// Only safe when no token will ever be attached (mode "none") — otherwise ?agent=
-// would send the access token to whatever origin the URL names.
+// Gated to mode "none": with a token attached, ?agent= would leak it to any origin.
 function resolveAgentUrl(mode: AuthMode): string {
   const configured = import.meta.env.VITE_AGENT_URL ?? "";
   let override: string | null = null;
