@@ -44,9 +44,6 @@ export CORS_ALLOW_ORIGINS="http://localhost:5173"
 python main.py
 ```
 
-The agent listens on port 8000. If `python` still resolves outside the venv
-(pyenv shims are a common cause), call the interpreter directly:
-`./.venv/bin/python main.py`.
 
 ```bash
 curl -X POST http://localhost:8000/chat \
@@ -61,17 +58,30 @@ setup.
 
 ### Agent
 
-| Variable             | Required | Default          | Purpose                                                                         |
-| -------------------- | -------- | ---------------- | ------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`     | yes      | —                | Model credential                                                                |
-| `PORT`               | no       | `8000`           | Local override only; deployed agents are routed to 8000                         |
-| `CORS_ALLOW_ORIGINS` | no       | —                | Comma-separated origins. Only for local browser use — leave unset when deployed |
-| `OPENAI_BASE_URL`    | no       | OpenAI's default | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy                    |
-| `OPENAI_MODEL`       | no       | `gpt-4o-mini`    | Model id                                                                        |
-| `COMPANY_NAME`       | no       | `O2 Insurance`   | Used in the system prompt and the UI header                                     |
+| Variable             | Required | Default          | Purpose                                                                  |
+| -------------------- | -------- | ---------------- | ------------------------------------------------------------------------ |
+| `OPENAI_API_KEY`     | yes      | —                | Model credential                                                         |
+| `PORT`               | no       | `8000`           | Local override only; deployed agents are routed to 8000                  |
+| `CORS_ALLOW_ORIGINS` | no       | —                | Comma-separated origins. Local testing only — see [CORS](#cors)          |
+| `OPENAI_BASE_URL`    | no       | OpenAI's default | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy             |
+| `OPENAI_MODEL`       | no       | `gpt-4o-mini`    | Model id                                                                 |
+| `COMPANY_NAME`       | no       | `O2 Insurance`   | Used in the system prompt and the UI header                              |
 
 Set `OPENAI_BASE_URL` when routing model calls through a gateway; the key you
 supply in `OPENAI_API_KEY` is then the gateway's key.
+
+## CORS
+
+A browser calling the agent from another origin needs CORS headers. Where they
+come from depends on how the agent is reached:
+
+- **Deployed behind the gateway** — configure it in Agent Manager. Open the
+  agent, go to its CORS settings, and add `http://localhost:5173` (or whatever
+  origin serves the client) to the allowed origins. Leave
+  `CORS_ALLOW_ORIGINS` unset on the agent: the gateway already sends the
+  headers, and two sets of them make browsers reject the response.
+- **Running the agent directly on your machine** — there is no gateway in the
+  path, so set `CORS_ALLOW_ORIGINS=http://localhost:5173` on the agent instead.
 
 ## 1. Deploy in Agent Manager
 
@@ -111,7 +121,8 @@ Review and click **Deploy**. The build takes roughly 6-10 minutes.
 ## 2. Invoke the agent
 
 Use **Try It** in the left navigation, or point the web client at the deployed
-agent — see [`web/README.md`](web/README.md).
+agent — see [`web/README.md`](web/README.md). To call it from the browser, add
+the client's origin to the agent's CORS settings first — see [CORS](#cors).
 
 ## Known limits
 

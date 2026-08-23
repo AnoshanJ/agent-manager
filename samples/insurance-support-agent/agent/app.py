@@ -31,7 +31,7 @@ _sessions_lock = threading.Lock()
 
 app = FastAPI(title="Insurance Support Agent", version="1.0.0")
 
-# Deployed agents get CORS from the gateway; a second set of headers breaks browsers.
+# Local only: when deployed, CORS belongs in Agent Manager — two sets of headers break browsers.
 _cors_origins = [o for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o]
 if _cors_origins:
     app.add_middleware(

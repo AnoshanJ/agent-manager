@@ -21,8 +21,11 @@ cp .env.example .env
 npm run dev
 ```
 
-Open <http://localhost:5173>. For a local browser to reach the agent directly,
-the agent must run with `CORS_ALLOW_ORIGINS=http://localhost:5173`.
+Open <http://localhost:5173>. The browser needs CORS headers from whatever it
+calls: against a **deployed** agent, add `http://localhost:5173` to the agent's
+CORS settings in Agent Manager; against an agent running **locally**, start it
+with `CORS_ALLOW_ORIGINS=http://localhost:5173` instead. See
+[the root README](../README.md#cors).
 
 ## Environment variables
 
