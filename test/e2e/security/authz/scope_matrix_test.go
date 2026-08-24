@@ -31,10 +31,10 @@ import (
 
 // SEC-AUTHZ-001 — every guarded route rejects a token missing its scope.
 //
-// For each route the suite mints two tokens from the same IDP client:
+// For each route the suite mints deny and allow tokens from the same IDP client:
 //
-//	deny  = every amp: scope EXCEPT the one this route requires  -> must be 403
-//	allow = only the scope this route requires                   -> must NOT be 403
+//	deny  = every amp: scope except one required scope -> must be 403
+//	allow = the minimum complete required scope set    -> must NOT be 401/403
 //
 // The deny case catches an unguarded route. The allow case is the control that
 // keeps the deny case honest: without it, a route that 403s for an unrelated
@@ -60,14 +60,54 @@ type guardedRoute struct {
 	// Method and Path form the request. Path is relative to the API base URL.
 	Method string
 	Path   string
-	// Scopes are the scopes that satisfy this route. More than one means the
-	// route is registered with OR semantics (HandleFuncWithValidationAndAnyAuthz),
-	// so the deny token must lack all of them while any single one allows.
+	// Scopes are the complete set required by this route. A multi-scope entry
+	// models an all-of authorization registrar.
 	Scopes []string
 }
 
 func (r guardedRoute) String() string {
-	return fmt.Sprintf("%s %s [%s]", r.Method, r.Path, strings.Join(r.Scopes, " or "))
+	separator := " or "
+	if len(r.Scopes) > 1 {
+		separator = " and "
+	}
+	return fmt.Sprintf("%s %s [%s]", r.Method, r.Path, strings.Join(r.Scopes, separator))
+}
+
+type scopeCase struct {
+	label  string
+	scopes []string
+}
+
+// denyCases returns the least-privileged token sets that must be rejected. For
+// an AND route, each case removes exactly one required scope while retaining
+// every other AMP scope, proving that every axis is independently enforced.
+func (r guardedRoute) denyCases() []scopeCase {
+	if len(r.Scopes) > 1 {
+		cases := make([]scopeCase, 0, len(r.Scopes))
+		for _, missing := range r.Scopes {
+			cases = append(cases, scopeCase{label: missing, scopes: framework.ScopesExcept(missing)})
+		}
+		return cases
+	}
+
+	return []scopeCase{{
+		label:  strings.Join(r.Scopes, "/"),
+		scopes: framework.ScopesExcept(r.Scopes...),
+	}}
+}
+
+// allowCases returns the minimum token set that must pass authorization. A
+// multi-scope route needs all of its required scopes together.
+func (r guardedRoute) allowCases() []scopeCase {
+	if len(r.Scopes) > 1 {
+		return []scopeCase{{label: strings.Join(r.Scopes, " and "), scopes: r.Scopes}}
+	}
+
+	cases := make([]scopeCase, 0, len(r.Scopes))
+	for _, scope := range r.Scopes {
+		cases = append(cases, scopeCase{label: scope, scopes: []string{scope}})
+	}
+	return cases
 }
 
 // guardedRoutes is a representative slice of the API surface: one entry per
@@ -91,9 +131,13 @@ func guardedRoutes(org string) []guardedRoute {
 		{http.MethodPut, agentBase + "/" + absentName, []string{"amp:agent:update"}},
 		{http.MethodDelete, agentBase + "/" + absentName, []string{"amp:agent:delete"}},
 		{http.MethodPost, agentBase + "/" + absentName + "/builds", []string{"amp:agent:build"}},
-		{http.MethodPost, agentBase + "/" + absentName + "/deployments", []string{"amp:agent:deploy-non-production"}},
-		{http.MethodPost, agentBase + "/" + absentName + "/promote", []string{"amp:agent:promote"}},
-		{http.MethodPost, agentBase + "/" + absentName + "/deployments/state", []string{"amp:agent:suspend"}},
+		{http.MethodPost, agentBase + "/" + absentName + "/deployments", []string{"amp:agent:env-non-production"}},
+		{http.MethodPost, agentBase + "/" + absentName + "/promote", []string{"amp:agent:env-non-production"}},
+		{
+			http.MethodPost,
+			agentBase + "/" + absentName + "/deployments/state",
+			[]string{"amp:agent:suspend", "amp:agent:env-non-production"},
+		},
 		{http.MethodPost, agentBase + "/" + absentName + "/publish-kind", []string{"amp:agent-kind:create"}},
 		{
 			http.MethodPost, agentBase + "/" + absentName + "/environments/" + absentName + "/api-keys",
@@ -144,23 +188,30 @@ func guardedRoutes(org string) []guardedRoute {
 
 var _ = Describe("SEC-AUTHZ-001: scope matrix", Label("security"), func() {
 	for _, route := range guardedRoutes(framework.LoadConfig().DefaultOrg) {
-		It(fmt.Sprintf("denies %s to a token without %s",
-			route.Method+" "+route.Path, strings.Join(route.Scopes, "/")), func(ctx SpecContext) {
-			By("calling the route with every scope EXCEPT the one it requires")
-			deny := clientWithScopes(ctx, framework.ScopesExcept(route.Scopes...))
-			resp := send(ctx, deny, route)
-			defer resp.Body.Close()
-			framework.ExpectForbidden(Default, resp, route.String())
-		})
+		route := route
+		for _, denyCase := range route.denyCases() {
+			denyCase := denyCase
+			It(fmt.Sprintf("denies %s to a token without %s",
+				route.Method+" "+route.Path, denyCase.label), func(ctx SpecContext) {
+				By("calling the route with the required scope deliberately omitted")
+				deny := clientWithScopes(ctx, denyCase.scopes)
+				resp := send(ctx, deny, route)
+				defer resp.Body.Close()
+				framework.ExpectForbidden(Default, resp, route.String())
+			})
+		}
 
-		It(fmt.Sprintf("allows %s to a token with %s",
-			route.Method+" "+route.Path, route.Scopes[0]), func(ctx SpecContext) {
-			By("calling the same route with only the scope it requires")
-			allow := clientWithScopes(ctx, []string{route.Scopes[0]})
-			resp := send(ctx, allow, route)
-			defer resp.Body.Close()
-			framework.ExpectNotForbidden(Default, resp, route.String())
-		})
+		for _, allowCase := range route.allowCases() {
+			allowCase := allowCase
+			It(fmt.Sprintf("allows %s to a token with %s",
+				route.Method+" "+route.Path, allowCase.label), func(ctx SpecContext) {
+				By("calling the same route with the minimum scopes that satisfy it")
+				allow := clientWithScopes(ctx, allowCase.scopes)
+				resp := send(ctx, allow, route)
+				defer resp.Body.Close()
+				framework.ExpectNotForbidden(Default, resp, route.String())
+			})
+		}
 	}
 })
 
@@ -194,6 +245,10 @@ func clientWithScopes(ctx SpecContext, scopes []string) *framework.AMPClient {
 	// so a spec can never pass because it was handed more privilege than asked.
 	issued, err := framework.TokenScopes(token)
 	Expect(err).NotTo(HaveOccurred(), "failed to decode the issued token")
+	for _, s := range scopes {
+		Expect(issued).To(HaveKey(s),
+			"the IDP did not issue requested scope %q — the scope may have been removed or renamed", s)
+	}
 	for _, s := range framework.AllScopes() {
 		if !slices.Contains(scopes, s) {
 			Expect(issued).NotTo(HaveKey(s),

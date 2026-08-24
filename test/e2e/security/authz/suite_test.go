@@ -54,6 +54,7 @@ func TestSecurityAuthz(t *testing.T) {
 
 var _ = BeforeSuite(func(ctx SpecContext) {
 	Cfg = framework.LoadConfig()
+	verifyScopeMatrixUsesKnownScopes()
 
 	By("Waiting for API readiness")
 	framework.WaitForAPIReady(Cfg)
@@ -72,6 +73,21 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	By("Verifying RBAC enforcement is enabled on the target deployment")
 	verifyRBACEnabled(ctx)
 })
+
+// verifyScopeMatrixUsesKnownScopes catches stale permission names before the
+// suite performs any network I/O. Thunder drops unknown requested scopes, which
+// would otherwise make both the deny and allow controls fail less clearly.
+func verifyScopeMatrixUsesKnownScopes() {
+	knownScopes := framework.AllScopes()
+	for _, route := range guardedRoutes(Cfg.DefaultOrg) {
+		Expect(route.Scopes).NotTo(BeEmpty(), "%s has no required scopes", route)
+		for _, scope := range route.Scopes {
+			Expect(knownScopes).To(ContainElement(scope),
+				"%s references unknown scope %q; update the security matrix after an RBAC catalog change",
+				route, scope)
+		}
+	}
+}
 
 // verifyScopeReductionWorks proves the harness can mint a token that genuinely
 // lacks a scope. Thunder returns requested ∩ allowed, but that is a property of
