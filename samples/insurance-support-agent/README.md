@@ -61,7 +61,7 @@ setup.
 | Variable             | Required | Default          | Purpose                                                                  |
 | -------------------- | -------- | ---------------- | ------------------------------------------------------------------------ |
 | `OPENAI_API_KEY`     | yes      | —                | Model credential                                                         |
-| `PORT`               | no       | `8000`           | Local override only; deployed agents are routed to 8000                  |
+| `PORT`               | yes       | `8000`           | Override if required only;                 |
 | `CORS_ALLOW_ORIGINS` | no       | —                | Comma-separated origins. Local testing only — see [CORS](#cors)          |
 | `OPENAI_BASE_URL`    | no       | OpenAI's default | Any OpenAI-compatible endpoint — an AM LLM provider, a proxy             |
 | `OPENAI_MODEL`       | no       | `gpt-4o-mini`    | Model id                                                                 |
@@ -112,6 +112,7 @@ Choose **Chat Agent**.
 
 ```env
 OPENAI_API_KEY=<your-openai-api-key>
+PORT=8000
 ```
 
 ### Step 5: Deploy
