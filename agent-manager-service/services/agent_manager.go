@@ -4578,7 +4578,7 @@ func (s *agentManagerService) missingTargetConfigText(
 	srcConfigs, err := s.agentConfigurationService.ListSystemManagedConfigs(ctx, agentName, ouID, projectName, sourceEnv)
 	if err != nil {
 		s.logger.Warn("Failed to list source env system-managed configurations for a blocked promotion",
-			"agentName", agentName, "environment", sourceEnv, "error", err)
+			"agentName", agentName, "projectName", projectName, "ouID", ouID, "environment", sourceEnv, "error", err)
 		return genericMessage, genericReason
 	}
 
@@ -4593,21 +4593,20 @@ func (s *agentManagerService) missingTargetConfigText(
 	}
 	sort.Strings(mcpNames)
 	hasNonMCPConfig := len(mcpNames) != len(srcConfigs)
-	shownMCPNames := clampedConfigNames(mcpNames)
 
 	// An agent missing an LLM configuration too is described by the generic message
 	// accurately, and keeping it byte-identical leaves anything already handling this
 	// block working. The MCP connections still have to be named somewhere, or fixing
 	// only what the message asks for earns the same refusal again.
 	if hasNonMCPConfig {
-		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(shownMCPNames))
+		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(mcpNames))
 	}
 
 	areNotConnected, remedy := "is not connected", "connect it"
 	if len(mcpNames) > 1 {
 		areNotConnected, remedy = "are not connected", "connect them"
 	}
-	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(shownMCPNames), areNotConnected, targetEnv),
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(mcpNames), areNotConnected, targetEnv),
 		fmt.Sprintf("%s in %q, then promote", remedy, targetEnv)
 }
 
@@ -4618,20 +4617,18 @@ func (s *agentManagerService) missingTargetConfigText(
 // briefConnectionList may end it with a "(+N more)" count that must not appear to be
 // part of a name. names must not be empty.
 //
-// How long an individual name may be is the caller's decision, not this one's: a
-// caller that would rather cut a name than lose the sentence around it passes names
-// through clampedConfigNames first, and one that must never show a shortened name
-// passes them whole.
+// Every name is clamped here rather than at the call sites. Names are caller-supplied
+// and accepted up to 255 characters, so one of them can bury the sentence it sits in;
+// clamping where the names are rendered means a caller cannot forget to.
 func mcpConfigList(names []string) string {
 	if len(names) == 1 {
-		return fmt.Sprintf("MCP configuration %q", names[0])
+		return fmt.Sprintf("MCP configuration %q", briefUIDetail(names[0]))
 	}
-	return fmt.Sprintf("MCP configurations %s", briefConnectionList(names))
+	return fmt.Sprintf("MCP configurations %s", briefConnectionList(clampedConfigNames(names)))
 }
 
-// clampedConfigNames bounds each name on its own. Configuration names are accepted up
-// to 255 characters, and briefConnectionList bounds how many names are shown but never
-// shortens one, so a single long name would otherwise bury the sentence around it.
+// clampedConfigNames bounds each name on its own, because briefConnectionList bounds
+// how many names are shown but never shortens one.
 func clampedConfigNames(names []string) []string {
 	shortened := make([]string, 0, len(names))
 	for _, name := range names {

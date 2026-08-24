@@ -601,7 +601,7 @@ type stubAgentConfigurationServiceForPromote struct {
 // per-configuration wording keep the message they were written against.
 func (s *stubAgentConfigurationServiceForPromote) ListSystemManagedConfigs(ctx context.Context, agentID, ouID, projectName, environmentName string) ([]SystemManagedConfigRef, error) {
 	if s.SystemConfigsFunc == nil {
-		return nil, nil
+		return []SystemManagedConfigRef{}, nil
 	}
 	return s.SystemConfigsFunc(ctx, agentID, ouID, projectName, environmentName)
 }
@@ -880,6 +880,39 @@ func TestPromoteAgent_BlockedMCPPromotion_ReadsAsPluralOnlyWhenSeveralAreBroken(
 	assert.Contains(t, ve.Message, `MCP configurations booking, payments have no MCP server in "staging"`)
 	assert.Equal(t, `deploy their MCP servers to "staging", then promote`, ve.Reason)
 	assert.NotContains(t, renderedUIError(ve), "(s)", "the wording agrees with the count instead of hedging")
+}
+
+// The sibling block below shortens a long configuration name, and this one renders
+// its names through the same helper, so it must shorten too. A 255-character name is
+// legal, and pasting one in whole buries the sentence that says what to do about it.
+func TestPromoteAgent_BlockedMCPPromotion_VeryLongConfigName_IsShortenedNotPastedWhole(t *testing.T) {
+	longName := "hotel-booking" + strings.Repeat("x", 242)
+	require.Len(t, longName, 255, "the fixture must use the longest name the API accepts")
+
+	for _, tc := range []struct {
+		name  string
+		names []string
+	}{
+		{"single configuration", []string{longName}},
+		{"several configurations", []string{longName, "payments"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+			stubUnresolvedMCPs(t, s, "staging", tc.names...)
+			logs := captureLogs(s)
+
+			err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+				SourceEnvironment: "dev",
+				TargetEnvironment: "staging",
+			})
+
+			ve := requireBriefPromotionBlock(t, err)
+			rendered := renderedUIError(ve)
+			assert.NotContains(t, rendered, longName, "the whole name must not reach the UI")
+			assert.Contains(t, rendered, "hotel-booking", "enough of the name must survive to identify the configuration")
+			assert.Contains(t, logs(), longName, "the untruncated name must still reach the log")
+		})
+	}
 }
 
 func TestPromoteAgent_TargetIdentityReady_PromotesWithTargetOnlyCredentials(t *testing.T) {
@@ -2240,7 +2273,7 @@ func stubSystemManagedConfigs(t *testing.T, s *agentManagerService, configuredEn
 	}
 	agentConfigSvc.SystemConfigsFunc = func(_ context.Context, _, _, _, envName string) ([]SystemManagedConfigRef, error) {
 		if envName != configuredEnv {
-			return nil, nil
+			return []SystemManagedConfigRef{}, nil
 		}
 		return configs, nil
 	}
