@@ -39,6 +39,16 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
+// SystemManagedConfigRef identifies one agent configuration that injects
+// system-managed env vars into an environment. ListSystemManagedEnvVarKeys
+// flattens every configuration into a single set of variable names, which is
+// all its callers need but leaves an error message unable to say what kind of
+// configuration those names came from; this keeps the identity instead.
+type SystemManagedConfigRef struct {
+	Name   string
+	TypeID uint
+}
+
 // AgentConfigurationService interface defines agent configuration business logic
 type AgentConfigurationService interface {
 	Create(ctx context.Context, ouID, projectName, agentID string,
@@ -70,6 +80,11 @@ type AgentConfigurationService interface {
 	// (i.e. injected by agent LLM/MCP configurations) for the given agent and environment.
 	// Used during promote to strip these keys from inherited workload overrides.
 	ListSystemManagedEnvVarKeys(ctx context.Context, agentID, ouID, projectName, environmentName string) (map[string]bool, error)
+	// ListSystemManagedConfigs returns the agent's configurations that have system-managed
+	// env vars in the given environment, by name and type. Promote calls it only once it has
+	// already decided to refuse, to say which configurations the target environment is
+	// missing rather than describing them all as LLM configuration.
+	ListSystemManagedConfigs(ctx context.Context, agentID, ouID, projectName, environmentName string) ([]SystemManagedConfigRef, error)
 	// BuildSystemManagedEnvVarsFromConfig constructs system-managed env vars for a given
 	// agent and environment from all DB configs. Used during promotion when the target
 	// environment's ReleaseBinding doesn't have these vars yet.
@@ -5538,6 +5553,36 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 		}
 	}
 	return keys, nil
+}
+
+func (s *agentConfigurationService) ListSystemManagedConfigs(
+	ctx context.Context, agentID, ouID, projectName, environmentName string,
+) ([]SystemManagedConfigRef, error) {
+	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
+	if err != nil {
+		return nil, err
+	}
+
+	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
+	}
+
+	// A configuration with no variable rows in this environment was never set up for it —
+	// the same condition ListSystemManagedEnvVarKeys expresses by contributing no keys.
+	var refs []SystemManagedConfigRef
+	for i := range configs {
+		config := &configs[i]
+		vars, err := s.envVariableRepo.ListByConfigAndEnv(ctx, config.UUID, envUUID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list env config variables for config %s: %w", config.UUID, err)
+		}
+		if len(vars) == 0 {
+			continue
+		}
+		refs = append(refs, SystemManagedConfigRef{Name: config.Name, TypeID: config.TypeID})
+	}
+	return refs, nil
 }
 
 // BuildSystemManagedEnvVarsFromConfig constructs system-managed env vars for a given

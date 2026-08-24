@@ -4179,10 +4179,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			"the agent has LLM/system configuration in the source environment but none in the target — promoting would "+
 				"deploy it without the system variables it needs",
 			"sourceEnvironment", req.SourceEnvironment)
-		return utils.NewInvalidInputError(
-			fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", req.TargetEnvironment),
-			fmt.Sprintf("configure system variables in %q, then promote", req.TargetEnvironment),
-		)
+		message, reason := s.missingTargetConfigText(ctx, agentName, ouID, projectName, req.SourceEnvironment, req.TargetEnvironment)
+		return utils.NewInvalidInputError(message, reason)
 	}
 
 	// The key-presence check above cannot see a connection that is present but dead: an MCP
@@ -4558,6 +4556,82 @@ func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
 		"sourceEnvironment", sourceEnv, "connections", brokenList)
 	message, reason := mcpPromotionBlockText(brokenByPromotion, targetEnv)
 	return utils.NewInvalidInputError(message, reason)
+}
+
+// missingTargetConfigText renders the caller-facing halves of a promotion blocked
+// because the target environment has none of the system-managed configuration the
+// source has. The generic wording describes it all as LLM configuration, which is
+// what the agent's LLM provider needs but says nothing true about an agent whose
+// only system-managed configuration is an MCP connection.
+//
+// The source's configurations are looked up here rather than alongside the key sets
+// the check itself reads, so the extra query is paid only by a promotion already
+// being refused. A lookup that fails leaves the generic wording in place: a block
+// described imprecisely is still the right answer, and turning it into a 500 would
+// hide it.
+func (s *agentManagerService) missingTargetConfigText(
+	ctx context.Context, agentName, ouID, projectName, sourceEnv, targetEnv string,
+) (message, reason string) {
+	genericMessage := fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", targetEnv)
+	genericReason := fmt.Sprintf("configure system variables in %q, then promote", targetEnv)
+
+	srcConfigs, err := s.agentConfigurationService.ListSystemManagedConfigs(ctx, agentName, ouID, projectName, sourceEnv)
+	if err != nil {
+		s.logger.Warn("Failed to list source env system-managed configurations for a blocked promotion",
+			"agentName", agentName, "environment", sourceEnv, "error", err)
+		return genericMessage, genericReason
+	}
+
+	var mcpNames []string
+	hasNonMCPConfig := false
+	for _, config := range srcConfigs {
+		if config.TypeID == models.AgentConfigTypeIDMCP {
+			mcpNames = append(mcpNames, config.Name)
+			continue
+		}
+		hasNonMCPConfig = true
+	}
+	if len(mcpNames) == 0 {
+		return genericMessage, genericReason
+	}
+	sort.Strings(mcpNames)
+
+	// An agent missing an LLM configuration too is described by the generic message
+	// accurately, and keeping it byte-identical leaves anything already handling this
+	// block working. The MCP connections still have to be named somewhere, or fixing
+	// only what the message asks for earns the same refusal again.
+	if hasNonMCPConfig {
+		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(mcpNames))
+	}
+
+	areNotConnected, remedy := "is not connected", "connect it"
+	if len(mcpNames) > 1 {
+		areNotConnected, remedy = "are not connected", "connect them"
+	}
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(mcpNames), areNotConnected, targetEnv),
+		fmt.Sprintf("%s in %q, then promote", remedy, targetEnv)
+}
+
+// mcpConfigList names MCP configurations for a caller-facing sentence, agreeing with
+// how many there are rather than hedging with "configuration(s)".
+//
+// A lone name is quoted because it reads as a name; a list is left bare, since
+// briefConnectionList may end it with a "(+N more)" count that must not appear to be
+// part of a name — the same convention mcpPromotionBlockText follows. names must not
+// be empty.
+//
+// Each name is clamped first. Configuration names are accepted up to 255 characters,
+// and briefConnectionList bounds how many names are shown but never shortens one, so
+// a single long name would otherwise bury the sentence around it.
+func mcpConfigList(names []string) string {
+	shortened := make([]string, 0, len(names))
+	for _, name := range names {
+		shortened = append(shortened, briefUIDetail(name))
+	}
+	if len(shortened) == 1 {
+		return fmt.Sprintf("MCP configuration %q", shortened[0])
+	}
+	return fmt.Sprintf("MCP configurations %s", briefConnectionList(shortened))
 }
 
 // mcpPromotionBlockText renders the caller-facing halves of a promotion blocked
