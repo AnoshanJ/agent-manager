@@ -6,6 +6,7 @@ package repomocks
 import (
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"gorm.io/gorm"
 )
@@ -33,6 +34,9 @@ import (
 //			},
 //			GetByUUIDFunc: func(providerID string, orgUUID string) (*models.LLMProvider, error) {
 //				panic("mock out the GetByUUID method")
+//			},
+//			HasAssociatedProxiesFunc: func(providerUUID uuid.UUID) (bool, error) {
+//				panic("mock out the HasAssociatedProxies method")
 //			},
 //			ListFunc: func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error) {
 //				panic("mock out the List method")
@@ -64,6 +68,9 @@ type LLMProviderRepositoryMock struct {
 
 	// GetByUUIDFunc mocks the GetByUUID method.
 	GetByUUIDFunc func(providerID string, orgUUID string) (*models.LLMProvider, error)
+
+	// HasAssociatedProxiesFunc mocks the HasAssociatedProxies method.
+	HasAssociatedProxiesFunc func(providerUUID uuid.UUID) (bool, error)
 
 	// ListFunc mocks the List method.
 	ListFunc func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error)
@@ -121,6 +128,11 @@ type LLMProviderRepositoryMock struct {
 			// OrgUUID is the orgUUID argument value.
 			OrgUUID string
 		}
+		// HasAssociatedProxies holds details about calls to the HasAssociatedProxies method.
+		HasAssociatedProxies []struct {
+			// ProviderUUID is the providerUUID argument value.
+			ProviderUUID uuid.UUID
+		}
 		// List holds details about calls to the List method.
 		List []struct {
 			// OrgUUID is the orgUUID argument value.
@@ -140,14 +152,15 @@ type LLMProviderRepositoryMock struct {
 			OrgUUID string
 		}
 	}
-	lockCount       sync.RWMutex
-	lockCreate      sync.RWMutex
-	lockDelete      sync.RWMutex
-	lockExists      sync.RWMutex
-	lockGetByHandle sync.RWMutex
-	lockGetByUUID   sync.RWMutex
-	lockList        sync.RWMutex
-	lockUpdate      sync.RWMutex
+	lockCount                sync.RWMutex
+	lockCreate               sync.RWMutex
+	lockDelete               sync.RWMutex
+	lockExists               sync.RWMutex
+	lockGetByHandle          sync.RWMutex
+	lockGetByUUID            sync.RWMutex
+	lockHasAssociatedProxies sync.RWMutex
+	lockList                 sync.RWMutex
+	lockUpdate               sync.RWMutex
 }
 
 // Count calls CountFunc.
@@ -375,6 +388,38 @@ func (mock *LLMProviderRepositoryMock) GetByUUIDCalls() []struct {
 	mock.lockGetByUUID.RLock()
 	calls = mock.calls.GetByUUID
 	mock.lockGetByUUID.RUnlock()
+	return calls
+}
+
+// HasAssociatedProxies calls HasAssociatedProxiesFunc.
+func (mock *LLMProviderRepositoryMock) HasAssociatedProxies(providerUUID uuid.UUID) (bool, error) {
+	if mock.HasAssociatedProxiesFunc == nil {
+		panic("LLMProviderRepositoryMock.HasAssociatedProxiesFunc: method is nil but LLMProviderRepository.HasAssociatedProxies was just called")
+	}
+	callInfo := struct {
+		ProviderUUID uuid.UUID
+	}{
+		ProviderUUID: providerUUID,
+	}
+	mock.lockHasAssociatedProxies.Lock()
+	mock.calls.HasAssociatedProxies = append(mock.calls.HasAssociatedProxies, callInfo)
+	mock.lockHasAssociatedProxies.Unlock()
+	return mock.HasAssociatedProxiesFunc(providerUUID)
+}
+
+// HasAssociatedProxiesCalls gets all the calls that were made to HasAssociatedProxies.
+// Check the length with:
+//
+//	len(mockedLLMProviderRepository.HasAssociatedProxiesCalls())
+func (mock *LLMProviderRepositoryMock) HasAssociatedProxiesCalls() []struct {
+	ProviderUUID uuid.UUID
+} {
+	var calls []struct {
+		ProviderUUID uuid.UUID
+	}
+	mock.lockHasAssociatedProxies.RLock()
+	calls = mock.calls.HasAssociatedProxies
+	mock.lockHasAssociatedProxies.RUnlock()
 	return calls
 }
 

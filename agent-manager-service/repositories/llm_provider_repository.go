@@ -42,6 +42,7 @@ type LLMProviderRepository interface {
 	Update(p *models.LLMProvider, providerID string, orgUUID string) error
 	Delete(providerID, orgUUID string) error
 	Exists(providerID, orgUUID string) (bool, error)
+	HasAssociatedProxies(providerUUID uuid.UUID) (bool, error)
 }
 
 // LLMProviderRepo implements LLMProviderRepository using GORM
@@ -222,6 +223,16 @@ func (r *LLMProviderRepo) Update(p *models.LLMProvider, providerID string, orgUU
 		slog.Info("LLMProviderRepo.Update: completed successfully", "handle", providerID, "rowsAffected", result.RowsAffected)
 		return nil
 	})
+}
+
+// HasAssociatedProxies reports whether any LLM proxy still references the given provider.
+func (r *LLMProviderRepo) HasAssociatedProxies(providerUUID uuid.UUID) (bool, error) {
+	var count int64
+	if err := r.db.Table("llm_proxies").Where("provider_uuid = ?", providerUUID).Count(&count).Error; err != nil {
+		slog.Error("LLMProviderRepo.HasAssociatedProxies: failed to count associated proxies", "providerUUID", providerUUID, "error", err)
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // Delete removes an LLM provider

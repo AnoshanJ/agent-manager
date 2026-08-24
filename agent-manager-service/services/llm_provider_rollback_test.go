@@ -27,6 +27,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // serviceForRollback wires the three repository calls a rollback Delete makes for a
@@ -36,8 +37,9 @@ func serviceForRollback(
 	created *models.LLMProvider, deleteErr error,
 ) (*LLMProviderService, *LLMProviderDeploymentService) {
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
-		GetByUUIDFunc: func(_, _ string) (*models.LLMProvider, error) { return created, nil },
-		DeleteFunc:    func(_, _ string) error { return deleteErr },
+		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		DeleteFunc:               func(_, _ string) error { return deleteErr },
+		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
 	}
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
@@ -77,4 +79,32 @@ func TestRollbackCreatedProvider_ReportsNoErrorWhenTheProviderIsRemoved(t *testi
 	err := svc.rollbackCreatedProvider(context.Background(), created, "ou-acme", deploymentSvc)
 
 	assert.NoError(t, err)
+}
+
+// A delete rejected because the provider still has associated proxies must be a pure
+// no-op: it must never touch the gateway. Undeploying before this check is what left
+// providers permanently UNDEPLOYED in the DB after a rejected delete (issue #1739).
+func TestDelete_RejectsWithoutUndeployingWhenProviderHasAssociatedProxies(t *testing.T) {
+	created := createdProvider()
+	undeployCalled := false
+
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return true, nil },
+	}
+	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
+			// Should never be reached: the proxies check must short-circuit first.
+			undeployCalled = true
+			return []string{"gw-1"}, nil
+		},
+	}
+	svc := &LLMProviderService{providerRepo: providerRepo}
+	deploymentSvc := &LLMProviderDeploymentService{deploymentRepo: deploymentRepo}
+
+	err := svc.Delete(context.Background(), created.UUID.String(), "ou-acme", deploymentSvc)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrLLMProviderHasProxies)
+	assert.False(t, undeployCalled, "Delete must check for associated proxies before touching any gateway")
 }

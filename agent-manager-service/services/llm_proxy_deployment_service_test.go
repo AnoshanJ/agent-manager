@@ -65,6 +65,10 @@ func (m *mockLLMProviderRepository) Exists(providerID, orgUUID string) (bool, er
 	return false, nil
 }
 
+func (m *mockLLMProviderRepository) HasAssociatedProxies(providerUUID uuid.UUID) (bool, error) {
+	return false, nil
+}
+
 // TestGenerateLLMProxyDeploymentYAML_Basic tests basic YAML generation
 func TestGenerateLLMProxyDeploymentYAML_Basic(t *testing.T) {
 	providerUUID := uuid.New().String()

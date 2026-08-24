@@ -666,6 +666,18 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 	// use the UUID resolved above rather than re-parsing the raw identifier.
 	providerUUID := provider.UUID
 
+	// Reject before touching any gateway: undeploying is not transactional with the
+	// DB delete, so a rejected delete must not leave the provider undeployed.
+	hasProxies, err := s.providerRepo.HasAssociatedProxies(providerUUID)
+	if err != nil {
+		slog.Error("LLMProviderService.Delete: failed to check associated proxies", "ouID", ouID, "providerID", providerID, "error", err)
+		return fmt.Errorf("failed to check associated proxies: %w", err)
+	}
+	if hasProxies {
+		slog.Warn("LLMProviderService.Delete: provider has associated proxies", "ouID", ouID, "providerID", providerID)
+		return utils.ErrLLMProviderHasProxies
+	}
+
 	gatewayIDs, err := deploymentService.deploymentRepo.GetDeployedGatewaysByProvider(providerUUID, ouID)
 	if err != nil {
 		slog.Error("LLMProviderService.Delete: failed to get deployed gateways", "ouID", ouID, "providerID", providerID, "error", err)
