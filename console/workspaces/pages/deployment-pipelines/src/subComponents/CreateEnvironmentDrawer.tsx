@@ -541,7 +541,7 @@ export function CreateEnvironmentDrawer({
                     ? "This handle is already in use — choose a different one."
                     : checkingThunderHandle && thunderHandleFormatValid
                       ? "Checking availability…"
-                      : "Used as the handle in this environment's Thunder identity URL - leave blank to auto-generate.")}
+                      : "Used as the handle in this environment's ThunderIDentity URL - leave blank to auto-generate.")}
               </Typography>
               <Typography
                 variant="caption"

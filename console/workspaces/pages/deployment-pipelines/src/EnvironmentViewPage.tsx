@@ -280,7 +280,7 @@ export function EnvironmentViewPage() {
 
           <Stack spacing={1.5}>
             <Typography variant="overline" color="text.secondary">
-              Thunder Id
+              ThunderID
             </Typography>
             {isLoadingProviders ? (
               <Stack spacing={1}>
@@ -290,8 +290,8 @@ export function EnvironmentViewPage() {
               <ListingTable.Container>
                 <ListingTable.EmptyState
                   illustration={<KeyRound size={56} />}
-                  title="No Thunder Id in this environment"
-                  description="Each environment automatically gets a Thunder Id."
+                  title="No ThunderID in this environment"
+                  description="Each environment automatically gets a ThunderID."
                 />
               </ListingTable.Container>
             ) : (
@@ -333,7 +333,7 @@ export function EnvironmentViewPage() {
                               <KeyRound size={16} />
                             </Avatar>
                           }
-                          primary="Thunder Id"
+                          primary="ThunderID"
                           secondary="System identity provider"
                         />
                       </ListingTable.Cell>
