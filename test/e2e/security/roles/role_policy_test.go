@@ -36,6 +36,8 @@ type roleProbe struct {
 	path    func(*framework.Config) string
 }
 
+const absentResourceName = framework.E2EProjectPrefix + "sec-absent"
+
 var _ = Describe("SEC-ROLE-001: deployed role policy", Label("security", "roles"), func() {
 	for _, roleName := range roleNames {
 		roleName := roleName
@@ -97,23 +99,23 @@ func roleProbes() []roleProbe {
 	return []roleProbe{
 		// Developer: owns project and agent development, not platform or IAM.
 		{"developer", "amp:project:create", true, http.MethodPost, orgPath("/projects")},
-		{"developer", "amp:environment:update", false, http.MethodPut, orgPath("/environments/e2e-test-sec-absent")},
-		{"developer", "amp:role:update", false, http.MethodPut, orgPath("/identities/roles/e2e-test-sec-absent")},
+		{"developer", "amp:environment:update", false, http.MethodPut, orgPath("/environments/" + absentResourceName)},
+		{"developer", "amp:role:update", false, http.MethodPut, orgPath("/identities/roles/" + absentResourceName)},
 
 		// AI Lead: owns AI providers and evaluation, not project/platform administration.
 		{"ai-lead", "amp:llm-provider:create", true, http.MethodPost, orgPath("/llm-providers")},
 		{"ai-lead", "amp:evaluator:create", true, http.MethodPost, orgPath("/evaluators/custom")},
 		{"ai-lead", "amp:project:create", false, http.MethodPost, orgPath("/projects")},
-		{"ai-lead", "amp:environment:update", false, http.MethodPut, orgPath("/environments/e2e-test-sec-absent")},
+		{"ai-lead", "amp:environment:update", false, http.MethodPut, orgPath("/environments/" + absentResourceName)},
 
 		// Platform Engineer: owns infrastructure and production delivery, not agent authoring or IAM.
-		{"platform-engineer", "amp:environment:update", true, http.MethodPut, orgPath("/environments/e2e-test-sec-absent")},
+		{"platform-engineer", "amp:environment:update", true, http.MethodPut, orgPath("/environments/" + absentResourceName)},
 		{"platform-engineer", "amp:gateway:create", true, http.MethodPost, orgPath("/gateways")},
-		{"platform-engineer", "amp:agent:create", false, http.MethodPost, orgPath("/projects/e2e-test-sec-absent/agents")},
-		{"platform-engineer", "amp:role:update", false, http.MethodPut, orgPath("/identities/roles/e2e-test-sec-absent")},
+		{"platform-engineer", "amp:agent:create", false, http.MethodPost, orgPath("/projects/" + absentResourceName + "/agents")},
+		{"platform-engineer", "amp:role:update", false, http.MethodPut, orgPath("/identities/roles/" + absentResourceName)},
 
 		// Admin positive controls cover the privilege-granting IAM boundary.
-		{"admin", "amp:role:update", true, http.MethodPut, orgPath("/identities/roles/e2e-test-sec-absent")},
+		{"admin", "amp:role:update", true, http.MethodPut, orgPath("/identities/roles/" + absentResourceName)},
 		{"admin", "amp:org:invite-member", true, http.MethodPost, orgPath("/identities/users/invite")},
 	}
 }
