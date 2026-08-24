@@ -69,6 +69,14 @@ func (m *mockLLMProviderRepository) HasAssociatedProxies(providerUUID uuid.UUID)
 	return false, nil
 }
 
+func (m *mockLLMProviderRepository) MarkDeleting(providerUUID uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+func (m *mockLLMProviderRepository) ClearDeleting(providerUUID uuid.UUID) error {
+	return nil
+}
+
 // TestGenerateLLMProxyDeploymentYAML_Basic tests basic YAML generation
 func TestGenerateLLMProxyDeploymentYAML_Basic(t *testing.T) {
 	providerUUID := uuid.New().String()

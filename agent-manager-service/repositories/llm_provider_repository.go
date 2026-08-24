@@ -43,6 +43,8 @@ type LLMProviderRepository interface {
 	Delete(providerID, orgUUID string) error
 	Exists(providerID, orgUUID string) (bool, error)
 	HasAssociatedProxies(providerUUID uuid.UUID) (bool, error)
+	MarkDeleting(providerUUID uuid.UUID) (bool, error)
+	ClearDeleting(providerUUID uuid.UUID) error
 }
 
 // LLMProviderRepo implements LLMProviderRepository using GORM
@@ -233,6 +235,35 @@ func (r *LLMProviderRepo) HasAssociatedProxies(providerUUID uuid.UUID) (bool, er
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// MarkDeleting atomically flags the provider as having a delete in progress, so a
+// concurrent proxy creation can observe it and be rejected before it races the
+// undeploy/delete sequence. Returns false (no error) if the provider was already
+// marked deleting, letting the caller reject the second concurrent Delete as a conflict
+// instead of undeploying twice.
+func (r *LLMProviderRepo) MarkDeleting(providerUUID uuid.UUID) (bool, error) {
+	result := r.db.Model(&models.LLMProvider{}).
+		Where("uuid = ? AND status != ?", providerUUID, models.LLMProviderStatusDeleting).
+		Update("status", models.LLMProviderStatusDeleting)
+	if result.Error != nil {
+		slog.Error("LLMProviderRepo.MarkDeleting: failed to mark provider deleting", "providerUUID", providerUUID, "error", result.Error)
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// ClearDeleting reverts the deleting flag set by MarkDeleting. Called when a Delete
+// attempt bails out before removing the provider row, so the provider becomes
+// available again for new proxies.
+func (r *LLMProviderRepo) ClearDeleting(providerUUID uuid.UUID) error {
+	if err := r.db.Model(&models.LLMProvider{}).
+		Where("uuid = ? AND status = ?", providerUUID, models.LLMProviderStatusDeleting).
+		Update("status", models.StatusCreated).Error; err != nil {
+		slog.Error("LLMProviderRepo.ClearDeleting: failed to clear deleting flag", "providerUUID", providerUUID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // Delete removes an LLM provider

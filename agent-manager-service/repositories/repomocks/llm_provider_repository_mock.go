@@ -17,6 +17,9 @@ import (
 //
 //		// make and configure a mocked repositories.LLMProviderRepository
 //		mockedLLMProviderRepository := &LLMProviderRepositoryMock{
+//			ClearDeletingFunc: func(providerUUID uuid.UUID) error {
+//				panic("mock out the ClearDeleting method")
+//			},
 //			CountFunc: func(orgUUID string) (int, error) {
 //				panic("mock out the Count method")
 //			},
@@ -41,6 +44,9 @@ import (
 //			ListFunc: func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error) {
 //				panic("mock out the List method")
 //			},
+//			MarkDeletingFunc: func(providerUUID uuid.UUID) (bool, error) {
+//				panic("mock out the MarkDeleting method")
+//			},
 //			UpdateFunc: func(p *models.LLMProvider, providerID string, orgUUID string) error {
 //				panic("mock out the Update method")
 //			},
@@ -51,6 +57,9 @@ import (
 //
 //	}
 type LLMProviderRepositoryMock struct {
+	// ClearDeletingFunc mocks the ClearDeleting method.
+	ClearDeletingFunc func(providerUUID uuid.UUID) error
+
 	// CountFunc mocks the Count method.
 	CountFunc func(orgUUID string) (int, error)
 
@@ -75,11 +84,19 @@ type LLMProviderRepositoryMock struct {
 	// ListFunc mocks the List method.
 	ListFunc func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error)
 
+	// MarkDeletingFunc mocks the MarkDeleting method.
+	MarkDeletingFunc func(providerUUID uuid.UUID) (bool, error)
+
 	// UpdateFunc mocks the Update method.
 	UpdateFunc func(p *models.LLMProvider, providerID string, orgUUID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// ClearDeleting holds details about calls to the ClearDeleting method.
+		ClearDeleting []struct {
+			// ProviderUUID is the providerUUID argument value.
+			ProviderUUID uuid.UUID
+		}
 		// Count holds details about calls to the Count method.
 		Count []struct {
 			// OrgUUID is the orgUUID argument value.
@@ -142,6 +159,11 @@ type LLMProviderRepositoryMock struct {
 			// Offset is the offset argument value.
 			Offset int
 		}
+		// MarkDeleting holds details about calls to the MarkDeleting method.
+		MarkDeleting []struct {
+			// ProviderUUID is the providerUUID argument value.
+			ProviderUUID uuid.UUID
+		}
 		// Update holds details about calls to the Update method.
 		Update []struct {
 			// P is the p argument value.
@@ -152,6 +174,7 @@ type LLMProviderRepositoryMock struct {
 			OrgUUID string
 		}
 	}
+	lockClearDeleting        sync.RWMutex
 	lockCount                sync.RWMutex
 	lockCreate               sync.RWMutex
 	lockDelete               sync.RWMutex
@@ -160,7 +183,40 @@ type LLMProviderRepositoryMock struct {
 	lockGetByUUID            sync.RWMutex
 	lockHasAssociatedProxies sync.RWMutex
 	lockList                 sync.RWMutex
+	lockMarkDeleting         sync.RWMutex
 	lockUpdate               sync.RWMutex
+}
+
+// ClearDeleting calls ClearDeletingFunc.
+func (mock *LLMProviderRepositoryMock) ClearDeleting(providerUUID uuid.UUID) error {
+	if mock.ClearDeletingFunc == nil {
+		panic("LLMProviderRepositoryMock.ClearDeletingFunc: method is nil but LLMProviderRepository.ClearDeleting was just called")
+	}
+	callInfo := struct {
+		ProviderUUID uuid.UUID
+	}{
+		ProviderUUID: providerUUID,
+	}
+	mock.lockClearDeleting.Lock()
+	mock.calls.ClearDeleting = append(mock.calls.ClearDeleting, callInfo)
+	mock.lockClearDeleting.Unlock()
+	return mock.ClearDeletingFunc(providerUUID)
+}
+
+// ClearDeletingCalls gets all the calls that were made to ClearDeleting.
+// Check the length with:
+//
+//	len(mockedLLMProviderRepository.ClearDeletingCalls())
+func (mock *LLMProviderRepositoryMock) ClearDeletingCalls() []struct {
+	ProviderUUID uuid.UUID
+} {
+	var calls []struct {
+		ProviderUUID uuid.UUID
+	}
+	mock.lockClearDeleting.RLock()
+	calls = mock.calls.ClearDeleting
+	mock.lockClearDeleting.RUnlock()
+	return calls
 }
 
 // Count calls CountFunc.
@@ -460,6 +516,38 @@ func (mock *LLMProviderRepositoryMock) ListCalls() []struct {
 	mock.lockList.RLock()
 	calls = mock.calls.List
 	mock.lockList.RUnlock()
+	return calls
+}
+
+// MarkDeleting calls MarkDeletingFunc.
+func (mock *LLMProviderRepositoryMock) MarkDeleting(providerUUID uuid.UUID) (bool, error) {
+	if mock.MarkDeletingFunc == nil {
+		panic("LLMProviderRepositoryMock.MarkDeletingFunc: method is nil but LLMProviderRepository.MarkDeleting was just called")
+	}
+	callInfo := struct {
+		ProviderUUID uuid.UUID
+	}{
+		ProviderUUID: providerUUID,
+	}
+	mock.lockMarkDeleting.Lock()
+	mock.calls.MarkDeleting = append(mock.calls.MarkDeleting, callInfo)
+	mock.lockMarkDeleting.Unlock()
+	return mock.MarkDeletingFunc(providerUUID)
+}
+
+// MarkDeletingCalls gets all the calls that were made to MarkDeleting.
+// Check the length with:
+//
+//	len(mockedLLMProviderRepository.MarkDeletingCalls())
+func (mock *LLMProviderRepositoryMock) MarkDeletingCalls() []struct {
+	ProviderUUID uuid.UUID
+} {
+	var calls []struct {
+		ProviderUUID uuid.UUID
+	}
+	mock.lockMarkDeleting.RLock()
+	calls = mock.calls.MarkDeleting
+	mock.lockMarkDeleting.RUnlock()
 	return calls
 }
 

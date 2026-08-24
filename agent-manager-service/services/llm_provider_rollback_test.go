@@ -40,6 +40,8 @@ func serviceForRollback(
 		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
 		DeleteFunc:               func(_, _ string) error { return deleteErr },
 		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
+		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
+		ClearDeletingFunc:        func(_ uuid.UUID) error { return nil },
 	}
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
@@ -107,4 +109,64 @@ func TestDelete_RejectsWithoutUndeployingWhenProviderHasAssociatedProxies(t *tes
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrLLMProviderHasProxies)
 	assert.False(t, undeployCalled, "Delete must check for associated proxies before touching any gateway")
+}
+
+// A concurrent Delete for the same provider must be rejected once MarkDeleting has
+// already claimed it, rather than undeploying a second time.
+func TestDelete_RejectsWhenAlreadyMarkedDeleting(t *testing.T) {
+	created := createdProvider()
+	undeployCalled := false
+
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
+		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return false, nil },
+	}
+	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
+			undeployCalled = true
+			return []string{"gw-1"}, nil
+		},
+	}
+	svc := &LLMProviderService{providerRepo: providerRepo}
+	deploymentSvc := &LLMProviderDeploymentService{deploymentRepo: deploymentRepo}
+
+	err := svc.Delete(context.Background(), created.UUID.String(), "ou-acme", deploymentSvc)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrLLMProviderDeleteInProgress)
+	assert.False(t, undeployCalled, "Delete must not undeploy again once another delete already claimed the provider")
+}
+
+// If undeployment hard-fails, the deleting flag must be cleared so the provider
+// becomes available again instead of being stuck permanently unusable.
+func TestDelete_ClearsDeletingFlagWhenUndeployFails(t *testing.T) {
+	created := createdProvider()
+	clearCalled := false
+
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
+		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
+		ClearDeletingFunc:        func(_ uuid.UUID) error { clearCalled = true; return nil },
+	}
+	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
+			return []string{"gw-1"}, nil
+		},
+		GetDeploymentsWithStateFunc: func(_ string, _ string, _ *string, _ *string, _ int) ([]*models.Deployment, error) {
+			// Simulates a gateway fetch failure: the only gateway fails, so Delete's
+			// all-undeployments-failed branch fires and it must bail out and clear
+			// the deleting flag rather than leave it set.
+			return nil, errors.New("gateway unreachable")
+		},
+	}
+	svc := &LLMProviderService{providerRepo: providerRepo}
+	deploymentSvc := &LLMProviderDeploymentService{providerRepo: providerRepo, deploymentRepo: deploymentRepo}
+
+	err := svc.Delete(context.Background(), created.UUID.String(), "ou-acme", deploymentSvc)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrLLMProviderUndeployFailed)
+	assert.True(t, clearCalled, "Delete must clear the deleting flag when it bails out without deleting the provider")
 }

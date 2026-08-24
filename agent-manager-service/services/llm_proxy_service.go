@@ -85,6 +85,14 @@ func (s *LLMProxyService) Create(ouID, createdBy string, proxy *models.LLMProxy)
 	if providerModel == nil {
 		return nil, utils.ErrLLMProviderNotFound
 	}
+	// A provider mid-delete (LLMProviderService.Delete has already claimed it via
+	// MarkDeleting, before any gateway I/O) must reject new proxies: otherwise this
+	// proxy could be created after Delete's own associated-proxies check passed,
+	// racing the undeploy/delete sequence and leaving an orphaned proxy or an
+	// undeployed-but-undeletable provider.
+	if providerModel.Status == models.LLMProviderStatusDeleting {
+		return nil, utils.ErrLLMProviderBeingDeleted
+	}
 
 	// Check if proxy already exists
 	exists, err := s.proxyRepo.Exists(handle, ouID)

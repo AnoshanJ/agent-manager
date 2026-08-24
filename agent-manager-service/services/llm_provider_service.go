@@ -678,6 +678,33 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 		return utils.ErrLLMProviderHasProxies
 	}
 
+	// Atomically claim the provider for deletion before any gateway I/O. This is a
+	// DB-visible flag (not an in-process lock held across the calls below), so
+	// LLMProxyService.Create can observe it and reject new proxies concurrently,
+	// closing the race where a proxy is created between the HasAssociatedProxies
+	// check above and the undeploy/delete below.
+	marked, err := s.providerRepo.MarkDeleting(providerUUID)
+	if err != nil {
+		slog.Error("LLMProviderService.Delete: failed to mark provider deleting", "ouID", ouID, "providerID", providerID, "error", err)
+		return fmt.Errorf("failed to mark provider deleting: %w", err)
+	}
+	if !marked {
+		slog.Warn("LLMProviderService.Delete: provider already has a delete in progress", "ouID", ouID, "providerID", providerID)
+		return utils.ErrLLMProviderDeleteInProgress
+	}
+	// Cleared on any early return so a failed/aborted delete leaves the provider
+	// usable again; deleteCommitted suppresses this once providerRepo.Delete below
+	// removes the row (clearing a nonexistent row is a harmless no-op, but skipping
+	// it avoids a pointless query on the common success path).
+	deleteCommitted := false
+	defer func() {
+		if !deleteCommitted {
+			if clearErr := s.providerRepo.ClearDeleting(providerUUID); clearErr != nil {
+				slog.Error("LLMProviderService.Delete: failed to clear deleting flag after aborted delete", "ouID", ouID, "providerID", providerID, "error", clearErr)
+			}
+		}
+	}()
+
 	gatewayIDs, err := deploymentService.deploymentRepo.GetDeployedGatewaysByProvider(providerUUID, ouID)
 	if err != nil {
 		slog.Error("LLMProviderService.Delete: failed to get deployed gateways", "ouID", ouID, "providerID", providerID, "error", err)
@@ -749,6 +776,7 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 		slog.Error("LLMProviderService.Delete: failed to delete provider", "ouID", ouID, "providerID", providerID, "error", err)
 		return fmt.Errorf("failed to delete provider: %w", err)
 	}
+	deleteCommitted = true
 
 	// No KV cleanup needed — encrypted value is stored in the DB and deleted with the provider record
 
