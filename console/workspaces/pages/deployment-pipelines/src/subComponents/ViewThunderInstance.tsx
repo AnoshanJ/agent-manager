@@ -86,7 +86,7 @@ export const ViewThunderInstance: React.FC = () => {
         }
         titleTail={
           instance && !error ? (
-            <Tooltip title="ThunderIDentity provider is active for this environment">
+            <Tooltip title="Thunder identity provider is active for this environment">
               <Chip
                 icon={<CheckCircle size={14} />}
                 label="Active"
