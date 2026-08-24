@@ -777,7 +777,7 @@ func (c *llmController) CreateLLMProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := c.proxyService.Create(ouID, "system", proxy)
+	created, err := c.proxyService.Create(ctx, ouID, "system", proxy)
 	if err != nil {
 		switch {
 		case errors.Is(err, utils.ErrLLMProxyExists):

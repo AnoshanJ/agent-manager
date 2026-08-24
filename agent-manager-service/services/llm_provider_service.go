@@ -666,23 +666,13 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 	// use the UUID resolved above rather than re-parsing the raw identifier.
 	providerUUID := provider.UUID
 
-	// Reject before touching any gateway: undeploying is not transactional with the
-	// DB delete, so a rejected delete must not leave the provider undeployed.
-	hasProxies, err := s.providerRepo.HasAssociatedProxies(providerUUID)
-	if err != nil {
-		slog.Error("LLMProviderService.Delete: failed to check associated proxies", "ouID", ouID, "providerID", providerID, "error", err)
-		return fmt.Errorf("failed to check associated proxies: %w", err)
-	}
-	if hasProxies {
-		slog.Warn("LLMProviderService.Delete: provider has associated proxies", "ouID", ouID, "providerID", providerID)
-		return utils.ErrLLMProviderHasProxies
-	}
-
-	// Atomically claim the provider for deletion before any gateway I/O. This is a
-	// DB-visible flag (not an in-process lock held across the calls below), so
-	// LLMProxyService.Create can observe it and reject new proxies concurrently,
-	// closing the race where a proxy is created between the HasAssociatedProxies
-	// check above and the undeploy/delete below.
+	// Atomically claim the provider for deletion before any gateway I/O or the
+	// associated-proxies check. This single UPDATE is the sole source of truth for
+	// "a delete is in flight": LLMProxyService.Create locks and rechecks this same
+	// status inside its own insert transaction, so a proxy created concurrently
+	// either lands before this claim (caught by HasAssociatedProxies just below) or
+	// is rejected by Create once the claim is visible — there is no gap where a
+	// proxy can slip in unseen by both sides.
 	marked, err := s.providerRepo.MarkDeleting(providerUUID)
 	if err != nil {
 		slog.Error("LLMProviderService.Delete: failed to mark provider deleting", "ouID", ouID, "providerID", providerID, "error", err)
@@ -704,6 +694,19 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 			}
 		}
 	}()
+
+	// Reject before touching any gateway: undeploying is not transactional with the
+	// DB delete, so a rejected delete must not leave the provider undeployed. Runs
+	// after the claim above so a proxy inserted just before the claim is still seen.
+	hasProxies, err := s.providerRepo.HasAssociatedProxies(ctx, providerUUID)
+	if err != nil {
+		slog.Error("LLMProviderService.Delete: failed to check associated proxies", "ouID", ouID, "providerID", providerID, "error", err)
+		return fmt.Errorf("failed to check associated proxies: %w", err)
+	}
+	if hasProxies {
+		slog.Warn("LLMProviderService.Delete: provider has associated proxies", "ouID", ouID, "providerID", providerID)
+		return utils.ErrLLMProviderHasProxies
+	}
 
 	gatewayIDs, err := deploymentService.deploymentRepo.GetDeployedGatewaysByProvider(providerUUID, ouID)
 	if err != nil {

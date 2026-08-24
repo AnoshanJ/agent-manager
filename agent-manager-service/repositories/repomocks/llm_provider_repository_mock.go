@@ -4,6 +4,7 @@
 package repomocks
 
 import (
+	"context"
 	"sync"
 
 	"github.com/google/uuid"
@@ -38,8 +39,11 @@ import (
 //			GetByUUIDFunc: func(providerID string, orgUUID string) (*models.LLMProvider, error) {
 //				panic("mock out the GetByUUID method")
 //			},
-//			HasAssociatedProxiesFunc: func(providerUUID uuid.UUID) (bool, error) {
+//			HasAssociatedProxiesFunc: func(ctx context.Context, providerUUID uuid.UUID) (bool, error) {
 //				panic("mock out the HasAssociatedProxies method")
+//			},
+//			IsDeletingForUpdateFunc: func(ctx context.Context, tx *gorm.DB, providerUUID uuid.UUID) (bool, error) {
+//				panic("mock out the IsDeletingForUpdate method")
 //			},
 //			ListFunc: func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error) {
 //				panic("mock out the List method")
@@ -79,7 +83,10 @@ type LLMProviderRepositoryMock struct {
 	GetByUUIDFunc func(providerID string, orgUUID string) (*models.LLMProvider, error)
 
 	// HasAssociatedProxiesFunc mocks the HasAssociatedProxies method.
-	HasAssociatedProxiesFunc func(providerUUID uuid.UUID) (bool, error)
+	HasAssociatedProxiesFunc func(ctx context.Context, providerUUID uuid.UUID) (bool, error)
+
+	// IsDeletingForUpdateFunc mocks the IsDeletingForUpdate method.
+	IsDeletingForUpdateFunc func(ctx context.Context, tx *gorm.DB, providerUUID uuid.UUID) (bool, error)
 
 	// ListFunc mocks the List method.
 	ListFunc func(orgUUID string, limit int, offset int) ([]*models.LLMProvider, error)
@@ -147,6 +154,17 @@ type LLMProviderRepositoryMock struct {
 		}
 		// HasAssociatedProxies holds details about calls to the HasAssociatedProxies method.
 		HasAssociatedProxies []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProviderUUID is the providerUUID argument value.
+			ProviderUUID uuid.UUID
+		}
+		// IsDeletingForUpdate holds details about calls to the IsDeletingForUpdate method.
+		IsDeletingForUpdate []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx *gorm.DB
 			// ProviderUUID is the providerUUID argument value.
 			ProviderUUID uuid.UUID
 		}
@@ -182,6 +200,7 @@ type LLMProviderRepositoryMock struct {
 	lockGetByHandle          sync.RWMutex
 	lockGetByUUID            sync.RWMutex
 	lockHasAssociatedProxies sync.RWMutex
+	lockIsDeletingForUpdate  sync.RWMutex
 	lockList                 sync.RWMutex
 	lockMarkDeleting         sync.RWMutex
 	lockUpdate               sync.RWMutex
@@ -448,19 +467,21 @@ func (mock *LLMProviderRepositoryMock) GetByUUIDCalls() []struct {
 }
 
 // HasAssociatedProxies calls HasAssociatedProxiesFunc.
-func (mock *LLMProviderRepositoryMock) HasAssociatedProxies(providerUUID uuid.UUID) (bool, error) {
+func (mock *LLMProviderRepositoryMock) HasAssociatedProxies(ctx context.Context, providerUUID uuid.UUID) (bool, error) {
 	if mock.HasAssociatedProxiesFunc == nil {
 		panic("LLMProviderRepositoryMock.HasAssociatedProxiesFunc: method is nil but LLMProviderRepository.HasAssociatedProxies was just called")
 	}
 	callInfo := struct {
+		Ctx          context.Context
 		ProviderUUID uuid.UUID
 	}{
+		Ctx:          ctx,
 		ProviderUUID: providerUUID,
 	}
 	mock.lockHasAssociatedProxies.Lock()
 	mock.calls.HasAssociatedProxies = append(mock.calls.HasAssociatedProxies, callInfo)
 	mock.lockHasAssociatedProxies.Unlock()
-	return mock.HasAssociatedProxiesFunc(providerUUID)
+	return mock.HasAssociatedProxiesFunc(ctx, providerUUID)
 }
 
 // HasAssociatedProxiesCalls gets all the calls that were made to HasAssociatedProxies.
@@ -468,14 +489,56 @@ func (mock *LLMProviderRepositoryMock) HasAssociatedProxies(providerUUID uuid.UU
 //
 //	len(mockedLLMProviderRepository.HasAssociatedProxiesCalls())
 func (mock *LLMProviderRepositoryMock) HasAssociatedProxiesCalls() []struct {
+	Ctx          context.Context
 	ProviderUUID uuid.UUID
 } {
 	var calls []struct {
+		Ctx          context.Context
 		ProviderUUID uuid.UUID
 	}
 	mock.lockHasAssociatedProxies.RLock()
 	calls = mock.calls.HasAssociatedProxies
 	mock.lockHasAssociatedProxies.RUnlock()
+	return calls
+}
+
+// IsDeletingForUpdate calls IsDeletingForUpdateFunc.
+func (mock *LLMProviderRepositoryMock) IsDeletingForUpdate(ctx context.Context, tx *gorm.DB, providerUUID uuid.UUID) (bool, error) {
+	if mock.IsDeletingForUpdateFunc == nil {
+		panic("LLMProviderRepositoryMock.IsDeletingForUpdateFunc: method is nil but LLMProviderRepository.IsDeletingForUpdate was just called")
+	}
+	callInfo := struct {
+		Ctx          context.Context
+		Tx           *gorm.DB
+		ProviderUUID uuid.UUID
+	}{
+		Ctx:          ctx,
+		Tx:           tx,
+		ProviderUUID: providerUUID,
+	}
+	mock.lockIsDeletingForUpdate.Lock()
+	mock.calls.IsDeletingForUpdate = append(mock.calls.IsDeletingForUpdate, callInfo)
+	mock.lockIsDeletingForUpdate.Unlock()
+	return mock.IsDeletingForUpdateFunc(ctx, tx, providerUUID)
+}
+
+// IsDeletingForUpdateCalls gets all the calls that were made to IsDeletingForUpdate.
+// Check the length with:
+//
+//	len(mockedLLMProviderRepository.IsDeletingForUpdateCalls())
+func (mock *LLMProviderRepositoryMock) IsDeletingForUpdateCalls() []struct {
+	Ctx          context.Context
+	Tx           *gorm.DB
+	ProviderUUID uuid.UUID
+} {
+	var calls []struct {
+		Ctx          context.Context
+		Tx           *gorm.DB
+		ProviderUUID uuid.UUID
+	}
+	mock.lockIsDeletingForUpdate.RLock()
+	calls = mock.calls.IsDeletingForUpdate
+	mock.lockIsDeletingForUpdate.RUnlock()
 	return calls
 }
 

@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -51,7 +52,7 @@ func NewLLMProxyService(
 }
 
 // Create creates a new LLM proxy
-func (s *LLMProxyService) Create(ouID, createdBy string, proxy *models.LLMProxy) (*models.LLMProxy, error) {
+func (s *LLMProxyService) Create(ctx context.Context, ouID, createdBy string, proxy *models.LLMProxy) (*models.LLMProxy, error) {
 	if proxy == nil {
 		return nil, utils.ErrInvalidInput
 	}
@@ -85,14 +86,12 @@ func (s *LLMProxyService) Create(ouID, createdBy string, proxy *models.LLMProxy)
 	if providerModel == nil {
 		return nil, utils.ErrLLMProviderNotFound
 	}
-	// A provider mid-delete (LLMProviderService.Delete has already claimed it via
-	// MarkDeleting, before any gateway I/O) must reject new proxies: otherwise this
-	// proxy could be created after Delete's own associated-proxies check passed,
-	// racing the undeploy/delete sequence and leaving an orphaned proxy or an
-	// undeployed-but-undeletable provider.
-	if providerModel.Status == models.LLMProviderStatusDeleting {
-		return nil, utils.ErrLLMProviderBeingDeleted
-	}
+	// Whether the provider is mid-delete is deliberately NOT checked here: reading
+	// providerModel.Status now and inserting later would itself be a TOCTOU race
+	// against LLMProviderService.Delete's MarkDeleting. Instead proxyRepo.Create
+	// locks and rechecks the provider's status inside the same transaction as the
+	// insert (see LLMProxyRepo.Create / IsDeletingForUpdate), returning
+	// utils.ErrLLMProviderBeingDeleted atomically with the insert decision.
 
 	// Check if proxy already exists
 	exists, err := s.proxyRepo.Exists(handle, ouID)
@@ -128,7 +127,10 @@ func (s *LLMProxyService) Create(ouID, createdBy string, proxy *models.LLMProxy)
 	}
 
 	// Create proxy
-	if err := s.proxyRepo.Create(proxy, handle, name, version, ouID); err != nil {
+	if err := s.proxyRepo.Create(ctx, proxy, handle, name, version, ouID); err != nil {
+		if errors.Is(err, utils.ErrLLMProviderBeingDeleted) {
+			return nil, utils.ErrLLMProviderBeingDeleted
+		}
 		return nil, fmt.Errorf("failed to create proxy: %w", err)
 	}
 

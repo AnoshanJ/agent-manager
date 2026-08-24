@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -28,19 +29,26 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
-// A provider that LLMProviderService.Delete has already claimed via MarkDeleting
-// (status DELETING) must reject new proxies. Otherwise a proxy could be created
-// after Delete's own HasAssociatedProxies check passed, racing the undeploy/delete
-// sequence below it (issue #1739 follow-up: TOCTOU between the proxies check and
-// the delete completing).
-func TestLLMProxyService_Create_RejectsWhenProviderIsBeingDeleted(t *testing.T) {
+// A provider mid-delete (LLMProviderService.Delete has claimed it via MarkDeleting)
+// must reject new proxies. The authoritative check lives in LLMProxyRepo.Create,
+// which locks and rechecks the provider's status inside the same transaction as the
+// insert (see IsDeletingForUpdate) — this test only pins down that
+// LLMProxyService.Create propagates that rejection rather than wrapping it into an
+// opaque error (issue #1739 follow-up: TOCTOU between the proxies check and the
+// delete completing).
+func TestLLMProxyService_Create_PropagatesProviderBeingDeletedFromRepo(t *testing.T) {
 	providerUUID := uuid.New()
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
 		GetByUUIDFunc: func(_, _ string) (*models.LLMProvider, error) {
-			return &models.LLMProvider{UUID: providerUUID, Status: models.LLMProviderStatusDeleting}, nil
+			return &models.LLMProvider{UUID: providerUUID}, nil
 		},
 	}
-	proxyRepo := &repomocks.LLMProxyRepositoryMock{}
+	proxyRepo := &repomocks.LLMProxyRepositoryMock{
+		ExistsFunc: func(_, _ string) (bool, error) { return false, nil },
+		CreateFunc: func(_ context.Context, _ *models.LLMProxy, _, _, _, _ string) error {
+			return utils.ErrLLMProviderBeingDeleted
+		},
+	}
 	svc := NewLLMProxyService(proxyRepo, providerRepo, make([]byte, 32))
 
 	proxy := &models.LLMProxy{
@@ -52,7 +60,7 @@ func TestLLMProxyService_Create_RejectsWhenProviderIsBeingDeleted(t *testing.T) 
 		},
 	}
 
-	_, err := svc.Create("ou-acme", "creator", proxy)
+	_, err := svc.Create(context.Background(), "ou-acme", "creator", proxy)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrLLMProviderBeingDeleted)

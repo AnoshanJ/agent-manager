@@ -39,7 +39,7 @@ func serviceForRollback(
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
 		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
 		DeleteFunc:               func(_, _ string) error { return deleteErr },
-		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
+		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil },
 		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
 		ClearDeletingFunc:        func(_ uuid.UUID) error { return nil },
 	}
@@ -84,15 +84,19 @@ func TestRollbackCreatedProvider_ReportsNoErrorWhenTheProviderIsRemoved(t *testi
 }
 
 // A delete rejected because the provider still has associated proxies must be a pure
-// no-op: it must never touch the gateway. Undeploying before this check is what left
-// providers permanently UNDEPLOYED in the DB after a rejected delete (issue #1739).
+// no-op: it must never touch the gateway, and it must release its deleting claim so
+// the provider is usable again. Undeploying before this check is what left providers
+// permanently UNDEPLOYED in the DB after a rejected delete (issue #1739).
 func TestDelete_RejectsWithoutUndeployingWhenProviderHasAssociatedProxies(t *testing.T) {
 	created := createdProvider()
 	undeployCalled := false
+	clearCalled := false
 
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
 		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
-		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return true, nil },
+		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
+		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return true, nil },
+		ClearDeletingFunc:        func(_ uuid.UUID) error { clearCalled = true; return nil },
 	}
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
@@ -109,6 +113,7 @@ func TestDelete_RejectsWithoutUndeployingWhenProviderHasAssociatedProxies(t *tes
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrLLMProviderHasProxies)
 	assert.False(t, undeployCalled, "Delete must check for associated proxies before touching any gateway")
+	assert.True(t, clearCalled, "Delete must release its deleting claim when rejected for associated proxies")
 }
 
 // A concurrent Delete for the same provider must be rejected once MarkDeleting has
@@ -118,9 +123,8 @@ func TestDelete_RejectsWhenAlreadyMarkedDeleting(t *testing.T) {
 	undeployCalled := false
 
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
-		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
-		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
-		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return false, nil },
+		GetByUUIDFunc:    func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		MarkDeletingFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
 	}
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
@@ -146,7 +150,7 @@ func TestDelete_ClearsDeletingFlagWhenUndeployFails(t *testing.T) {
 
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
 		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
-		HasAssociatedProxiesFunc: func(_ uuid.UUID) (bool, error) { return false, nil },
+		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil },
 		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
 		ClearDeletingFunc:        func(_ uuid.UUID) error { clearCalled = true; return nil },
 	}

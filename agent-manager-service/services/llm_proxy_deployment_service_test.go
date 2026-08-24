@@ -22,59 +22,20 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
-	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 )
 
-// Mock repository for LLM Provider
-type mockLLMProviderRepository struct {
-	provider *models.LLMProvider
-	err      error
-}
-
-func (m *mockLLMProviderRepository) Create(tx *gorm.DB, p *models.LLMProvider, handle, name, version string, orgUUID string) error {
-	return nil
-}
-
-func (m *mockLLMProviderRepository) GetByUUID(uuid, ouID string) (*models.LLMProvider, error) {
-	return m.provider, m.err
-}
-
-func (m *mockLLMProviderRepository) GetByHandle(handle, ouID string) (*models.LLMProvider, error) {
-	return m.provider, m.err
-}
-
-func (m *mockLLMProviderRepository) List(orgUUID string, limit, offset int) ([]*models.LLMProvider, error) {
-	return nil, nil
-}
-
-func (m *mockLLMProviderRepository) Count(orgUUID string) (int, error) {
-	return 0, nil
-}
-
-func (m *mockLLMProviderRepository) Update(p *models.LLMProvider, providerID string, orgUUID string) error {
-	return nil
-}
-
-func (m *mockLLMProviderRepository) Delete(providerID, orgUUID string) error {
-	return nil
-}
-
-func (m *mockLLMProviderRepository) Exists(providerID, orgUUID string) (bool, error) {
-	return false, nil
-}
-
-func (m *mockLLMProviderRepository) HasAssociatedProxies(providerUUID uuid.UUID) (bool, error) {
-	return false, nil
-}
-
-func (m *mockLLMProviderRepository) MarkDeleting(providerUUID uuid.UUID) (bool, error) {
-	return true, nil
-}
-
-func (m *mockLLMProviderRepository) ClearDeleting(providerUUID uuid.UUID) error {
-	return nil
+// providerRepoMock returns a repomocks.LLMProviderRepositoryMock whose GetByUUID and
+// GetByHandle both resolve to provider/err, matching what generateLLMProxyDeploymentYAML's
+// provider resolution needs. Using the generated mock (instead of a hand-written one)
+// means it always implements the full LLMProviderRepository interface as it grows.
+func providerRepoMock(provider *models.LLMProvider, err error) *repomocks.LLMProviderRepositoryMock {
+	return &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc:   func(_, _ string) (*models.LLMProvider, error) { return provider, err },
+		GetByHandleFunc: func(_, _ string) (*models.LLMProvider, error) { return provider, err },
+	}
 }
 
 // TestGenerateLLMProxyDeploymentYAML_Basic tests basic YAML generation
@@ -90,9 +51,7 @@ func TestGenerateLLMProxyDeploymentYAML_Basic(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	proxy := &models.LLMProxy{
@@ -150,7 +109,7 @@ func TestGenerateLLMProxyDeploymentYAML_WithResilience(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{provider: mockProvider},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	timeout := "15s"
@@ -202,7 +161,7 @@ func TestGenerateLLMProxyDeploymentYAML_NoResilienceOmitsField(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{provider: mockProvider},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	proxy := &models.LLMProxy{
@@ -243,9 +202,7 @@ func TestGenerateLLMProxyDeploymentYAML_WithContext(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	proxy := &models.LLMProxy{
@@ -289,9 +246,7 @@ func TestGenerateLLMProxyDeploymentYAML_WithSecurityAPIKey(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	enabled := true
@@ -365,9 +320,7 @@ func TestGenerateLLMProxyDeploymentYAML_SecurityValidation(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	tests := []struct {
@@ -469,9 +422,7 @@ func TestGenerateLLMProxyDeploymentYAML_WithPolicies(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	proxy := &models.LLMProxy{
@@ -556,9 +507,7 @@ func TestGenerateLLMProxyDeploymentYAML_WithUpstreamAuth(t *testing.T) {
 	}
 
 	service := &LLMProxyDeploymentService{
-		providerRepo: &mockLLMProviderRepository{
-			provider: mockProvider,
-		},
+		providerRepo: providerRepoMock(mockProvider, nil),
 	}
 
 	authType := "bearer"
@@ -624,7 +573,7 @@ func TestGenerateLLMProxyDeploymentYAML_ValidationErrors(t *testing.T) {
 		{
 			name: "nil proxy",
 			service: &LLMProxyDeploymentService{
-				providerRepo: &mockLLMProviderRepository{provider: mockProvider},
+				providerRepo: providerRepoMock(mockProvider, nil),
 			},
 			proxy:       nil,
 			expectError: true,
@@ -633,7 +582,7 @@ func TestGenerateLLMProxyDeploymentYAML_ValidationErrors(t *testing.T) {
 		{
 			name: "empty provider",
 			service: &LLMProxyDeploymentService{
-				providerRepo: &mockLLMProviderRepository{provider: mockProvider},
+				providerRepo: providerRepoMock(mockProvider, nil),
 			},
 			proxy: &models.LLMProxy{
 				Handle: "test-proxy",
@@ -648,7 +597,7 @@ func TestGenerateLLMProxyDeploymentYAML_ValidationErrors(t *testing.T) {
 		{
 			name: "provider not found",
 			service: &LLMProxyDeploymentService{
-				providerRepo: &mockLLMProviderRepository{provider: nil},
+				providerRepo: providerRepoMock(nil, nil),
 			},
 			proxy: &models.LLMProxy{
 				Handle: "test-proxy",
@@ -663,7 +612,7 @@ func TestGenerateLLMProxyDeploymentYAML_ValidationErrors(t *testing.T) {
 		{
 			name: "provider fetch error",
 			service: &LLMProxyDeploymentService{
-				providerRepo: &mockLLMProviderRepository{err: errors.New("db error")},
+				providerRepo: providerRepoMock(nil, errors.New("db error")),
 			},
 			proxy: &models.LLMProxy{
 				Handle: "test-proxy",
