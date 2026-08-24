@@ -5532,23 +5532,14 @@ func (s *agentConfigurationService) ListAgentLLMConfigSecretReferences(ctx conte
 func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) (map[string]bool, error) {
-	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
+	configured, err := s.listConfigsWithEnvVars(ctx, agentID, ouID, projectName, environmentName)
 	if err != nil {
 		return nil, err
 	}
 
-	configs, err := s.agentConfigRepo.ListByAgent(ctx, ouID, projectName, agentID, agentConfigListAll, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
-	}
-
 	keys := make(map[string]bool)
-	for _, config := range configs {
-		vars, err := s.envVariableRepo.ListByConfigAndEnv(ctx, config.UUID, envUUID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list env config variables for config %s: %w", config.UUID, err)
-		}
-		for _, v := range vars {
+	for _, entry := range configured {
+		for _, v := range entry.vars {
 			keys[v.VariableName] = true
 		}
 	}
@@ -5558,6 +5549,34 @@ func (s *agentConfigurationService) ListSystemManagedEnvVarKeys(
 func (s *agentConfigurationService) ListSystemManagedConfigs(
 	ctx context.Context, agentID, ouID, projectName, environmentName string,
 ) ([]SystemManagedConfigRef, error) {
+	configured, err := s.listConfigsWithEnvVars(ctx, agentID, ouID, projectName, environmentName)
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make([]SystemManagedConfigRef, 0, len(configured))
+	for _, entry := range configured {
+		refs = append(refs, SystemManagedConfigRef{Name: entry.config.Name, TypeID: entry.config.TypeID})
+	}
+	return refs, nil
+}
+
+// configWithEnvVars is one agent configuration together with the variable rows it
+// injects into a single environment.
+type configWithEnvVars struct {
+	config *models.AgentConfiguration
+	vars   []models.AgentEnvConfigVariable
+}
+
+// listConfigsWithEnvVars returns the agent's configurations that are set up for
+// environmentName, each with its variable rows there. A configuration with no rows in
+// the environment was never set up for it and is left out, which is the single
+// definition of "system-managed here" that both ListSystemManagedEnvVarKeys and
+// ListSystemManagedConfigs project from — the promotion block decides on the keys and
+// words its refusal from the configurations, so the two must not be able to disagree.
+func (s *agentConfigurationService) listConfigsWithEnvVars(
+	ctx context.Context, agentID, ouID, projectName, environmentName string,
+) ([]configWithEnvVars, error) {
 	envUUID, err := s.resolveEnvironmentUUID(ctx, ouID, environmentName)
 	if err != nil {
 		return nil, err
@@ -5568,9 +5587,7 @@ func (s *agentConfigurationService) ListSystemManagedConfigs(
 		return nil, fmt.Errorf("failed to list agent configurations: %w", err)
 	}
 
-	// A configuration with no variable rows in this environment was never set up for it —
-	// the same condition ListSystemManagedEnvVarKeys expresses by contributing no keys.
-	var refs []SystemManagedConfigRef
+	configured := make([]configWithEnvVars, 0, len(configs))
 	for i := range configs {
 		config := &configs[i]
 		vars, err := s.envVariableRepo.ListByConfigAndEnv(ctx, config.UUID, envUUID)
@@ -5580,9 +5597,9 @@ func (s *agentConfigurationService) ListSystemManagedConfigs(
 		if len(vars) == 0 {
 			continue
 		}
-		refs = append(refs, SystemManagedConfigRef{Name: config.Name, TypeID: config.TypeID})
+		configured = append(configured, configWithEnvVars{config: config, vars: vars})
 	}
-	return refs, nil
+	return configured, nil
 }
 
 // BuildSystemManagedEnvVarsFromConfig constructs system-managed env vars for a given

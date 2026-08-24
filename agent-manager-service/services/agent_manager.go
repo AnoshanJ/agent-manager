@@ -4583,32 +4583,31 @@ func (s *agentManagerService) missingTargetConfigText(
 	}
 
 	var mcpNames []string
-	hasNonMCPConfig := false
 	for _, config := range srcConfigs {
 		if config.TypeID == models.AgentConfigTypeIDMCP {
 			mcpNames = append(mcpNames, config.Name)
-			continue
 		}
-		hasNonMCPConfig = true
 	}
 	if len(mcpNames) == 0 {
 		return genericMessage, genericReason
 	}
 	sort.Strings(mcpNames)
+	hasNonMCPConfig := len(mcpNames) != len(srcConfigs)
+	shownMCPNames := clampedConfigNames(mcpNames)
 
 	// An agent missing an LLM configuration too is described by the generic message
 	// accurately, and keeping it byte-identical leaves anything already handling this
 	// block working. The MCP connections still have to be named somewhere, or fixing
 	// only what the message asks for earns the same refusal again.
 	if hasNonMCPConfig {
-		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(mcpNames))
+		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(shownMCPNames))
 	}
 
 	areNotConnected, remedy := "is not connected", "connect it"
 	if len(mcpNames) > 1 {
 		areNotConnected, remedy = "are not connected", "connect them"
 	}
-	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(mcpNames), areNotConnected, targetEnv),
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(shownMCPNames), areNotConnected, targetEnv),
 		fmt.Sprintf("%s in %q, then promote", remedy, targetEnv)
 }
 
@@ -4617,21 +4616,28 @@ func (s *agentManagerService) missingTargetConfigText(
 //
 // A lone name is quoted because it reads as a name; a list is left bare, since
 // briefConnectionList may end it with a "(+N more)" count that must not appear to be
-// part of a name — the same convention mcpPromotionBlockText follows. names must not
-// be empty.
+// part of a name. names must not be empty.
 //
-// Each name is clamped first. Configuration names are accepted up to 255 characters,
-// and briefConnectionList bounds how many names are shown but never shortens one, so
-// a single long name would otherwise bury the sentence around it.
+// How long an individual name may be is the caller's decision, not this one's: a
+// caller that would rather cut a name than lose the sentence around it passes names
+// through clampedConfigNames first, and one that must never show a shortened name
+// passes them whole.
 func mcpConfigList(names []string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf("MCP configuration %q", names[0])
+	}
+	return fmt.Sprintf("MCP configurations %s", briefConnectionList(names))
+}
+
+// clampedConfigNames bounds each name on its own. Configuration names are accepted up
+// to 255 characters, and briefConnectionList bounds how many names are shown but never
+// shortens one, so a single long name would otherwise bury the sentence around it.
+func clampedConfigNames(names []string) []string {
 	shortened := make([]string, 0, len(names))
 	for _, name := range names {
 		shortened = append(shortened, briefUIDetail(name))
 	}
-	if len(shortened) == 1 {
-		return fmt.Sprintf("MCP configuration %q", shortened[0])
-	}
-	return fmt.Sprintf("MCP configurations %s", briefConnectionList(shortened))
+	return shortened
 }
 
 // mcpPromotionBlockText renders the caller-facing halves of a promotion blocked
@@ -4643,17 +4649,13 @@ func mcpConfigList(names []string) string {
 // there is never checked: an absent mapping row alone produces this state, so
 // naming a missing endpoint would send the caller after the wrong problem.
 //
-// A lone name is quoted because it reads as a name; a list is left bare, since
-// briefConnectionList may end it with a "(+N more)" count that must not appear
-// to be part of a name. names must not be empty.
+// names must not be empty.
 func mcpPromotionBlockText(names []string, targetEnv string) (message, reason string) {
-	problem := fmt.Sprintf("MCP configuration %q has no MCP server", names[0])
-	remedy := "its MCP server"
+	haveNo, remedy := "has no MCP server", "its MCP server"
 	if len(names) > 1 {
-		problem = fmt.Sprintf("MCP configurations %s have no MCP server", briefConnectionList(names))
-		remedy = "their MCP servers"
+		haveNo, remedy = "have no MCP server", "their MCP servers"
 	}
-	return fmt.Sprintf("Promotion blocked: %s in %q", problem, targetEnv),
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(names), haveNo, targetEnv),
 		fmt.Sprintf("deploy %s to %q, then promote", remedy, targetEnv)
 }
 
