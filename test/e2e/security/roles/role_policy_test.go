@@ -106,11 +106,11 @@ func roleProbes() []roleProbe {
 		{"ai-lead", "amp:project:create", false, http.MethodPost, orgPath("/projects")},
 		{"ai-lead", "amp:environment:update", false, http.MethodPut, orgPath("/environments/e2e-test-sec-absent")},
 
-		// Platform Engineer: owns infrastructure and production delivery, not project or provider creation.
+		// Platform Engineer: owns infrastructure and production delivery, not agent authoring or IAM.
 		{"platform-engineer", "amp:environment:update", true, http.MethodPut, orgPath("/environments/e2e-test-sec-absent")},
 		{"platform-engineer", "amp:gateway:create", true, http.MethodPost, orgPath("/gateways")},
-		{"platform-engineer", "amp:project:create", false, http.MethodPost, orgPath("/projects")},
-		{"platform-engineer", "amp:llm-provider:create", false, http.MethodPost, orgPath("/llm-providers")},
+		{"platform-engineer", "amp:agent:create", false, http.MethodPost, orgPath("/projects/e2e-test-sec-absent/agents")},
+		{"platform-engineer", "amp:role:update", false, http.MethodPut, orgPath("/identities/roles/e2e-test-sec-absent")},
 
 		// Admin positive controls cover the privilege-granting IAM boundary.
 		{"admin", "amp:role:update", true, http.MethodPut, orgPath("/identities/roles/e2e-test-sec-absent")},
