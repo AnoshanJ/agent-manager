@@ -65,7 +65,7 @@ import {
   normalizePythonMinor,
   pickInstrumentationVersion,
 } from "../utils/instrumentation";
-import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
+import { isStoredSecret, sortSystemLast, toSubmittableEnv } from "../utils/envVars";
 import {
   type FileMountRow,
   newFileMountRow,
@@ -373,17 +373,7 @@ export function PromoteAgentDrawer({
             ...(formState.useConfigFromSourceEnv
               ? {}
               : {
-                  env: excludeSystemVars(formState.env).map(
-                    ({ key, value, isSensitive, secretRef }) =>
-                      // Preserve the secret reference for secrets the user did not edit.
-                      isSensitive && secretRef && !value
-                        ? ({
-                            key,
-                            isSensitive,
-                            secretRef,
-                          } as EnvironmentVariable)
-                        : { key, value, isSensitive },
-                  ),
+                  env: toSubmittableEnv(formState.env),
                   files: formState.files
                     .filter((f) => f.key && f.mountPath)
                     .map(toFileMount),
@@ -575,7 +565,6 @@ export function PromoteAgentDrawer({
                                   valueValue={item.value}
                                   isSensitive={item.isSensitive ?? false}
                                   isExistingSecret={isStoredSecret(item)}
-                                  keyDisabled={isStoredSecret(item)}
                                   isSystem={item.isSystem}
                                   onKeyChange={(v) =>
                                     handleEnvChange(index, "key", v)

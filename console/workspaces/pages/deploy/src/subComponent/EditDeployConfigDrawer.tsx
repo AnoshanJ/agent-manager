@@ -49,6 +49,7 @@ import {
 } from "@agent-management-platform/shared-component";
 import {
   extractServerErrorMessage,
+  MAX_SNACKBAR_REASON_LENGTH,
   useAgentBuildOptions,
   useDeployAgent,
   useGetAgentConfigurations,
@@ -61,7 +62,7 @@ import type {
   UpdateAgentDeploySettingsRequest,
 } from "@agent-management-platform/types";
 import { compatibleInstrumentationVersions, pickInstrumentationVersion } from "../utils/instrumentation";
-import { excludeSystemVars, isStoredSecret, sortSystemLast } from "../utils/envVars";
+import { isStoredSecret, sortSystemLast, toSubmittableEnv } from "../utils/envVars";
 import {
   type FileMountRow,
   newFileMountRow,
@@ -211,15 +212,7 @@ export function EditDeployConfigDrawer({
   const isPending = isDeploying || isUpdating || isUpdatingSettings;
 
   const handleSave = useCallback(() => {
-    const validEnv = excludeSystemVars(env).map(
-      ({ key, value, isSensitive, secretRef }) => {
-        // Preserve secretRef for secrets the user did not edit
-        if (isSensitive && secretRef && !value) {
-          return { key, isSensitive, secretRef } as EnvironmentVariable;
-        }
-        return { key, value, isSensitive };
-      },
-    );
+    const validEnv = toSubmittableEnv(env);
     const validFiles = files
       .filter((f) => f.key && f.mountPath)
       .map(toFileMount);
@@ -317,7 +310,9 @@ export function EditDeployConfigDrawer({
         // confirmation), so it needs its own error snackbar here.
         onError: (error: unknown) => {
           pushSnackBar({
-            message: extractServerErrorMessage(error) ?? "Failed to regenerate tracing token",
+            message:
+              extractServerErrorMessage(error, { maxReasonLength: MAX_SNACKBAR_REASON_LENGTH }) ??
+              "Failed to regenerate tracing token",
             type: "error",
           });
         },
@@ -509,7 +504,6 @@ export function EditDeployConfigDrawer({
                     valueValue={item.value}
                     isSensitive={item.isSensitive ?? false}
                     isExistingSecret={isStoredSecret(item)}
-                    keyDisabled={isStoredSecret(item)}
                     isSystem={item.isSystem}
                     onKeyChange={(v) => handleEnvChange(index, "key", v)}
                     onValueChange={(v) => handleEnvChange(index, "value", v)}

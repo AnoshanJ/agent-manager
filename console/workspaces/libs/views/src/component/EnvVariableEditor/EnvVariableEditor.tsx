@@ -90,7 +90,9 @@ export interface EnvVariableEditorProps {
   keyDisabled?: boolean;
   /**
    * Whether this is an existing secret (already saved, not newly created)
-   * When true, the value field will be locked by default and require explicit edit action
+   * When true, the key and value fields are locked by default (both unlock
+   * together). Non-system rows can unlock them either via the explicit Edit
+   * action, or by unchecking "Mark as Secret" (which clears isSensitive).
    */
   isExistingSecret?: boolean;
   /**
@@ -121,11 +123,14 @@ export function EnvVariableEditor({
   isSystem = false,
 }: EnvVariableEditorProps) {
   // Existing secrets start locked: the stored value is never returned, so the
-  // field is masked until the user explicitly clicks Edit to enter a new value.
+  // field is masked until the user explicitly clicks Edit. The key name is locked
+  // alongside it — both unlock together, since renaming without invalidating the
+  // stored secretRef is exactly what Edit is meant to allow.
   const [isEditing, setIsEditing] = useState(false);
-  // Snapshot of the value when editing started, so Cancel can restore it even
-  // after the user has typed a new value.
-  const [valueBeforeEdit, setValueBeforeEdit] = useState('');
+  // Snapshot of the key/value when editing started, so Cancel can restore both even
+  // after the user has typed changes. Kept as one object since the two always move
+  // together (set on Edit, read on Cancel).
+  const [beforeEdit, setBeforeEdit] = useState({ key: '', value: '' });
   // Toggles plaintext reveal of a secret value while the user is typing it.
   const [showValue, setShowValue] = useState(false);
 
@@ -158,13 +163,14 @@ export function EnvVariableEditor({
   };
 
   const handleStartEdit = () => {
-    setValueBeforeEdit(valueValue);
+    setBeforeEdit({ key: keyValue, value: valueValue });
     setIsEditing(true);
   };
 
   const handleCancelEdit = () => {
-    // Restore the previous value and re-lock the field, discarding any edits.
-    onValueChange(valueBeforeEdit);
+    // Restore the previous key/value and re-lock the fields, discarding any edits.
+    onKeyChange(beforeEdit.key);
+    onValueChange(beforeEdit.value);
     setIsEditing(false);
     setShowValue(false);
   };
@@ -204,7 +210,7 @@ export function EnvVariableEditor({
             onPaste={handleKeyPaste}
             error={!!keyError}
             helperText={keyError}
-            disabled={keyDisabled || isSystem}
+            disabled={keyDisabled || isValueLocked}
           />
         </Box>
         <Box flex={1} minWidth={0}>
@@ -267,10 +273,10 @@ export function EnvVariableEditor({
                   for the whole edit session even after typing clears the stored
                   secret flag upstream. System rows are excluded outright, even when
                   they happen to be an existing secret — they're never editable. */}
-              <Tooltip title={isEditing ? 'Cancel edit' : 'Edit value'}>
+              <Tooltip title={isEditing ? 'Cancel edit' : 'Edit key/value'}>
                 <IconButton
                   size="small"
-                  aria-label={isEditing ? 'Cancel edit' : 'Edit value'}
+                  aria-label={isEditing ? 'Cancel edit' : 'Edit key/value'}
                   onClick={isEditing ? handleCancelEdit : handleStartEdit}
                   sx={
                     isEditing
