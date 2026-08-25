@@ -197,6 +197,11 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
   const [isSingleGatewayChoice, setIsSingleGatewayChoice] = useState(false);
   const [endpointEditable, setEndpointEditable] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  // Tracks whether the user has taken manual control of the context path.
+  // Set on a direct edit to Context; cleared when they empty it back out,
+  // which is the signal to resume auto-deriving from Name.
+  const [isContextManuallyEdited, setIsContextManuallyEdited] =
+    useState(false);
 
   const handleAddGuardrail = useCallback((guardrail: GuardrailSelection) => {
     setGuardrails((prev) => {
@@ -235,24 +240,25 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
     }
   }, [selectedTemplate]);
 
+  // Name auto-derives the context path until the user manually edits Context,
+  // at which point their input wins and Name edits stop overwriting it.
+  // Clearing Context back to empty un-locks it, resuming auto-derivation on
+  // the next Name edit.
   useEffect(() => {
-    const { displayName, context } = formData;
-    if (displayName) {
-      const derived = toContextPath(displayName);
-      if (derived && (context === "" || derived.startsWith(context ?? ""))) {
-        setFormData((prev) => ({ ...prev, context: derived }));
-        setFieldError(
-          "context",
-          validateField("context", derived, {
-            ...formData,
-            context: derived,
-          }),
-        );
-      }
+    if (isContextManuallyEdited) {
+      return;
     }
+    const derived = toContextPath(formData.displayName);
+    setFormData((prev) =>
+      prev.context === derived ? prev : { ...prev, context: derived },
+    );
+    setFieldError(
+      "context",
+      validateField("context", derived, { ...formData, context: derived }),
+    );
     // Only run when displayName changes; formData for validation
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.displayName]);
+  }, [formData.displayName, isContextManuallyEdited]);
 
   const handleFieldChange = useCallback(
     (field: keyof AddLLMProviderFormValues, value: string | string[]) => {
@@ -264,6 +270,14 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
       });
     },
     [setFieldError, validateField],
+  );
+
+  const handleContextChange = useCallback(
+    (value: string) => {
+      setIsContextManuallyEdited(value.trim() !== "");
+      handleFieldChange("context", value);
+    },
+    [handleFieldChange],
   );
 
   const handleTemplateSelect = useCallback(
@@ -420,7 +434,7 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
                   id="context"
                   fullWidth
                   value={formData.context ?? ""}
-                  onChange={(e) => handleFieldChange("context", e.target.value)}
+                  onChange={(e) => handleContextChange(e.target.value)}
                   placeholder="/my-provider"
                   error={Boolean(errors.context)}
                   helperText={
