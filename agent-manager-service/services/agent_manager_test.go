@@ -593,7 +593,17 @@ type stubAgentConfigurationServiceForPromote struct {
 	AgentConfigurationService
 	SystemKeysFunc     func(ctx context.Context, agentID, ouID, projectName, environmentName string) (map[string]bool, error)
 	SystemVarsFunc     func(ctx context.Context, agentID, ouID, projectName, environmentName string) ([]client.EnvVar, error)
+	SystemConfigsFunc  func(ctx context.Context, agentID, ouID, projectName, environmentName string) ([]SystemManagedConfigRef, error)
 	UnresolvedMCPsFunc func(ctx context.Context, agentID, ouID, projectName, environmentName string) (map[string]struct{}, error)
+}
+
+// Defaults to "no configuration to describe", so tests that predate the block's
+// per-configuration wording keep the message they were written against.
+func (s *stubAgentConfigurationServiceForPromote) ListSystemManagedConfigs(ctx context.Context, agentID, ouID, projectName, environmentName string) ([]SystemManagedConfigRef, error) {
+	if s.SystemConfigsFunc == nil {
+		return []SystemManagedConfigRef{}, nil
+	}
+	return s.SystemConfigsFunc(ctx, agentID, ouID, projectName, environmentName)
 }
 
 func (s *stubAgentConfigurationServiceForPromote) ListSystemManagedEnvVarKeys(ctx context.Context, agentID, ouID, projectName, environmentName string) (map[string]bool, error) {
@@ -721,13 +731,20 @@ func (s *provisionForEnvIfMissingStub) ProvisionForEnvironmentIfMissing(_ contex
 	return false, nil
 }
 
+// promoteConfigStub reaches the agent configuration stub a promote fixture was built
+// with, so each stubbing helper is the closure it installs and nothing else.
+func promoteConfigStub(t *testing.T, s *agentManagerService) *stubAgentConfigurationServiceForPromote {
+	t.Helper()
+	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
+	require.True(t, ok)
+	return agentConfigSvc
+}
+
 // stubUnresolvedMCPs makes the named connections unresolved in blockedEnv only,
 // which is what makes a promotion into that environment break them.
 func stubUnresolvedMCPs(t *testing.T, s *agentManagerService, blockedEnv string, names ...string) {
 	t.Helper()
-	agentConfigSvc, ok := s.agentConfigurationService.(*stubAgentConfigurationServiceForPromote)
-	require.True(t, ok)
-	agentConfigSvc.UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
+	promoteConfigStub(t, s).UnresolvedMCPsFunc = func(_ context.Context, _, _, _, envName string) (map[string]struct{}, error) {
 		unresolved := map[string]struct{}{}
 		if envName == blockedEnv {
 			for _, name := range names {
@@ -863,6 +880,39 @@ func TestPromoteAgent_BlockedMCPPromotion_ReadsAsPluralOnlyWhenSeveralAreBroken(
 	assert.Contains(t, ve.Message, `MCP configurations booking, payments have no MCP server in "staging"`)
 	assert.Equal(t, `deploy their MCP servers to "staging", then promote`, ve.Reason)
 	assert.NotContains(t, renderedUIError(ve), "(s)", "the wording agrees with the count instead of hedging")
+}
+
+// The sibling block below shortens a long configuration name, and this one renders
+// its names through the same helper, so it must shorten too. A 255-character name is
+// legal, and pasting one in whole buries the sentence that says what to do about it.
+func TestPromoteAgent_BlockedMCPPromotion_VeryLongConfigName_IsShortenedNotPastedWhole(t *testing.T) {
+	longName := "hotel-booking" + strings.Repeat("x", 242)
+	require.Len(t, longName, 255, "the fixture must use the longest name the API accepts")
+
+	for _, tc := range []struct {
+		name  string
+		names []string
+	}{
+		{"single configuration", []string{longName}},
+		{"several configurations", []string{longName, "payments"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+			stubUnresolvedMCPs(t, s, "staging", tc.names...)
+			logs := captureLogs(s)
+
+			err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+				SourceEnvironment: "dev",
+				TargetEnvironment: "staging",
+			})
+
+			ve := requireBriefPromotionBlock(t, err)
+			rendered := renderedUIError(ve)
+			assert.NotContains(t, rendered, longName, "the whole name must not reach the UI")
+			assert.Contains(t, rendered, "hotel-booking", "enough of the name must survive to identify the configuration")
+			assert.Contains(t, logs(), longName, "the untruncated name must still reach the log")
+		})
+	}
 }
 
 func TestPromoteAgent_TargetIdentityReady_PromotesWithTargetOnlyCredentials(t *testing.T) {
@@ -2203,4 +2253,181 @@ func TestListOrgAgents_ProjectListFailurePropagates(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, utils.ErrOrganizationNotFound, "an unrelated openchoreo failure must not be masked as not-found")
+}
+
+// stubSystemManagedConfigs gives the agent system-managed configuration in
+// configuredEnv and none anywhere else, which is the shape that trips the
+// missing-configuration block on a promotion out of configuredEnv.
+func stubSystemManagedConfigs(t *testing.T, s *agentManagerService, configuredEnv string, configs ...SystemManagedConfigRef) {
+	t.Helper()
+	agentConfigSvc := promoteConfigStub(t, s)
+	agentConfigSvc.SystemKeysFunc = func(_ context.Context, _, _, _, envName string) (map[string]bool, error) {
+		if envName != configuredEnv {
+			return map[string]bool{}, nil
+		}
+		keys := map[string]bool{}
+		for _, config := range configs {
+			keys[config.Name+"_URL"] = true
+		}
+		return keys, nil
+	}
+	agentConfigSvc.SystemConfigsFunc = func(_ context.Context, _, _, _, envName string) ([]SystemManagedConfigRef, error) {
+		if envName != configuredEnv {
+			return []SystemManagedConfigRef{}, nil
+		}
+		return configs, nil
+	}
+}
+
+func mcpConfigRef(name string) SystemManagedConfigRef {
+	return SystemManagedConfigRef{Name: name, TypeID: models.AgentConfigTypeIDMCP}
+}
+
+func llmConfigRef(name string) SystemManagedConfigRef {
+	return SystemManagedConfigRef{Name: name, TypeID: models.AgentConfigTypeIDLLM}
+}
+
+// An agent whose only system-managed configuration is an MCP connection used to be
+// refused with "no LLM/system configuration", sending the user to look for an LLM
+// provider that was never involved. The block must name the configuration that is
+// actually missing from the target.
+func TestPromoteAgent_TargetMissingMCPOnlyConfig_NamesTheConfigurationNotLLM(t *testing.T) {
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	stubSystemManagedConfigs(t, s, "dev", mcpConfigRef("booking"))
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Equal(t, `Promotion blocked: MCP configuration "booking" is not connected in "staging"`, ve.Message)
+	assert.Equal(t, `connect it in "staging", then promote`, ve.Reason)
+	assert.NotContains(t, renderedUIError(ve), "LLM",
+		"no LLM provider is involved, so naming one sends the user after a configuration that does not exist")
+	assert.False(t, *promoteCalled)
+}
+
+// One missing configuration is the common case, so the block reads as a sentence
+// about it rather than hedging with "configuration(s)" and "it/them".
+func TestPromoteAgent_TargetMissingSeveralMCPConfigs_ReadsAsPlural(t *testing.T) {
+	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	stubSystemManagedConfigs(t, s, "dev", mcpConfigRef("payments"), mcpConfigRef("booking"))
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Equal(t, `Promotion blocked: MCP configurations booking, payments are not connected in "staging"`, ve.Message,
+		"the names are listed in a stable order, so the same refusal reads the same on every run")
+	assert.Equal(t, `connect them in "staging", then promote`, ve.Reason)
+	assert.NotContains(t, renderedUIError(ve), "(s)", "the wording agrees with the count instead of hedging")
+}
+
+// The same block fires when it really is the LLM provider that the target lacks.
+// That wording is correct there and is what callers already handle, so an agent
+// with no MCP connection must keep the message and reason it has always produced.
+func TestPromoteAgent_TargetMissingLLMConfig_KeepsTheGenericWording(t *testing.T) {
+	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	stubSystemManagedConfigs(t, s, "dev", llmConfigRef("openai"))
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Equal(t, `Promotion blocked: no LLM/system configuration in "staging"`, ve.Message)
+	assert.Equal(t, `configure system variables in "staging", then promote`, ve.Reason)
+}
+
+// An agent missing both kinds is genuinely missing its LLM configuration, so the
+// message keeps its wording. The MCP connections are missing too, though, and a
+// user who configures only the system variables would be refused all over again —
+// so the reason names them.
+func TestPromoteAgent_TargetMissingLLMAndMCPConfigs_KeepsMessageAndNamesMCPInReason(t *testing.T) {
+	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	stubSystemManagedConfigs(t, s, "dev", llmConfigRef("openai"), mcpConfigRef("booking"))
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Equal(t, `Promotion blocked: no LLM/system configuration in "staging"`, ve.Message,
+		"the message stays byte-identical so anything already handling this block keeps working")
+	assert.Equal(t, `configure system variables and connect MCP configuration "booking", then promote`, ve.Reason)
+}
+
+// The lookup that names the configurations runs only to describe a refusal that has
+// already been decided. Failing to describe it must not escalate a 400 the caller can
+// act on into a 500 that hides why the promotion stopped.
+func TestPromoteAgent_ConfigLookupFailsWhileDescribingBlock_StillRefusesWithGenericWording(t *testing.T) {
+	s, promoteCalled := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
+	stubSystemManagedConfigs(t, s, "dev", mcpConfigRef("booking"))
+	promoteConfigStub(t, s).SystemConfigsFunc = func(_ context.Context, _, _, _, _ string) ([]SystemManagedConfigRef, error) {
+		return nil, errors.New("database unavailable")
+	}
+
+	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+		SourceEnvironment: "dev",
+		TargetEnvironment: "staging",
+	})
+
+	ve := requireBriefPromotionBlock(t, err)
+	assert.Equal(t, `Promotion blocked: no LLM/system configuration in "staging"`, ve.Message)
+	assert.False(t, *promoteCalled)
+}
+
+// The reason naming the MCP configurations is the longest string this block can
+// produce, and it is rendered next to an environment name the user chose. Long names
+// and a truncated list together must still fit the console's legibility budget.
+func TestPromoteAgent_ManyMCPConfigsAndLongEnvName_StaysWithinUIBudget(t *testing.T) {
+	longEnv := "production-eu-west-central-1"
+	configs := []SystemManagedConfigRef{
+		llmConfigRef("openai"),
+		mcpConfigRef("hotel-booking-connection"),
+		mcpConfigRef("payments-connection"),
+		mcpConfigRef("inventory-connection"),
+		mcpConfigRef("notifications-connection"),
+	}
+	s, _ := promoteAgentTestFixture(t, nil, nil)
+	stubSystemManagedConfigs(t, s, "dev", configs...)
+
+	message, reason := s.missingTargetConfigText(context.Background(), "my-agent", "acme", "proj1", "dev", longEnv)
+
+	_ = requireBriefPromotionBlock(t, utils.NewInvalidInputError(message, reason))
+}
+
+// Configuration names are accepted up to 255 characters, and this block is the first
+// thing that puts one on screen. A name long enough to bury the sentence it sits in
+// must be cut down to a recognisable prefix rather than pasted in whole.
+func TestPromoteAgent_VeryLongConfigName_IsShortenedNotPastedWhole(t *testing.T) {
+	longName := "hotel-booking" + strings.Repeat("x", 242)
+	require.Len(t, longName, 255, "the fixture must use the longest name the API accepts")
+
+	for _, tc := range []struct {
+		name    string
+		configs []SystemManagedConfigRef
+	}{
+		{"single MCP configuration", []SystemManagedConfigRef{mcpConfigRef(longName)}},
+		{"several MCP configurations", []SystemManagedConfigRef{mcpConfigRef(longName), mcpConfigRef("payments")}},
+		{"LLM and MCP configurations", []SystemManagedConfigRef{llmConfigRef("openai"), mcpConfigRef(longName)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := promoteAgentTestFixture(t, nil, nil)
+			stubSystemManagedConfigs(t, s, "dev", tc.configs...)
+
+			message, reason := s.missingTargetConfigText(context.Background(), "my-agent", "acme", "proj1", "dev", "staging")
+
+			rendered := renderedUIError(utils.NewInvalidInputError(message, reason))
+			assert.NotContains(t, rendered, longName, "the whole name must not reach the UI")
+			assert.Contains(t, rendered, "hotel-booking", "enough of the name must survive to identify the configuration")
+			assert.LessOrEqual(t, utf8.RuneCountInString(rendered), maxPromotionUIErrorLen,
+				"a single name must not be able to blow the message past the budget: %s", rendered)
+		})
+	}
 }

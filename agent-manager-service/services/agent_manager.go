@@ -4179,10 +4179,8 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 			"the agent has LLM/system configuration in the source environment but none in the target — promoting would "+
 				"deploy it without the system variables it needs",
 			"sourceEnvironment", req.SourceEnvironment)
-		return utils.NewInvalidInputError(
-			fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", req.TargetEnvironment),
-			fmt.Sprintf("configure system variables in %q, then promote", req.TargetEnvironment),
-		)
+		message, reason := s.missingTargetConfigText(ctx, agentName, ouID, projectName, req.SourceEnvironment, req.TargetEnvironment)
+		return utils.NewInvalidInputError(message, reason)
 	}
 
 	// The key-presence check above cannot see a connection that is present but dead: an MCP
@@ -4560,6 +4558,85 @@ func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
 	return utils.NewInvalidInputError(message, reason)
 }
 
+// missingTargetConfigText renders the caller-facing halves of a promotion blocked
+// because the target environment has none of the system-managed configuration the
+// source has. The generic wording describes it all as LLM configuration, which is
+// what the agent's LLM provider needs but says nothing true about an agent whose
+// only system-managed configuration is an MCP connection.
+//
+// The source's configurations are looked up here rather than alongside the key sets
+// the check itself reads, so the extra query is paid only by a promotion already
+// being refused. A lookup that fails leaves the generic wording in place: a block
+// described imprecisely is still the right answer, and turning it into a 500 would
+// hide it.
+func (s *agentManagerService) missingTargetConfigText(
+	ctx context.Context, agentName, ouID, projectName, sourceEnv, targetEnv string,
+) (message, reason string) {
+	genericMessage := fmt.Sprintf("Promotion blocked: no LLM/system configuration in %q", targetEnv)
+	genericReason := fmt.Sprintf("configure system variables in %q, then promote", targetEnv)
+
+	srcConfigs, err := s.agentConfigurationService.ListSystemManagedConfigs(ctx, agentName, ouID, projectName, sourceEnv)
+	if err != nil {
+		s.logger.Warn("Failed to list source env system-managed configurations for a blocked promotion",
+			"agentName", agentName, "projectName", projectName, "ouID", ouID, "environment", sourceEnv, "error", err)
+		return genericMessage, genericReason
+	}
+
+	var mcpNames []string
+	for _, config := range srcConfigs {
+		if config.TypeID == models.AgentConfigTypeIDMCP {
+			mcpNames = append(mcpNames, config.Name)
+		}
+	}
+	if len(mcpNames) == 0 {
+		return genericMessage, genericReason
+	}
+	sort.Strings(mcpNames)
+	hasNonMCPConfig := len(mcpNames) != len(srcConfigs)
+
+	// An agent missing an LLM configuration too is described by the generic message
+	// accurately, and keeping it byte-identical leaves anything already handling this
+	// block working. The MCP connections still have to be named somewhere, or fixing
+	// only what the message asks for earns the same refusal again.
+	if hasNonMCPConfig {
+		return genericMessage, fmt.Sprintf("configure system variables and connect %s, then promote", mcpConfigList(mcpNames))
+	}
+
+	areNotConnected, remedy := "is not connected", "connect it"
+	if len(mcpNames) > 1 {
+		areNotConnected, remedy = "are not connected", "connect them"
+	}
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(mcpNames), areNotConnected, targetEnv),
+		fmt.Sprintf("%s in %q, then promote", remedy, targetEnv)
+}
+
+// mcpConfigList names MCP configurations for a caller-facing sentence, agreeing with
+// how many there are rather than hedging with "configuration(s)".
+//
+// A lone name is quoted because it reads as a name; a list is left bare, since
+// briefConnectionList may end it with a "(+N more)" count that must not appear to be
+// part of a name. names must not be empty.
+//
+// Every name is clamped here rather than at the call sites. Names are caller-supplied
+// and accepted up to 255 characters, so one of them can bury the sentence it sits in;
+// clamping where the names are rendered means a caller cannot forget to.
+func mcpConfigList(names []string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf("MCP configuration %q", briefUIDetail(names[0]))
+	}
+	return fmt.Sprintf("MCP configurations %s", briefConnectionList(clampedConfigNames(names)))
+}
+
+// clampedConfigNames bounds each name on its own, because briefConnectionList bounds
+// how many names are shown but never shortens one.
+func clampedConfigNames(names []string) []string {
+	shortened := make([]string, 0, len(names))
+	for _, name := range names {
+		shortened = append(shortened, briefUIDetail(name))
+	}
+	return shortened
+}
+
 // mcpPromotionBlockText renders the caller-facing halves of a promotion blocked
 // by unbound MCP configurations, agreeing with how many there are rather than
 // hedging with "configuration(s)".
@@ -4569,17 +4646,13 @@ func (s *agentManagerService) assertMCPBindingsSurvivePromotion(
 // there is never checked: an absent mapping row alone produces this state, so
 // naming a missing endpoint would send the caller after the wrong problem.
 //
-// A lone name is quoted because it reads as a name; a list is left bare, since
-// briefConnectionList may end it with a "(+N more)" count that must not appear
-// to be part of a name. names must not be empty.
+// names must not be empty.
 func mcpPromotionBlockText(names []string, targetEnv string) (message, reason string) {
-	problem := fmt.Sprintf("MCP configuration %q has no MCP server", names[0])
-	remedy := "its MCP server"
+	haveNo, remedy := "has no MCP server", "its MCP server"
 	if len(names) > 1 {
-		problem = fmt.Sprintf("MCP configurations %s have no MCP server", briefConnectionList(names))
-		remedy = "their MCP servers"
+		haveNo, remedy = "have no MCP server", "their MCP servers"
 	}
-	return fmt.Sprintf("Promotion blocked: %s in %q", problem, targetEnv),
+	return fmt.Sprintf("Promotion blocked: %s %s in %q", mcpConfigList(names), haveNo, targetEnv),
 		fmt.Sprintf("deploy %s to %q, then promote", remedy, targetEnv)
 }
 
