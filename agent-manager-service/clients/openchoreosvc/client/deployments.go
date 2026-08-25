@@ -1172,6 +1172,36 @@ func (c *openChoreoClient) fetchRuntimeReplicaState(ctx context.Context, namespa
 	return state
 }
 
+// agentStartupBudget bounds how long an agent may report "still starting" before the
+// deployment is called failed instead.
+//
+// The number comes from the probes the agent-api component type renders (see
+// component-types/agent-api.yaml): a startup probe of initialDelaySeconds 10 +
+// periodSeconds 5 x failureThreshold 60 = 310s, after which kubelet kills the container
+// and the warm pool replaces the pod. The extra slack covers what happens before the
+// container starts at all — pulling the agent image and running the instrumentation init
+// container — which is charged to the same clock, because the only timestamp available
+// is the binding's (getLastDeployedTime), not the container's.
+//
+// Past this point the startup probe has already given up at least once, so nothing is
+// still starting. Observed case: an agent throttled at its 100m CPU limit never finished
+// importing, never bound its port, and cycled pods every ~5 minutes while the console
+// showed "in progress" indefinitely.
+const agentStartupBudget = 10 * time.Minute
+
+// bootDeadlineExceeded reports whether a booting agent has been booting for longer than
+// any pod could plausibly take to start.
+//
+// A binding with no usable timestamp returns false: without a clock this cannot prove the
+// agent is failed, and reporting a healthy-but-slow rollout as failed is the worse error.
+func bootDeadlineExceeded(binding *gen.ReleaseBinding) bool {
+	started := getLastDeployedTime(binding)
+	if started.IsZero() {
+		return false
+	}
+	return time.Since(started) > agentStartupBudget
+}
+
 // determineDeploymentStatus determines deployment status from release binding conditions,
 // downgrading "active" to "in-progress" while the agent's pods are still starting.
 // Pass an unknown runtimeReplicaState to derive the status from the binding alone.
@@ -1202,6 +1232,15 @@ func determineDeploymentStatus(binding *gen.ReleaseBinding, runtime runtimeRepli
 					return DeploymentStatusFailed
 				}
 				if runtime.isBooting() {
+					// Nothing in the resource tree distinguishes "still starting" from
+					// "will never start": pods are absent from it, the warm pool reports
+					// Healthy at zero ready replicas, and it publishes no Ready condition
+					// for notReadyResource to pick up. Elapsed time is the only signal
+					// left, so a boot that overruns its budget is reported as failed
+					// rather than sitting at in-progress forever.
+					if bootDeadlineExceeded(binding) {
+						return DeploymentStatusFailed
+					}
 					return DeploymentStatusInProgress
 				}
 				return DeploymentStatusActive
