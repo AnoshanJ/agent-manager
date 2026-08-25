@@ -325,27 +325,34 @@ export function CreateScopeDrawer({
                 getOptionDisabled={(tool) => blockedTools.has(tool)}
                 renderOption={(optionProps, tool) => {
                   const { key, ...liProps } = optionProps;
+                  if (!blockedTools.has(tool)) {
+                    return (
+                      <li key={key} {...liProps}>
+                        {tool}
+                      </li>
+                    );
+                  }
+                  // Spelled out in the row rather than behind the tool table's
+                  // tooltip: MUI gives a disabled option `pointer-events: none`,
+                  // so no hover affordance on one would ever fire. The name gets
+                  // its own <span> because Stack's spacing selector matches only
+                  // element siblings — a bare text node would sit flush against
+                  // the marker.
                   return (
                     <li key={key} {...liProps}>
                       <Stack direction="row" alignItems="center" spacing={1}>
-                        {tool}
-                        {blockedTools.has(tool) && (
-                          // Spelled out in the row rather than behind the tool
-                          // table's tooltip: MUI gives a disabled option
-                          // `pointer-events: none`, so no hover affordance on
-                          // one would ever fire.
-                          <Stack
-                            color="warning.main"
-                            direction="row"
-                            alignItems="center"
-                            spacing={0.5}
-                          >
-                            <ShieldX size={14} />
-                            <Typography component="span" variant="caption">
-                              Blocked in Manage Tools
-                            </Typography>
-                          </Stack>
-                        )}
+                        <span>{tool}</span>
+                        <Stack
+                          color="warning.main"
+                          direction="row"
+                          alignItems="center"
+                          spacing={0.5}
+                        >
+                          <ShieldX size={14} />
+                          <Typography component="span" variant="caption">
+                            Blocked by Manage Tools
+                          </Typography>
+                        </Stack>
                       </Stack>
                     </li>
                   );
