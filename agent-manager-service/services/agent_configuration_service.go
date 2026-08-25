@@ -1002,12 +1002,40 @@ func (s *agentConfigurationService) Create(ctx context.Context, ouID, projectNam
 	// Determine if this is an external agent
 	isExternalAgent := agent.Provisioning.Type == string(utils.ExternalAgent)
 
+	if err := s.rejectIfBuildInProgress(ctx, ouID, projectName, agentID, agent.KindName); err != nil {
+		return nil, err
+	}
+
 	switch req.Type {
 	case models.AgentConfigTypeMCP:
 		return s.createMCPConfig(ctx, ouID, projectName, agentID, req, createdBy, isExternalAgent)
 	default:
 		return s.createLLMConfig(ctx, ouID, projectName, agentID, req, createdBy, isExternalAgent)
 	}
+}
+
+// rejectIfBuildInProgress blocks agent configuration create/update while a
+// source-based agent's build is running. Argo Workflows resolves
+// workflow.parameters once at WorkflowRun submission, so a config write to
+// the Component CR after that point is never picked up by the in-flight
+// build; the resulting deployment silently carries stale env vars. Kind-sourced
+// agents are exempt: they have no build/workflow step (kindName != "").
+func (s *agentConfigurationService) rejectIfBuildInProgress(ctx context.Context, ouID, projectName, agentID, kindName string) error {
+	if kindName != "" {
+		return nil
+	}
+
+	builds, err := s.ocClient.ListBuilds(ctx, ouID, projectName, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to check build status: %w", err)
+	}
+
+	for _, build := range builds {
+		if build.Status == client.WorkflowStatusPending || build.Status == client.WorkflowStatusRunning {
+			return fmt.Errorf("%w for agent %s", utils.ErrBuildInProgress, agentID)
+		}
+	}
+	return nil
 }
 
 func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, projectName, agentID string,
@@ -2929,6 +2957,15 @@ func (s *agentConfigurationService) UpdateMCP(ctx context.Context, configUUID uu
 	if config.ProjectName != projectName || config.AgentID != agentName || config.TypeID != models.AgentConfigTypeIDMCP {
 		return nil, utils.ErrAgentConfigNotFound
 	}
+
+	agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate agent: %w", err)
+	}
+	if err := s.rejectIfBuildInProgress(ctx, ouID, projectName, agentName, agent.KindName); err != nil {
+		return nil, err
+	}
+
 	return s.updateMCPConfig(ctx, config, ouID, projectName, agentName, req)
 }
 
@@ -2953,6 +2990,14 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 	// Validate project and agent scoping
 	if existingConfig.ProjectName != projectName || existingConfig.AgentID != agentName {
 		return nil, utils.ErrAgentConfigNotFound
+	}
+
+	agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate agent: %w", err)
+	}
+	if err := s.rejectIfBuildInProgress(ctx, ouID, projectName, agentName, agent.KindName); err != nil {
+		return nil, err
 	}
 
 	if existingConfig.TypeID == models.AgentConfigTypeIDMCP {

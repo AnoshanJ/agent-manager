@@ -102,6 +102,11 @@ var (
 	ErrDeploymentPipelineNotFound     = errors.New("deployment pipeline not found")
 	ErrDeploymentPipelineInUse        = errors.New("deployment pipeline is referenced by one or more projects")
 	ErrDeploymentInProgress           = errors.New("a deployment is already in progress")
+	// ErrBuildInProgress is returned when agent configuration is created/updated
+	// while a build is running. Argo Workflows resolves workflow.parameters once
+	// at WorkflowRun submission, so a config change written to the Component CR
+	// after that point is never picked up by the in-flight build. Maps to 409.
+	ErrBuildInProgress = errors.New("a build is already in progress for this agent")
 	ErrProjectHasAssociatedAgents     = errors.New("project has associated agents")
 	ErrMonitorNotFound                = errors.New("monitor not found")
 	ErrMonitorAlreadyExists           = errors.New("monitor already exists")
