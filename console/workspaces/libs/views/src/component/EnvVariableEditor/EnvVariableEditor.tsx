@@ -166,8 +166,7 @@ export function EnvVariableEditor({
       }
       if (entries.length === 1) {
         e.preventDefault();
-        onKeyChange(entries[0].key.replace(/\s/g, '_'));
-        onValueChange(entries[0].value);
+        onBulkPaste([entries[0]]);
         return;
       }
     }
@@ -309,9 +308,9 @@ export function EnvVariableEditor({
                     isEditing
                       ? undefined
                       : {
-                          visibility: isSecretLocked && !isSystem ? 'visible' : 'hidden',
-                          pointerEvents: isSecretLocked && !isSystem ? 'auto' : 'none',
-                        }
+                        visibility: isSecretLocked && !isSystem ? 'visible' : 'hidden',
+                        pointerEvents: isSecretLocked && !isSystem ? 'auto' : 'none',
+                      }
                   }
                 >
                   {isEditing ? <X size={16} /> : <Edit size={16} />}
