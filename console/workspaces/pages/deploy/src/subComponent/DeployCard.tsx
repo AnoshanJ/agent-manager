@@ -97,6 +97,22 @@ import { useCallback, useMemo, useState } from "react";
 import { EditResourceConfigsDrawer } from "./EditResourceConfigsDrawer";
 import { PromoteAgentDrawer } from "./PromoteAgentDrawer";
 
+// Statuses where a deployment exists in the environment and can therefore be
+// torn down. Suspend flips the release binding's state to Undeploy, which
+// OpenChoreo reconciles by DELETING the rendered releases — it is level-
+// triggered, so it is well defined mid-rollout and against a crash-looping
+// agent, neither of which the backend restricts. Gating on ACTIVE alone left
+// the only stop button disabled exactly when it is most needed: a wedged
+// rollout (an unpullable image never leaves "in-progress") or a failing agent
+// restarting in a loop. Only not-deployed/suspended are excluded — there is
+// nothing to undeploy.
+const SUSPENDABLE_STATUSES: DeploymentStatus[] = [
+  DeploymentStatus.ACTIVE,
+  DeploymentStatus.DEPLOYING,
+  DeploymentStatus.ERROR,
+  DeploymentStatus.FAILED,
+];
+
 function DeploymentStatusPanel({ status }: { status: DeploymentStatus }) {
   const theme = useTheme();
   const backgroundColor = useMemo(() => {
@@ -662,7 +678,6 @@ export function DeployCard(props: DeployCardProps) {
                       sx={{ padding: 0.5 }}
                       startIcon={<SlidersVertical size={16} />}
                       onClick={handleOpenConfigureDrawer}
-                      disabled={currentDeployment?.status === DeploymentStatus.DEPLOYING}
                     >
                       Configure
                     </Button>
@@ -789,7 +804,9 @@ export function DeployCard(props: DeployCardProps) {
                       onClick={handleStop}
                       disabled={
                         isUpdating ||
-                        currentDeployment?.status !== DeploymentStatus.ACTIVE
+                        !SUSPENDABLE_STATUSES.includes(
+                          currentDeployment?.status as DeploymentStatus,
+                        )
                       }
                     >
                       Suspend
