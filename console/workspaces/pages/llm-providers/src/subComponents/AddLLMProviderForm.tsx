@@ -242,8 +242,10 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
 
   // Name auto-derives the context path until the user manually edits Context,
   // at which point their input wins and Name edits stop overwriting it.
-  // Clearing Context back to empty un-locks it, resuming auto-derivation on
-  // the next Name edit.
+  // Clearing Context back to empty un-locks it, but deliberately does NOT
+  // repopulate it on its own — isContextManuallyEdited is intentionally left
+  // out of the dependency array so derivation only fires on the next actual
+  // Name edit, not the instant Context is cleared.
   useEffect(() => {
     if (isContextManuallyEdited) {
       return;
@@ -258,7 +260,7 @@ export const AddLLMProviderForm: React.FC<AddLLMProviderFormProps> = ({
     );
     // Only run when displayName changes; formData for validation
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.displayName, isContextManuallyEdited]);
+  }, [formData.displayName]);
 
   const handleFieldChange = useCallback(
     (field: keyof AddLLMProviderFormValues, value: string | string[]) => {
