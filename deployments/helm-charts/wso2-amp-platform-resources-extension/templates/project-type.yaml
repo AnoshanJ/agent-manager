@@ -1,12 +1,13 @@
 apiVersion: openchoreo.dev/v1alpha1
-kind: ClusterProjectType
+kind: ProjectType
 metadata:
-  name: {{ .Values.projectType.name }}
+  name: default
+  namespace: {{ .Values.openchoreoNamespace }}
   annotations:
     openchoreo.dev/display-name: {{ .Values.projectType.displayName | quote }}
     openchoreo.dev/description: {{ .Values.projectType.description | quote }}
   labels:
-    openchoreo.dev/name: {{ .Values.projectType.name }}
+    openchoreo.dev/name: default
 spec:
   # Per-environment overrides supplied via ProjectReleaseBinding.spec.environmentConfigs.
   environmentConfigs:
