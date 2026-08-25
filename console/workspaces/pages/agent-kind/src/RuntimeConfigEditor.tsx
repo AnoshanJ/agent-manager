@@ -30,7 +30,9 @@ import {
 import { Plus, Trash } from "@wso2/oxygen-ui-icons-react";
 import {
     EnvFileUploadButton,
+    MAX_FILE_SIZE,
     TextInput,
+    parseEnvFileContent,
     type ParsedEnvEntry,
 } from "@agent-management-platform/views";
 
@@ -101,6 +103,12 @@ interface ConfigRowProps {
     onUpdate: <K extends keyof RuntimeConfigRow>(field: K, value: RuntimeConfigRow[K]) => void;
     onUpdateMany: (updates: Partial<RuntimeConfigRow>) => void;
     onRemove: () => void;
+    /**
+     * Called instead of onUpdateMany when the pasted clipboard text contains
+     * multiple "KEY=VALUE" lines (e.g. the full contents of a .env file), so
+     * the caller can split it into multiple rows.
+     */
+    onBulkPaste: (entries: ParsedEnvEntry[]) => void;
 }
 
 const ConfigRow: React.FC<ConfigRowProps> = ({
@@ -111,6 +119,7 @@ const ConfigRow: React.FC<ConfigRowProps> = ({
     onUpdate,
     onUpdateMany,
     onRemove,
+    onBulkPaste,
 }) => (
     <Stack key={row.id} spacing={0.5}>
         <Stack direction="row" spacing={1} alignItems="top" justifyContent="flex-start">
@@ -125,6 +134,32 @@ const ConfigRow: React.FC<ConfigRowProps> = ({
                             onChange={(e) => onUpdate("key", e.target.value.replace(/\s/g, "_"))}
                             onPaste={(e) => {
                                 const pasted = e.clipboardData.getData("text");
+
+                                // A paste this large is almost certainly the wrong clipboard
+                                // contents (e.g. an entire log file), not a real .env list —
+                                // let the browser's default paste handle it instead of
+                                // splitting it into countless rows.
+                                if (pasted.length > MAX_FILE_SIZE) return;
+
+                                // Pasting one or more "KEY=VALUE" lines (including the full
+                                // contents of a .env file) parses through the same helper as
+                                // the upload path, so a single entry with a leading/trailing
+                                // comment line isn't corrupted by the raw-text fallback below.
+                                const bulkEntries = parseEnvFileContent(pasted);
+                                if (bulkEntries.length > 1) {
+                                    e.preventDefault();
+                                    onBulkPaste(bulkEntries);
+                                    return;
+                                }
+                                if (bulkEntries.length === 1) {
+                                    e.preventDefault();
+                                    onUpdateMany({
+                                        key: bulkEntries[0].key.replace(/\s/g, "_"),
+                                        defaultValue: bulkEntries[0].value,
+                                    });
+                                    return;
+                                }
+
                                 const equalsIdx = pasted.indexOf("=");
                                 if (equalsIdx === -1) return;
                                 const pastedKey = pasted.slice(0, equalsIdx).trim();
@@ -268,7 +303,9 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
             if (trimmedKey) indexByKey.set(trimmedKey, i);
         });
 
-        for (const { key, value } of entries) {
+        for (const rawEntry of entries) {
+            const key = rawEntry.key.replace(/\s/g, "_");
+            const value = rawEntry.value;
             const existingIndex = indexByKey.get(key);
             if (existingIndex !== undefined) {
                 next[existingIndex] = { ...next[existingIndex], defaultValue: value };
@@ -293,16 +330,20 @@ export const RuntimeConfigEditor: React.FC<RuntimeConfigEditorProps> = ({
                     onUpdate={(field, value) => updateRow(i, field, value)}
                     onUpdateMany={(updates) => updateRowMany(i, updates)}
                     onRemove={() => removeRow(i)}
+                    onBulkPaste={handleEnvFileParsed}
                 />
             ))}
             {!readonlyKey && (
-                <Box display="flex" flexDirection="row" gap={1} alignItems="flex-start">
+                <Box display="flex" flexDirection="row" gap={1.5} alignItems="center" flexWrap="wrap">
                     <Button size="small" variant="outlined" startIcon={<Plus />} onClick={addRow} disabled={isInvalid}>
                         Add Runtime Key
                     </Button>
                     <Box display="flex" flexDirection="column" alignItems="flex-start">
                         <EnvFileUploadButton onParsed={handleEnvFileParsed} label="Upload .env file" />
                     </Box>
+                    <Typography variant="caption" color="text.secondary">
+                        or paste .env text into a Key field above
+                    </Typography>
                 </Box>
             )}
         </Stack>

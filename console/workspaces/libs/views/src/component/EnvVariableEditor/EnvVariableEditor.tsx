@@ -30,6 +30,7 @@ import {
 import { Edit, Eye, EyeOff, Lock, Trash2 as DeleteOutline, X } from '@wso2/oxygen-ui-icons-react';
 import { useState } from 'react';
 import { TextInput } from '../FormElements';
+import { MAX_FILE_SIZE, parseEnvFileContent } from '../EnvFileUpload';
 
 export interface EnvVariableEditorProps {
   /**
@@ -56,6 +57,12 @@ export interface EnvVariableEditorProps {
    * Callback to remove this environment variable
    */
   onRemove: () => void;
+  /**
+   * Called instead of onKeyChange/onValueChange when the pasted clipboard text
+   * contains multiple "KEY=VALUE" lines (e.g. the full contents of a .env
+   * file), so the caller can split it into multiple rows.
+   */
+  onBulkPaste?: (entries: { key: string; value: string }[]) => void;
   /**
    * Label for the key field (default: "Key")
    */
@@ -109,6 +116,7 @@ export function EnvVariableEditor({
   onKeyChange,
   onValueChange,
   onRemove,
+  onBulkPaste,
   keyLabel = 'Key',
   valueLabel = 'Value',
   isValueSecret = false,
@@ -139,6 +147,31 @@ export function EnvVariableEditor({
   const handleKeyPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     if (keyDisabled || isValueLocked) return;
     const pasted = e.clipboardData.getData('text');
+
+    // A paste this large is almost certainly the wrong clipboard contents (e.g.
+    // an entire log file), not a real .env list — let the browser's default
+    // paste behavior handle it instead of splitting it into countless rows.
+    if (pasted.length > MAX_FILE_SIZE) return;
+
+    // Pasting one or more "KEY=VALUE" lines (including the full contents of a
+    // .env file) parses through the same helper as the upload path, so a
+    // single entry with a leading/trailing comment line isn't corrupted by
+    // falling through to the raw-text fallback below.
+    if (onBulkPaste) {
+      const entries = parseEnvFileContent(pasted);
+      if (entries.length > 1) {
+        e.preventDefault();
+        onBulkPaste(entries);
+        return;
+      }
+      if (entries.length === 1) {
+        e.preventDefault();
+        onKeyChange(entries[0].key.replace(/\s/g, '_'));
+        onValueChange(entries[0].value);
+        return;
+      }
+    }
+
     const equalsIdx = pasted.indexOf('=');
     if (equalsIdx === -1) return;
 
