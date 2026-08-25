@@ -1,7 +1,8 @@
 apiVersion: openchoreo.dev/v1alpha1
-kind: ClusterProjectType
+kind: ProjectType
 metadata:
   name: {{ .Values.projectType.name }}
+  namespace: default
   annotations:
     openchoreo.dev/display-name: {{ .Values.projectType.displayName | quote }}
     openchoreo.dev/description: {{ .Values.projectType.description | quote }}
