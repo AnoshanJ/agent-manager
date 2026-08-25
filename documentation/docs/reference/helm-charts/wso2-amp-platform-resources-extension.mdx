@@ -1,0 +1,140 @@
+---
+title: Platform Resources Extension
+---
+
+# Platform Resources Extension
+
+Default platform resources for WSO2 AI Agent Management Platform on OpenChoreo
+
+Helm chart values reference for `wso2-amp-platform-resources-extension`.
+
+```bash
+helm install amp-platform-resources-extension oci://ghcr.io/wso2/helm-charts/wso2-amp-platform-resources-extension \
+  --namespace <namespace> --create-namespace \
+  --values my-values.yaml
+```
+
+## apiPlatformGateway
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `apiPlatformGateway.namespace` | Empty = derive the per-org-env convention "&lt;org&gt;-&lt;env&gt;", which setup-gateway.sh and add-environment.sh create by passing set apiGateway.namespace=&lt;org&gt;-&lt;env&gt;. Set this to a fixed namespace when the gateway extension is installed somewhere else — notably openchoreo-data-plane, which is the gateway chart's own default for apiGateway.namespace. Leaving it empty there makes the traits build a name that does not resolve, and the failure is silent: agents keep serving traffic while every span batch fails, and agent invocation has no route to the gateway runtime. | string | `""` |
+
+## apiPlatformGatewayVhost
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `apiPlatformGatewayVhost.host` |  | string | `gateway.localhost` |
+| `apiPlatformGatewayVhost.port` |  | integer | `19080` |
+| `apiPlatformGatewayVhost.otelEndpointOverride` | Full override for the agent OTEL endpoint. When set, it replaces the in-cluster runtime URL entirely — used on installs that front a single public gateway host on :443 (e.g. a VM install), where the per-environment Kubernetes Service does not apply. Empty = derive the in-cluster Service. | string | `""` |
+
+## authz
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `authz.ampApiClient.clientId` | Client ID used by agent-manager-service (must match Thunder OAuth client_id) | string | `amp-api-client` |
+| `authz.ampApiClient.role` | Role to assign (admin grants full access to OpenChoreo APIs) | string | `admin` |
+| `authz.amObserverClient.clientId` | Client ID used by agent-manager-observer's outbound calls to the OpenChoreo observer (must match Thunder OAuth client_id seeded by wso2-amp-thunder-extension's amObserverClient) | string | `am-observer-client` |
+| `authz.amObserverClient.role` | Minimal read-only role for observability data (traces/logs/metrics) | string | `amp-observer-reader` |
+
+## buildWorkflows
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `buildWorkflows.userNamespaces` | Run build pods inside a Linux user namespace (hostUsers: false) so the build's root user is unprivileged on the node. This requires idmapped-mount support for every filesystem the pod mounts (overlayfs AND tmpfs/projected volumes) — in practice Linux kernel &gt;= 6.3 (e.g. Ubuntu 24.04, Amazon Linux 2023, recent COS). On older kernels (e.g. Ubuntu 22.04's 5.15, Amazon Linux 2's 5.10) every build pod fails at sandbox creation with "failed to set MOUNT_ATTR_IDMAP ... invalid argument" — set this to false on such nodes to run builds without user namespaces. | boolean | `true` |
+
+## deploymentPipeline
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `deploymentPipeline.name` | Name of the default deployment pipeline | string | `default` |
+| `deploymentPipeline.displayName` | Display name for the deployment pipeline | string | `"Default Deployment Pipeline"` |
+| `deploymentPipeline.description` | Description for the deployment pipeline | string | `"Default deployment pipeline for WSO2 Agent Manager"` |
+| `deploymentPipeline.promotionOrder` | Promotion order for the deployment pipeline | list | see `values.yaml` |
+| `deploymentPipeline.name` |  | string | `default` |
+| `deploymentPipeline.targetEnvironmentRefs` |  | list | `[]` |
+
+## environment
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `environment.name` | Name of the default environment | string | `default` |
+| `environment.displayName` | Display name for the environment | string | `"Default"` |
+| `environment.description` | Description for the environment | string | `"Default environment for WSO2 AI Agent Management Platform"` |
+| `environment.isCritical` | Is this environment critical/production? | boolean | `false` |
+| `environment.dnsPrefix` | DNS Prefix for the gateway | string | `"default"` |
+| `environment.gateway.name` | Real data-plane Gateway the agent routes attach to (parentRef). | string | `gateway-default` |
+| `environment.gateway.namespace` |  | string | `openchoreo-data-plane` |
+| `environment.gateway.http.host` |  | string | `am-gateway.localhost` |
+| `environment.gateway.http.port` |  | integer | `19080` |
+
+## externalSecrets
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `externalSecrets.clusterSecretStoreName` | Name of the ClusterSecretStore (uses the default OpenBao ClusterSecretStore) | string | `default` |
+
+## gatewayTls
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `gatewayTls.enabled` | Enable gateway TLS certificate creation | boolean | `true` |
+| `gatewayTls.certificateName` | Certificate name | string | `gateway-tls` |
+| `gatewayTls.secretName` | Secret name where the certificate will be stored | string | `gateway-tls` |
+| `gatewayTls.namespace` | Namespace where the certificate and secret will be created | string | `openchoreo-data-plane` |
+| `gatewayTls.duration` | Certificate duration (default: 2160h = 90 days) | string | `2160h` |
+| `gatewayTls.renewBefore` | Certificate renewal time (default: 720h = 30 days before expiry) | string | `720h` |
+| `gatewayTls.commonName` | Common name for the certificate | string | `"*.agentmanager.localhost"` |
+| `gatewayTls.dnsNames` | DNS names for the certificate | list | see `values.yaml` |
+| `gatewayTls.issuerRef.name` | Name of the issuer (created by openchoreo-data-plane chart) | string | `openchoreo-data-plane-selfsigned-issuer` |
+| `gatewayTls.issuerRef.kind` | Issuer kind: Issuer or ClusterIssuer | string | `Issuer` |
+
+## global
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `global.oauth.tokenUrl` | OAuth token endpoint URL | string | `"http://host.k3d.internal:8080/oauth2/token"` |
+| `global.oauth.hostHeader` | Host header for OAuth requests | string | `"thunder.amp.localhost"` |
+| `global.oauth.clientId` | OAuth client ID for workload publisher | string | `"openchoreo-workload-publisher-client"` |
+| `global.apiServer.url` | API server URL | string | `"http://host.k3d.internal:8080"` |
+| `global.apiServer.hostHeader` | Host header for API server requests | string | `"api.openchoreo.localhost"` |
+| `global.commonLabels` | Common labels to add to every resource. | object | `{}` |
+| `global.baseDomain` | Base domain for external access (e.g., "openchoreo.example.com") When set, registry will be accessible at registry.&lt;baseDomain&gt; | string | `""` |
+| `global.registry.endpoint` | Registry endpoint for pushing and pulling images For local registry: "host.k3d.internal:10082" For external registry with baseDomain: automatically uses "registry.&lt;baseDomain&gt;" | string | `"host.k3d.internal:10082"` |
+| `global.defaultResources.namespace` | Namespace where default resources will be created | string | `default` |
+| `global.defaultResources.registry.tlsVerify` | Enable TLS verification for registry connections | boolean | `false` |
+| `global.defaultResources.buildpackCache.enabled` | @schema type: boolean description: Enable buildpack image caching. When enabled, images are pulled from cache registry instead of remote. default: false @schema | boolean | `false` |
+| `global.defaultResources.buildpackCache.images` | @schema type: array description: List of buildpack images to cache. Each entry has an id for lookup, remoteImage for external registry, and cachedImage for local cache. items: type: object additionalProperties: false required: - id - remoteImage - cachedImage properties: id: type: string description: Unique identifier for lookup in workflow templates remoteImage: type: string description: Image reference from remote registry (used when caching is disabled) cachedImage: type: string description: Image path in the local build plane registry (used when caching is enabled) @schema | list | see `values.yaml` |
+| `global.defaultResources.buildpackCache.remoteImage` |  | string | `"docker.io/buildpacksio/lifecycle:0.20.5"` |
+| `global.defaultResources.buildpackCache.cachedImage` |  | string | `"buildpacks-cache/lifecycle:0.20.5"` |
+| `global.defaultResources.buildpackCache.remoteImage` |  | string | `"gcr.io/buildpacks/builder@sha256:5977b4bd47d3e9ff729eefe9eb99d321d4bba7aa3b14986323133f40b622aef1"` |
+| `global.defaultResources.buildpackCache.cachedImage` |  | string | `"buildpacks-cache/google-builder:latest"` |
+| `global.defaultResources.buildpackCache.remoteImage` |  | string | `"gcr.io/buildpacks/google-22/run:latest"` |
+| `global.defaultResources.buildpackCache.cachedImage` |  | string | `"buildpacks-cache/google-run:latest"` |
+| `global.defaultResources.buildpackCache.remoteImage` |  | string | `"ghcr.io/openchoreo/buildpack/ballerina:18"` |
+| `global.defaultResources.buildpackCache.cachedImage` |  | string | `"buildpacks-cache/ballerina-builder:18"` |
+| `global.defaultResources.buildpackCache.remoteImage` |  | string | `"ghcr.io/openchoreo/buildpack/ballerina:18-run"` |
+| `global.defaultResources.buildpackCache.cachedImage` |  | string | `"buildpacks-cache/ballerina-run:18"` |
+
+## kubectl
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `kubectl.image` |  | string | `bitnamilegacy/kubectl:1.32.4` |
+
+## project
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `project.name` | Name of the default project | string | `default` |
+| `project.displayName` | Display name for the project | string | `"Default Project"` |
+| `project.description` | Description for the project | string | `"Default project for WSO2 Agent Manager"` |
+
+## projectType
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `projectType.name` | Name of the ClusterProjectType (must be a DNS-1123 label) | string | `default` |
+| `projectType.displayName` | Display name for the project type | string | `"Default Project Type"` |
+| `projectType.description` | Description for the project type | string | `"Minimal project type that provisions only the cell namespace per environment."` |
+

@@ -1,0 +1,371 @@
+---
+title: Thunder Extension
+---
+
+# Thunder Extension
+
+A Helm chart to add Thunder Identity Provider functionality for the Agent Management Platform.
+
+Helm chart values reference for `wso2-amp-thunder-extension`.
+
+```bash
+helm install amp-thunder-extension oci://ghcr.io/wso2/helm-charts/wso2-amp-thunder-extension \
+  --namespace <namespace> --create-namespace \
+  --values my-values.yaml
+```
+
+## thunder.bootstrap
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.bootstrap.enabled` |  | boolean | `true` |
+| `thunder.bootstrap.observabilityScopes` | The observability data-read scopes, single-sourced: 59-am-mcp-client.yaml subtracts this list from am-mcp's allowance and 73-am-obs-mcp-client.yaml appends it to am-obs-mcp's OIDC scopes (both at template render time). The same scopes also appear in ampScopes below as part of the full catalog for the other interactive clients. | list | see `values.yaml` |
+| `thunder.bootstrap.ampScopes` | Full list of AMP OAuth2 scopes that interactive clients are allowed to request. Thunder only grants scopes that appear in an app's registered scope list, so all permission scopes must be declared here for role-based access to work. Exception: am-mcp's allowance is this catalog MINUS observabilityScopes (filtered in 59-am-mcp-client.yaml) — those scopes are owned exclusively by the observer MCP client (amObsMcpClient below). | list | see `values.yaml` |
+| `thunder.bootstrap.configMap.name` |  | string | `amp-thunder-bootstrap` |
+| `thunder.bootstrap.configMap.files` |  | list | see `values.yaml` |
+| `thunder.bootstrap.observerResourceReaderClient.clientId` |  | string | `"openchoreo-observer-resource-reader-client"` |
+| `thunder.bootstrap.observerResourceReaderClient.clientSecret` |  | string | `"openchoreo-observer-resource-reader-client-secret"` |
+| `thunder.bootstrap.observerResourceReaderClient.name` |  | string | `"OpenChoreo Observer Resource Reader"` |
+| `thunder.bootstrap.observerResourceReaderClient.description` |  | string | `"OpenChoreo Observer Resource Reader Client for reading resources from control plane"` |
+| `thunder.bootstrap.observerResourceReaderClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.observerResourceReaderClient.tokenEndpointAuthMethod` |  | string | `"client_secret_post"` |
+| `thunder.bootstrap.observerResourceReaderClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.observerResourceReaderClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.observerResourceReaderClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.workloadPublisherClient.clientId` |  | string | `"openchoreo-workload-publisher-client"` |
+| `thunder.bootstrap.workloadPublisherClient.clientSecret` |  | string | `"openchoreo-workload-publisher-secret"` |
+| `thunder.bootstrap.workloadPublisherClient.name` |  | string | `"Workload Publisher"` |
+| `thunder.bootstrap.workloadPublisherClient.description` |  | string | `"OpenChoreo Workload Publisher Client for creating workloads from CI workflows"` |
+| `thunder.bootstrap.workloadPublisherClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.workloadPublisherClient.tokenEndpointAuthMethod` |  | string | `"client_secret_post"` |
+| `thunder.bootstrap.workloadPublisherClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.workloadPublisherClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.workloadPublisherClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.ampApiClient.clientId` |  | string | `"amp-api-client"` |
+| `thunder.bootstrap.ampApiClient.clientSecret` |  | string | `"amp-api-client-secret"` |
+| `thunder.bootstrap.ampApiClient.name` |  | string | `"AMP API Client"` |
+| `thunder.bootstrap.ampApiClient.description` |  | string | `"Client application for AMP API access"` |
+| `thunder.bootstrap.ampApiClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampApiClient.tokenEndpointAuthMethod` |  | string | `"client_secret_basic"` |
+| `thunder.bootstrap.ampApiClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.ampApiClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.ampApiClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.ampSystemClient.clientId` |  | string | `"amp-system-client"` |
+| `thunder.bootstrap.ampSystemClient.clientSecret` |  | string | `"amp-system-client-secret"` |
+| `thunder.bootstrap.ampSystemClient.name` |  | string | `"AMP System Client"` |
+| `thunder.bootstrap.ampSystemClient.description` |  | string | `"System client for agent-manager to provision per-org OAuth apps"` |
+| `thunder.bootstrap.ampSystemClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampSystemClient.tokenEndpointAuthMethod` |  | string | `"client_secret_basic"` |
+| `thunder.bootstrap.ampSystemClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.ampSystemClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.ampSystemClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.ampPublisherClient.clientId` |  | string | `"amp-publisher-client"` |
+| `thunder.bootstrap.ampPublisherClient.clientSecret` |  | string | `"amp-publisher-client-secret"` |
+| `thunder.bootstrap.ampPublisherClient.name` |  | string | `"AMP Publisher Client"` |
+| `thunder.bootstrap.ampPublisherClient.description` |  | string | `"Client application for evaluation job to publish scores"` |
+| `thunder.bootstrap.ampPublisherClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampPublisherClient.tokenEndpointAuthMethod` |  | string | `"client_secret_basic"` |
+| `thunder.bootstrap.ampPublisherClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.ampPublisherClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.ampPublisherClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amObserverClient.clientId` |  | string | `"am-observer-client"` |
+| `thunder.bootstrap.amObserverClient.clientSecret` |  | string | `"am-observer-client-secret"` |
+| `thunder.bootstrap.amObserverClient.name` |  | string | `"AM Observer Client"` |
+| `thunder.bootstrap.amObserverClient.description` |  | string | `"Dedicated client for agent-manager-observer to read observability data from the OpenChoreo observer"` |
+| `thunder.bootstrap.amObserverClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObserverClient.tokenEndpointAuthMethod` |  | string | `"client_secret_basic"` |
+| `thunder.bootstrap.amObserverClient.pkceRequired` |  | boolean | `false` |
+| `thunder.bootstrap.amObserverClient.publicClient` |  | boolean | `false` |
+| `thunder.bootstrap.amObserverClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amCliClient.clientId` |  | string | `"amctl"` |
+| `thunder.bootstrap.amCliClient.name` |  | string | `"AMCTL"` |
+| `thunder.bootstrap.amCliClient.description` |  | string | `"AMP CLI application for interactive user login"` |
+| `thunder.bootstrap.amCliClient.redirectUris` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amCliClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amCliClient.responseTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amCliClient.allowedUserTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amCliClient.tokenEndpointAuthMethod` |  | string | `"none"` |
+| `thunder.bootstrap.amCliClient.pkceRequired` |  | boolean | `true` |
+| `thunder.bootstrap.amCliClient.publicClient` |  | boolean | `true` |
+| `thunder.bootstrap.amCliClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amCliClient.idTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amCliClient.userAttributes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amMcpClient.clientId` |  | string | `"am-mcp"` |
+| `thunder.bootstrap.amMcpClient.name` |  | string | `"AMP MCP"` |
+| `thunder.bootstrap.amMcpClient.description` |  | string | `"AMP MCP application for interactive user login"` |
+| `thunder.bootstrap.amMcpClient.redirectUris` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amMcpClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amMcpClient.responseTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amMcpClient.allowedUserTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amMcpClient.tokenEndpointAuthMethod` |  | string | `"none"` |
+| `thunder.bootstrap.amMcpClient.pkceRequired` |  | boolean | `true` |
+| `thunder.bootstrap.amMcpClient.publicClient` |  | boolean | `true` |
+| `thunder.bootstrap.amMcpClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amMcpClient.idTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amMcpClient.userAttributes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.clientId` |  | string | `"am-obs-mcp"` |
+| `thunder.bootstrap.amObsMcpClient.name` |  | string | `"AMP Observer MCP"` |
+| `thunder.bootstrap.amObsMcpClient.description` |  | string | `"AMP Observer MCP application for interactive user login"` |
+| `thunder.bootstrap.amObsMcpClient.redirectUris` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.responseTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.allowedUserTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.tokenEndpointAuthMethod` |  | string | `"none"` |
+| `thunder.bootstrap.amObsMcpClient.pkceRequired` |  | boolean | `true` |
+| `thunder.bootstrap.amObsMcpClient.publicClient` |  | boolean | `true` |
+| `thunder.bootstrap.amObsMcpClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amObsMcpClient.idTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.amObsMcpClient.scopes` | OIDC scopes only — the four observability data-read scopes are appended from observabilityScopes at template render time (73-am-obs-mcp-client.yaml). | list | see `values.yaml` |
+| `thunder.bootstrap.amObsMcpClient.userAttributes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.agentManagerMcpBaseUrl` | RFC 8707 resource-server definitions for the platform's own MCP endpoints (agent-manager's MCP endpoint, its docker-compose dev variant, and the observer's MCP endpoint). NOT currently consumed by any template in this chart — nothing renders these into Thunder on install/upgrade yet; see deployments/setup/register-amp-resources.sh for the manual/bash registration that has to be run by hand instead. baseUrlValue names the scalar below holding that entry's base URL; permissionSet picks which slice of the amp permission tree it gets ("amp-minus-observability" or "observability-only"); `optional: true` entries are skipped when their base URL is empty. | string | `"http://api.amp.localhost:8080"` |
+| `thunder.bootstrap.agentManagerMcpDevBaseUrl` |  | string | `""` |
+| `thunder.bootstrap.observerMcpBaseUrl` |  | string | `"http://traces.amp.localhost:11080"` |
+| `thunder.bootstrap.mcpResourceServers` |  | list | see `values.yaml` |
+| `thunder.bootstrap.handle` |  | string | `""` |
+| `thunder.bootstrap.baseUrlValue` |  | string | `"agentManagerMcpBaseUrl"` |
+| `thunder.bootstrap.description` |  | string | `"Resource identifier for the agent-manager MCP endpoint"` |
+| `thunder.bootstrap.permissionSet` |  | string | `"amp-minus-observability"` |
+| `thunder.bootstrap.handle` |  | string | `""` |
+| `thunder.bootstrap.baseUrlValue` |  | string | `"agentManagerMcpDevBaseUrl"` |
+| `thunder.bootstrap.optional` |  | boolean | `true` |
+| `thunder.bootstrap.description` |  | string | `"Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack"` |
+| `thunder.bootstrap.permissionSet` |  | string | `"amp-minus-observability"` |
+| `thunder.bootstrap.handle` |  | string | `""` |
+| `thunder.bootstrap.baseUrlValue` |  | string | `"observerMcpBaseUrl"` |
+| `thunder.bootstrap.description` |  | string | `"Resource identifier for the observer MCP endpoint"` |
+| `thunder.bootstrap.permissionSet` |  | string | `"observability-only"` |
+| `thunder.bootstrap.ampConsoleClient.clientId` |  | string | `"amp-console-client"` |
+| `thunder.bootstrap.ampConsoleClient.clientSecret` |  | string | `"amp-console-client-secret"` |
+| `thunder.bootstrap.ampConsoleClient.name` |  | string | `"AMP Console"` |
+| `thunder.bootstrap.ampConsoleClient.description` |  | string | `"AMP Console Application"` |
+| `thunder.bootstrap.ampConsoleClient.logoUrl` |  | string | `"https://wso2.cachefly.net/wso2/sites/all/image_resources/logos/WSO2-Pulse-Orange.webp"` |
+| `thunder.bootstrap.ampConsoleClient.redirectUris` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleClient.grantTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleClient.responseTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleClient.allowedUserTypes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleClient.tokenEndpointAuthMethod` |  | string | `"none"` |
+| `thunder.bootstrap.ampConsoleClient.pkceRequired` |  | boolean | `true` |
+| `thunder.bootstrap.ampConsoleClient.publicClient` |  | boolean | `true` |
+| `thunder.bootstrap.ampConsoleClient.accessTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.ampConsoleClient.idTokenValidityPeriod` |  | integer | `3600` |
+| `thunder.bootstrap.ampConsoleClient.userAttributes` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleTheme.handle` |  | string | `"wso2-agent-manager-console"` |
+| `thunder.bootstrap.ampConsoleTheme.displayName` |  | string | `"WSO2 Agent Manager Console Theme"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.direction` |  | string | `"ltr"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.defaultColorScheme` |  | string | `"light"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.shape.borderRadius` |  | integer | `8` |
+| `thunder.bootstrap.ampConsoleTheme.theme.typography.fontFamily` |  | string | `"Inter Variable, sans-serif"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.typography.h1.fontSize` |  | string | `"1.75rem"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.typography.h1.fontWeight` |  | integer | `600` |
+| `thunder.bootstrap.ampConsoleTheme.theme.typography.h1.lineHeight` |  | number | `1.3` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.primary.main` |  | string | `"#fa7b3f"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.primary.dark` |  | string | `"#e74420"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.primary.contrastText` |  | string | `"#ffffff"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.secondary.main` |  | string | `"#1a1a2e"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.secondary.dark` |  | string | `"#0d0d1a"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.secondary.contrastText` |  | string | `"#ffffff"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.background.default` |  | string | `"#f7f8fb"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.background.paper` |  | string | `"#ffffff"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.text.primary` |  | string | `"#000000"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.light.colors.text.secondary` |  | string | `"#494848"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.primary.main` |  | string | `"#fa7b3f"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.primary.dark` |  | string | `"#e74420"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.primary.contrastText` |  | string | `"#ffffff"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.secondary.main` |  | string | `"#ff9966"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.secondary.dark` |  | string | `"#fa7b3f"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.secondary.contrastText` |  | string | `"#000000"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.background.default` |  | string | `"#121212"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.background.paper` |  | string | `"#1e1e1e"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.text.primary` |  | string | `"#ffffff"` |
+| `thunder.bootstrap.ampConsoleTheme.theme.colorSchemes.dark.colors.text.secondary` |  | string | `"#cccccc"` |
+| `thunder.bootstrap.ampConsoleLayout.id` |  | string | `"0e0dc039-bae9-4563-82b9-ee4e76f9a58c"` |
+| `thunder.bootstrap.ampConsoleLayout.handle` |  | string | `"wso2-agent-manager-console"` |
+| `thunder.bootstrap.ampConsoleLayout.displayName` |  | string | `"WSO2 Agent Manager Console Layout"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.head.stylesheets` |  | list | see `values.yaml` |
+| `thunder.bootstrap.ampConsoleLayout.layout.head.type` |  | string | `"inline"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.head.content` |  | string | (multi-line) |
+| `thunder.bootstrap.ampConsoleLayout.layout.head.body` |  | string | `:before { display: none; }` |
+| `thunder.bootstrap.ampConsoleLayout.layout.head.body` |  | string | `:before { content: ""; display: block; background-color:` |
+| `thunder.bootstrap.ampConsoleLayout.layout.screens.signin.title` |  | string | `"Sign In"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.screens.signin.layout` |  | string | `"split"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.screens.signup.title` |  | string | `"Create your WSO2 Cloud account"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.screens.signup.layout` |  | string | `"split"` |
+| `thunder.bootstrap.ampConsoleLayout.layout.screens.common.layout` |  | string | `"split"` |
+| `thunder.bootstrap.organizationUnit.name` |  | string | `"Default"` |
+| `thunder.bootstrap.organizationUnit.handle` |  | string | `"default"` |
+| `thunder.bootstrap.organizationUnit.description` |  | string | `"Default organizational unit"` |
+| `thunder.bootstrap.userSchema.name` |  | string | `"engineer"` |
+| `thunder.bootstrap.userSchema.allowSelfRegistration` |  | boolean | `true` |
+| `thunder.bootstrap.defaultUsers` | Default users configuration | list | see `values.yaml` |
+| `thunder.bootstrap.givenName` |  | string | `"Admin"` |
+| `thunder.bootstrap.familyName` |  | string | `"User"` |
+| `thunder.bootstrap.groups` |  | list | `[]` |
+
+## thunder.configuration
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.configuration.server.port` |  | integer | `8090` |
+| `thunder.configuration.server.httpOnly` |  | boolean | `true` |
+| `thunder.configuration.server.publicUrl` |  | string | `"http://thunder.amp.localhost:8080"` |
+| `thunder.configuration.gateClient.hostname` |  | string | `"thunder.amp.localhost"` |
+| `thunder.configuration.gateClient.port` |  | integer | `8080` |
+| `thunder.configuration.gateClient.scheme` |  | string | `"http"` |
+| `thunder.configuration.gateClient.path` |  | string | `"/gate"` |
+| `thunder.configuration.crypto.encryption.key` |  | string | `"file://config/certs/crypto.key"` |
+| `thunder.configuration.crypto.passwordHashing.algorithm` |  | string | `"PBKDF2"` |
+| `thunder.configuration.crypto.passwordHashing.argon2id.iterations` |  | integer | `2` |
+| `thunder.configuration.crypto.passwordHashing.argon2id.memory` |  | integer | `19456` |
+| `thunder.configuration.crypto.passwordHashing.argon2id.parallelism` |  | integer | `1` |
+| `thunder.configuration.crypto.passwordHashing.argon2id.key_size` |  | integer | `32` |
+| `thunder.configuration.crypto.passwordHashing.argon2id.salt_size` |  | integer | `16` |
+| `thunder.configuration.crypto.passwordHashing.pbkdf2.iterations` |  | integer | `600000` |
+| `thunder.configuration.crypto.passwordHashing.pbkdf2.key_size` |  | integer | `32` |
+| `thunder.configuration.crypto.passwordHashing.pbkdf2.salt_size` |  | integer | `16` |
+| `thunder.configuration.crypto.passwordHashing.sha256.salt_size` |  | integer | `16` |
+| `thunder.configuration.crypto.keys` |  | list | see `values.yaml` |
+| `thunder.configuration.crypto.certFile` |  | string | `"config/certs/signing.cert"` |
+| `thunder.configuration.crypto.keyFile` |  | string | `"config/certs/signing.key"` |
+| `thunder.configuration.crypto.certFile` |  | string | `"config/certs/ecdsa-signing.cert"` |
+| `thunder.configuration.crypto.keyFile` |  | string | `"config/certs/ecdsa-signing.key"` |
+| `thunder.configuration.database.config.type` |  | string | `sqlite` |
+| `thunder.configuration.database.config.sqlite.path` |  | string | `"database/configdb.db"` |
+| `thunder.configuration.database.config.sqlite.options` |  | string | `"_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)"` |
+| `thunder.configuration.database.config.sqlite.max_open_conns` |  | integer | `500` |
+| `thunder.configuration.database.config.sqlite.max_idle_conns` |  | integer | `100` |
+| `thunder.configuration.database.config.sqlite.conn_max_lifetime` |  | integer | `3600` |
+| `thunder.configuration.database.runtime_transient.type` |  | string | `sqlite` |
+| `thunder.configuration.database.runtime_transient.sqlite.path` |  | string | `"database/runtime_transient.db"` |
+| `thunder.configuration.database.runtime_transient.sqlite.options` |  | string | `"_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)"` |
+| `thunder.configuration.database.runtime_transient.sqlite.max_open_conns` |  | integer | `500` |
+| `thunder.configuration.database.runtime_transient.sqlite.max_idle_conns` |  | integer | `100` |
+| `thunder.configuration.database.runtime_transient.sqlite.conn_max_lifetime` |  | integer | `3600` |
+| `thunder.configuration.database.entity.type` |  | string | `sqlite` |
+| `thunder.configuration.database.entity.sqlite.path` |  | string | `"database/entitydb.db"` |
+| `thunder.configuration.database.entity.sqlite.options` |  | string | `"_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)"` |
+| `thunder.configuration.database.entity.sqlite.max_open_conns` |  | integer | `500` |
+| `thunder.configuration.database.entity.sqlite.max_idle_conns` |  | integer | `100` |
+| `thunder.configuration.database.entity.sqlite.conn_max_lifetime` |  | integer | `3600` |
+| `thunder.configuration.database.runtime_persistent.type` |  | string | `sqlite` |
+| `thunder.configuration.database.runtime_persistent.sqlite.path` |  | string | `"database/runtime_persistent.db"` |
+| `thunder.configuration.database.runtime_persistent.sqlite.options` |  | string | `"_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)"` |
+| `thunder.configuration.database.runtime_persistent.sqlite.max_open_conns` |  | integer | `500` |
+| `thunder.configuration.database.runtime_persistent.sqlite.max_idle_conns` |  | integer | `100` |
+| `thunder.configuration.database.runtime_persistent.sqlite.conn_max_lifetime` |  | integer | `3600` |
+| `thunder.configuration.cache.disabled` |  | boolean | `false` |
+| `thunder.configuration.cache.type` |  | string | `"inmemory"` |
+| `thunder.configuration.cache.size` |  | integer | `1000` |
+| `thunder.configuration.cache.ttl` |  | integer | `3600` |
+| `thunder.configuration.cache.evictionPolicy` |  | string | `"LRU"` |
+| `thunder.configuration.cache.cleanupInterval` |  | integer | `300` |
+| `thunder.configuration.jwt.issuer` |  | string | `"http://thunder.amp.localhost:8080"` |
+| `thunder.configuration.jwt.validityPeriod` |  | integer | `3600` |
+| `thunder.configuration.jwt.audience` |  | string | `"application"` |
+| `thunder.configuration.jwt.preferredKeyId` |  | string | `"default-key"` |
+| `thunder.configuration.oauth.refreshToken.renewOnGrant` |  | boolean | `false` |
+| `thunder.configuration.oauth.refreshToken.validityPeriod` |  | integer | `86400` |
+| `thunder.configuration.oauth.authorizationCode.validityPeriod` |  | integer | `600` |
+| `thunder.configuration.oauth.dcr.insecure` |  | boolean | `false` |
+| `thunder.configuration.consent.enabled` |  | boolean | `true` |
+| `thunder.configuration.consent.baseUrl` |  | string | `"http://localhost:9090/api/v1"` |
+| `thunder.configuration.consent.timeout` |  | integer | `5` |
+| `thunder.configuration.consent.maxRetries` |  | integer | `3` |
+| `thunder.configuration.consent.server.port` |  | integer | `9090` |
+| `thunder.configuration.consent.server.hostname` |  | string | `"localhost"` |
+| `thunder.configuration.consent.database.type` |  | string | `sqlite` |
+| `thunder.configuration.consent.database.sqlitePath` |  | string | `"repository/database/consentdb.db"` |
+| `thunder.configuration.consent.database.sqliteOptions` |  | string | `"_pragma=journal_mode(WAL)&_pragma=cache_size(-16000)"` |
+| `thunder.configuration.cors.allowedOrigins` |  | list | see `values.yaml` |
+
+## thunder.deployment
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.deployment.replicaCount` |  | integer | `1` |
+| `thunder.deployment.strategy.rollingUpdate.maxSurge` |  | integer | `1` |
+| `thunder.deployment.strategy.rollingUpdate.maxUnavailable` |  | integer | `0` |
+| `thunder.deployment.securityContext.readOnlyRootFilesystem` | Read-only root filesystem. Must be false for SQLite | boolean | `false` |
+| `thunder.deployment.securityContext.enableRunAsUser` |  | boolean | `true` |
+| `thunder.deployment.securityContext.fsGroup` |  | integer | `10001` |
+| `thunder.deployment.securityContext.runAsUser` |  | integer | `10001` |
+| `thunder.deployment.securityContext.seccompProfile.enabled` |  | boolean | `true` |
+| `thunder.deployment.securityContext.seccompProfile.type` |  | string | `RuntimeDefault` |
+| `thunder.deployment.terminationGracePeriodSeconds` |  | integer | `10` |
+| `thunder.deployment.image.registry` |  | string | `ghcr.io/thunder-id` |
+| `thunder.deployment.image.repository` |  | string | `thunderid` |
+| `thunder.deployment.image.tag` |  | string | `"1.0.0"` |
+| `thunder.deployment.image.pullPolicy` |  | string | `Always` |
+| `thunder.deployment.container.port` |  | integer | `8090` |
+| `thunder.deployment.resources.limits.cpu` |  | string | `500m` |
+| `thunder.deployment.resources.limits.memory` |  | string | `512Mi` |
+| `thunder.deployment.resources.requests.cpu` |  | string | `100m` |
+| `thunder.deployment.resources.requests.memory` |  | string | `128Mi` |
+
+## thunder.hpa
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.hpa.enabled` |  | boolean | `false` |
+
+## thunder.ingress
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.ingress.enabled` |  | boolean | `false` |
+
+## thunder.ocIngress
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.ocIngress.hostname` |  | string | `"thunder.amp.localhost"` |
+| `thunder.ocIngress.https.enabled` | Enable a dedicated HTTPS Gateway (port 8443) and cert-manager TLS certificate for thunder.amp.localhost so env-Thunder instances can wire it as a trusted issuer. Requires cert-manager to be installed in the cluster. | boolean | `true` |
+| `thunder.ocIngress.https.port` |  | integer | `8443` |
+| `thunder.ocIngress.https.createIssuer` | Set to true to create the local ClusterIssuer and Root CA. Only one instance in the cluster (typically the platform-wide instance) should create these. | boolean | `true` |
+
+## thunder.pdb
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.pdb.minAvailable` |  | string | `"50%"` |
+
+## thunder.persistence
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.persistence.enabled` |  | boolean | `true` |
+| `thunder.persistence.storageClass` |  | string | `""` |
+| `thunder.persistence.accessMode` |  | string | `ReadWriteOnce` |
+| `thunder.persistence.size` |  | string | `1Gi` |
+| `thunder.persistence.annotations` |  | object | `{}` |
+
+## thunder.service
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.service.port` |  | integer | `8090` |
+
+## thunder.serviceAccount
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.serviceAccount.name` |  | string | `thunder-service-account` |
+| `thunder.serviceAccount.create` |  | boolean | `true` |
+
+## thunder.setup
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `thunder.setup.enabled` |  | boolean | `true` |
+| `thunder.setup.backoffLimit` |  | integer | `3` |
+| `thunder.setup.ttlSecondsAfterFinished` |  | integer | `86400` |
+| `thunder.setup.preserveJob` |  | boolean | `true` |
+| `thunder.setup.debug` |  | boolean | `false` |
+| `thunder.setup.admin.username` |  | string | `"admin"` |
+| `thunder.setup.admin.password` |  | string | `""` |
+| `thunder.setup.admin.passwordRef.name` |  | string | `"amp-admin-credentials"` |
+| `thunder.setup.admin.passwordRef.key` |  | string | `"password"` |
+| `thunder.setup.resources.limits.cpu` |  | string | `500m` |
+| `thunder.setup.resources.limits.memory` |  | string | `256Mi` |
+| `thunder.setup.resources.requests.cpu` |  | string | `250m` |
+| `thunder.setup.resources.requests.memory` |  | string | `128Mi` |
+

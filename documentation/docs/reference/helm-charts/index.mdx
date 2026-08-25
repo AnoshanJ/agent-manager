@@ -1,0 +1,22 @@
+---
+title: Helm Charts
+---
+
+# Helm Charts
+
+WSO2 Agent Manager is installed as a set of Helm charts: one core chart plus five
+extension charts that add gateway, identity, evaluation, observability, and platform
+resources on top of OpenChoreo. Each page below is the values reference for one chart.
+
+| Chart | Purpose | Parameters |
+|---|---|---|
+| [Agent Manager](./wso2-agent-manager.mdx) | Helm chart for WSO2 Agent Management Platform - Deploy, manage, and govern AI agents at scale | 269 |
+| [API Platform Gateway Extension](./wso2-amp-api-platform-gateway-extension.mdx) | A Helm chart to deploy and auto-register the unified API Platform Gateway for the Agent Management Platform. | 66 |
+| [Evaluation Extension](./wso2-amp-evaluation-extension.mdx) | A Helm chart to add Evaluation functionality for the Agent Management Platform, by Deploying and Configuring Monitor evaluation workflows. | 27 |
+| [Observability Extension](./wso2-amp-observability-extension.mdx) | A Helm chart to add Tracing functionality for the Agent Management Platform, by Deploying and Configuring the Agent Manager Observer. | 39 |
+| [Platform Resources Extension](./wso2-amp-platform-resources-extension.mdx) | Default platform resources for WSO2 AI Agent Management Platform on OpenChoreo | 64 |
+| [Thunder Extension](./wso2-amp-thunder-extension.mdx) | A Helm chart to add Thunder Identity Provider functionality for the Agent Management Platform. | 300 |
+
+For installation walkthroughs rather than value tables, see the
+[Installation guides](../../guides/on-k3d.mdx).
+

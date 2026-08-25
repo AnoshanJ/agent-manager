@@ -1,0 +1,360 @@
+---
+title: Agent Manager
+---
+
+# Agent Manager
+
+Helm chart for WSO2 Agent Management Platform - Deploy, manage, and govern AI agents at scale
+
+Helm chart values reference for `wso2-agent-manager`.
+
+```bash
+helm install agent-manager oci://ghcr.io/wso2/helm-charts/wso2-agent-manager \
+  --namespace <namespace> --create-namespace \
+  --values my-values.yaml
+```
+
+## agentManagerService
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `agentManagerService.enabled` |  | boolean | `true` |
+| `agentManagerService.replicaCount` |  | integer | `1` |
+| `agentManagerService.image.repository` |  | string | `ghcr.io/wso2/amp-api` |
+| `agentManagerService.image.tag` |  | string | `"0.0.0-dev"` |
+| `agentManagerService.image.pullPolicy` |  | string | `IfNotPresent` |
+| `agentManagerService.service.type` |  | string | `ClusterIP` |
+| `agentManagerService.service.port` |  | integer | `9000` |
+| `agentManagerService.service.targetPort` |  | integer | `8080` |
+| `agentManagerService.service.annotations` |  | object | `{}` |
+| `agentManagerService.gatewayMgtService.type` |  | string | `ClusterIP` |
+| `agentManagerService.gatewayMgtService.port` |  | integer | `9243` |
+| `agentManagerService.gatewayMgtService.targetPort` |  | integer | `9243` |
+| `agentManagerService.ocIngress.hostname` |  | string | `api.amp.localhost` |
+| `agentManagerService.ocIngress.requestTimeout` | Gateway request timeout for API routes; /mcp streams are exempt (no timeout) | string | `60s` |
+| `agentManagerService.ocIngress.gatewayMgmt.enabled` |  | boolean | `true` |
+| `agentManagerService.ocIngress.gatewayMgmt.hostnames` | Hostnames external gateways use. host.docker.internal serves gateways started via the console's Docker quick start on the same machine. | list | see `values.yaml` |
+| `agentManagerService.ocIngress.gatewayMgmt.caConfigMapName` | ConfigMap holding the CA (key ca.crt) that validates the endpoint's TLS certificate on the gateway-&gt;service hop. Published automatically by the tls-certs job; set this when certificates.certificatesSecret supplies your own certificate. | string | `""` |
+| `agentManagerService.internalServer.tlsEnabled` | Enable TLS for the internal server. When false, serves plain HTTP. | boolean | `true` |
+| `agentManagerService.resources.requests.memory` |  | string | `256Mi` |
+| `agentManagerService.resources.requests.cpu` |  | string | `250m` |
+| `agentManagerService.resources.limits.memory` |  | string | `512Mi` |
+| `agentManagerService.resources.limits.cpu` |  | string | `500m` |
+| `agentManagerService.autoscaling.enabled` |  | boolean | `true` |
+| `agentManagerService.autoscaling.minReplicas` |  | integer | `1` |
+| `agentManagerService.autoscaling.maxReplicas` |  | integer | `10` |
+| `agentManagerService.autoscaling.targetCPUUtilizationPercentage` |  | integer | `80` |
+| `agentManagerService.autoscaling.targetMemoryUtilizationPercentage` |  | string | `~` |
+| `agentManagerService.livenessProbe.tcpSocket.port` |  | integer | `8080` |
+| `agentManagerService.livenessProbe.initialDelaySeconds` |  | integer | `15` |
+| `agentManagerService.livenessProbe.periodSeconds` |  | integer | `10` |
+| `agentManagerService.readinessProbe.tcpSocket.port` |  | integer | `8080` |
+| `agentManagerService.readinessProbe.initialDelaySeconds` |  | integer | `5` |
+| `agentManagerService.readinessProbe.periodSeconds` |  | integer | `10` |
+| `agentManagerService.config.serverHost` |  | string | `"0.0.0.0"` |
+| `agentManagerService.config.logLevel` |  | string | `"INFO"` |
+| `agentManagerService.config.autoMaxProcsEnabled` |  | string | `"true"` |
+| `agentManagerService.config.authHeader` |  | string | `"Authorization"` |
+| `agentManagerService.config.dbOperationTimeout` |  | integer | `30` |
+| `agentManagerService.config.healthCheckTimeout` |  | integer | `5` |
+| `agentManagerService.config.corsAllowedOrigin` |  | string | `"*"` |
+| `agentManagerService.config.rbacEnabled` | Enable RBAC enforcement on all routes | string | `"true"` |
+| `agentManagerService.config.audit.enabled` | Boolean, not a quoted string, so setting it to false actually disables recording — see the AUDIT_ENABLED note in the service ConfigMap. | boolean | `true` |
+| `agentManagerService.config.audit.bufferSize` | Queued events. On overflow, events are dropped and counted rather than blocking the request that produced them. | integer | `4096` |
+| `agentManagerService.config.audit.batchSize` |  | integer | `200` |
+| `agentManagerService.config.audit.flushIntervalMs` |  | integer | `1000` |
+| `agentManagerService.config.amObserverURL` | In-cluster URL the agent-manager-service uses to query trace data server-side. | string | `"http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098"` |
+| `agentManagerService.config.amObserverPublicURL` | Externally reachable observer URL returned to out-of-cluster clients (e.g. the CLI) via /api/v1/config. No internal fallback: unset means clients surface "observer not configured". | string | `""` |
+| `agentManagerService.config.tlsEnabled` | TLS Configuration | boolean | `false` |
+| `agentManagerService.config.apiKey.header` |  | string | `"X-API-Key"` |
+| `agentManagerService.config.apiKey.value` | Empty by default so the chart's own randAlphaNum(32) fallback (see templates/agent-manager-service/secret.yaml) generates a real value — the same pattern encryptionKey below already uses correctly. Set this explicitly, or prefer existingSecret, for production. | string | `""` |
+| `agentManagerService.config.apiKey.existingSecret` |  | string | `""` |
+| `agentManagerService.config.apiKey.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set; the chart-managed Secret always uses the fixed key "api-key". | string | `"api-key"` |
+| `agentManagerService.config.encryptionKey.value` |  | string | `""` |
+| `agentManagerService.config.encryptionKey.existingSecret` |  | string | `""` |
+| `agentManagerService.config.encryptionKey.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set; the chart-managed Secret always uses the fixed key "encryption-key". | string | `"encryption-key"` |
+| `agentManagerService.config.thunderAskSecret.value` |  | string | `""` |
+| `agentManagerService.config.thunderAskSecret.existingSecret` |  | string | `""` |
+| `agentManagerService.config.thunderAskSecret.existingSecretKey` |  | string | `"thunder-ask-secret"` |
+| `agentManagerService.config.kubeconfig` | Kubeconfig (empty for in-cluster, or provide config) | string | `""` |
+| `agentManagerService.config.otel.traceContent` |  | string | `"true"` |
+| `agentManagerService.config.otel.exporterEndpoint` | kgateway-routed vhost ("&lt;env&gt;-&lt;org&gt;.gateway.localhost") — independent of the namespace the api-platform gateway runtime is deployed in. | string | `"http://default-default.gateway.localhost:19080/otel"` |
+| `agentManagerService.config.otel.defaultInstrumentationVersion` | Platform default AMP instrumentation version. Must exist in the effective catalog (embedded baseline ∪ additionalInstrumentationVersions); otherwise the server fails to start. | string | `"0.4.1"` |
+| `agentManagerService.config.otel.additionalInstrumentationVersions` | Operator-supplied catalog extension entries, added on top of the bundled baseline. For air-gapped installs, point imageRepository at the internal mirror. Example: - version: "0.5.0" traceloopSdk: "0.65.0" pythonVersions: ["3.10","3.11","3.12","3.13"] imageRepository: "my-mirror.example/amp-python-instrumentation-provider" | list | `[]` |
+| `agentManagerService.config.keyManager.issuer` |  | string | `"http://thunder.amp.localhost:8080"` |
+| `agentManagerService.config.keyManager.audience` |  | string | `"urn:wso2:amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am-mcp"` |
+| `agentManagerService.config.keyManager.jwksUrl` |  | string | `"http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/jwks"` |
+| `agentManagerService.config.serverPublicURL` | Externally reachable base URL of this service. Used as the `resource` identifier in RFC 9728 protected resource metadata. Routed through the OpenChoreo control-plane gateway (see ocIngress). Must stay in sync with the thunder extension's thunder.bootstrap.agentManagerMcpBaseUrl; keyManager.audience above picks this up on its own. | string | `"http://api.amp.localhost:8080"` |
+| `agentManagerService.config.oauthAuthorizationServers` | Comma-separated absolute http/https URLs advertised in RFC 9728 protected resource metadata. Empty by design: falls back to keyManager.issuer above. Startup validation only checks the URLs are well-formed, so a stale value here silently advertises the wrong issuer. Set only if it must differ. | string | `""` |
+| `agentManagerService.config.thunderHostBaseDomain` | Domain suffix env-Thunder developer-facing hostnames are built from: "&lt;handle&gt;.&lt;thunderHostBaseDomain&gt;". Override on custom-domain / sslip.io installs so the reported identity-provider endpoints match the actual env-Thunder hosts. | string | `"amp.localhost"` |
+| `agentManagerService.config.agentsBaseDomain` | Base domains for agent-facing hostnames. add-environment.sh prefixes "&lt;env&gt;-&lt;org&gt;." onto gatewayBaseDomain; agentsBaseDomain is used as-is (its own env/org prefixing happens later, in the gateway extension chart's HTTPRoute template). Override on custom-domain / sslip.io installs, or added environments resolve nowhere. | string | `"am-gateway.localhost"` |
+| `agentManagerService.config.gatewayBaseDomain` |  | string | `"gateway.localhost"` |
+| `agentManagerService.config.agentsHttpPort` | Port each agent-facing listener variant serves. Behind a single TLS front door both are 443; on a plane gateway they are typically 80 and 443. Set them to what the environment.gateway.http/https.port overrides on the platform-resources chart say, so an added environment advertises the same pair as the default one. | string | `"19080"` |
+| `agentManagerService.config.agentsHttpsPort` |  | string | `"443"` |
+| `agentManagerService.config.gatewayVhostScheme` | Scheme and port the gateway vhost above is published on. The defaults describe a local k3d install (plain http on the node port). Set these to https/443 wherever a front proxy terminates TLS, or added environments publish a reachable hostname on a port that is not listening. | string | `"http"` |
+| `agentManagerService.config.gatewayVhostPort` |  | string | `"19080"` |
+| `agentManagerService.config.oauthScopesSupported` | Comma-separated list of OAuth 2.0 scopes supported by this resource, advertised in RFC 9728 protected resource metadata. | string | `"amp:llm-proxy:deploy,amp:mcp-server:create,amp:org:invite-member,amp:role:delete,amp:monitor:read,amp:agent:env-production,amp:git-secret:delete,amp:llm-provider:delete,amp:mcp-server:configure-guardrail,amp:deployment-pipeline:create,amp:deployment-pipeline:read,amp:deployment-pipeline:update,amp:deployment-pipeline:delete,amp:gateway:delete,amp:group:delete,amp:llm-proxy:update,amp:monitor:score-read,amp:llm-provider-template:update,amp:agent:build,amp:agent:rollback,amp:agent:token-manage,amp:evaluator:read,amp:llm-provider-template:read,amp:monitor:create,amp:agent:suspend,amp:gateway:token-manage,amp:git-secret:read,amp:mcp-server:connect,amp:mcp-server:api-key-manage,amp:mcp-server:read,amp:observability:log-read,amp:group:create,amp:observability:trace-read,amp:org:remove-member,amp:agent:env-non-production,amp:group:read,amp:llm-provider-template:create,amp:project:delete,amp:agent:create,amp:evaluator:create,amp:llm-provider:read,amp:org:modify-settings,amp:catalog:read,amp:environment:update,amp:group:update,amp:llm-proxy:delete,amp:project:read,amp:data-plane:read,amp:agent:read,amp:environment:read,amp:llm-provider:configure-guardrail,amp:observability:build-log-read,amp:org:assign-role,amp:project:update,amp:mcp-server:delete,amp:environment:delete,amp:evaluator:update,amp:git-secret:create,amp:monitor:execute,amp:llm-provider:api-key-manage,amp:gateway:read,amp:agent:update,amp:llm-provider-template:delete,amp:monitor:delete,amp:org:view,amp:llm-provider:create,amp:mcp-server:update,amp:org:manage-idp,amp:role:read,amp:role:update,amp:agent:delete,amp:gateway:create,amp:llm-provider:deploy,amp:llm-proxy:api-key-manage,amp:monitor:update,amp:org:manage-service-account,amp:role:create,amp:evaluator:delete,amp:llm-provider:connect,amp:llm-provider:update,amp:llm-proxy:read,amp:monitor:score-publish,amp:observability:metric-read,amp:project:create,amp:repository:read,amp:gateway:update,amp:environment:create,amp:llm-proxy:create,amp:agent:api-key-manage,amp:agent-kind:read,amp:agent-kind:create,amp:agent-kind:update,amp:agent-kind:delete,amp:profile:read,amp:profile:update-attributes,amp:scope:create,amp:scope:read,amp:scope:update,amp:scope:delete,amp:agent-identity:read,amp:agent-identity:create,amp:agent-identity:update,amp:agent-identity:delete"` |
+| `agentManagerService.config.isOnPremDeployment` | On-premise deployment flag | string | `"true"` |
+| `agentManagerService.config.oidc.tokenUrl` |  | string | `"http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token"` |
+| `agentManagerService.config.oidc.clientId` |  | string | `"amp-api-client"` |
+| `agentManagerService.config.oidc.clientSecret` |  | string | `"amp-api-client-secret"` |
+| `agentManagerService.config.jwtSigning.privateKeyPath` |  | string | `"/app/keys/private.pem"` |
+| `agentManagerService.config.jwtSigning.publicKeysConfig` |  | string | `"/app/keys/public-keys-config.json"` |
+| `agentManagerService.config.jwtSigning.activeKeyId` |  | string | `"key-1"` |
+| `agentManagerService.config.jwtSigning.defaultExpiry` |  | string | `"2160h"` |
+| `agentManagerService.config.jwtSigning.issuer` |  | string | `"agent-manager-service"` |
+| `agentManagerService.config.jwtSigning.defaultEnvironment` |  | string | `"default"` |
+| `agentManagerService.config.github.token` |  | string | `""` |
+| `agentManagerService.config.github.existingSecret` |  | string | `""` |
+| `agentManagerService.config.github.existingSecretKey` |  | string | `"github-token"` |
+| `agentManagerService.config.openChoreo.baseURL` |  | string | `"http://openchoreo-api.openchoreo-control-plane:8080"` |
+| `agentManagerService.config.secretManager.provider` |  | string | `"openbao"` |
+| `agentManagerService.config.secretManager.baseURL` |  | string | `""` |
+| `agentManagerService.config.openbao.url` | OpenBao URL (uses the default OpenBao that comes with OpenChoreo) | string | `"http://openbao.openbao.svc.cluster.local:8200"` |
+| `agentManagerService.config.openbao.path` | KV secrets engine path | string | `"secret"` |
+| `agentManagerService.config.openbao.version` |  | string | `"v2"` |
+| `agentManagerService.config.openbao.token` | OpenBao token (for dev mode, use "root"). When set, it is stored in the chart-managed Secret and injected via secretKeyRef — never as a plaintext env var in the pod spec. For production, use existingSecret to reference an externally-managed Secret containing the token instead. | string | `"root"` |
+| `agentManagerService.config.openbao.existingSecret` |  | string | `""` |
+| `agentManagerService.config.openbao.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set; the chart-managed Secret always uses the fixed key "openbao-token". | string | `"openbao-token"` |
+| `agentManagerService.config.workflowPlaneOpenbao.url` | Workflow plane OpenBao URL | string | `"http://openbao.openbao.svc.cluster.local:8200"` |
+| `agentManagerService.config.workflowPlaneOpenbao.token` | OpenBao token. When set, it is stored in the chart-managed Secret and injected via secretKeyRef — never as a plaintext env var in the pod spec. For production, use existingSecret instead. | string | `"root"` |
+| `agentManagerService.config.workflowPlaneOpenbao.existingSecret` |  | string | `""` |
+| `agentManagerService.config.workflowPlaneOpenbao.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set. The chart-managed Secret packs both OpenBao tokens into one Secret, so this token is stored there under the distinct key "workflow-plane-openbao-token". | string | `"openbao-token"` |
+| `agentManagerService.config.gatewayManifestCache.backend` | "memory" (default) is process-local — safe ONLY when replicaCount is 1. Set to "redis" whenever this chart is deployed with more than one replica: an in-memory cache would leave replicas disagreeing on which policies gateways report, since each replica only observes the manifest pushes routed to it. | string | `"memory"` |
+| `agentManagerService.config.gatewayManifestCache.redis.host` |  | string | `""` |
+| `agentManagerService.config.gatewayManifestCache.redis.port` |  | integer | `6379` |
+| `agentManagerService.config.gatewayManifestCache.redis.db` |  | integer | `0` |
+| `agentManagerService.config.gatewayManifestCache.redis.tlsEnabled` |  | boolean | `false` |
+| `agentManagerService.config.gatewayManifestCache.redis.password` | Redis password. When set, it is stored in the chart-managed Secret and injected via secretKeyRef — never as a plaintext env var in the pod spec. For production, use existingSecret to reference an externally-managed Secret containing the password instead. Leave both empty for a password-less Redis (e.g. local/dev). | string | `""` |
+| `agentManagerService.config.gatewayManifestCache.redis.existingSecret` |  | string | `""` |
+| `agentManagerService.config.gatewayManifestCache.redis.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set; the chart-managed Secret always uses the fixed key "gateway-manifest-cache-redis-password". | string | `"gateway-manifest-cache-redis-password"` |
+| `agentManagerService.config.perAgentResourceLimits.maxReplicas` |  | integer | `10` |
+| `agentManagerService.config.perAgentResourceLimits.maxCPU` |  | string | `"500m"` |
+| `agentManagerService.config.perAgentResourceLimits.maxMemory` |  | string | `"512Mi"` |
+| `agentManagerService.config.thunder.baseURL` | Must be the PUBLIC URL, same as keyManager.issuer above. Every admin API request asks for a token scoped to Thunder's System resource server via an RFC 8707 "resource" parameter derived from this value (client.go's SystemResourceIdentifier), and Thunder only recognizes the public URL as that resource server's registered identifier — any other value fails with invalid_target. This does NOT need to be directly dialable from the pod; see resolveToHost below for that. | string | `"http://thunder.amp.localhost:8080"` |
+| `agentManagerService.config.thunder.resolveToHost` | The host:port this service actually connects to for every Thunder request (baseURL's host is still sent as the HTTP Host header, and still drives the resource-identifier above). Needed here because baseURL is a *.localhost hostname that only resolves via the host machine's own DNS/hosts setup — it doesn't resolve from inside this pod. Leave empty only if baseURL is itself directly dialable from the pod (e.g. a real in-cluster DNS name). | string | `"amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090"` |
+| `agentManagerService.config.thunder.clientId` | OAuth2 client ID of the system app (with Administrator role) | string | `"amp-system-client"` |
+| `agentManagerService.config.thunder.clientSecret` | OAuth2 client secret of the system app | string | `"amp-system-client-secret"` |
+| `agentManagerService.config.thunder.existingSecret` | Reference to an existing secret containing the Thunder client secret | string | `""` |
+| `agentManagerService.config.thunder.existingSecretKey` |  | string | `"thunder-client-secret"` |
+| `agentManagerService.certificates.certificatesSecret` | REQUIRED: Kubernetes secret name containing TLS certificates Expected keys in secret: cert.pem (certificate), key.pem (private key) Example creation: kubectl create secret generic amp-tls-certs \ from-file=cert.pem=/path/to/cert.pem \ from-file=key.pem=/path/to/key.pem For development, leave empty to generate self-signed certs at runtime (insecure) | string | `""` |
+| `agentManagerService.agentWorkload.cors.allowedOrigin` |  | string | `"*"` |
+| `agentManagerService.agentWorkload.cors.allowedMethods` |  | string | `"GET,POST,PUT,DELETE,PATCH,OPTIONS"` |
+| `agentManagerService.agentWorkload.cors.allowedHeaders` |  | string | `"authorization,Content-Type,Origin,X-API-Key"` |
+| `agentManagerService.agentWorkload.cors.allowCredentials` |  | boolean | `false` |
+| `agentManagerService.podAnnotations` | Pod-level configurations | object | `{}` |
+| `agentManagerService.podLabels` |  | object | `{}` |
+| `agentManagerService.podSecurityContext` | Pod security context - defaults to fsGroup: 1000 if not specified Note: If you encounter "too many open files" errors, this is typically caused by the Kubernetes client watching too many resources. Consider: 1. Reducing the number of watched resources in the application 2. Implementing resource filtering in watchers 3. Increasing limits at the node/cluster level | object | `{}` |
+| `agentManagerService.securityContext` | Container security context - defaults to secure settings if not specified | object | `{}` |
+| `agentManagerService.nodeSelector` |  | object | `{}` |
+| `agentManagerService.tolerations` |  | list | `[]` |
+| `agentManagerService.affinity` |  | object | `{}` |
+
+## commonLabels
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `commonLabels` | Common labels to add to all resources | object | `{}` |
+
+## console
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `console.enabled` |  | boolean | `true` |
+| `console.replicaCount` |  | integer | `1` |
+| `console.image.repository` |  | string | `ghcr.io/wso2/amp-console` |
+| `console.image.tag` |  | string | `"0.0.0-dev"` |
+| `console.image.pullPolicy` |  | string | `Always` |
+| `console.service.type` |  | string | `ClusterIP` |
+| `console.service.port` |  | integer | `3000` |
+| `console.service.targetPort` |  | integer | `3000` |
+| `console.ocIngress.hostname` |  | string | `console.amp.localhost` |
+| `console.resources.requests.memory` |  | string | `128Mi` |
+| `console.resources.requests.cpu` |  | string | `100m` |
+| `console.resources.limits.memory` |  | string | `256Mi` |
+| `console.resources.limits.cpu` |  | string | `200m` |
+| `console.autoscaling.enabled` |  | boolean | `false` |
+| `console.autoscaling.minReplicas` |  | integer | `1` |
+| `console.autoscaling.maxReplicas` |  | integer | `10` |
+| `console.autoscaling.targetCPUUtilizationPercentage` |  | integer | `80` |
+| `console.autoscaling.targetMemoryUtilizationPercentage` |  | string | `~` |
+| `console.livenessProbe` | Health checks | string | `null` |
+| `console.readinessProbe` |  | string | `null` |
+| `console.config.auth.clientId` |  | string | `"amp-console-client"` |
+| `console.config.auth.baseUrl` |  | string | `"http://thunder.amp.localhost:8080"` |
+| `console.config.auth.scopes` |  | string | `"openid profile email amp:llm-proxy:deploy amp:mcp-server:create amp:org:invite-member amp:role:delete amp:monitor:read amp:agent:env-production amp:git-secret:delete amp:llm-provider:delete amp:mcp-server:configure-guardrail amp:deployment-pipeline:create amp:deployment-pipeline:read amp:deployment-pipeline:update amp:deployment-pipeline:delete amp:gateway:delete amp:group:delete amp:llm-proxy:update amp:monitor:score-read amp:llm-provider-template:update amp:agent:build amp:agent:rollback amp:agent:token-manage amp:evaluator:read amp:llm-provider-template:read amp:monitor:create amp:agent:suspend amp:gateway:token-manage amp:git-secret:read amp:mcp-server:connect amp:mcp-server:api-key-manage amp:mcp-server:read amp:observability:log-read amp:group:create amp:observability:trace-read amp:org:remove-member amp:agent:env-non-production amp:group:read amp:llm-provider-template:create amp:project:delete amp:agent:create amp:evaluator:create amp:llm-provider:read amp:org:modify-settings amp:catalog:read amp:environment:update amp:group:update amp:llm-proxy:delete amp:project:read amp:data-plane:read amp:agent:read amp:environment:read amp:llm-provider:configure-guardrail amp:observability:build-log-read amp:org:assign-role amp:project:update amp:mcp-server:delete amp:environment:delete amp:evaluator:update amp:git-secret:create amp:monitor:execute amp:llm-provider:api-key-manage amp:gateway:read amp:agent:update amp:llm-provider-template:delete amp:monitor:delete amp:org:view amp:llm-provider:create amp:mcp-server:update amp:org:manage-idp amp:role:read amp:role:update amp:agent:delete amp:gateway:create amp:llm-provider:deploy amp:llm-proxy:api-key-manage amp:monitor:update amp:org:manage-service-account amp:role:create amp:evaluator:delete amp:llm-provider:connect amp:llm-provider:update amp:llm-proxy:read amp:monitor:score-publish amp:observability:metric-read amp:project:create amp:repository:read amp:gateway:update amp:environment:create amp:llm-proxy:create amp:agent:api-key-manage amp:agent-kind:read amp:agent-kind:create amp:agent-kind:update amp:agent-kind:delete amp:profile:read amp:profile:update-attributes amp:scope:create amp:scope:read amp:scope:update amp:scope:delete amp:agent-identity:read amp:agent-identity:create amp:agent-identity:update amp:agent-identity:delete"` |
+| `console.config.auth.signInRedirectURL` |  | string | `"http://console.amp.localhost:8080/login"` |
+| `console.config.auth.signOutRedirectURL` |  | string | `"http://console.amp.localhost:8080/login"` |
+| `console.config.auth.existingSecret` |  | string | `""` |
+| `console.config.auth.validateIDToken` |  | string | `"false"` |
+| `console.config.auth.clockTolerance` |  | integer | `300` |
+| `console.config.disableAuth` | Disable auth for development | string | `"false"` |
+| `console.config.rbacEnabled` | Enable RBAC-based sidebar visibility (scope-gated nav sections) | string | `"true"` |
+| `console.config.apiBaseUrl` | Backend API URLs (will be auto-configured if empty) Routed through the OpenChoreo control-plane gateway (see ocIngress). | string | `"http://api.amp.localhost:8080"` |
+| `console.config.gatewayControlPlaneUrl` | Gateway control plane URL rendered into external-gateway setup commands. Routed through the OpenChoreo control-plane gateway (see agentManagerService.ocIngress.gatewayMgmt); host.docker.internal lets a gateway container on the same machine reach it. | string | `"http://host.docker.internal:8080"` |
+| `console.config.gatewayVersion` | Gateway version for setup commands (default: v1.0.0) | string | `"v1.0.0"` |
+| `console.config.ampVersion` | Agent Manager release version — pins the deployment-script git tag (amp/vX.Y.Z). Placeholder is substituted with the real release version by the release pipeline (.github/scripts/update-helm-charts.sh); dev builds fall back to main. | string | `"0.0.0-dev"` |
+| `console.config.docsVersion` | Documentation version the console's in-product doc links point at, used as the path segment after /docs/. "latest" tracks the newest released docs. The release pipeline (.github/scripts/update-helm-charts.sh) pins this to the matching versioned docs (vX.Y.x, or the exact version for a pre-release) for final and pre-release builds. Release candidates and nightlies keep "latest", because no docs version is cut for them. | string | `"latest"` |
+| `console.config.instrumentationUrl` | Trace-export URL shown to external agent developers. kgateway-routed vhost — independent of the gateway runtime's namespace; no port-forward. | string | `"http://default-default.gateway.localhost:19080/otel"` |
+| `console.config.agentManagerInternalBaseUrl` | Cluster-internal URLs the API Platform Gateway uses to reach Agent Manager when add-environment.sh installs a new gateway. The Create Environment drawer pipes these into the rendered curl\|bash command so the gateway is configured for in-cluster service discovery. | string | `"http://amp-api.wso2-amp.svc.cluster.local:9000"` |
+| `console.config.agentManagerInternalCpHost` |  | string | `"amp-api-gateway-manager.wso2-amp.svc.cluster.local:9243"` |
+| `console.config.thunderHostBaseDomain` | Base domain env-Thunder instances are hosted under, and whether this deployment serves them over TLS. Mirrors agentManagerService.config's own thunderHostBaseDomain/tlsEnabled — kept in sync so the Create Environment drawer's rendered command matches this deployment. VM/production installs override both (see deployments/vm/lib-vm.sh). | string | `"amp.localhost"` |
+| `console.config.tlsEnabled` |  | string | `"false"` |
+| `console.config.guardrailsCatalogUrl` | Guardrails catalog URL for fetching available guardrail policies | string | `"https://db720294-98fd-40f4-85a1-cc6a3b65bc9a-prod.e1-us-east-azure.choreoapis.dev/api-platform/policy-hub-api/policy-hub-public/v1.0/policies?categories=AI,Guardrails&limit=50"` |
+| `console.config.guardrailsDefinitionBaseUrl` | Guardrails definition base URL for fetching policy definitions | string | `"https://db720294-98fd-40f4-85a1-cc6a3b65bc9a-prod.e1-us-east-azure.choreoapis.dev/api-platform/policy-hub-api/policy-hub-public/v1.0/policies"` |
+| `console.config.guardrailCapabilities.awsBedrock` |  | boolean | `false` |
+| `console.config.guardrailCapabilities.azureContentSafety` |  | boolean | `false` |
+| `console.config.guardrailCapabilities.graniteGuardian` |  | boolean | `false` |
+| `console.config.guardrailCapabilities.nemoGuard` |  | boolean | `false` |
+| `console.config.guardrailCapabilities.semanticGuardrails` |  | boolean | `false` |
+| `console.config.featureFlags.enablePrivateRepoSupport` | Shows the private Git repository option when building agents from source. | boolean | `true` |
+| `console.config.featureFlags.enableIdentityProviderManagedMode` | When true, identity provider management calls the REST API directly instead of rendering the self-hosted manage-identity-provider.sh script snippet. | boolean | `false` |
+| `console.config.featureFlags.enableProfileManagement` | When false, the Profile Settings text fields and Save Changes button are hidden/disabled, and the Change Password tab is disabled. | boolean | `true` |
+| `console.config.featureFlags.enableUserManagement` | When false, the Add User, Invite User, Create Role, and Create Group buttons on the Settings page are disabled. | boolean | `true` |
+| `console.podAnnotations` | Pod-level configurations | object | `{}` |
+| `console.podLabels` |  | object | `{}` |
+| `console.podSecurityContext` | Pod security context - optional, no defaults to allow image to use its own user If you need to set fsGroup or other pod-level security settings, specify them here | object | `{}` |
+| `console.securityContext` | Container security context - defaults to secure settings (without runAsUser to allow image default) If you need to set runAsUser or other container-level security settings, specify them here | object | `{}` |
+| `console.nodeSelector` |  | object | `{}` |
+| `console.tolerations` |  | list | `[]` |
+| `console.affinity` |  | object | `{}` |
+
+## dbMigration
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `dbMigration.enabled` |  | boolean | `true` |
+| `dbMigration.image.repository` |  | string | `ghcr.io/wso2/amp-api` |
+| `dbMigration.image.tag` |  | string | `"0.0.0-dev"` |
+| `dbMigration.image.pullPolicy` |  | string | `IfNotPresent` |
+| `dbMigration.resources.requests.memory` |  | string | `128Mi` |
+| `dbMigration.resources.requests.cpu` |  | string | `100m` |
+| `dbMigration.resources.limits.memory` |  | string | `256Mi` |
+| `dbMigration.resources.limits.cpu` |  | string | `200m` |
+| `dbMigration.backoffLimit` |  | integer | `3` |
+| `dbMigration.podSecurityContext` |  | object | `{}` |
+| `dbMigration.securityContext` |  | object | `{}` |
+
+## global
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `global.imagePullSecrets` |  | list | `[]` |
+| `global.storageClass` |  | string | `""` |
+
+## hookServiceAccount
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `hookServiceAccount.create` |  | boolean | `true` |
+| `hookServiceAccount.name` |  | string | `""` |
+| `hookServiceAccount.annotations` |  | object | `{}` |
+
+## jwtKeysGeneration
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `jwtKeysGeneration.enabled` |  | boolean | `true` |
+| `jwtKeysGeneration.backoffLimit` |  | integer | `3` |
+| `jwtKeysGeneration.resources.requests.memory` |  | string | `64Mi` |
+| `jwtKeysGeneration.resources.requests.cpu` |  | string | `50m` |
+| `jwtKeysGeneration.resources.limits.memory` |  | string | `128Mi` |
+| `jwtKeysGeneration.resources.limits.cpu` |  | string | `100m` |
+| `jwtKeysGeneration.podSecurityContext.runAsNonRoot` |  | boolean | `false` |
+| `jwtKeysGeneration.podSecurityContext.runAsUser` |  | integer | `0` |
+| `jwtKeysGeneration.podSecurityContext.fsGroup` |  | integer | `0` |
+| `jwtKeysGeneration.securityContext.runAsNonRoot` |  | boolean | `false` |
+| `jwtKeysGeneration.securityContext.runAsUser` |  | integer | `0` |
+| `jwtKeysGeneration.securityContext.allowPrivilegeEscalation` |  | boolean | `false` |
+| `jwtKeysGeneration.securityContext.capabilities.drop` |  | list | see `values.yaml` |
+| `jwtKeysGeneration.securityContext.readOnlyRootFilesystem` |  | boolean | `false` |
+
+## jwtSigning
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `jwtSigning.existingSecret` | Specify an existing secret containing JWT keys (optional) If not specified, keys will be auto-generated by the jwt-keys-generation job | string | `""` |
+
+## ocIngress
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `ocIngress.enabled` |  | boolean | `true` |
+| `ocIngress.gatewayName` |  | string | `gateway-default` |
+| `ocIngress.gatewayNamespace` |  | string | `openchoreo-control-plane` |
+
+## postgresql
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `postgresql.enabled` |  | boolean | `true` |
+| `postgresql.external.host` |  | string | `""` |
+| `postgresql.external.port` |  | integer | `5432` |
+| `postgresql.external.database` |  | string | `agentmanager` |
+| `postgresql.external.username` |  | string | `agentmanager` |
+| `postgresql.external.password` |  | string | `""` |
+| `postgresql.external.existingSecret` |  | string | `""` |
+| `postgresql.external.existingSecretPasswordKey` |  | string | `"password"` |
+| `postgresql.external.sslMode` | TLS for the client -&gt; database hop (libpq "sslmode"). One of disable, allow, prefer, require, verify-ca, verify-full. Empty keeps the driver default ("prefer"), which negotiates TLS when the server offers it but silently falls back to plaintext when it does not. Set "require" to refuse an unencrypted connection; use verify-ca or verify-full to also validate the server certificate. | string | `""` |
+| `postgresql.external.sslRootCert` | Path to a PEM CA bundle inside the container for verify-ca/verify-full, or the literal "system" to validate against the image trust store (sufficient when the database certificate chains to a public CA). Mount a private CA through the top-level `volumes`/`volumeMounts` values. | string | `""` |
+| `postgresql.auth.database` |  | string | `agentmanager` |
+| `postgresql.auth.username` |  | string | `agentmanager` |
+| `postgresql.auth.password` |  | string | `"agentmanager"` |
+| `postgresql.primary.persistence.enabled` |  | boolean | `true` |
+| `postgresql.primary.persistence.size` |  | string | `10Gi` |
+| `postgresql.primary.resources.requests.memory` |  | string | `256Mi` |
+| `postgresql.primary.resources.requests.cpu` |  | string | `250m` |
+| `postgresql.primary.resources.limits.memory` |  | string | `512Mi` |
+| `postgresql.primary.resources.limits.cpu` |  | string | `500m` |
+
+## rbac
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `rbac.create` |  | boolean | `true` |
+| `rbac.rules` |  | list | see `values.yaml` |
+| `rbac.resources` |  | string | `["secrets"]` |
+| `rbac.verbs` |  | string | `["get", "create", "patch"]` |
+| `rbac.resources` |  | string | `["configmaps"]` |
+| `rbac.verbs` |  | string | `["get", "create", "patch"]` |
+
+## serviceAccount
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `serviceAccount.create` |  | boolean | `true` |
+| `serviceAccount.name` |  | string | `"agent-management-platform"` |
+| `serviceAccount.annotations` |  | object | `{}` |
+| `serviceAccount.automount` |  | boolean | `false` |
+
+## tlsCertsGeneration
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `tlsCertsGeneration.enabled` |  | boolean | `true` |
+| `tlsCertsGeneration.backoffLimit` |  | integer | `3` |
+| `tlsCertsGeneration.resources.requests.memory` |  | string | `64Mi` |
+| `tlsCertsGeneration.resources.requests.cpu` |  | string | `50m` |
+| `tlsCertsGeneration.resources.limits.memory` |  | string | `128Mi` |
+| `tlsCertsGeneration.resources.limits.cpu` |  | string | `100m` |
+| `tlsCertsGeneration.podSecurityContext.runAsNonRoot` |  | boolean | `false` |
+| `tlsCertsGeneration.podSecurityContext.runAsUser` |  | integer | `0` |
+| `tlsCertsGeneration.podSecurityContext.fsGroup` |  | integer | `0` |
+| `tlsCertsGeneration.securityContext.runAsNonRoot` |  | boolean | `false` |
+| `tlsCertsGeneration.securityContext.runAsUser` |  | integer | `0` |
+| `tlsCertsGeneration.securityContext.allowPrivilegeEscalation` |  | boolean | `false` |
+| `tlsCertsGeneration.securityContext.capabilities.drop` |  | list | see `values.yaml` |
+| `tlsCertsGeneration.securityContext.readOnlyRootFilesystem` |  | boolean | `false` |
+
+## volumeMounts
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `volumeMounts` | Global volume mounts and volumes (optional) | list | `[]` |
+
+## volumes
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `volumes` |  | list | `[]` |
+

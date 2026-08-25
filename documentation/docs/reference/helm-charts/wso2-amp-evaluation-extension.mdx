@@ -1,0 +1,58 @@
+---
+title: Evaluation Extension
+---
+
+# Evaluation Extension
+
+A Helm chart to add Evaluation functionality for the Agent Management Platform, by Deploying and Configuring Monitor evaluation workflows.
+
+Helm chart values reference for `wso2-amp-evaluation-extension`.
+
+```bash
+helm install amp-evaluation-extension oci://ghcr.io/wso2/helm-charts/wso2-amp-evaluation-extension \
+  --namespace <namespace> --create-namespace \
+  --values my-values.yaml
+```
+
+## ampEvaluation
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `ampEvaluation.image.repository` | Image repository For local development: will be pushed to local registry For production: ghcr.io/wso2/amp-evaluation-monitor | string | `"ghcr.io/wso2/amp-evaluation-monitor"` |
+| `ampEvaluation.image.tag` | Image tag IMPORTANT: For production, this should match the amp-evaluation SDK version used in dbMigration.evaluatorGenerator.image.tag in the wso2-agent-manager chart. Example: If using amp-evaluation==0.1.5, set this to "0.1.5" | string | `"0.0.0-dev"` |
+| `ampEvaluation.image.pullPolicy` | Image pull policy | string | `"IfNotPresent"` |
+| `ampEvaluation.useLocalRegistry` | Whether to use local registry or external image When true, image will be prefixed with registry endpoint When false, uses repository:tag directly (for k3d imported images or external registries) | boolean | `false` |
+| `ampEvaluation.tracesApiEndpoint` | In-cluster URL for the observer API | string | `"http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098"` |
+| `ampEvaluation.publisher.endpoint` | In-cluster URL for the agent-manager API | string | `"http://amp-api.wso2-amp.svc.cluster.local:9000"` |
+| `ampEvaluation.publisher.idpTokenUrl` | OAuth2 client credentials for publisher authentication The evaluation job uses these to obtain a Bearer token from Thunder Note: clientSecret is loaded dynamically from OpenBao via ExternalSecret at workflow runtime | string | `"http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token"` |
+| `ampEvaluation.publisher.clientId` |  | string | `"amp-publisher-client"` |
+
+## global
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `global.baseDomain` | Base domain for external access | string | `""` |
+| `global.registry.endpoint` | Registry endpoint for pushing and pulling images For local registry: "host.k3d.internal:10082" For external registry with baseDomain: automatically uses "registry.&lt;baseDomain&gt;" | string | `"host.k3d.internal:10082"` |
+
+## networkPolicy
+
+| Parameter | Description | Type | Default |
+|---|---|---|---|
+| `networkPolicy.evaluationJob.enabled` | No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel). | boolean | `true` |
+| `networkPolicy.evaluationJob.namespace` | Empty derives "workflows-&lt;ampEvaluation.workflowNamespace&gt;" (where OpenChoreo runs this environment's Argo workflows), not this chart's own release namespace. | string | `""` |
+| `networkPolicy.evaluationJob.dns.namespace` |  | string | `"kube-system"` |
+| `networkPolicy.evaluationJob.dns.podLabel.key` |  | string | `"k8s-app"` |
+| `networkPolicy.evaluationJob.dns.podLabel.value` |  | string | `"kube-dns"` |
+| `networkPolicy.evaluationJob.observer.namespace` |  | string | `"openchoreo-observability-plane"` |
+| `networkPolicy.evaluationJob.observer.ports` |  | string | `[9098]` |
+| `networkPolicy.evaluationJob.publisher.namespace` |  | string | `"wso2-amp"` |
+| `networkPolicy.evaluationJob.publisher.ports` |  | string | `[8080]` |
+| `networkPolicy.evaluationJob.idp.namespace` |  | string | `"amp-thunder"` |
+| `networkPolicy.evaluationJob.idp.ports` |  | string | `[8090]` |
+| `networkPolicy.evaluationJob.llmGateway.ports` |  | string | `[22893]` |
+| `networkPolicy.evaluationJob.llmGateway.namespace` | Namespace holding the API Platform Gateway, allowed in addition to any namespace labelled amp.wso2.com/api-platform-gateway=true. That label is only applied by setup-gateway.sh and add-environment.sh, so an install that follows the gateway chart's own apiGateway.namespace default (openchoreo-data-plane) has no matching namespace and llm_judge evaluators are silently denied egress to the gateway. Empty = rely on the label alone. | string | `""` |
+| `networkPolicy.evaluationJob.devEgress.cidr` |  | string | `""` |
+| `networkPolicy.evaluationJob.devEgress.ports` |  | string | `[8080, 19080]` |
+| `networkPolicy.evaluationJob.apiServer.cidrs` |  | list | see `values.yaml` |
+| `networkPolicy.evaluationJob.apiServer.ports` |  | list | see `values.yaml` |
+
