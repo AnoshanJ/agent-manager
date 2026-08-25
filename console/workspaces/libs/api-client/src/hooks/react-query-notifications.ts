@@ -138,7 +138,8 @@ export function extractServerErrorMessage(
       const trimmed = candidate.trim();
       if (trimmed && !/^HTTP error! status:/i.test(trimmed)) {
         const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
-        const reasonFits = reason.length > 0 && (maxReasonLength === undefined || reason.length <= maxReasonLength);
+        const reasonFits =
+          reason.length > 0 && (maxReasonLength === undefined || reason.length <= maxReasonLength);
         return reasonFits ? `${trimmed}: ${reason}` : trimmed;
       }
     }
