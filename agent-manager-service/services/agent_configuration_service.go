@@ -3291,12 +3291,10 @@ func (s *agentConfigurationService) Update(ctx context.Context, configUUID uuid.
 	}
 
 	// Determine agent type and first env for internal-agent env var injection.
-	// Fail closed: if GetComponent errors, return rather than defaulting to internal (which could corrupt CRs).
-	agentComp, agentErr := s.ocClient.GetComponent(ctx, ouID, projectName, agentName)
-	if agentErr != nil {
-		return nil, fmt.Errorf("failed to determine agent type: %w", agentErr)
-	}
-	isExternalAgent := agentComp.Provisioning.Type == string(utils.ExternalAgent)
+	// agent was already loaded above (fail-closed: that earlier GetComponent
+	// error already returns rather than defaulting to internal, which could
+	// corrupt CRs), so reuse it instead of re-fetching the same component.
+	isExternalAgent := agent.Provisioning.Type == string(utils.ExternalAgent)
 	firstEnvName := ""
 	if !isExternalAgent {
 		if pipeline, pipelineErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); pipelineErr == nil && pipeline != nil {
