@@ -9,7 +9,7 @@ apiVersion: openchoreo.dev/v1alpha1
 kind: ProjectReleaseBinding
 metadata:
   name: {{ .Values.project.name }}-{{ .Values.environment.name }}
-  namespace: default
+  namespace: {{ .Values.openchoreoNamespace }}
   labels:
     openchoreo.dev/project: {{ .Values.project.name }}
     openchoreo.dev/environment: {{ .Values.environment.name }}

@@ -60,10 +60,11 @@ func TestCreateProject_SetsNamespacedProjectType(t *testing.T) {
 	assert.Equal(t, "default", gotBody.Spec.DeploymentPipelineRef.Name)
 }
 
-// The type name is also hardcoded in the Helm chart's templates/project-type.yaml
-// and templates/project.yaml. If they drift, the chart provisions a ProjectType
-// under one name while the service references another, and every project created
-// through the API fails to reconcile with ProjectTypeNotFound.
+// This name is a contract with the Helm chart, which hardcodes the same literal
+// in templates/project-type.yaml and templates/project.yaml — deliberately not a
+// configurable value, because if the two diverged the chart would provision a
+// ProjectType under one name while the service referenced another, and every
+// project created through the API would fail with ProjectTypeNotFound.
 func TestDefaultProjectTypeName(t *testing.T) {
 	assert.Equal(t, "default", DefaultProjectTypeName)
 }
