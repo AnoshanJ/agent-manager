@@ -80,7 +80,8 @@ const mcpLabels: AgentConfigTableLabels = {
 
 // A build only yields a runnable image in these two states; the API reports
 // success under both names.
-const isBuildComplete = (build: BuildResponse) => build.status === "Completed";
+const isBuildComplete = (build: BuildResponse) =>
+  build.status === "Completed" || build.status === "Succeeded";
 
 const NO_COMPLETED_BUILD_REASON =
   "Complete a build for this agent before adding configurations.";
@@ -153,9 +154,14 @@ export const ConfigureComponent: React.FC = () => {
   // agent runs somewhere else entirely and a kind-sourced one takes its image
   // from the published kind, so neither has a build of its own to wait for —
   // gating them would strand their configuration behind a build they cannot
-  // start. Both are also held back until the agent itself has loaded, so the
-  // buttons are never disabled on first paint for an agent that turns out to be
-  // exempt or already built.
+  // start.
+  //
+  // The gate fails open, deliberately. It is a hint, not an authorization check:
+  // nothing server-side refuses a configuration for an agent with no build, and
+  // a configuration added early is a deletable row, not damage. So while either
+  // query is in flight — or if the agent lookup fails outright — the buttons
+  // stay enabled rather than telling every visitor to "complete a build" for an
+  // agent that is exempt, already built, or merely slow to load.
   const { data: agent } = useGetAgent({
     orgName: orgId,
     projName: projectId,
