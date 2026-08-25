@@ -236,7 +236,7 @@ func (p *LLMProxyProvisioner) ProvisionProxy(ctx context.Context, params Provisi
 	if createdBy == "" {
 		createdBy = models.UserRoleSystem
 	}
-	proxy, err := p.llmProxyService.Create(params.OrgName, createdBy, proxyConfig)
+	proxy, err := p.llmProxyService.Create(ctx, params.OrgName, createdBy, proxyConfig)
 	if err != nil {
 		p.RollbackProxy(ctx, rb, params.OrgName)
 		return nil, fmt.Errorf("failed to create proxy: %w", err)

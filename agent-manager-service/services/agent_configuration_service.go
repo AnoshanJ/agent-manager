@@ -1154,7 +1154,7 @@ func (s *agentConfigurationService) createLLMConfig(ctx context.Context, ouID, p
 		// Capture index immediately after append to avoid fragile len(slice)-1 indexing below.
 		rbIdx := len(rollbackResources) - 1
 
-		proxy, err := s.llmProxyService.Create(ouID, createdBy, proxyConfig)
+		proxy, err := s.llmProxyService.Create(ctx, ouID, createdBy, proxyConfig)
 		if err != nil {
 			s.processRollBack(ctx, rollbackResources, ouID, config.UUID)
 			return nil, fmt.Errorf("failed to create proxy for environment %s: %w", envName, err)
@@ -1795,7 +1795,7 @@ func (s *agentConfigurationService) processEnvProviderChange(
 		oldProxyUUID:      existingMapping.LLMProxyUUID,
 	}
 
-	proxy, err := s.llmProxyService.Create(ouID, models.UserRoleSystem, proxyConfig)
+	proxy, err := s.llmProxyService.Create(ctx, ouID, models.UserRoleSystem, proxyConfig)
 	if err != nil {
 		return "", rbRes, pendingAppBinding{}, fmt.Errorf("failed to create proxy for environment %s: %w", envName, err)
 	}
@@ -2090,7 +2090,7 @@ func (s *agentConfigurationService) processNewEnv(
 	// Register provider credentials immediately so they are cleaned up on any subsequent failure.
 	rbRes := rollbackResource{providerAPIKeyID: providerAPIKeyID, providerUUID: providerUUID, providerSecretLoc: providerSecretLoc}
 
-	proxy, err := s.llmProxyService.Create(ouID, models.UserRoleSystem, proxyConfig)
+	proxy, err := s.llmProxyService.Create(ctx, ouID, models.UserRoleSystem, proxyConfig)
 	if err != nil {
 		return rbRes, pendingAppBinding{}, fmt.Errorf("failed to create proxy for environment %s: %w", envName, err)
 	}

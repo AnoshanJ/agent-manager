@@ -666,6 +666,48 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 	// use the UUID resolved above rather than re-parsing the raw identifier.
 	providerUUID := provider.UUID
 
+	// Atomically claim the provider for deletion before any gateway I/O or the
+	// associated-proxies check. This single UPDATE is the sole source of truth for
+	// "a delete is in flight": LLMProxyService.Create locks and rechecks this same
+	// status inside its own insert transaction, so a proxy created concurrently
+	// either lands before this claim (caught by HasAssociatedProxies just below) or
+	// is rejected by Create once the claim is visible — there is no gap where a
+	// proxy can slip in unseen by both sides.
+	marked, err := s.providerRepo.MarkDeleting(providerUUID)
+	if err != nil {
+		slog.Error("LLMProviderService.Delete: failed to mark provider deleting", "ouID", ouID, "providerID", providerID, "error", err)
+		return fmt.Errorf("failed to mark provider deleting: %w", err)
+	}
+	if !marked {
+		slog.Warn("LLMProviderService.Delete: provider already has a delete in progress", "ouID", ouID, "providerID", providerID)
+		return utils.ErrLLMProviderDeleteInProgress
+	}
+	// Cleared on any early return so a failed/aborted delete leaves the provider
+	// usable again; deleteCommitted suppresses this once providerRepo.Delete below
+	// removes the row (clearing a nonexistent row is a harmless no-op, but skipping
+	// it avoids a pointless query on the common success path).
+	deleteCommitted := false
+	defer func() {
+		if !deleteCommitted {
+			if clearErr := s.providerRepo.ClearDeleting(providerUUID); clearErr != nil {
+				slog.Error("LLMProviderService.Delete: failed to clear deleting flag after aborted delete", "ouID", ouID, "providerID", providerID, "error", clearErr)
+			}
+		}
+	}()
+
+	// Reject before touching any gateway: undeploying is not transactional with the
+	// DB delete, so a rejected delete must not leave the provider undeployed. Runs
+	// after the claim above so a proxy inserted just before the claim is still seen.
+	hasProxies, err := s.providerRepo.HasAssociatedProxies(ctx, providerUUID)
+	if err != nil {
+		slog.Error("LLMProviderService.Delete: failed to check associated proxies", "ouID", ouID, "providerID", providerID, "error", err)
+		return fmt.Errorf("failed to check associated proxies: %w", err)
+	}
+	if hasProxies {
+		slog.Warn("LLMProviderService.Delete: provider has associated proxies", "ouID", ouID, "providerID", providerID)
+		return utils.ErrLLMProviderHasProxies
+	}
+
 	gatewayIDs, err := deploymentService.deploymentRepo.GetDeployedGatewaysByProvider(providerUUID, ouID)
 	if err != nil {
 		slog.Error("LLMProviderService.Delete: failed to get deployed gateways", "ouID", ouID, "providerID", providerID, "error", err)
@@ -737,6 +779,7 @@ func (s *LLMProviderService) Delete(ctx context.Context, providerID, ouID string
 		slog.Error("LLMProviderService.Delete: failed to delete provider", "ouID", ouID, "providerID", providerID, "error", err)
 		return fmt.Errorf("failed to delete provider: %w", err)
 	}
+	deleteCommitted = true
 
 	// No KV cleanup needed — encrypted value is stored in the DB and deleted with the provider record
 

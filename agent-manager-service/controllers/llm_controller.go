@@ -725,6 +725,10 @@ func (c *llmController) DeleteLLMProvider(w http.ResponseWriter, r *http.Request
 			log.Error("DeleteLLMProvider: undeployment failed", "ouID", ouID, "providerID", providerID, "error", err)
 			utils.WriteErrorResponse(w, http.StatusConflict, utils.ErrLLMProviderUndeployFailed.Error())
 			return
+		case errors.Is(err, utils.ErrLLMProviderDeleteInProgress):
+			log.Warn("DeleteLLMProvider: delete already in progress", "ouID", ouID, "providerID", providerID)
+			utils.WriteErrorResponse(w, http.StatusConflict, utils.ErrLLMProviderDeleteInProgress.Error())
+			return
 		default:
 			log.Error("DeleteLLMProvider: failed to delete provider", "ouID", ouID, "providerID", providerID, "error", err)
 			utils.WriteErrorResponse(w, http.StatusInternalServerError, "Failed to delete LLM provider")
@@ -773,7 +777,7 @@ func (c *llmController) CreateLLMProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := c.proxyService.Create(ouID, "system", proxy)
+	created, err := c.proxyService.Create(ctx, ouID, "system", proxy)
 	if err != nil {
 		switch {
 		case errors.Is(err, utils.ErrLLMProxyExists):
@@ -781,6 +785,9 @@ func (c *llmController) CreateLLMProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		case errors.Is(err, utils.ErrLLMProviderNotFound):
 			utils.WriteErrorResponse(w, http.StatusBadRequest, "Referenced provider not found")
+			return
+		case errors.Is(err, utils.ErrLLMProviderBeingDeleted):
+			utils.WriteErrorResponse(w, http.StatusConflict, utils.ErrLLMProviderBeingDeleted.Error())
 			return
 		case errors.Is(err, utils.ErrProjectNotFound):
 			utils.WriteErrorResponse(w, http.StatusNotFound, "Project not found")
