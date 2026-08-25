@@ -188,11 +188,12 @@ project:
   # Description for the project
   description: "Default project for WSO2 Agent Manager"
 
-# ClusterProjectType referenced by the default Project.
+# ProjectType referenced by the default Project.
 # OpenChoreo 1.2.0+ makes Project.spec.type a required reference to a
 # (Cluster)ProjectType that 
 projectType:
-  # Name of the ClusterProjectType (must be a DNS-1123 label)
+  # Name of the ProjectType (must be a DNS-1123 label). Namespaced rather than
+  # cluster-scoped so the type is not shared across tenants.
   name: default
   # Display name for the project type
   displayName: "Default Project Type"
