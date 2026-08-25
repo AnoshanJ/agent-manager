@@ -5023,10 +5023,6 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(existingConfigs) == 0 {
-		s.logger.Debug("No existing env vars found in component configurations", "agentName", componentName)
-		return nil, nil, nil
-	}
 
 	// Fetch the set of SecretReference names that belong to LLM configurations for this agent
 	// and environment from the DB. These are the source of truth — provider-agnostic.
@@ -5083,6 +5079,23 @@ func (s *agentManagerService) getSystemManagedEnvVars(
 		result = append(result, client.EnvVar{Key: existing.Key, Value: existing.Value})
 		keySet[existing.Key] = true
 		s.logger.Info("Identified system-managed plain env var", "key", existing.Key)
+	}
+
+	// The scans above only see what already reached the cluster; rebuild the rest from the DB so a
+	// full-replace caller does not drop vars that never made it into a Workload or ReleaseBinding.
+	if len(keySet) < len(systemKeys) {
+		dbVars, dbErr := s.agentConfigurationService.BuildSystemManagedEnvVarsFromConfig(ctx, componentName, ouID, projectName, environmentName)
+		if dbErr != nil {
+			return nil, nil, fmt.Errorf("failed to build system-managed env vars from configuration: %w", dbErr)
+		}
+		for _, dbVar := range dbVars {
+			if keySet[dbVar.Key] {
+				continue
+			}
+			result = append(result, dbVar)
+			keySet[dbVar.Key] = true
+			s.logger.Info("Injected system-managed env var missing from cluster state", "key", dbVar.Key)
+		}
 	}
 
 	return result, keySet, nil

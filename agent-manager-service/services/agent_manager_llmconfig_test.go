@@ -28,14 +28,14 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 )
 
-// spyConfigService records the request passed to Create and stubs the LLM env var resolver.
-// Only Create and BuildSystemManagedEnvVarsFromConfig are exercised; the embedded interface
-// satisfies the rest (and panics if any other method is called).
+// spyConfigService records the request passed to Create and stubs the system-managed env var
+// resolvers; the embedded interface panics on any other method.
 type spyConfigService struct {
 	AgentConfigurationService
 	lastReq        models.CreateAgentModelConfigRequest
 	systemEnvVars  []client.EnvVar
 	systemEnvVarsE error
+	systemEnvKeys  map[string]bool
 }
 
 func (s *spyConfigService) Create(_ context.Context, _, _, _ string,
@@ -47,6 +47,14 @@ func (s *spyConfigService) Create(_ context.Context, _, _, _ string,
 
 func (s *spyConfigService) BuildSystemManagedEnvVarsFromConfig(_ context.Context, _, _, _, _ string) ([]client.EnvVar, error) {
 	return s.systemEnvVars, s.systemEnvVarsE
+}
+
+func (s *spyConfigService) ListSystemManagedEnvVarKeys(_ context.Context, _, _, _, _ string) (map[string]bool, error) {
+	return s.systemEnvKeys, nil
+}
+
+func (s *spyConfigService) ListAgentLLMConfigSecretReferences(_ context.Context, _, _, _ string) (map[string]struct{}, error) {
+	return map[string]struct{}{}, nil
 }
 
 func TestCreateAgentLLMConfigs_KeysUnderFirstEnv(t *testing.T) {
@@ -132,4 +140,26 @@ func TestMergeKindWorkloadSystemEnvVars_ResolverError(t *testing.T) {
 
 	_, err := s.mergeKindWorkloadSystemEnvVars(context.Background(), "my-agent", "org", "proj", "Development", nil)
 	require.ErrorIs(t, err, resolverErr, "resolver error must stay unwrappable so callers can inspect it")
+}
+
+// #1736: vars configured while the first build ran exist only in the DB, so a deploy that
+// rebuilds from live cluster state alone would full-replace the overrides without them.
+func TestDeployAgent_InjectsSystemEnvVarsAbsentFromClusterState(t *testing.T) {
+	llmVars := []client.EnvVar{
+		{Key: "OPENAI_BASE_URL", Value: "http://gateway.cluster.local/openai"},
+		{Key: "OPENAI_API_KEY", ValueFrom: &client.EnvVarValueFrom{
+			SecretKeyRef: &client.SecretKeyRef{Name: "secret-ref", Key: "api-key"},
+		}},
+	}
+	s, _, capturedOverrides := deployAPIAgentMocks(nil)
+	s.agentConfigurationService = &spyConfigService{
+		systemEnvVars: llmVars,
+		systemEnvKeys: map[string]bool{"OPENAI_BASE_URL": true, "OPENAI_API_KEY": true},
+	}
+
+	_, err := s.DeployAgent(auditableCtx(t), "acme", "proj1", "my-agent",
+		&spec.DeployAgentRequest{ImageId: "registry.example.com/my-agent:v1"})
+
+	require.NoError(t, err)
+	require.Equal(t, llmVars, *capturedOverrides, "workload overrides must carry the DB-tracked LLM vars")
 }
