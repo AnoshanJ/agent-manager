@@ -791,6 +791,7 @@ export function MCPProxySecurityTab({
           proxyId={proxyId}
           environments={environments}
           tools={toolEntries}
+          blockedTools={blockedToolIds}
         />
       )}
     </Stack>

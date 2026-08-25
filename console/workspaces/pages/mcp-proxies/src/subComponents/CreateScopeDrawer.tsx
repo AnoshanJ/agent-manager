@@ -29,7 +29,7 @@ import {
   TextField,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Plus } from "@wso2/oxygen-ui-icons-react";
+import { Plus, ShieldX } from "@wso2/oxygen-ui-icons-react";
 import {
   DrawerContent,
   DrawerHeader,
@@ -95,6 +95,13 @@ interface CreateScopeDrawerProps {
   environments: Environment[];
   /** Tool identifiers discovered on the current endpoint, offered as scope bindings. */
   tools: string[];
+  /**
+   * Subset of `tools` the endpoint's Manage Tools ACL currently blocks. Listed
+   * but not selectable: binding a scope to a tool the gateway already refuses
+   * would enforce nothing, while hiding them outright would leave the picker
+   * looking empty under a deny-all ACL and give no hint where the tool went.
+   */
+  blockedTools: ReadonlySet<string>;
 }
 
 export function CreateScopeDrawer({
@@ -104,6 +111,7 @@ export function CreateScopeDrawer({
   proxyId,
   environments,
   tools,
+  blockedTools,
 }: CreateScopeDrawerProps) {
   const [formData, setFormData] = useState<CreateScopeFormValues>(DEFAULT_FORM);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
@@ -314,6 +322,34 @@ export function CreateScopeDrawer({
                 options={tools}
                 value={selectedTools}
                 onChange={(_e, value) => setSelectedTools(value)}
+                getOptionDisabled={(tool) => blockedTools.has(tool)}
+                renderOption={(optionProps, tool) => {
+                  const { key, ...liProps } = optionProps;
+                  return (
+                    <li key={key} {...liProps}>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        {tool}
+                        {blockedTools.has(tool) && (
+                          // Spelled out in the row rather than behind the tool
+                          // table's tooltip: MUI gives a disabled option
+                          // `pointer-events: none`, so no hover affordance on
+                          // one would ever fire.
+                          <Stack
+                            color="warning.main"
+                            direction="row"
+                            alignItems="center"
+                            spacing={0.5}
+                          >
+                            <ShieldX size={14} />
+                            <Typography component="span" variant="caption">
+                              Blocked in Manage Tools
+                            </Typography>
+                          </Stack>
+                        )}
+                      </Stack>
+                    </li>
+                  );
+                }}
                 renderTags={(value, getTagProps) =>
                   value.map((tool, index) => (
                     <Chip {...getTagProps({ index })} key={tool} label={tool} size="small" />
