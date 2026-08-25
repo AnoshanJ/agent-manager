@@ -49,6 +49,7 @@ import {
 } from "@agent-management-platform/shared-component";
 import {
   extractServerErrorMessage,
+  MAX_SNACKBAR_REASON_LENGTH,
   useAgentBuildOptions,
   useDeployAgent,
   useGetAgentConfigurations,
@@ -309,7 +310,9 @@ export function EditDeployConfigDrawer({
         // confirmation), so it needs its own error snackbar here.
         onError: (error: unknown) => {
           pushSnackBar({
-            message: extractServerErrorMessage(error) ?? "Failed to regenerate tracing token",
+            message:
+              extractServerErrorMessage(error, { maxReasonLength: MAX_SNACKBAR_REASON_LENGTH }) ??
+              "Failed to regenerate tracing token",
             type: "error",
           });
         },

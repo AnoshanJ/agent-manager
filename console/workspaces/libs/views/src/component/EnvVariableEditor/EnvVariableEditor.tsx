@@ -90,8 +90,9 @@ export interface EnvVariableEditorProps {
   keyDisabled?: boolean;
   /**
    * Whether this is an existing secret (already saved, not newly created)
-   * When true, the key and value fields are locked by default and require the
-   * explicit Edit action to unlock (both unlock together).
+   * When true, the key and value fields are locked by default (both unlock
+   * together). Non-system rows can unlock them either via the explicit Edit
+   * action, or by unchecking "Mark as Secret" (which clears isSensitive).
    */
   isExistingSecret?: boolean;
   /**

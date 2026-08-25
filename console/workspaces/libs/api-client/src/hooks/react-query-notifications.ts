@@ -102,8 +102,9 @@ function getActionSuccessMessage(action: MutationActionConfig): string {
 
 // Max `reason` length shown inline in the single-line, non-wrapping snackbar
 // (see SnackBar's `noWrap` message Typography) before it's dropped in favor of
-// just the base message.
-const MAX_SNACKBAR_REASON_LENGTH = 20;
+// just the base message. Exported so callers pushing their own snackbar directly
+// (outside useApiMutation) can bound `reason` the same way.
+export const MAX_SNACKBAR_REASON_LENGTH = 20;
 
 /**
  * Extracts a human-readable, server-provided message from a thrown error so it

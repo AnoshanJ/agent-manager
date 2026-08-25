@@ -54,6 +54,12 @@ export function excludeSystemVars<T extends { key: string; isSystem?: boolean }>
 export function toSubmittableEnv(items: EnvironmentVariable[]): EnvironmentVariable[] {
   return excludeSystemVars(items).map(({ key, value, isSensitive, secretRef }) => {
     if (secretRef && !value) {
+      // The cast is intentional: EnvironmentVariable.value is typed as required, but the
+      // backend's contract for this shape is "value XOR secretRef" — omitting value here
+      // (rather than sending an empty string) is what tells it to keep the stored secret
+      // rather than overwrite it. Narrowing the shared type isn't safe to do just for this
+      // call site since EnvironmentVariable also models GET responses, where value is
+      // always present.
       return { key, isSensitive: true, secretRef } as EnvironmentVariable;
     }
     return { key, value, isSensitive };
