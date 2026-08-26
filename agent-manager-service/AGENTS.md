@@ -98,9 +98,9 @@ Rules:
 |---|---|---|---|
 | `make spec` | `spec/` types | `docs/api_v1_openapi.yaml` | Docker |
 | `make codegen` | wire DI + mocks (`repomocks/`, `clientmocks/`) | `//go:generate` directives | `moq` on PATH |
-| `make mocks` | mocks only (`repomocks/`, `clientmocks/`), no wire. `PKG=./repositories/...` to scope it | `//go:generate moq` directives | `moq` on PATH |
+| `make mocks` | mocks only (`repomocks/`, `clientmocks/`), no wire. `PKG=./repositories/...` to scope it | `//go:generate moq` directives | `moq` **`v0.5.3`** installed |
 
-Generated files are checked in and **never hand-edited**. Regenerate and commit the output with your change. `make codegen`/`make mocks` need the `moq` binary pinned at **`v0.5.3`** (`go install github.com/matryer/moq@v0.5.3`) — it can't run via `go run` because the module is `-mod=vendor`. A different `moq` version reformats import ordering across every mock file it touches even with no interface change; if `git status` shows unrelated mock diffs after running either target, check `moq --version` before committing. A new repository interface needs a `//go:generate moq ... -pkg repomocks -out repomocks/<file>_mock.go` directive above its declaration (copy an existing one).
+Generated files are checked in and **never hand-edited**. Regenerate and commit the output with your change. `make codegen`/`make mocks` need the `moq` binary pinned at **`v0.5.3`** (`go install github.com/matryer/moq@v0.5.3`) — it can't run via `go run` because the module is `-mod=vendor`. `make mocks` checks the installed version and fails fast if it isn't `v0.5.3`, since a different `moq` version reformats import ordering across every mock file it touches even with no interface change; `make codegen` only checks that `moq` is present on PATH, so if `git status` shows unrelated mock diffs after running it, check `moq --version` before committing. A new repository interface needs a `//go:generate moq ... -pkg repomocks -out repomocks/<file>_mock.go` directive above its declaration (copy an existing one).
 
 ## Engineering rules
 

@@ -32,11 +32,18 @@ codegen: ## Run code gen.
 	@go generate -tags=wireinject ./...
 	@echo "Go generate done"
 
+MOQ_REQUIRED_VERSION := v0.5.3
+
 .PHONY: mocks
 mocks: ## Regenerate moq mocks only (runs every //go:generate moq directive; codegen also runs this plus wire). Usage: make mocks [PKG=./repositories/...]
-	@command -v moq >/dev/null 2>&1 || { echo "ERROR: 'moq' not found on PATH. Install: go install github.com/matryer/moq@v0.5.3"; exit 1; }
-	@echo "Regenerating moq mocks in $(if $(PKG),$(PKG),./...)"
-	@go generate -tags=wireinject $(if $(PKG),$(PKG),./...)
+	@command -v moq >/dev/null 2>&1 || { echo "ERROR: 'moq' not found on PATH. Install: go install github.com/matryer/moq@$(MOQ_REQUIRED_VERSION)"; exit 1; }
+	@moq_version="$$(moq --version 2>&1 | awk '{print $$NF}')"; \
+	if [ "$$moq_version" != "$(MOQ_REQUIRED_VERSION)" ]; then \
+		echo "ERROR: 'moq' version $$moq_version found, but $(MOQ_REQUIRED_VERSION) is required (a different version reformats import ordering across every mock file it touches). Install: go install github.com/matryer/moq@$(MOQ_REQUIRED_VERSION)"; \
+		exit 1; \
+	fi
+	@echo "Regenerating moq mocks in $(if $(PKG),$(PKG),$$(go list ./... | grep -v '/wiring$$'))"
+	@go generate -tags=wireinject $(if $(PKG),$(PKG),$$(go list ./... | grep -v '/wiring$$'))
 	@echo "Mock generation done"
 
 .PHONY: fmt
