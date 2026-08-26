@@ -1,0 +1,552 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [],
+  "properties": {
+    "kubectl": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "default": "alpine/k8s:1.32.3",
+          "description": "Image providing the `kubectl` binary for helper jobs",
+          "title": "image",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "kubectl",
+      "type": "object"
+    },
+    "agentManager": {
+      "additionalProperties": false,
+      "properties": {
+        "apiUrl": {
+          "default": "http://amp-api.wso2-amp.svc.cluster.local:9000/api/v1",
+          "description": "Public API URL (port 8080 = JWT-authenticated API)",
+          "title": "apiUrl",
+          "type": "string"
+        },
+        "orgName": {
+          "default": "default",
+          "description": "Organization name in Agent Manager (must match Thunder OU handle)",
+          "title": "orgName",
+          "type": "string"
+        },
+        "idp": {
+          "additionalProperties": false,
+          "properties": {
+            "tokenUrl": {
+              "default": "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token",
+              "title": "tokenUrl",
+              "type": "string"
+            },
+            "clientId": {
+              "default": "amp-api-client",
+              "title": "clientId",
+              "type": "string"
+            },
+            "clientSecret": {
+              "default": "amp-api-client-secret",
+              "title": "clientSecret",
+              "type": "string"
+            },
+            "existingSecret": {
+              "default": "",
+              "description": "Reference an existing secret for IDP credentials (recommended for production). When set, clientId and clientSecret above are ignored.",
+              "title": "existingSecret",
+              "type": "string"
+            },
+            "existingSecretClientIdKey": {
+              "default": "client-id",
+              "title": "existingSecretClientIdKey",
+              "type": "string"
+            },
+            "existingSecretClientSecretKey": {
+              "default": "client-secret",
+              "title": "existingSecretClientSecretKey",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "idp",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "agentManager",
+      "type": "object"
+    },
+    "gateway": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "",
+          "description": "Name of the AI gateway to register in Agent Manager (lowercase alphanumeric + hyphens). Defaults to the Helm release name if empty.",
+          "title": "name",
+          "type": "string"
+        },
+        "displayName": {
+          "default": "Default API Gateway",
+          "description": "Human-readable display name",
+          "title": "displayName",
+          "type": "string"
+        },
+        "vhost": {
+          "default": "http://default-default.gateway.localhost:19080",
+          "description": "Virtual host (FQDN or IP) that the gateway is reachable on. All access is hostname-routed through kgateway \u2014 never the runtime Service directly.",
+          "title": "vhost",
+          "type": "string"
+        },
+        "runtimeUrl": {
+          "default": "",
+          "description": "In-cluster base URL sandboxed agents use to reach this gateway runtime. Empty derives \"http://<apiGatewayName>-gw-gateway-gateway-runtime.<apiGateway.namespace>:22893\". AMS validates it: http/https, explicit port that is not 80 or 443, cluster-local host.",
+          "title": "runtimeUrl",
+          "type": "string"
+        },
+        "hostname": {
+          "default": "",
+          "description": "Hostname for routing traffic to this gateway through kgateway. All traffic (LLM proxy, OTEL, etc.) matching this hostname on kgateway is forwarded to this gateway's runtime service. Defaults to \"<environment>-<orgName>.gateway.localhost\" if empty.",
+          "title": "hostname",
+          "type": "string"
+        },
+        "type": {
+          "default": "BOTH",
+          "description": "Gateway placement role: INGRESS, EGRESS, or BOTH (must match GatewayType enum in Agent Manager API). BOTH is correct for single topology, where the chart is installed once per environment; split topology sets this explicitly on both releases from add-environment.sh. Immutable after first registration \u2014 changing it later only logs a drift warning.",
+          "title": "type",
+          "type": "string"
+        },
+        "environment": {
+          "default": "default",
+          "description": "Environment name in Agent Manager to associate this gateway with. The bootstrap job looks up environments by this name.",
+          "title": "environment",
+          "type": "string"
+        },
+        "tokenSecret": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "default": "",
+              "title": "name",
+              "type": "string"
+            },
+            "key": {
+              "default": "token",
+              "title": "key",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "tokenSecret",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "gateway",
+      "type": "object"
+    },
+    "developmentMode": {
+      "default": true,
+      "description": "APIGateway CR configuration (deployed by gateway-operator) Development mode",
+      "title": "developmentMode",
+      "type": "boolean"
+    },
+    "kgateway": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "gateway-default",
+          "title": "name",
+          "type": "string"
+        },
+        "namespace": {
+          "default": "openchoreo-data-plane",
+          "title": "namespace",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "kgateway",
+      "type": "object"
+    },
+    "apiGateway": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "default": "openchoreo-data-plane",
+          "description": "Namespace where the APIGateway CR is created. Must be the same namespace where the gateway-operator is watching. For per-org-env namespace isolation set this to \"<org>-<env>\" (add-environment.sh passes it via --set apiGateway.namespace=...).",
+          "title": "namespace",
+          "type": "string"
+        },
+        "controlPlane": {
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "default": "amp-api-gateway-manager.wso2-amp.svc.cluster.local:9243",
+              "title": "host",
+              "type": "string"
+            },
+            "tls": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "default": true,
+                  "title": "enabled",
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "title": "tls",
+              "type": "object"
+            }
+          },
+          "required": [],
+          "title": "controlPlane",
+          "type": "object"
+        },
+        "config": {
+          "additionalProperties": false,
+          "properties": {
+            "configMapName": {
+              "default": "",
+              "description": "Name of the ConfigMap to create with gateway Helm values. Defaults to \"<release-name>-config\" if empty.",
+              "title": "configMapName",
+              "type": "string"
+            },
+            "chartVersion": {
+              "default": "1.1.0",
+              "description": "Helm chart version for the gateway (must match what gateway-operator is configured for)",
+              "title": "chartVersion",
+              "type": "string"
+            },
+            "policyConfigurations": {
+              "additionalProperties": false,
+              "properties": {
+                "ratelimit_v1": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "algorithm": {
+                      "default": "fixed-window",
+                      "title": "algorithm",
+                      "type": "string"
+                    },
+                    "backend": {
+                      "default": "memory",
+                      "title": "backend",
+                      "type": "string"
+                    },
+                    "memory": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max_entries": {
+                          "default": 10000,
+                          "title": "max_entries",
+                          "type": "integer"
+                        },
+                        "cleanup_interval": {
+                          "default": "5m",
+                          "title": "cleanup_interval",
+                          "type": "string"
+                        }
+                      },
+                      "required": [],
+                      "title": "memory",
+                      "type": "object"
+                    }
+                  },
+                  "required": [],
+                  "title": "ratelimit_v1",
+                  "type": "object"
+                },
+                "llm_cost_ratelimit_v1": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cost_scale_factor": {
+                      "default": 1000000000,
+                      "title": "cost_scale_factor",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "title": "llm_cost_ratelimit_v1",
+                  "type": "object"
+                },
+                "jwtauth_v1": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "keymanagers": {
+                      "default": [
+                        {
+                          "name": "agent-manager-service",
+                          "issuer": "agent-manager-service",
+                          "jwks": {
+                            "remote": {
+                              "uri": "http://amp-api.wso2-amp.svc.cluster.local:9000/auth/external/jwks.json",
+                              "skipTlsVerify": true
+                            }
+                          }
+                        },
+                        {
+                          "name": "ThunderKeyManager",
+                          "issuer": "http://thunder.amp.localhost:8080",
+                          "jwks": {
+                            "remote": {
+                              "uri": "http://amp-thunder-extension-service.amp-thunder:8090/oauth2/jwks",
+                              "skipTlsVerify": true
+                            }
+                          }
+                        }
+                      ],
+                      "items": {
+                        "type": "object"
+                      },
+                      "title": "keymanagers",
+                      "type": "array"
+                    },
+                    "authheaderscheme": {
+                      "default": "",
+                      "title": "authheaderscheme",
+                      "type": "string"
+                    },
+                    "onfailurestatuscode": {
+                      "default": 401,
+                      "title": "onfailurestatuscode",
+                      "type": "integer"
+                    },
+                    "errormessageformat": {
+                      "default": "json",
+                      "title": "errormessageformat",
+                      "type": "string"
+                    },
+                    "errormessage": {
+                      "default": "Authentication failed",
+                      "title": "errormessage",
+                      "type": "string"
+                    },
+                    "leeway": {
+                      "default": "30s",
+                      "title": "leeway",
+                      "type": "string"
+                    },
+                    "allowedalgorithms": {
+                      "default": [
+                        "RS256",
+                        "ES256"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "allowedalgorithms",
+                      "type": "array"
+                    },
+                    "jwkscachettl": {
+                      "default": "5m",
+                      "title": "jwkscachettl",
+                      "type": "string"
+                    },
+                    "jwksfetchtimeout": {
+                      "default": "5s",
+                      "title": "jwksfetchtimeout",
+                      "type": "string"
+                    },
+                    "jwksfetchretrycount": {
+                      "default": 3,
+                      "title": "jwksfetchretrycount",
+                      "type": "integer"
+                    },
+                    "jwksfetchretryinterval": {
+                      "default": "2s",
+                      "title": "jwksfetchretryinterval",
+                      "type": "string"
+                    },
+                    "validateissuer": {
+                      "default": true,
+                      "title": "validateissuer",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [],
+                  "title": "jwtauth_v1",
+                  "type": "object"
+                }
+              },
+              "required": [],
+              "title": "policyConfigurations",
+              "type": "object"
+            },
+            "systemEnv": {
+              "additionalProperties": true,
+              "default": {},
+              "description": "Root-level config keys injected as environment variables into the policy engine. Use for policies that reference ${config.<key>} at root level (e.g., AWS Bedrock, Azure Content Safety, embedding providers). Keys are converted to env vars: key_name -> APIP_GW_KEY__NAME (underscores become double underscores to preserve them in koanf). Example: systemEnv: # AWS Bedrock Guardrail awsbedrock_guardrail_region: \"us-east-1\" awsbedrock_guardrail_id: \"\" awsbedrock_guardrail_version: \"DRAFT\" awsbedrock_access_key_id: \"\" awsbedrock_secret_access_key: \"\" awsbedrock_session_token: \"\" awsbedrock_role_arn: \"\" awsbedrock_role_region: \"\" awsbedrock_role_external_id: \"\" # Azure Content Safety azurecontentsafety_endpoint: \"\" azurecontentsafety_key: \"\" # Embedding Provider (semantic-cache, semantic-prompt-guard, semantic-tool-filtering) embedding_provider: \"OPENAI\" embedding_provider_endpoint: \"\" embedding_provider_model: \"text-embedding-ada-002\" embedding_provider_dimension: \"1536\" embedding_provider_api_key: \"\" # Vector DB (semantic-cache) vector_db_provider: \"REDIS\" vector_db_provider_host: \"\" vector_db_provider_port: \"6379\" vector_db_provider_username: \"\" vector_db_provider_password: \"\" vector_db_provider_database: \"\" vector_db_provider_ttl: \"3600\"",
+              "required": [],
+              "title": "systemEnv",
+              "type": "object"
+            }
+          },
+          "required": [],
+          "title": "config",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "apiGateway",
+      "type": "object"
+    },
+    "bootstrap": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "backoffLimit": {
+          "default": 3,
+          "title": "backoffLimit",
+          "type": "integer"
+        },
+        "identityProviders": {
+          "default": [],
+          "description": "Identity providers to mirror into Agent Manager (AMS) for this gateway. This list is the authoritative allowlist of IdPs the bootstrap job seeds via the AMS identity-provider API. It is intentionally decoupled from apiGateway.config.policyConfigurations.jwtauth_v1.keymanagers: that list is the gateway runtime's JWT-validation config (and legitimately includes the internal 'agent-manager-service' keymanager and ThunderKeyManager), whereas this list is what AMS exposes in the Security UI and as agent OAuth issuer options. Only list user-visible providers here \u2014 omit any internal/reserved keymanagers (e.g. agent-manager-service). Defaults to empty: no IdP is auto-mirrored into AMS. ThunderKeyManager stays a gateway keymanager (so deployed agents still validate Thunder-issued tokens), but is no longer registered as a visible identity provider by default \u2014 operators add IdPs on demand via the Manage Identity Provider flow. The bootstrap job seeds exactly the entries listed here, so an empty list seeds nothing. Each entry: { name, issuer, jwksUri, skipTlsVerify }.",
+          "items": {},
+          "title": "identityProviders",
+          "type": "array"
+        },
+        "ttlSecondsAfterFinished": {
+          "default": 86400,
+          "description": "TTL after completion (seconds). 86400 = 1 day",
+          "title": "ttlSecondsAfterFinished",
+          "type": "integer"
+        },
+        "resources": {
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "additionalProperties": false,
+              "properties": {
+                "memory": {
+                  "default": "64Mi",
+                  "description": "Memory the container requests at scheduling time",
+                  "title": "memory",
+                  "type": "string"
+                },
+                "cpu": {
+                  "default": "50m",
+                  "description": "CPU the container requests at scheduling time",
+                  "title": "cpu",
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "title": "requests",
+              "type": "object"
+            },
+            "limits": {
+              "additionalProperties": false,
+              "properties": {
+                "memory": {
+                  "default": "128Mi",
+                  "description": "Maximum memory the container may use before it is OOM-killed",
+                  "title": "memory",
+                  "type": "string"
+                },
+                "cpu": {
+                  "default": "100m",
+                  "description": "Maximum CPU the container may use",
+                  "title": "cpu",
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "title": "limits",
+              "type": "object"
+            }
+          },
+          "required": [],
+          "title": "resources",
+          "type": "object"
+        },
+        "podSecurityContext": {
+          "additionalProperties": false,
+          "properties": {
+            "runAsNonRoot": {
+              "default": false,
+              "description": "Require the container to run as a non-root user",
+              "title": "runAsNonRoot",
+              "type": "boolean"
+            },
+            "runAsUser": {
+              "default": 0,
+              "description": "UID the pod's containers run as",
+              "title": "runAsUser",
+              "type": "integer"
+            },
+            "fsGroup": {
+              "default": 0,
+              "description": "Supplemental group applied to mounted volumes",
+              "title": "fsGroup",
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "title": "podSecurityContext",
+          "type": "object"
+        },
+        "securityContext": {
+          "additionalProperties": false,
+          "properties": {
+            "runAsNonRoot": {
+              "default": false,
+              "description": "Require the container to run as a non-root user",
+              "title": "runAsNonRoot",
+              "type": "boolean"
+            },
+            "runAsUser": {
+              "default": 0,
+              "description": "UID the container runs as",
+              "title": "runAsUser",
+              "type": "integer"
+            },
+            "allowPrivilegeEscalation": {
+              "default": false,
+              "description": "Allow a process to gain more privileges than its parent",
+              "title": "allowPrivilegeEscalation",
+              "type": "boolean"
+            },
+            "capabilities": {
+              "additionalProperties": false,
+              "properties": {
+                "drop": {
+                  "default": [
+                    "ALL"
+                  ],
+                  "description": "Linux capabilities removed from the container",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "drop",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "capabilities",
+              "type": "object"
+            },
+            "readOnlyRootFilesystem": {
+              "default": false,
+              "description": "Mount the container root filesystem read-only",
+              "title": "readOnlyRootFilesystem",
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "title": "securityContext",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "bootstrap",
+      "type": "object"
+    }
+  }
+}

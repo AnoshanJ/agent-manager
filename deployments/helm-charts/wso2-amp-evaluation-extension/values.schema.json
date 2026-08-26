@@ -1,0 +1,314 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [],
+  "properties": {
+    "global": {
+      "additionalProperties": false,
+      "properties": {
+        "baseDomain": {
+          "default": "",
+          "description": "Base domain for external access",
+          "title": "baseDomain",
+          "type": "string"
+        },
+        "registry": {
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "default": "host.k3d.internal:10082",
+              "description": "Registry endpoint for pushing and pulling images For local registry: \"host.k3d.internal:10082\" For external registry with baseDomain: automatically uses \"registry.<baseDomain>\"",
+              "title": "endpoint",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "registry",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "global",
+      "type": "object"
+    },
+    "ampEvaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "default": "ghcr.io/wso2/amp-evaluation-monitor",
+              "description": "Image repository For local development: will be pushed to local registry For production: ghcr.io/wso2/amp-evaluation-monitor",
+              "title": "repository",
+              "type": "string"
+            },
+            "tag": {
+              "default": "0.0.0-dev",
+              "description": "Image tag IMPORTANT: For production, this should match the amp-evaluation SDK version used in dbMigration.evaluatorGenerator.image.tag in the wso2-agent-manager chart. Example: If using amp-evaluation==0.1.5, set this to \"0.1.5\"",
+              "title": "tag",
+              "type": "string"
+            },
+            "pullPolicy": {
+              "default": "IfNotPresent",
+              "description": "Image pull policy",
+              "title": "pullPolicy",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "image",
+          "type": "object"
+        },
+        "useLocalRegistry": {
+          "default": false,
+          "description": "Whether to use local registry or external image When true, image will be prefixed with registry endpoint When false, uses repository:tag directly (for k3d imported images or external registries)",
+          "title": "useLocalRegistry",
+          "type": "boolean"
+        },
+        "tracesApiEndpoint": {
+          "default": "http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098",
+          "description": "In-cluster URL for the observer API",
+          "title": "tracesApiEndpoint",
+          "type": "string"
+        },
+        "publisher": {
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "default": "http://amp-api.wso2-amp.svc.cluster.local:9000",
+              "description": "In-cluster URL for the agent-manager API",
+              "title": "endpoint",
+              "type": "string"
+            },
+            "idpTokenUrl": {
+              "default": "http://amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090/oauth2/token",
+              "description": "OAuth2 client credentials for publisher authentication The evaluation job uses these to obtain a Bearer token from Thunder Note: clientSecret is loaded dynamically from OpenBao via ExternalSecret at workflow runtime",
+              "title": "idpTokenUrl",
+              "type": "string"
+            },
+            "clientId": {
+              "default": "amp-publisher-client",
+              "title": "clientId",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "publisher",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "ampEvaluation",
+      "type": "object"
+    },
+    "networkPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluationJob": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "No-op on clusters whose CNI doesn't enforce NetworkPolicy (e.g. plain flannel).",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "namespace": {
+              "default": "",
+              "description": "Empty derives \"workflows-<ampEvaluation.workflowNamespace>\" (where OpenChoreo runs this environment's Argo workflows), not this chart's own release namespace.",
+              "title": "namespace",
+              "type": "string"
+            },
+            "dns": {
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "default": "kube-system",
+                  "title": "namespace",
+                  "type": "string"
+                },
+                "podLabel": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "default": "k8s-app",
+                      "title": "key",
+                      "type": "string"
+                    },
+                    "value": {
+                      "default": "kube-dns",
+                      "title": "value",
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "title": "podLabel",
+                  "type": "object"
+                }
+              },
+              "required": [],
+              "title": "dns",
+              "type": "object"
+            },
+            "observer": {
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "default": "openchoreo-observability-plane",
+                  "title": "namespace",
+                  "type": "string"
+                },
+                "ports": {
+                  "default": [
+                    9098
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "observer",
+              "type": "object"
+            },
+            "publisher": {
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "default": "wso2-amp",
+                  "title": "namespace",
+                  "type": "string"
+                },
+                "ports": {
+                  "default": [
+                    8080
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "publisher",
+              "type": "object"
+            },
+            "idp": {
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "default": "amp-thunder",
+                  "title": "namespace",
+                  "type": "string"
+                },
+                "ports": {
+                  "default": [
+                    8090
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "idp",
+              "type": "object"
+            },
+            "llmGateway": {
+              "additionalProperties": false,
+              "properties": {
+                "ports": {
+                  "default": [
+                    22893
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                },
+                "namespace": {
+                  "default": "",
+                  "description": "Namespace holding the API Platform Gateway, allowed in addition to any namespace labelled amp.wso2.com/api-platform-gateway=true. That label is only applied by setup-gateway.sh and add-environment.sh, so an install that follows the gateway chart's own apiGateway.namespace default (openchoreo-data-plane) has no matching namespace and llm_judge evaluators are silently denied egress to the gateway. Empty = rely on the label alone.",
+                  "title": "namespace",
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "title": "llmGateway",
+              "type": "object"
+            },
+            "devEgress": {
+              "additionalProperties": false,
+              "properties": {
+                "cidr": {
+                  "default": "",
+                  "title": "cidr",
+                  "type": "string"
+                },
+                "ports": {
+                  "default": [
+                    8080,
+                    19080
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "devEgress",
+              "type": "object"
+            },
+            "apiServer": {
+              "additionalProperties": false,
+              "properties": {
+                "cidrs": {
+                  "default": [
+                    "10.0.0.0/8",
+                    "172.16.0.0/12",
+                    "192.168.0.0/16"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "cidrs",
+                  "type": "array"
+                },
+                "ports": {
+                  "default": [
+                    443,
+                    6443
+                  ],
+                  "items": {
+                    "type": "integer"
+                  },
+                  "title": "ports",
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "title": "apiServer",
+              "type": "object"
+            }
+          },
+          "required": [],
+          "title": "evaluationJob",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "networkPolicy",
+      "type": "object"
+    }
+  }
+}
