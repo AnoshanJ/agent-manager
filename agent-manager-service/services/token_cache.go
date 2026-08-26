@@ -40,16 +40,50 @@ type TokenCacheEntry struct {
 type TokenCache struct {
 	mu          sync.RWMutex
 	tokens      map[string]*TokenCacheEntry // tokenPrefix (UUID) -> entry
+	misses      map[string]time.Time        // tokenPrefix (UUID) -> time of last confirmed miss
 	lastRefresh time.Time
 	ttl         time.Duration
+	missTTL     time.Duration
 }
+
+// negativeCacheTTL is deliberately much shorter than the positive-entry ttl:
+// a real token can appear later (rotation, delayed provisioning), so a stale
+// negative entry must not outlive that window for long. Its only job is to
+// stop a burst of repeated fake-but-valid-shaped keys from each triggering a
+// real DB query.
+const negativeCacheTTL = 30 * time.Second
 
 // NewTokenCache creates a new token cache with specified TTL
 func NewTokenCache(ttl time.Duration) *TokenCache {
 	return &TokenCache{
-		tokens: make(map[string]*TokenCacheEntry),
-		ttl:    ttl,
+		tokens:  make(map[string]*TokenCacheEntry),
+		misses:  make(map[string]time.Time),
+		ttl:     ttl,
+		missTTL: negativeCacheTTL,
 	}
+}
+
+// IsKnownMiss reports whether tokenPrefix was confirmed absent from the DB
+// recently enough that a repeat lookup can be skipped.
+func (c *TokenCache) IsKnownMiss(tokenPrefix string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	missedAt, exists := c.misses[tokenPrefix]
+	if !exists {
+		return false
+	}
+	return time.Since(missedAt) <= c.missTTL
+}
+
+// RecordMiss remembers that tokenPrefix had no active token in the DB, so
+// repeated lookups for the same (usually fake) prefix within missTTL are
+// served from memory instead of hitting the database every time.
+func (c *TokenCache) RecordMiss(tokenPrefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.misses[tokenPrefix] = time.Now()
 }
 
 // Get retrieves a token entry from cache by prefix if valid
@@ -82,6 +116,7 @@ func (c *TokenCache) Set(tokenPrefix string, gatewayUUID uuid.UUID, gateway *mod
 		Salt:        salt,
 		CachedAt:    time.Now(),
 	}
+	delete(c.misses, tokenPrefix)
 }
 
 // Invalidate removes a specific token from cache by prefix (used on revocation)
@@ -117,6 +152,7 @@ func (c *TokenCache) Clear() {
 	defer c.mu.Unlock()
 
 	c.tokens = make(map[string]*TokenCacheEntry)
+	c.misses = make(map[string]time.Time)
 	c.lastRefresh = time.Time{}
 	slog.Info("token cache cleared")
 }

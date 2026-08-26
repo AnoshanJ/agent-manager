@@ -525,7 +525,14 @@ func (s *PlatformGatewayService) DeleteGateway(gatewayID, ouID string) error {
 // 2. Single indexed DB lookup by prefix (WHERE token_prefix = ? AND status = 'active')
 // 3. Verify token hash with constant-time comparison
 // 4. Return gateway or cache result
-func (s *PlatformGatewayService) VerifyToken(plainToken string) (*models.PlatformGateway, error) {
+//
+// Takes ctx so that a client disconnecting mid-request (or an upstream timeout)
+// actually cancels the in-flight DB query instead of letting it run to
+// completion regardless. This endpoint is reachable with no authentication at
+// all — any caller can submit an arbitrary UUID-shaped prefix — so a request
+// that can't be cancelled turns into an amplification primitive: enough
+// concurrent fake keys pin one DB connection each for the full query duration.
+func (s *PlatformGatewayService) VerifyToken(ctx context.Context, plainToken string) (*models.PlatformGateway, error) {
 	start := time.Now()
 	defer func() {
 		slog.Debug("token verification completed", "duration_ms", time.Since(start).Milliseconds())
@@ -567,25 +574,40 @@ func (s *PlatformGatewayService) VerifyToken(plainToken string) (*models.Platfor
 		s.tokenCache.Invalidate(tokenPrefix)
 	}
 
-	// Step 3: Cache miss - single indexed DB lookup by UUID prefix
-	token, err := s.gatewayRepo.GetActiveTokenByPrefix(tokenPrefix)
+	// Step 3: Skip the DB entirely for a prefix already confirmed absent recently.
+	// Any caller can submit an arbitrary UUID-shaped prefix with no authentication,
+	// so without this a burst of fake keys turns into one real DB query per key,
+	// every time, forever.
+	if s.tokenCache.IsKnownMiss(tokenPrefix) {
+		slog.Debug("token verification failed: known-miss prefix, DB lookup skipped", "tokenPrefix", tokenPrefix)
+		return nil, errors.New("invalid token")
+	}
+
+	// Step 4: Cache miss - single indexed DB lookup by UUID prefix
+	token, err := s.gatewayRepo.GetActiveTokenByPrefix(ctx, tokenPrefix)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.tokenCache.RecordMiss(tokenPrefix)
+			slog.Warn("token verification failed: no active token with prefix", "tokenPrefix", tokenPrefix)
+			return nil, errors.New("invalid token")
+		}
 		slog.Error("failed to lookup token by prefix", "tokenPrefix", tokenPrefix, "error", err)
 		return nil, fmt.Errorf("failed to verify token: %w", err)
 	}
 
 	if token == nil {
+		s.tokenCache.RecordMiss(tokenPrefix)
 		slog.Warn("token verification failed: no active token with prefix", "tokenPrefix", tokenPrefix)
 		return nil, errors.New("invalid token")
 	}
 
-	// Step 4: Verify token hash with constant-time comparison
+	// Step 5: Verify token hash with constant-time comparison
 	if !verifyToken(plainToken, token.TokenHash, token.Salt) {
 		slog.Warn("token verification failed: hash mismatch", "tokenPrefix", tokenPrefix)
 		return nil, errors.New("invalid token")
 	}
 
-	// Step 5: Get gateway (only on cache miss)
+	// Step 6: Get gateway (only on cache miss)
 	gateway, err := s.gatewayRepo.GetByUUID(token.GatewayUUID.String())
 	if err != nil {
 		slog.Error("failed to get gateway for valid token", "gatewayUUID", token.GatewayUUID, "error", err)
@@ -597,7 +619,7 @@ func (s *PlatformGatewayService) VerifyToken(plainToken string) (*models.Platfor
 		return nil, utils.ErrGatewayNotFound
 	}
 
-	// Step 6: Cache the valid token using prefix as key (stores full gateway + hash + salt)
+	// Step 7: Cache the valid token using prefix as key (stores full gateway + hash + salt)
 	s.tokenCache.Set(tokenPrefix, token.GatewayUUID, gateway, token.TokenHash, token.Salt)
 	slog.Info("token verified successfully and cached", "tokenPrefix", tokenPrefix, "gatewayUUID", gateway.UUID)
 

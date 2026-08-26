@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -166,4 +167,60 @@ func TestGetGateway_OtherOrgGatewayIsNotFound(t *testing.T) {
 	_, err := svc.GetGateway(gateway.UUID.String(), gatewayTestOUID)
 
 	assert.ErrorIs(t, err, utils.ErrGatewayNotFound)
+}
+
+// fakeButValidShapedToken builds a token string that passes VerifyToken's
+// format/UUID checks (36-byte UUID + "-" + random suffix) but was never
+// issued — the exact shape an anonymous DoS attempt would submit.
+func fakeButValidShapedToken() string {
+	return uuid.New().String() + "-kQpL8vK9zXwR3tYbN7cF2mJ5hD1sA6e"
+}
+
+// Before the fix, GetActiveTokenByPrefix ran once per call with no negative
+// caching: an anonymous caller submitting the same fake-but-valid-shaped key
+// repeatedly triggered one real DB query every single time. This guards that
+// a confirmed miss is remembered so a second lookup for the identical prefix
+// is served from memory instead of hitting the repository again.
+func TestVerifyToken_RepeatedFakeKey_DoesNotHitDBTwice(t *testing.T) {
+	fakeToken := fakeButValidShapedToken()
+	dbCalls := 0
+	repo := &repomocks.GatewayRepositoryMock{
+		GetActiveTokenByPrefixFunc: func(_ context.Context, _ string) (*models.GatewayToken, error) {
+			dbCalls++
+			return nil, gorm.ErrRecordNotFound
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	_, err1 := svc.VerifyToken(context.Background(), fakeToken)
+	_, err2 := svc.VerifyToken(context.Background(), fakeToken)
+
+	assert.Error(t, err1)
+	assert.Error(t, err2)
+	assert.Equal(t, 1, dbCalls, "a repeated lookup for the same confirmed-absent prefix must be served from the negative cache, not the DB")
+}
+
+// A cancelled context must reach the repository call so an in-flight DB
+// lookup can actually be aborted — the fix threads ctx through VerifyToken
+// instead of the DB call running to completion regardless of the caller
+// having already given up.
+func TestVerifyToken_PropagatesContextToRepository(t *testing.T) {
+	fakeToken := fakeButValidShapedToken()
+	var receivedCtx context.Context
+	repo := &repomocks.GatewayRepositoryMock{
+		GetActiveTokenByPrefixFunc: func(ctx context.Context, _ string) (*models.GatewayToken, error) {
+			receivedCtx = ctx
+			return nil, gorm.ErrRecordNotFound
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.VerifyToken(ctx, fakeToken)
+
+	require.Error(t, err)
+	require.NotNil(t, receivedCtx, "GetActiveTokenByPrefix must be reached with the caller's context, not a detached one")
+	assert.ErrorIs(t, receivedCtx.Err(), context.Canceled, "the repository must receive the caller's (cancelled) context, not context.Background()")
 }
