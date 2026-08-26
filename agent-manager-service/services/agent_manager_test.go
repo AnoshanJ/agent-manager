@@ -585,6 +585,62 @@ func TestUpdateAgentConfigurations_IdentityInjectionError_AbortsUpdate(t *testin
 	assert.False(t, overridesReplaced, "the env var override rewrite must never happen once identity env vars failed to build")
 }
 
+// TestUpdateAgentConfigurations_RejectsUnownedSecretRef guards against the
+// secretRef ownership bypass: a caller who can read one agent's config (and
+// so learns its real secretRef, e.g. "victim-agent-default-secrets") must not
+// be able to wire that same secretRef into a DIFFERENT agent's config as a
+// claimed "system-managed" reference for a key that agent doesn't yet own.
+// Before the fix, processEnvVars trusted any client-supplied secretRef for a
+// key outside the target agent's own secret without checking it against that
+// agent's actual server-side configuration — so the attacker's env var would
+// resolve, at the workload, straight to the victim's secret value.
+func TestUpdateAgentConfigurations_RejectsUnownedSecretRef(t *testing.T) {
+	setRBACEnabledForTier(t, false)
+	overridesReplaced := false
+	const attackerAgent = "scout-agent"
+	const victimSecretRef = "victim-agent-default-secrets"
+
+	ocClient := &clientmocks.OpenChoreoClientMock{
+		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
+			return &models.OrganizationResponse{Name: name}, nil
+		},
+		GetComponentFunc: func(_ context.Context, _, _, _ string) (*models.AgentResponse, error) {
+			return &models.AgentResponse{Provisioning: models.Provisioning{Type: string(utils.InternalAgent)}}, nil
+		},
+		GetEnvironmentFunc: nonProductionEnvStub(),
+		// scout-agent's own configuration has never contained OPENAI_API_KEY under
+		// any secretRef — there is nothing here for the attacker's claim to match.
+		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
+			return nil, nil
+		},
+		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+			overridesReplaced = true
+			return nil
+		},
+	}
+	injector := &agentIdentityInjectorStub{
+		EnvVarsForEnvironmentFunc: func(context.Context, string, string, string, string) ([]client.EnvVar, error) {
+			return nil, nil
+		},
+	}
+	s := &agentManagerService{ocClient: ocClient, agentIdentityInjection: injector, logger: discardLogger()}
+
+	attackerEnv := spec.EnvironmentVariable{Key: "OPENAI_API_KEY"}
+	attackerEnv.SetIsSensitive(true)
+	attackerEnv.SetValue("")
+	attackerEnv.SetSecretRef(victimSecretRef) // recovered from victim-agent's own config-read response
+
+	err := s.UpdateAgentConfigurations(context.Background(), "acme", "proj1", attackerAgent,
+		&spec.UpdateAgentConfigurationsRequest{
+			EnvironmentName: "dev",
+			Env:             []spec.EnvironmentVariable{attackerEnv},
+		})
+
+	require.Error(t, err, "wiring another agent's secretRef into this agent's config must be rejected")
+	assert.ErrorIs(t, err, utils.ErrInvalidInput, "the rejection must be classified as an invalid-input error, not a generic failure")
+	assert.False(t, overridesReplaced, "the victim's secretRef must never reach the workload override rewrite for an unrelated agent")
+}
+
 // stubAgentConfigurationServiceForPromote implements AgentConfigurationService
 // by embedding the (nil) interface and overriding only the methods PromoteAgent
 // actually calls — any other method call panics on the nil embed, which is fine
