@@ -80,7 +80,7 @@ export const ViewThunderInstance: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Visit Thunder Console
+              Go to the Console
             </Button>
           ) : undefined
         }
