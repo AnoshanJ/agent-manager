@@ -492,6 +492,20 @@ export function coerceValuesToSchemaTypes(
     stripExclusiveBranchKeys(branches, result);
   }
 
+  // Never send unset optional fields to the gateway: an explicit empty
+  // string/array/object for an optional param (e.g. an unconfigured
+  // endpoint or API key) fails config.toml parsing downstream, whereas
+  // omitting the key lets the policy fall back to its own default.
+  // Required keys are left as-is so blank-but-required fields still
+  // surface as a validation error instead of silently vanishing.
+  const requiredKeys = new Set(schema.required ?? []);
+  Object.keys(result).forEach((key) => {
+    if (requiredKeys.has(key)) return;
+    if (!hasMeaningfulValue(result[key])) {
+      delete result[key];
+    }
+  });
+
   return result;
 }
 
