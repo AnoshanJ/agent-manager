@@ -92,15 +92,20 @@ export function BuildPanel({
     !!repoInfo && !!selectedBranch,
   );
 
-  // Keep commitId empty to use latest commit (backend will determine)
-  // User can explicitly select a specific commit if needed
+  const commits = commitsData?.commits || [];
 
+  // An empty commitId means "use latest"; resolve it to the first commit's
+  // sha here so the build request never sends "" (which produces builds
+  // with no commit hash).
   const handleCommitChange = (event: SelectChangeEvent<string>) => {
     setCommitId(event.target.value);
   };
 
   const handleBuild = async () => {
     try {
+      const resolvedCommitId =
+        !isCommitsError && !commitId ? commits[0]?.sha || "" : commitId;
+
       buildAgent(
         {
           params: {
@@ -109,7 +114,7 @@ export function BuildPanel({
             agentName,
           },
           query: {
-            commitId: isCommitsError ? "" : commitId || "",
+            commitId: isCommitsError ? "" : resolvedCommitId,
           },
         },
         {
@@ -122,8 +127,6 @@ export function BuildPanel({
       // Build trigger failed - error handling can be added here if needed
     }
   };
-
-  const commits = commitsData?.commits || [];
 
   return (
     <Box display="flex" flexDirection="column" height="100%">
