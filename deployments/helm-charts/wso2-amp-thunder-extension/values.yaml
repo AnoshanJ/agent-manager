@@ -338,6 +338,7 @@ thunder:
         - 58-amctl-client.yaml
         - 59-am-mcp-client.yaml
         - 60-amp-resource-server.yaml
+        - 60-mcp-resource-servers.yaml
         - 61-amp-role-admin.yaml
         - 62-amp-role-developer.yaml
         - 63-amp-role-ai-lead.yaml
@@ -533,32 +534,24 @@ thunder:
         - "groups"
         - "ouId"
         - "ouHandle"
-    # RFC 8707 resource-server definitions for the platform's own MCP endpoints
-    # (agent-manager's MCP endpoint, its docker-compose dev variant, and the
-    # observer's MCP endpoint). NOT currently consumed by any template in this
-    # chart — nothing renders these into Thunder on install/upgrade yet; see
-    # deployments/setup/register-amp-resources.sh for the manual/bash
-    # registration that has to be run by hand instead. baseUrlValue names the
-    # scalar below holding that entry's base URL; permissionSet picks which
-    # slice of the amp permission tree it gets ("amp-minus-observability" or
-    # "observability-only"); `optional: true` entries are skipped when their
-    # base URL is empty.
+    # RFC 8707 resource servers for the public MCP origins. The bootstrap
+    # renders these as separate resource servers; urn:wso2:amp remains the
+    # platform API resource identifier. baseUrlValue selects the deployment-
+    # specific origin — one scalar per MCP endpoint, overridden to whatever
+    # that install actually serves (docker-compose dev, k3d, a VM, or a real
+    # domain); there is no separate "dev" scalar to keep in sync, the same way
+    # observerMcpBaseUrl has never needed one.
     agentManagerMcpBaseUrl: "http://api.amp.localhost:8080"
-    agentManagerMcpDevBaseUrl: ""
     observerMcpBaseUrl: "http://traces.amp.localhost:11080"
     mcpResourceServers:
       - name: "AMP Agent Manager MCP"
+        id: "amp-agent-manager-mcp-resource-server"
         handle: ""
         baseUrlValue: "agentManagerMcpBaseUrl"
         description: "Resource identifier for the agent-manager MCP endpoint"
         permissionSet: "amp-minus-observability"
-      - name: "AMP Agent Manager MCP (dev)"
-        handle: ""
-        baseUrlValue: "agentManagerMcpDevBaseUrl"
-        optional: true
-        description: "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack"
-        permissionSet: "amp-minus-observability"
       - name: "AMP Observer MCP"
+        id: "amp-observer-mcp-resource-server"
         handle: ""
         baseUrlValue: "observerMcpBaseUrl"
         description: "Resource identifier for the observer MCP endpoint"

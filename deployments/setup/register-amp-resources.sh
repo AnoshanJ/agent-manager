@@ -462,7 +462,7 @@ log_success "Default OU ID: $DEFAULT_OU_ID"
 # 1. Resource server
 # ===========================================================================
 log_info "Creating 'amp' resource server..."
-RS_ID=$(create_or_get_rs "Agent Manager API" "amp" "amp" "Agent Manager platform permissions" "$DEFAULT_OU_ID")
+RS_ID=$(create_or_get_rs "Agent Manager API" "amp" "urn:wso2:amp" "Agent Manager platform permissions" "$DEFAULT_OU_ID")
 log_info "Resource server ready (id: $RS_ID)"
 
 # ===========================================================================

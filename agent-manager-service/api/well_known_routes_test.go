@@ -20,9 +20,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 )
 
 func setupWellKnownMux() *http.ServeMux {
@@ -69,8 +71,8 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if body.Resource != "https://am.example.com" {
-		t.Errorf("expected resource %q, got %q", "https://am.example.com", body.Resource)
+	if body.Resource != "https://am.example.com/" {
+		t.Errorf("expected resource %q, got %q", "https://am.example.com/", body.Resource)
 	}
 	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != "https://idp.example.com" {
 		t.Errorf("expected authorization_servers [https://idp.example.com], got %v", body.AuthorizationServers)
@@ -78,8 +80,8 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	if len(body.BearerMethodsSupported) != 1 || body.BearerMethodsSupported[0] != "header" {
 		t.Errorf("expected bearer_methods_supported [header], got %v", body.BearerMethodsSupported)
 	}
-	if len(body.ScopesSupported) != 2 || body.ScopesSupported[0] != "org:view" || body.ScopesSupported[1] != "project:read" {
-		t.Errorf("expected scopes_supported [org:view, project:read], got %v", body.ScopesSupported)
+	if expected := rbac.MainMCPScopes(); !reflect.DeepEqual(body.ScopesSupported, expected) {
+		t.Errorf("expected MCP scopes %v, got %v", expected, body.ScopesSupported)
 	}
 }
 

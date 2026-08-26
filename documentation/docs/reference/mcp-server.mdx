@@ -81,7 +81,7 @@ The docker-compose dev stack publishes `agent-manager-service` straight onto a h
 http://localhost:9000/mcp
 ```
 
-Each install registers only the origins it actually serves: `make setup` registers both (the gateway origin and the dev host port), while a Quick Start or k3d install registers the gateway origin alone. If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value — and see the warning below.
+Each install registers exactly the one origin it actually serves — `make setup` overrides the identifier to the dev host port, while a Quick Start or k3d install leaves it at the chart's gateway-origin default. If you have changed `serverPublicURL` (Helm) or `SERVER_PUBLIC_URL` (docker-compose), substitute that value — and see the warning below.
 
 :::warning Moving the public URL is a two-place change
 
@@ -109,10 +109,10 @@ The matching `aud` entry needs no separate setting: `wso2-agent-manager` appends
 so that list only carries client IDs. (Charts released before that derivation
 list the URL literally — there, moving the public URL is a three-place change.)
 
-Identifiers are matched exactly, so a deployment reachable on more than one
-origin needs one resource server per origin. `thunder.bootstrap.agentManagerMcpDevBaseUrl`
-is the opt-in second origin for the docker-compose dev stack; `make setup-openchoreo`
-sets it, and other installs leave it empty.
+Identifiers are matched exactly, so there is exactly one `agentManagerMcpBaseUrl`
+scalar to override — the same one every install type sets, from `make setup`'s
+docker-compose host port to a real domain in production — not a separate
+value per environment.
 
 :::
 
@@ -126,13 +126,15 @@ AMP ships a pre-registered OAuth application in Thunder for MCP clients:
 
 The client is public (no secret), PKCE is required, and the callback port is pinned to **33418**. Because the redirect URIs are baked into the OAuth client registration, every MCP client must run its local OAuth listener on port `33418` to complete the login.
 
-The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart (script `59-am-mcp-client.sh`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
+The `am-mcp` client is provisioned automatically by the `wso2-amp-thunder-extension` Helm chart's bootstrap job (`59-am-mcp-client.yaml`) and is already wired into `KEY_MANAGER_AUDIENCE` on the docker-compose setup, so no manual registration is required for the default installations.
+
+The MCP resource-server identifier registered for this endpoint is a dedicated resource server, `amp-agent-manager-mcp-resource-server`, seeded from `60-mcp-resource-servers.yaml`. It is separate both from the general "Agent Manager API" resource server (`urn:wso2:amp`) that console, amctl, and `client_credentials` callers use, and from the Observer MCP endpoint's own resource server: an MCP client discovers the `resource` value from *this* endpoint's own metadata and requires it to match the origin it actually connected to, so a URN can't be the identifier (RFC 8707 requires an absolute URI) and one identifier can't cover two different origins. See [Observer MCP Server](./observer-mcp-server.mdx) for that endpoint's own identifier.
 
 :::note Upgrading an existing install
 
-Both the MCP resource-server identifiers and the permissions that become MCP token scopes are seeded by `60-amp-resource-server.sh`, which lives in a ConfigMap annotated `helm.sh/hook: pre-install`. Helm does **not** re-apply that ConfigMap on `helm upgrade`, so upgrading the chart leaves the old scripts in place and re-running the setup job would just re-seed the old values.
+Both the MCP resource-server identifiers (`60-mcp-resource-servers.yaml`) and the role permissions that become MCP token scopes (the four role documents, `61`–`64`) are seeded by a ConfigMap annotated `helm.sh/hook: pre-install`. Helm does **not** re-apply that ConfigMap on `helm upgrade`, so upgrading the chart leaves the old bootstrap data in place and re-running the setup job would just re-seed the old values.
 
-To pick up either, **reinstall the `amp-thunder-extension` release** (or replace the `amp-thunder-bootstrap` ConfigMap, then re-run the job). Symptoms if you skip it: an install seeded before the gateway origin was added registered only `http://localhost:9000/`, so a Quick Start or k3d client fails authorize with `invalid_target`; an install seeded without the permissions issues MCP tokens with an empty scope list and every tool call returns 403. Identifiers no longer in use are inert and can be left in place.
+To pick up either, **reinstall the `amp-thunder-extension` release** (or replace the `amp-thunder-bootstrap` ConfigMap, then re-run the job). Symptoms if you skip it: an install seeded before the dedicated MCP resource servers existed has no identifier for the `/mcp` endpoint at all, so every client fails authorize with `invalid_target`; an install seeded without the current role permissions issues MCP tokens with an empty scope list and every tool call returns 403.
 
 :::
 
