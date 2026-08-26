@@ -11,6 +11,9 @@ metadata:
   labels:
     {{- include "wso2-amp-gateway-extension.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-config
+{{- if .Values.apiGateway.config.systemEnv }}
+{{ fail "apiGateway.config.systemEnv has been replaced by apiGateway.config.config_toml + apiGateway.config.systemExtraEnv. See values.yaml for the migration example." }}
+{{- end }}
 data:
   values.yaml: |
     gateway:

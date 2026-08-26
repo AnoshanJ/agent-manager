@@ -102,8 +102,6 @@ apiGateway:
     # Name of the ConfigMap to create with gateway Helm values.
     # Defaults to "<release-name>-config" if empty.
     configMapName: ""
-    # Helm chart version for the gateway (must match what gateway-operator is configured for)
-    chartVersion: "1.1.0"
 
     # =========================================================================
     # Policy system parameter configurations
@@ -185,6 +183,9 @@ apiGateway:
     # Azure Content Safety, embedding providers) — TOML requires bare root
     # keys to precede any [table] header, which is why this leads the file.
     # Whole [table] sections work here too (tables are order-independent).
+    # Do NOT redefine a table this chart already emits below
+    # ([policy_configurations.*], [controller.*], [router], etc.) — TOML
+    # rejects a duplicate table and the gateway-runtime crash-loops on it.
     #
     # config.toml renders into a ConfigMap, not a Secret. For any secret value,
     # supply an `{{ env "VAR" }}` interpolation token (resolved by the policy
@@ -199,7 +200,7 @@ apiGateway:
     #     awsbedrock_guardrail_id = ""
     #     awsbedrock_guardrail_version = "DRAFT"
     #     awsbedrock_access_key_id = ""
-    #     awsbedrock_secret_access_key = '{{ env "APIP_GW_AWSBEDROCK_SECRET__ACCESS__KEY" }}'
+    #     awsbedrock_secret_access_key = '{{ env "APIP_GW_AWSBEDROCK_SECRET_ACCESS_KEY" }}'
     #     awsbedrock_session_token = ""
     #     awsbedrock_role_arn = ""
     #     awsbedrock_role_region = ""
@@ -214,14 +215,14 @@ apiGateway:
     #     embedding_provider_endpoint = ""
     #     embedding_provider_model = "text-embedding-ada-002"
     #     embedding_provider_dimension = "1536"
-    #     embedding_provider_api_key = '{{ env "APIP_GW_EMBEDDING_PROVIDER__API__KEY" }}'
+    #     embedding_provider_api_key = '{{ env "APIP_GW_EMBEDDING_PROVIDER_API_KEY" }}'
     #
     #     # Vector DB (semantic-cache)
     #     vector_db_provider = "REDIS"
     #     vector_db_provider_host = ""
     #     vector_db_provider_port = "6379"
     #     vector_db_provider_username = ""
-    #     vector_db_provider_password = '{{ env "APIP_GW_VECTOR_DB_PROVIDER__PASSWORD" }}'
+    #     vector_db_provider_password = '{{ env "APIP_GW_VECTOR_DB_PROVIDER_PASSWORD" }}'
     #     vector_db_provider_database = ""
     #     vector_db_provider_ttl = "3600"
     #
@@ -229,13 +230,13 @@ apiGateway:
     #     granite_guardian_endpoint = "http://granite-guardian:8000"
     #     granite_guardian_model = "ibm-granite/granite-guardian-3.3-8b"
     #     granite_guardian_timeout = "10"
-    #     granite_guardian_api_key = '{{ env "APIP_GW_GRANITE_GUARDIAN__API__KEY" }}'
+    #     granite_guardian_api_key = '{{ env "APIP_GW_GRANITE_GUARDIAN_API_KEY" }}'
     #
     #     # NeMo Guard Content Safety
     #     nemoguard_endpoint = "http://nemoguard:8101"
     #     nemoguard_model = "nemoguard"
     #     nemoguard_timeout = "30"
-    #     nemoguard_api_key = '{{ env "APIP_GW_NEMOGUARD__API__KEY" }}'
+    #     nemoguard_api_key = '{{ env "APIP_GW_NEMOGUARD_API_KEY" }}'
     config_toml: ""
 
     # Env vars backing any `{{ env "..." }}` tokens used in config_toml above.
