@@ -711,6 +711,12 @@ func thunderBootstrapRoleScopes(t *testing.T) map[string]map[string]bool {
 			!strings.Contains(block, "      - resourceServerId: amp-resource-server\n") {
 			t.Fatalf("Thunder bootstrap role %q no longer has the reviewed declarative role identity", handle)
 		}
+		// MCP resource servers intentionally repeat a role's applicable scope
+		// strings under different resourceServerId values. This invariant compares
+		// the service policy with the canonical amp-resource-server block only.
+		if mcpBlocks := strings.Index(block, "    {{- range $server := .Values.thunder.bootstrap.mcpResourceServers }}"); mcpBlocks >= 0 {
+			block = block[:mcpBlocks]
+		}
 		roles[handle] = map[string]bool{}
 		for _, scopeMatch := range scopePattern.FindAllStringSubmatch(block, -1) {
 			scope := scopeMatch[1]

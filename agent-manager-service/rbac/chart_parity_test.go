@@ -72,9 +72,22 @@ func bootstrapDocument(t *testing.T, raw, key string) string {
 		t.Fatalf("ConfigMap key %q not found in %s", key, bootstrapPath)
 	}
 	var body []string
+	templateDepth := 0
 	for _, line := range lines[start:] {
 		if configMapKeyLine.MatchString(line) {
 			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "{{- range ") || strings.HasPrefix(trimmed, "{{- if ") {
+			templateDepth++
+			continue
+		}
+		if strings.HasPrefix(trimmed, "{{- end") && templateDepth > 0 {
+			templateDepth--
+			continue
+		}
+		if templateDepth > 0 {
+			continue
 		}
 		if strings.Contains(line, "{{") {
 			t.Fatalf("document %q now contains Go templating (%q); this test can no longer parse it as YAML", key, strings.TrimSpace(line))

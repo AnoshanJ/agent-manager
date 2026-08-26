@@ -38,6 +38,27 @@ func (p Permission) Scope() string {
 	return ResourceServer + ":" + string(p)
 }
 
+// MainMCPScopes returns exactly the permission scopes required by the tools
+// registered on the Agent Manager MCP endpoint.
+func MainMCPScopes() []string {
+	permissions := []Permission{
+		ProjectRead,
+		ProjectCreate,
+		AgentRead,
+		AgentCreate,
+		AgentTokenManage,
+		AgentBuild,
+		AgentEnvNonProduction,
+		AgentSuspend,
+		EnvironmentRead,
+	}
+	scopes := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
+		scopes = append(scopes, permission.Scope())
+	}
+	return scopes
+}
+
 // Org permissions
 const (
 	OrgView                 Permission = "org:view"

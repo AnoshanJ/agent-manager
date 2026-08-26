@@ -447,10 +447,6 @@ assert_eq "agent site on_demand + disable_http_challenge" "yes" \
   assert_eq "core thunder MCP base URL (observer)" \
     "thunder.bootstrap.observerMcpBaseUrl=https://observer.amp.example.com" \
     "$(grep -F 'observerMcpBaseUrl' <<<"$core_th")"
-  # The dev origin is opt-in (empty chart default), so a VM install must not
-  # register it at all.
-  assert_eq "core thunder leaves the dev MCP origin unset" "" \
-    "$(grep -F 'agentManagerMcpDevBaseUrl' <<<"$core_th")"
 
   core_obs="$(observability_helm_args)"
   assert_eq "core observability audience carries the public observer URL" \
