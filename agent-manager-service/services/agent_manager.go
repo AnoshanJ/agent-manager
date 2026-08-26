@@ -5308,15 +5308,25 @@ func (s *agentManagerService) processEnvVars(
 	// agent's secretRef (recovered from that agent's own config-read response) into a
 	// key here and exfiltrate its value into a workload they control. See CVE-worthy
 	// finding: agent config update accepts unowned secretRef with no ownership check.
-	existingConfigs, cfgErr := s.ocClient.GetComponentConfigurations(ctx, ouID, projectName, componentName, environmentName)
-	if cfgErr != nil {
-		return nil, fmt.Errorf("failed to fetch existing configurations for secretRef validation: %w", cfgErr)
-	}
-	systemManagedSecretRefByKey := make(map[string]string)
-	for _, ec := range existingConfigs {
-		if ec.IsSensitive && ec.SecretRef != "" {
-			systemManagedSecretRefByKey[ec.Key] = ec.SecretRef
+	//
+	// Fetched lazily: only sensitive env vars/file mounts with an empty value and a
+	// secretRef not already in existingKeys need this lookup at all.
+	var systemManagedSecretRefByKey map[string]string
+	getSystemManagedSecretRefByKey := func() (map[string]string, error) {
+		if systemManagedSecretRefByKey != nil {
+			return systemManagedSecretRefByKey, nil
 		}
+		existingConfigs, cfgErr := s.ocClient.GetComponentConfigurations(ctx, ouID, projectName, componentName, environmentName)
+		if cfgErr != nil {
+			return nil, fmt.Errorf("failed to fetch existing configurations for secretRef validation: %w", cfgErr)
+		}
+		systemManagedSecretRefByKey = make(map[string]string)
+		for _, ec := range existingConfigs {
+			if ec.IsSensitive && ec.SecretRef != "" {
+				systemManagedSecretRefByKey[ec.Key] = ec.SecretRef
+			}
+		}
+		return systemManagedSecretRefByKey, nil
 	}
 
 	// First pass: collect secret data from env vars
@@ -5327,14 +5337,20 @@ func (s *agentManagerService) processEnvVars(
 					preservedSecretKeys = append(preservedSecretKeys, env.Key)
 					s.logger.Debug("Preserving existing secret", "key", env.Key)
 				} else {
-					realSecretRef, known := systemManagedSecretRefByKey[env.Key]
+					refsByKey, refErr := getSystemManagedSecretRefByKey()
+					if refErr != nil {
+						return nil, refErr
+					}
+					realSecretRef, known := refsByKey[env.Key]
 					if !known {
 						return nil, fmt.Errorf("%w: no existing secret reference for key %q; provide a value to set it", utils.ErrInvalidInput, env.Key)
 					}
 					if env.GetSecretRef() != realSecretRef {
 						return nil, fmt.Errorf("%w: secretRef for key %q does not match this agent's own secret reference", utils.ErrInvalidInput, env.Key)
 					}
-					s.logger.Info("Preserving existing system-managed secret-ref", "key", env.Key, "secretRef", realSecretRef)
+					s.logger.Info("Preserving existing system-managed secret-ref",
+						"key", env.Key, "secretRef", realSecretRef,
+						"ouID", ouID, "projectName", projectName, "environmentName", environmentName, "componentName", componentName)
 					secretRefOverrides[env.Key] = realSecretRef
 				}
 			} else if env.GetValue() != "" {
@@ -5353,7 +5369,11 @@ func (s *agentManagerService) processEnvVars(
 					preservedSecretKeys = append(preservedSecretKeys, f.Key)
 					s.logger.Debug("Preserving existing file mount secret", "key", f.Key)
 				} else {
-					realSecretRef, known := systemManagedSecretRefByKey[f.Key]
+					refsByKey, refErr := getSystemManagedSecretRefByKey()
+					if refErr != nil {
+						return nil, refErr
+					}
+					realSecretRef, known := refsByKey[f.Key]
 					if !known || f.GetSecretRef() != realSecretRef {
 						return nil, fmt.Errorf("%w: secretRef for file mount %q does not match this agent's own secret reference", utils.ErrInvalidInput, f.Key)
 					}

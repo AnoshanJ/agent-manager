@@ -19,7 +19,10 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -198,6 +201,45 @@ func TestVerifyToken_RepeatedFakeKey_DoesNotHitDBTwice(t *testing.T) {
 	assert.Error(t, err1)
 	assert.Error(t, err2)
 	assert.Equal(t, 1, dbCalls, "a repeated lookup for the same confirmed-absent prefix must be served from the negative cache, not the DB")
+}
+
+// Concurrent requests for the same missing prefix must be coalesced into a
+// single repository call via singleflight, not one call per goroutine — the
+// negative cache alone only protects *sequential* repeats, since concurrent
+// callers can all observe IsKnownMiss==false before any of them has recorded
+// the miss.
+func TestVerifyToken_ConcurrentRequestsForSameMissingPrefix_SingleDBCall(t *testing.T) {
+	fakeToken := fakeButValidShapedToken()
+	var dbCalls atomic.Int32
+	release := make(chan struct{})
+	repo := &repomocks.GatewayRepositoryMock{
+		GetActiveTokenByPrefixFunc: func(_ context.Context, _ string) (*models.GatewayToken, error) {
+			dbCalls.Add(1)
+			<-release // hold every call open until all goroutines have started
+			return nil, gorm.ErrRecordNotFound
+		},
+	}
+	svc := NewPlatformGatewayService(repo, nil)
+
+	const concurrency = 20
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := svc.VerifyToken(context.Background(), fakeToken)
+			assert.Error(t, err)
+		}()
+	}
+
+	// Give every goroutine a chance to reach the singleflight-coalesced call
+	// before releasing it, so a naive (non-serialized) implementation would
+	// have already dispatched its own separate DB calls by now.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	assert.Equal(t, int32(1), dbCalls.Load(), "concurrent requests for one missing prefix must produce only one repository call")
 }
 
 // A cancelled context must reach the repository call so an in-flight DB

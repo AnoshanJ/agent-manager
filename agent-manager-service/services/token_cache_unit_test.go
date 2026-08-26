@@ -71,3 +71,17 @@ func TestTokenCache_Set_ClearsExistingMiss(t *testing.T) {
 
 	require.False(c.IsKnownMiss("now-real-prefix"), "a token that now exists must not be shadowed by a stale miss entry")
 }
+
+// Any caller can submit an arbitrary UUID-shaped prefix with no
+// authentication, so a sustained stream of unique fake prefixes must not grow
+// the miss cache without bound — RecordMiss must evict old entries once the
+// cap is hit.
+func TestTokenCache_RecordMiss_BoundedByMaxMissEntries(t *testing.T) {
+	c := NewTokenCache(5 * time.Minute)
+
+	for i := 0; i < maxMissEntries+500; i++ {
+		c.RecordMiss(uuid.New().String())
+	}
+
+	assert.LessOrEqual(t, len(c.misses), maxMissEntries, "miss cache must never grow past its configured cap")
+}

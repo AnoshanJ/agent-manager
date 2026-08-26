@@ -18,6 +18,7 @@ package services
 
 import (
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -53,6 +54,12 @@ type TokenCache struct {
 // real DB query.
 const negativeCacheTTL = 30 * time.Second
 
+// maxMissEntries bounds the miss cache. Any caller can submit an arbitrary
+// UUID-shaped prefix with no authentication, so without a cap a sustained
+// stream of unique fake prefixes would grow c.misses without bound. Once the
+// cap is hit, RecordMiss evicts the oldest entries first.
+const maxMissEntries = 10000
+
 // NewTokenCache creates a new token cache with specified TTL
 func NewTokenCache(ttl time.Duration) *TokenCache {
 	return &TokenCache{
@@ -83,7 +90,45 @@ func (c *TokenCache) RecordMiss(tokenPrefix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.purgeExpiredMissesLocked()
+	if len(c.misses) >= maxMissEntries {
+		c.evictOldestMissesLocked(len(c.misses) - maxMissEntries + 1)
+	}
 	c.misses[tokenPrefix] = time.Now()
+}
+
+// purgeExpiredMissesLocked removes miss entries older than missTTL. Callers
+// must hold c.mu for writing.
+func (c *TokenCache) purgeExpiredMissesLocked() {
+	now := time.Now()
+	for prefix, missedAt := range c.misses {
+		if now.Sub(missedAt) > c.missTTL {
+			delete(c.misses, prefix)
+		}
+	}
+}
+
+// evictOldestMissesLocked removes the n oldest miss entries. Callers must
+// hold c.mu for writing.
+func (c *TokenCache) evictOldestMissesLocked(n int) {
+	if n <= 0 {
+		return
+	}
+	type prefixAge struct {
+		prefix   string
+		missedAt time.Time
+	}
+	entries := make([]prefixAge, 0, len(c.misses))
+	for prefix, missedAt := range c.misses {
+		entries = append(entries, prefixAge{prefix, missedAt})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].missedAt.Before(entries[j].missedAt) })
+	if n > len(entries) {
+		n = len(entries)
+	}
+	for i := 0; i < n; i++ {
+		delete(c.misses, entries[i].prefix)
+	}
 }
 
 // Get retrieves a token entry from cache by prefix if valid

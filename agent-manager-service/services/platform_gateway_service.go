@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -46,6 +47,11 @@ type PlatformGatewayService struct {
 	gatewayRepo    repositories.GatewayRepository
 	tokenCache     *TokenCache
 	gatewayApplier GatewayConfigApplier
+	// verifyTokenSfg serializes the DB lookup in VerifyToken per tokenPrefix, so a
+	// burst of concurrent requests for the same (often forged) prefix triggers one
+	// repository call instead of one per request. Different prefixes still run
+	// concurrently — this is per-key, not a global lock.
+	verifyTokenSfg singleflight.Group
 }
 
 // NewPlatformGatewayService creates a new platform gateway service. gatewayApplier is
@@ -583,44 +589,67 @@ func (s *PlatformGatewayService) VerifyToken(ctx context.Context, plainToken str
 		return nil, errors.New("invalid token")
 	}
 
-	// Step 4: Cache miss - single indexed DB lookup by UUID prefix
-	token, err := s.gatewayRepo.GetActiveTokenByPrefix(ctx, tokenPrefix)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Steps 4-7: Cache miss - look up the token and gateway, serialized per
+	// tokenPrefix via singleflight. A burst of concurrent requests for the same
+	// prefix (fake or real) would otherwise each start their own DB round trip;
+	// coalescing them into one caller-in-flight collapses that to a single
+	// repository call, with the result (or error) shared to every waiter.
+	// Different prefixes are unaffected and still proceed fully concurrently.
+	type verifyResult struct {
+		gateway *models.PlatformGateway
+	}
+	v, err, _ := s.verifyTokenSfg.Do(tokenPrefix, func() (interface{}, error) {
+		// Re-check under the per-prefix key: another request for this exact
+		// prefix may have already run to completion and recorded a miss while
+		// this call was waiting to be admitted.
+		if s.tokenCache.IsKnownMiss(tokenPrefix) {
+			return nil, errors.New("invalid token")
+		}
+
+		token, tokenErr := s.gatewayRepo.GetActiveTokenByPrefix(ctx, tokenPrefix)
+		if tokenErr != nil {
+			if errors.Is(tokenErr, gorm.ErrRecordNotFound) {
+				s.tokenCache.RecordMiss(tokenPrefix)
+				slog.Warn("token verification failed: no active token with prefix", "tokenPrefix", tokenPrefix)
+				return nil, errors.New("invalid token")
+			}
+			slog.Error("failed to lookup token by prefix", "tokenPrefix", tokenPrefix, "error", tokenErr)
+			return nil, fmt.Errorf("failed to verify token: %w", tokenErr)
+		}
+
+		if token == nil {
 			s.tokenCache.RecordMiss(tokenPrefix)
 			slog.Warn("token verification failed: no active token with prefix", "tokenPrefix", tokenPrefix)
 			return nil, errors.New("invalid token")
 		}
-		slog.Error("failed to lookup token by prefix", "tokenPrefix", tokenPrefix, "error", err)
-		return nil, fmt.Errorf("failed to verify token: %w", err)
-	}
 
-	if token == nil {
-		s.tokenCache.RecordMiss(tokenPrefix)
-		slog.Warn("token verification failed: no active token with prefix", "tokenPrefix", tokenPrefix)
-		return nil, errors.New("invalid token")
-	}
+		// Step 5: Verify token hash with constant-time comparison
+		if !verifyToken(plainToken, token.TokenHash, token.Salt) {
+			slog.Warn("token verification failed: hash mismatch", "tokenPrefix", tokenPrefix)
+			return nil, errors.New("invalid token")
+		}
 
-	// Step 5: Verify token hash with constant-time comparison
-	if !verifyToken(plainToken, token.TokenHash, token.Salt) {
-		slog.Warn("token verification failed: hash mismatch", "tokenPrefix", tokenPrefix)
-		return nil, errors.New("invalid token")
-	}
+		// Step 6: Get gateway (only on cache miss)
+		gateway, gwErr := s.gatewayRepo.GetByUUID(token.GatewayUUID.String())
+		if gwErr != nil {
+			slog.Error("failed to get gateway for valid token", "gatewayUUID", token.GatewayUUID, "error", gwErr)
+			return nil, fmt.Errorf("failed to get gateway: %w", gwErr)
+		}
 
-	// Step 6: Get gateway (only on cache miss)
-	gateway, err := s.gatewayRepo.GetByUUID(token.GatewayUUID.String())
+		if gateway == nil {
+			slog.Warn("gateway not found for valid token", "gatewayUUID", token.GatewayUUID)
+			return nil, utils.ErrGatewayNotFound
+		}
+
+		// Step 7: Cache the valid token using prefix as key (stores full gateway + hash + salt)
+		s.tokenCache.Set(tokenPrefix, token.GatewayUUID, gateway, token.TokenHash, token.Salt)
+
+		return verifyResult{gateway: gateway}, nil
+	})
 	if err != nil {
-		slog.Error("failed to get gateway for valid token", "gatewayUUID", token.GatewayUUID, "error", err)
-		return nil, fmt.Errorf("failed to get gateway: %w", err)
+		return nil, err
 	}
-
-	if gateway == nil {
-		slog.Warn("gateway not found for valid token", "gatewayUUID", token.GatewayUUID)
-		return nil, utils.ErrGatewayNotFound
-	}
-
-	// Step 7: Cache the valid token using prefix as key (stores full gateway + hash + salt)
-	s.tokenCache.Set(tokenPrefix, token.GatewayUUID, gateway, token.TokenHash, token.Salt)
+	gateway := v.(verifyResult).gateway
 	slog.Info("token verified successfully and cached", "tokenPrefix", tokenPrefix, "gatewayUUID", gateway.UUID)
 
 	return gateway, nil
