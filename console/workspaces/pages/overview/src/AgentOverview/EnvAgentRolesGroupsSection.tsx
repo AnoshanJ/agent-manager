@@ -79,7 +79,14 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
     });
   };
 
-  const { mutate: provisionIdentity, isPending: isProvisioning } = useProvisionAgentIdentity();
+  // isError persists the last attempt's outcome (not just a transient
+  // snackbar) so a failed click leaves a visible reason behind instead of
+  // silently reverting to the same neutral "not created yet" state — the
+  // same reasoning the existing Retry alert below already follows for a
+  // failed identity. It clears itself the moment a later attempt succeeds,
+  // since TanStack Query's isError reflects only the most recent call.
+  const { mutate: provisionIdentity, isPending: isProvisioning, isError: isProvisionError } =
+    useProvisionAgentIdentity();
   const handleProvision = () => {
     provisionIdentity({
       params: { orgName: orgId, projName: projectId, agentName: agentId },
@@ -234,8 +241,8 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
       )}
       {canSelfProvision && (
         <Alert
-          severity="info"
-          icon={<Info size={18} />}
+          severity={isProvisionError ? "error" : "info"}
+          icon={isProvisionError ? <AlertTriangle size={18} /> : <Info size={18} />}
           action={
             <Button
               color="inherit"
@@ -250,7 +257,9 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
           }
           sx={{ mt: 1.5, flexWrap: "wrap", "& .MuiAlert-action": { flexShrink: 0 } }}
         >
-          This environment was added after the agent was created, so it has no Agent ID yet.
+          {isProvisionError
+            ? "Couldn't create the Agent ID for this environment. Check that the environment is reachable, then try again."
+            : "This environment was added after the agent was created, so it has no Agent ID yet."}
         </Alert>
       )}
     </OverviewSectionCard>
