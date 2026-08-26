@@ -55,7 +55,7 @@ CLIENTS="urn:wso2:amp,amp-console-client,amp-api-client,amp-publisher-*,amctl,am
 # Defaults must stay byte-identical to the pre-derivation literals, so existing
 # installs and quick-start (which passes no overrides) are unaffected.
 assert_cm "default audience keeps the gateway resource entry" \
-  KEY_MANAGER_AUDIENCE "${CLIENTS},http://api.amp.localhost:8080/"
+  KEY_MANAGER_AUDIENCE "${CLIENTS},http://api.amp.localhost:8080/mcp"
 assert_cm "default authorization servers fall back to the default issuer" \
   OAUTH_AUTHORIZATION_SERVERS "http://thunder.amp.localhost:8080"
 
@@ -71,26 +71,27 @@ assert_cm "explicit authorization servers win over the issuer" \
   --set agentManagerService.config.oauthAuthorizationServers=https://as.example.com
 
 # Issue #1414: serverPublicURL is the RFC 8707 resource identifier MCP tokens are
-# minted with, so it must reach the audience list with exactly one trailing slash.
+# minted with, so it must reach the audience list with "/mcp" appended and no
+# trailing slash (per the MCP spec's canonical-URI guidance).
 assert_cm "serverPublicURL override is appended to the audience" \
-  KEY_MANAGER_AUDIENCE "${CLIENTS},https://api.example.com/" \
+  KEY_MANAGER_AUDIENCE "${CLIENTS},https://api.example.com/mcp" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com
 assert_cm "a serverPublicURL that already ends in a slash is not doubled" \
-  KEY_MANAGER_AUDIENCE "${CLIENTS},https://api.example.com/" \
+  KEY_MANAGER_AUDIENCE "${CLIENTS},https://api.example.com/mcp" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com/
 assert_cm "an audience that already lists the resource gains no duplicate" \
-  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/" \
+  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/mcp" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com \
-  --set 'agentManagerService.config.keyManager.audience=amp\,https://api.example.com/'
+  --set 'agentManagerService.config.keyManager.audience=amp\,https://api.example.com/mcp'
 assert_cm "whitespace in the audience does not defeat the duplicate check" \
-  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/" \
+  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/mcp" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com \
-  --set 'agentManagerService.config.keyManager.audience=amp\, https://api.example.com/'
+  --set 'agentManagerService.config.keyManager.audience=amp\, https://api.example.com/mcp'
 assert_cm "an empty serverPublicURL appends nothing and leaves no trailing comma" \
   KEY_MANAGER_AUDIENCE "$CLIENTS" \
   --set-string agentManagerService.config.serverPublicURL=
 assert_cm "a stray comma in the audience does not produce an empty entry" \
-  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/" \
+  KEY_MANAGER_AUDIENCE "amp,https://api.example.com/mcp" \
   --set agentManagerService.config.serverPublicURL=https://api.example.com \
   --set 'agentManagerService.config.keyManager.audience=amp\,'
 

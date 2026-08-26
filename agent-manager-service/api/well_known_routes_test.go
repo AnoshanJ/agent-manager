@@ -71,8 +71,8 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if body.Resource != "https://am.example.com/" {
-		t.Errorf("expected resource %q, got %q", "https://am.example.com/", body.Resource)
+	if body.Resource != "https://am.example.com/mcp" {
+		t.Errorf("expected resource %q, got %q", "https://am.example.com/mcp", body.Resource)
 	}
 	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != "https://idp.example.com" {
 		t.Errorf("expected authorization_servers [https://idp.example.com], got %v", body.AuthorizationServers)
@@ -109,7 +109,7 @@ func TestWellKnownOAuthProtectedResource_MultipleAuthorizationServers(t *testing
 	}
 }
 
-func TestWellKnownOAuthProtectedResource_TrailingSlashPreserved(t *testing.T) {
+func TestWellKnownOAuthProtectedResource_TrailingSlashNormalized(t *testing.T) {
 	withWellKnownConfig(t, "https://am.example.com/", []string{"https://idp.example.com/"}, nil)
 
 	mux := setupWellKnownMux()
@@ -125,9 +125,12 @@ func TestWellKnownOAuthProtectedResource_TrailingSlashPreserved(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if body.Resource != "https://am.example.com/" {
-		t.Errorf("expected resource to preserve trailing slash, got %q", body.Resource)
+	// A trailing slash on ServerPublicURL must not become "//mcp" — it's trimmed
+	// before "/mcp" is appended, matching the MCP spec's no-trailing-slash guidance.
+	if body.Resource != "https://am.example.com/mcp" {
+		t.Errorf("expected resource with trailing slash normalized away, got %q", body.Resource)
 	}
+	// authorization_servers is passed through verbatim — untouched by resource normalization.
 	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != "https://idp.example.com/" {
 		t.Errorf("expected authorization_servers to preserve trailing slash, got %v", body.AuthorizationServers)
 	}

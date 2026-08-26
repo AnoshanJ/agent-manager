@@ -30,8 +30,8 @@ assert all(isinstance(server, dict) for server in servers)
 by_id = {server["id"]: server for server in servers}
 main = by_id["amp-agent-manager-mcp-resource-server"]
 observer = by_id["amp-observer-mcp-resource-server"]
-assert main["identifier"] == "http://api.amp.localhost:8080/"
-assert observer["identifier"] == "http://traces.amp.localhost:11080/"
+assert main["identifier"] == "http://api.amp.localhost:8080/mcp"
+assert observer["identifier"] == "http://traces.amp.localhost:11080/mcp"
 assert "amp-agent-manager-dev-mcp-resource-server" not in by_id
 
 setup_job = next(

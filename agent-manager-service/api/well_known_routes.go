@@ -49,7 +49,7 @@ func registerWellKnownRoutes(mux *http.ServeMux) {
 		}
 
 		body := protectedResourceMetadata{
-			Resource:               strings.TrimSuffix(cfg.ServerPublicURL, "/") + "/",
+			Resource:               strings.TrimSuffix(cfg.ServerPublicURL, "/") + "/mcp",
 			AuthorizationServers:   cfg.OAuthAuthorizationServers,
 			BearerMethodsSupported: []string{"header"},
 			ScopesSupported:        rbac.MainMCPScopes(),

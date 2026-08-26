@@ -547,7 +547,7 @@ data:
     id: {{ $server.id | quote }}
     name: {{ $server.name | quote }}
     description: {{ $server.description | quote }}
-    identifier: {{ printf "%s/" ($baseURL | trimSuffix "/") | quote }}
+    identifier: {{ printf "%s/mcp" ($baseURL | trimSuffix "/") | quote }}
     ouHandle: default
     delimiter: ":"
     resources:

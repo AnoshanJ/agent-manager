@@ -67,10 +67,11 @@ amObserver:
   # Publisher tokens (aud amp-publisher-*) are matched by a separate regex in
   # the observer's auth middleware and do not need to be listed here.
   # MCP tokens minted for the observer MCP client (am-obs-mcp) carry the
-  # RFC 8707 resource identifier — this service's publicUrl WITH a trailing
-  # slash — as their audience. That URL is NOT listed here: the chart appends
-  # publicUrl (slash included) to this list automatically, so overriding
-  # publicUrl alone keeps MCP tokens valid. "am-obs-mcp" is listed
+  # RFC 8707 resource identifier — this service's publicUrl with "/mcp"
+  # appended (no trailing slash, per the MCP spec's canonical-URI guidance) —
+  # as their audience. That URL is NOT listed here: the chart appends
+  # publicUrl+"/mcp" to this list automatically, so overriding publicUrl
+  # alone keeps MCP tokens valid. "am-obs-mcp" is listed
   # defensively; MCP logins normally carry that resource URL as the
   # audience, not the client ID (unlike amp-api-client's client-credentials
   # fallback, this can't occur for am-obs-mcp, a public client restricted to

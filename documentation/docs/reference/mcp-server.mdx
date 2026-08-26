@@ -85,10 +85,12 @@ Each install registers exactly the one origin it actually serves — `make setup
 
 :::warning Moving the public URL is a two-place change
 
-MCP clients send the server's public URL — with a trailing slash — as the OAuth
-`resource` parameter (RFC 8707), and Thunder both validates that value against
-its registered resource servers and stamps it into the token's `aud`. Changing
-the public URL therefore means changing two settings together, in two charts:
+MCP clients send the server's public URL with `/mcp` appended — no trailing
+slash, per the MCP spec's canonical-URI guidance (the endpoint's actual path,
+not a bare origin) — as the OAuth `resource` parameter (RFC 8707), and Thunder
+both validates that value against its registered resource servers and stamps
+it into the token's `aud`. Changing the public URL therefore means changing
+two settings together, in two charts:
 
 | Setting                                      | Chart                        | Value               |
 | -------------------------------------------- | ---------------------------- | ------------------- |
@@ -97,17 +99,17 @@ the public URL therefore means changing two settings together, in two charts:
 
 On docker-compose there is no chart to derive anything, so all three move together
 by hand in `deployments/docker-compose.yml`: `SERVER_PUBLIC_URL`, the matching
-`KEY_MANAGER_AUDIENCE` entry (the same URL **plus a trailing slash**), and the
-identifier registered in Thunder.
+`KEY_MANAGER_AUDIENCE` entry (the same URL **plus `/mcp`, no trailing slash**),
+and the identifier registered in Thunder.
 
 Leaving `agentManagerMcpBaseUrl` behind makes the browser redirect fail with
 `invalid_target: The resource parameter does not match any registered resource
 server`.
 
 The matching `aud` entry needs no separate setting: `wso2-agent-manager` appends
-`serverPublicURL` plus a trailing slash to `keyManager.audience` when it renders,
-so that list only carries client IDs. (Charts released before that derivation
-list the URL literally — there, moving the public URL is a three-place change.)
+`serverPublicURL` plus `/mcp` to `keyManager.audience` when it renders, so that
+list only carries client IDs. (Charts released before that derivation list the
+URL literally — there, moving the public URL is a three-place change.)
 
 Identifiers are matched exactly, so there is exactly one `agentManagerMcpBaseUrl`
 scalar to override — the same one every install type sets, from `make setup`'s
