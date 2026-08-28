@@ -6,9 +6,11 @@
   "properties": {
     "global": {
       "additionalProperties": false,
+      "description": "Global configuration",
       "properties": {
         "oauth": {
           "additionalProperties": false,
+          "description": "OAuth / IDP configuration for workload publishing",
           "properties": {
             "tokenUrl": {
               "default": "http://host.k3d.internal:8080/oauth2/token",
@@ -35,6 +37,7 @@
         },
         "apiServer": {
           "additionalProperties": false,
+          "description": "OpenChoreo API server configuration",
           "properties": {
             "url": {
               "default": "http://host.k3d.internal:8080",
@@ -69,6 +72,7 @@
         },
         "registry": {
           "additionalProperties": false,
+          "description": "Container registry configuration",
           "properties": {
             "endpoint": {
               "default": "host.k3d.internal:10082",
@@ -83,6 +87,7 @@
         },
         "defaultResources": {
           "additionalProperties": false,
+          "description": "Default resources configuration",
           "properties": {
             "namespace": {
               "default": "default",
@@ -92,6 +97,7 @@
             },
             "registry": {
               "additionalProperties": false,
+              "description": "Registry configuration for default resources",
               "properties": {
                 "tlsVerify": {
                   "default": false,
@@ -106,6 +112,7 @@
             },
             "buildpackCache": {
               "additionalProperties": false,
+              "description": "Buildpack cache configuration",
               "properties": {
                 "enabled": {
                   "default": false,
@@ -165,6 +172,7 @@
     },
     "kubectl": {
       "additionalProperties": false,
+      "description": "Kubectl image configuration for jobs",
       "properties": {
         "image": {
           "default": "bitnamilegacy/kubectl:1.32.4",
@@ -179,6 +187,7 @@
     },
     "buildWorkflows": {
       "additionalProperties": false,
+      "description": "Build workflow pod hardening",
       "properties": {
         "userNamespaces": {
           "default": true,
@@ -193,6 +202,7 @@
     },
     "environment": {
       "additionalProperties": false,
+      "description": "Environment configuration",
       "properties": {
         "name": {
           "default": "default",
@@ -226,6 +236,7 @@
         },
         "gateway": {
           "additionalProperties": false,
+          "description": "Gateway ingress details persisted on the default Environment CR. This mirrors what add-environment.sh writes for other envs so every env CR carries its gateway info explicitly. name/namespace MUST reference the real data-plane Gateway so agent HTTPRoutes attach to it; OC builds agent route hostnames as \"<env>-<org>.<listener.host>\".",
           "properties": {
             "name": {
               "default": "gateway-default",
@@ -235,19 +246,23 @@
             },
             "namespace": {
               "default": "openchoreo-data-plane",
+              "description": "Namespace containing that gateway.",
               "title": "namespace",
               "type": "string"
             },
             "http": {
               "additionalProperties": false,
+              "description": "http: agent-facing host (distinct from the gateway-runtime host gateway.localhost).",
               "properties": {
                 "host": {
                   "default": "am-gateway.localhost",
+                  "description": "Hostname routed to agents in this environment.",
                   "title": "host",
                   "type": "string"
                 },
                 "port": {
                   "default": 19080,
+                  "description": "Port the HTTP listener serves on.",
                   "title": "port",
                   "type": "integer"
                 }
@@ -268,14 +283,17 @@
     },
     "apiPlatformGatewayVhost": {
       "additionalProperties": false,
+      "description": "API Platform Gateway vhost used for externally reachable gateway URLs. Sandboxed platform agents use the per-environment gateway runtime's in-cluster Service for OTEL and managed LLM/MCP proxy traffic instead.",
       "properties": {
         "host": {
           "default": "gateway.localhost",
+          "description": "Hostname of the virtual host.",
           "title": "host",
           "type": "string"
         },
         "port": {
           "default": 19080,
+          "description": "Port the virtual host serves on.",
           "title": "port",
           "type": "integer"
         },
@@ -292,6 +310,7 @@
     },
     "apiPlatformGateway": {
       "additionalProperties": false,
+      "description": "Where the per-environment API Platform Gateway is installed. This must agree with apiGateway.namespace in wso2-amp-api-platform-gateway-extension, because the traits below address that release's gateway-runtime Service by DNS name.",
       "properties": {
         "namespace": {
           "default": "",
@@ -306,6 +325,7 @@
     },
     "deploymentPipeline": {
       "additionalProperties": false,
+      "description": "Deployment Pipeline configuration",
       "properties": {
         "name": {
           "default": "default",
@@ -348,6 +368,7 @@
     },
     "project": {
       "additionalProperties": false,
+      "description": "Project configuration",
       "properties": {
         "name": {
           "default": "default",
@@ -372,15 +393,16 @@
       "title": "project",
       "type": "object"
     },
+    "openchoreoNamespace": {
+      "default": "default",
+      "description": "Namespace the platform resources below are created in. It must match the service's OPEN_CHOREO_DEFAULT_NAMESPACE, since that is the namespace the service creates projects in \u2014 and a namespaced ProjectType is only resolvable from within its own namespace.",
+      "title": "openchoreoNamespace",
+      "type": "string"
+    },
     "projectType": {
       "additionalProperties": false,
+      "description": "ProjectType referenced by the default Project. OpenChoreo 1.2.0+ makes Project.spec.type a required reference to a (Cluster)ProjectType, which provides the per-environment resource template (here, the cell namespace). A namespaced ProjectType is used rather than a cluster-scoped ClusterProjectType so the type is not shared across tenants. The name is deliberately not configurable: it is a contract with the service, which references client.DefaultProjectTypeName. If the two diverged, every project created through the API would fail to reconcile with ProjectTypeNotFound.",
       "properties": {
-        "name": {
-          "default": "default",
-          "description": "Name of the ClusterProjectType (must be a DNS-1123 label)",
-          "title": "name",
-          "type": "string"
-        },
         "displayName": {
           "default": "Default Project Type",
           "description": "Display name for the project type",
@@ -400,6 +422,7 @@
     },
     "externalSecrets": {
       "additionalProperties": false,
+      "description": "External Secrets configuration",
       "properties": {
         "clusterSecretStoreName": {
           "default": "default",
@@ -414,9 +437,11 @@
     },
     "authz": {
       "additionalProperties": false,
+      "description": "Authorization configuration for OpenChoreo",
       "properties": {
         "ampApiClient": {
           "additionalProperties": false,
+          "description": "AMP API Client authorization binding",
           "properties": {
             "clientId": {
               "default": "amp-api-client",
@@ -437,6 +462,7 @@
         },
         "amObserverClient": {
           "additionalProperties": false,
+          "description": "AM Observer Client authorization binding",
           "properties": {
             "clientId": {
               "default": "am-observer-client",
@@ -462,6 +488,7 @@
     },
     "gatewayTls": {
       "additionalProperties": false,
+      "description": "Gateway TLS certificate configuration",
       "properties": {
         "enabled": {
           "default": true,
@@ -521,6 +548,7 @@
         },
         "issuerRef": {
           "additionalProperties": false,
+          "description": "Issuer reference for cert-manager",
           "properties": {
             "name": {
               "default": "openchoreo-data-plane-selfsigned-issuer",

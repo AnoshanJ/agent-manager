@@ -6,6 +6,7 @@
   "properties": {
     "global": {
       "additionalProperties": false,
+      "description": "Global configuration (inherited from parent chart)",
       "properties": {
         "baseDomain": {
           "default": "",
@@ -15,6 +16,7 @@
         },
         "registry": {
           "additionalProperties": false,
+          "description": "Container registry configuration",
           "properties": {
             "endpoint": {
               "default": "host.k3d.internal:10082",
@@ -34,9 +36,11 @@
     },
     "ampEvaluation": {
       "additionalProperties": false,
+      "description": "AMP Evaluation image configuration",
       "properties": {
         "image": {
           "additionalProperties": false,
+          "description": "Docker image configuration for monitor evaluation",
           "properties": {
             "repository": {
               "default": "ghcr.io/wso2/amp-evaluation-monitor",
@@ -75,6 +79,7 @@
         },
         "publisher": {
           "additionalProperties": false,
+          "description": "Publisher settings (for publishing evaluation scores to agent-manager)",
           "properties": {
             "endpoint": {
               "default": "http://amp-api.wso2-amp.svc.cluster.local:9000",
@@ -90,6 +95,7 @@
             },
             "clientId": {
               "default": "amp-publisher-client",
+              "description": "OAuth 2.0 client ID the job uses to obtain a publisher token.",
               "title": "clientId",
               "type": "string"
             }
@@ -105,9 +111,11 @@
     },
     "networkPolicy": {
       "additionalProperties": false,
+      "description": "Restricts the evaluation-job pod's egress (untrusted, user-submitted code) to just DNS, the traces observer, Thunder, the agent-manager-service publisher endpoint, and the LLM gateway.",
       "properties": {
         "evaluationJob": {
           "additionalProperties": false,
+          "description": "Egress allow-list for the evaluation job, which executes user-submitted evaluator code.",
           "properties": {
             "enabled": {
               "default": true,
@@ -123,22 +131,27 @@
             },
             "dns": {
               "additionalProperties": false,
+              "description": "DNS target on port 53, scoped rather than left wide open since this pod runs untrusted code.",
               "properties": {
                 "namespace": {
                   "default": "kube-system",
+                  "description": "Namespace running the cluster DNS pods.",
                   "title": "namespace",
                   "type": "string"
                 },
                 "podLabel": {
                   "additionalProperties": false,
+                  "description": "Label selecting the DNS pods, rather than opening port 53 cluster-wide.",
                   "properties": {
                     "key": {
                       "default": "k8s-app",
+                      "description": "Label key on the DNS pods.",
                       "title": "key",
                       "type": "string"
                     },
                     "value": {
                       "default": "kube-dns",
+                      "description": "Label value on the DNS pods.",
                       "title": "value",
                       "type": "string"
                     }
@@ -154,9 +167,11 @@
             },
             "observer": {
               "additionalProperties": false,
+              "description": "Ports are matched post-DNAT, so each is the target's containerPort, not its Service port.",
               "properties": {
                 "namespace": {
                   "default": "openchoreo-observability-plane",
+                  "description": "Namespace running the observer.",
                   "title": "namespace",
                   "type": "string"
                 },
@@ -164,6 +179,7 @@
                   "default": [
                     9098
                   ],
+                  "description": "Ports the job may reach on the observer pods.",
                   "items": {
                     "type": "integer"
                   },
@@ -177,9 +193,11 @@
             },
             "publisher": {
               "additionalProperties": false,
+              "description": "Agent Manager service the job publishes scores to.",
               "properties": {
                 "namespace": {
                   "default": "wso2-amp",
+                  "description": "Namespace running the Agent Manager service.",
                   "title": "namespace",
                   "type": "string"
                 },
@@ -187,6 +205,7 @@
                   "default": [
                     8080
                   ],
+                  "description": "Ports the job may reach on the Agent Manager service. Allowed values: amp-api's containerPort; its Service port 9000 never survives DNAT.",
                   "items": {
                     "type": "integer"
                   },
@@ -200,9 +219,11 @@
             },
             "idp": {
               "additionalProperties": false,
+              "description": "Identity provider the job requests a token from.",
               "properties": {
                 "namespace": {
                   "default": "amp-thunder",
+                  "description": "Namespace running the identity provider.",
                   "title": "namespace",
                   "type": "string"
                 },
@@ -210,6 +231,7 @@
                   "default": [
                     8090
                   ],
+                  "description": "Ports the job may reach on the identity provider.",
                   "items": {
                     "type": "integer"
                   },
@@ -223,11 +245,13 @@
             },
             "llmGateway": {
               "additionalProperties": false,
+              "description": "AI Gateway that LLM-judge evaluators call through.",
               "properties": {
                 "ports": {
                   "default": [
                     22893
                   ],
+                  "description": "Ports the job may reach on the gateway.",
                   "items": {
                     "type": "integer"
                   },
@@ -247,9 +271,11 @@
             },
             "devEgress": {
               "additionalProperties": false,
+              "description": "Local-dev only: ipBlock exception for the node network, covering agent-manager-service outside the cluster (8080) and the gateway's node port (19080). Empty (no-op) elsewhere; setup-amp-extensions.sh sets both.",
               "properties": {
                 "cidr": {
                   "default": "",
+                  "description": "Node network CIDR to allow. Empty disables the exception.",
                   "title": "cidr",
                   "type": "string"
                 },
@@ -258,6 +284,7 @@
                     8080,
                     19080
                   ],
+                  "description": "Ports allowed on the node network.",
                   "items": {
                     "type": "integer"
                   },
@@ -271,6 +298,7 @@
             },
             "apiServer": {
               "additionalProperties": false,
+              "description": "Node network of the kube-apiserver. Permissive default spans the pod and service CIDRs so any cluster works unconfigured; narrow to the control-plane subnet in production.",
               "properties": {
                 "cidrs": {
                   "default": [
@@ -278,6 +306,7 @@
                     "172.16.0.0/12",
                     "192.168.0.0/16"
                   ],
+                  "description": "Private ranges the API server may live in.",
                   "items": {
                     "type": "string"
                   },
@@ -289,6 +318,7 @@
                     443,
                     6443
                   ],
+                  "description": "Ports the API server listens on.",
                   "items": {
                     "type": "integer"
                   },

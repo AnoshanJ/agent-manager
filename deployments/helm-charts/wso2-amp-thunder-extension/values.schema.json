@@ -6,9 +6,11 @@
   "properties": {
     "thunder": {
       "additionalProperties": true,
+      "description": "Thunder subchart configuration",
       "properties": {
         "deployment": {
           "additionalProperties": true,
+          "description": "Deployment settings for the Thunder pod.",
           "properties": {
             "replicaCount": {
               "default": 1,
@@ -18,17 +20,21 @@
             },
             "strategy": {
               "additionalProperties": true,
+              "description": "Rollout strategy used when the Deployment is updated.",
               "properties": {
                 "rollingUpdate": {
                   "additionalProperties": true,
+                  "description": "Rolling update bounds for the Thunder Deployment.",
                   "properties": {
                     "maxSurge": {
                       "default": 1,
+                      "description": "Pods that may be created above the desired count during a rollout.",
                       "title": "maxSurge",
                       "type": "integer"
                     },
                     "maxUnavailable": {
                       "default": 0,
+                      "description": "Pods that may be unavailable during a rollout.",
                       "title": "maxUnavailable",
                       "type": "integer"
                     }
@@ -44,6 +50,7 @@
             },
             "securityContext": {
               "additionalProperties": true,
+              "description": "Container-level security settings for Thunder.",
               "properties": {
                 "readOnlyRootFilesystem": {
                   "default": false,
@@ -53,11 +60,13 @@
                 },
                 "enableRunAsUser": {
                   "default": true,
+                  "description": "Pin the container to a fixed UID rather than the image default.",
                   "title": "enableRunAsUser",
                   "type": "boolean"
                 },
                 "fsGroup": {
                   "default": 10001,
+                  "description": "Supplemental group applied to mounted volumes.",
                   "title": "fsGroup",
                   "type": "integer"
                 },
@@ -69,14 +78,17 @@
                 },
                 "seccompProfile": {
                   "additionalProperties": true,
+                  "description": "Seccomp profile restricting the syscalls Thunder may make.",
                   "properties": {
                     "enabled": {
                       "default": true,
+                      "description": "Apply a seccomp profile.",
                       "title": "enabled",
                       "type": "boolean"
                     },
                     "type": {
                       "default": "RuntimeDefault",
+                      "description": "Seccomp profile to apply.",
                       "title": "type",
                       "type": "string"
                     }
@@ -92,14 +104,17 @@
             },
             "terminationGracePeriodSeconds": {
               "default": 10,
+              "description": "Seconds Thunder is given to shut down before it is killed.",
               "title": "terminationGracePeriodSeconds",
               "type": "integer"
             },
             "image": {
               "additionalProperties": true,
+              "description": "Container image for Thunder.",
               "properties": {
                 "registry": {
                   "default": "ghcr.io/thunder-id",
+                  "description": "Registry the Thunder image is pulled from.",
                   "title": "registry",
                   "type": "string"
                 },
@@ -111,7 +126,7 @@
                 },
                 "tag": {
                   "default": "1.0.0",
-                  "description": "Container image tag. Defaults to the chart's appVersion when empty",
+                  "description": "Container image tag. Define either tag or digest, not both.",
                   "title": "tag",
                   "type": "string"
                 },
@@ -128,9 +143,11 @@
             },
             "container": {
               "additionalProperties": true,
+              "description": "Container-level settings such as ports.",
               "properties": {
                 "port": {
                   "default": 8090,
+                  "description": "Port Thunder listens on inside the container.",
                   "title": "port",
                   "type": "integer"
                 }
@@ -141,9 +158,11 @@
             },
             "resources": {
               "additionalProperties": true,
+              "description": "Compute resources for the Thunder container.",
               "properties": {
                 "limits": {
                   "additionalProperties": true,
+                  "description": "Maximum resources the Thunder container may use.",
                   "properties": {
                     "cpu": {
                       "default": "500m",
@@ -164,6 +183,7 @@
                 },
                 "requests": {
                   "additionalProperties": true,
+                  "description": "Resources reserved for Thunder at scheduling time.",
                   "properties": {
                     "cpu": {
                       "default": "100m",
@@ -194,6 +214,7 @@
         },
         "persistence": {
           "additionalProperties": true,
+          "description": "Persistent storage for Thunder's databases and keys.",
           "properties": {
             "enabled": {
               "default": true,
@@ -209,6 +230,7 @@
             },
             "accessMode": {
               "default": "ReadWriteOnce",
+              "description": "Access mode requested for the PersistentVolumeClaim.",
               "title": "accessMode",
               "type": "string"
             },
@@ -221,6 +243,7 @@
             "annotations": {
               "additionalProperties": true,
               "default": {},
+              "description": "Annotations added to the PersistentVolumeClaim.",
               "required": [],
               "title": "annotations",
               "type": "object"
@@ -232,6 +255,7 @@
         },
         "service": {
           "additionalProperties": true,
+          "description": "Kubernetes Service fronting Thunder.",
           "properties": {
             "port": {
               "default": 8090,
@@ -246,6 +270,7 @@
         },
         "serviceAccount": {
           "additionalProperties": true,
+          "description": "ServiceAccount used by the Thunder pod.",
           "properties": {
             "name": {
               "default": "thunder-service-account",
@@ -266,9 +291,11 @@
         },
         "hpa": {
           "additionalProperties": true,
+          "description": "Horizontal Pod Autoscaler settings for Thunder.",
           "properties": {
             "enabled": {
               "default": false,
+              "description": "Enable the Horizontal Pod Autoscaler.",
               "title": "enabled",
               "type": "boolean"
             }
@@ -279,6 +306,7 @@
         },
         "pdb": {
           "additionalProperties": true,
+          "description": "PodDisruptionBudget protecting Thunder during voluntary disruption.",
           "properties": {
             "minAvailable": {
               "default": "50%",
@@ -293,6 +321,7 @@
         },
         "ingress": {
           "additionalProperties": true,
+          "description": "Standard Kubernetes Ingress for Thunder. Off by default in favour of the gateway route.",
           "properties": {
             "enabled": {
               "default": false,
@@ -307,6 +336,7 @@
         },
         "ocIngress": {
           "additionalProperties": true,
+          "description": "Gateway route exposing Thunder outside the cluster.",
           "properties": {
             "hostname": {
               "default": "thunder.amp.localhost",
@@ -316,6 +346,7 @@
             },
             "https": {
               "additionalProperties": true,
+              "description": "Dedicated HTTPS listener, needed when environment instances must trust this issuer over TLS.",
               "properties": {
                 "enabled": {
                   "default": true,
@@ -325,6 +356,7 @@
                 },
                 "port": {
                   "default": 8443,
+                  "description": "Port the dedicated HTTPS listener serves on.",
                   "title": "port",
                   "type": "integer"
                 },
@@ -346,9 +378,11 @@
         },
         "configuration": {
           "additionalProperties": true,
+          "description": "Thunder's own runtime configuration, rendered into its config file.",
           "properties": {
             "server": {
               "additionalProperties": true,
+              "description": "Server listener settings.",
               "properties": {
                 "port": {
                   "default": 8090,
@@ -358,11 +392,13 @@
                 },
                 "httpOnly": {
                   "default": true,
+                  "description": "Serve plain HTTP only, leaving TLS termination to the gateway.",
                   "title": "httpOnly",
                   "type": "boolean"
                 },
                 "publicUrl": {
                   "default": "http://thunder.amp.localhost:8080",
+                  "description": "URL where users reach Thunder in their browser. Thunder uses it to build login and error redirect links.",
                   "title": "publicUrl",
                   "type": "string"
                 }
@@ -373,24 +409,29 @@
             },
             "gateClient": {
               "additionalProperties": true,
+              "description": "Where Thunder serves its login and consent screens. Hostname, port, and scheme default to server.publicUrl, and are only needed when Gate is hosted separately.",
               "properties": {
                 "hostname": {
                   "default": "thunder.amp.localhost",
+                  "description": "Hostname serving those screens.",
                   "title": "hostname",
                   "type": "string"
                 },
                 "port": {
                   "default": 8080,
+                  "description": "Port serving those screens.",
                   "title": "port",
                   "type": "integer"
                 },
                 "scheme": {
                   "default": "http",
+                  "description": "URL scheme used to build the redirect.",
                   "title": "scheme",
                   "type": "string"
                 },
                 "path": {
                   "default": "/gate",
+                  "description": "Base path the screens are served under.",
                   "title": "path",
                   "type": "string"
                 }
@@ -401,12 +442,15 @@
             },
             "crypto": {
               "additionalProperties": true,
+              "description": "Cryptographic material and password hashing settings.",
               "properties": {
                 "encryption": {
                   "additionalProperties": true,
+                  "description": "Key used to encrypt data Thunder stores at rest.",
                   "properties": {
                     "key": {
                       "default": "file://config/certs/crypto.key",
+                      "description": "Location of the encryption key, as a file:// reference. Replace the default with a 32-byte (64-character) hex string before any production deployment.",
                       "title": "key",
                       "type": "string"
                     }
@@ -417,37 +461,45 @@
                 },
                 "passwordHashing": {
                   "additionalProperties": true,
+                  "description": "How user passwords are hashed before storage.",
                   "properties": {
                     "algorithm": {
                       "default": "PBKDF2",
+                      "description": "Hashing algorithm used for new passwords.",
                       "title": "algorithm",
                       "type": "string"
                     },
                     "argon2id": {
                       "additionalProperties": true,
+                      "description": "Parameters used when the algorithm is Argon2id.",
                       "properties": {
                         "iterations": {
                           "default": 2,
+                          "description": "Passes over memory. Higher is slower to compute and to attack.",
                           "title": "iterations",
                           "type": "integer"
                         },
                         "memory": {
                           "default": 19456,
+                          "description": "Memory used per hash, in kibibytes.",
                           "title": "memory",
                           "type": "integer"
                         },
                         "parallelism": {
                           "default": 1,
+                          "description": "Parallel lanes used per hash.",
                           "title": "parallelism",
                           "type": "integer"
                         },
                         "key_size": {
                           "default": 32,
+                          "description": "Length of the derived hash, in bytes.",
                           "title": "key_size",
                           "type": "integer"
                         },
                         "salt_size": {
                           "default": 16,
+                          "description": "Length of the random salt, in bytes.",
                           "title": "salt_size",
                           "type": "integer"
                         }
@@ -458,19 +510,23 @@
                     },
                     "pbkdf2": {
                       "additionalProperties": true,
+                      "description": "Parameters used when the algorithm is PBKDF2.",
                       "properties": {
                         "iterations": {
                           "default": 600000,
+                          "description": "Iteration count. Raise it as hardware gets faster.",
                           "title": "iterations",
                           "type": "integer"
                         },
                         "key_size": {
                           "default": 32,
+                          "description": "Length of the derived hash, in bytes.",
                           "title": "key_size",
                           "type": "integer"
                         },
                         "salt_size": {
                           "default": 16,
+                          "description": "Length of the random salt, in bytes.",
                           "title": "salt_size",
                           "type": "integer"
                         }
@@ -481,9 +537,11 @@
                     },
                     "sha256": {
                       "additionalProperties": true,
+                      "description": "Parameters used when the algorithm is SHA-256. Weaker than the alternatives above.",
                       "properties": {
                         "salt_size": {
                           "default": 16,
+                          "description": "Length of the random salt, in bytes.",
                           "title": "salt_size",
                           "type": "integer"
                         }
@@ -510,6 +568,7 @@
                       "keyFile": "config/certs/ecdsa-signing.key"
                     }
                   ],
+                  "description": "Signing key pairs Thunder publishes and signs tokens with, each a certificate and key file. The setup job generates them, including the ECDSA key used by the OpenID4VP and OpenID4VCI engines.",
                   "items": {
                     "type": "object"
                   },
@@ -523,17 +582,21 @@
             },
             "database": {
               "additionalProperties": true,
+              "description": "Databases Thunder uses. Each may point at its own backend.",
               "properties": {
                 "config": {
                   "additionalProperties": true,
+                  "description": "Store holding Thunder's own configuration.",
                   "properties": {
                     "type": {
                       "default": "sqlite",
+                      "description": "Database engine for this store, postgres or sqlite. Use sqlite only when running a single pod.",
                       "title": "type",
                       "type": "string"
                     },
                     "sqlite": {
                       "additionalProperties": true,
+                      "description": "SQLite settings used when the type is sqlite.",
                       "properties": {
                         "path": {
                           "default": "database/configdb.db",
@@ -577,14 +640,17 @@
                 },
                 "runtime_transient": {
                   "additionalProperties": true,
+                  "description": "Store for short-lived runtime state. May be backed by Redis as well as a SQL engine.",
                   "properties": {
                     "type": {
                       "default": "sqlite",
+                      "description": "Database engine for this store, postgres or sqlite. Use sqlite only when running a single pod.",
                       "title": "type",
                       "type": "string"
                     },
                     "sqlite": {
                       "additionalProperties": true,
+                      "description": "SQLite settings used when the type is sqlite.",
                       "properties": {
                         "path": {
                           "default": "database/runtime_transient.db",
@@ -628,14 +694,17 @@
                 },
                 "entity": {
                   "additionalProperties": true,
+                  "description": "Store holding users, groups, and applications.",
                   "properties": {
                     "type": {
                       "default": "sqlite",
+                      "description": "Database engine for this store, postgres or sqlite. Use sqlite only when running a single pod.",
                       "title": "type",
                       "type": "string"
                     },
                     "sqlite": {
                       "additionalProperties": true,
+                      "description": "SQLite settings used when the type is sqlite.",
                       "properties": {
                         "path": {
                           "default": "database/entitydb.db",
@@ -679,14 +748,17 @@
                 },
                 "runtime_persistent": {
                   "additionalProperties": true,
+                  "description": "Store for runtime state that must survive a restart: SSO sessions, revoked tokens, and consent records.",
                   "properties": {
                     "type": {
                       "default": "sqlite",
+                      "description": "Database engine for this store, postgres or sqlite. Use sqlite only when running a single pod.",
                       "title": "type",
                       "type": "string"
                     },
                     "sqlite": {
                       "additionalProperties": true,
+                      "description": "SQLite settings used when the type is sqlite.",
                       "properties": {
                         "path": {
                           "default": "database/runtime_persistent.db",
@@ -735,34 +807,41 @@
             },
             "cache": {
               "additionalProperties": true,
+              "description": "In-process cache in front of the databases.",
               "properties": {
                 "disabled": {
                   "default": false,
+                  "description": "Turn the cache off entirely.",
                   "title": "disabled",
                   "type": "boolean"
                 },
                 "type": {
                   "default": "inmemory",
+                  "description": "Cache backend.",
                   "title": "type",
                   "type": "string"
                 },
                 "size": {
                   "default": 1000,
+                  "description": "Maximum entries held before eviction.",
                   "title": "size",
                   "type": "integer"
                 },
                 "ttl": {
                   "default": 3600,
+                  "description": "Seconds an entry stays valid.",
                   "title": "ttl",
                   "type": "integer"
                 },
                 "evictionPolicy": {
                   "default": "LRU",
+                  "description": "Policy deciding which entry is dropped when the cache is full.",
                   "title": "evictionPolicy",
                   "type": "string"
                 },
                 "cleanupInterval": {
                   "default": 300,
+                  "description": "Seconds between sweeps for expired entries.",
                   "title": "cleanupInterval",
                   "type": "integer"
                 }
@@ -773,24 +852,29 @@
             },
             "jwt": {
               "additionalProperties": true,
+              "description": "Defaults for the tokens Thunder issues.",
               "properties": {
                 "issuer": {
                   "default": "http://thunder.amp.localhost:8080",
+                  "description": "Issuer claim stamped on issued tokens.",
                   "title": "issuer",
                   "type": "string"
                 },
                 "validityPeriod": {
                   "default": 3600,
+                  "description": "Access token lifetime in seconds.",
                   "title": "validityPeriod",
                   "type": "integer"
                 },
                 "audience": {
                   "default": "application",
+                  "description": "Default audience claim on issued tokens.",
                   "title": "audience",
                   "type": "string"
                 },
                 "preferredKeyId": {
                   "default": "default-key",
+                  "description": "Key used to sign new tokens. Must match an id defined under crypto.keys; other configured keys stay valid for verification.",
                   "title": "preferredKeyId",
                   "type": "string"
                 }
@@ -801,17 +885,21 @@
             },
             "oauth": {
               "additionalProperties": true,
+              "description": "OAuth 2.0 protocol settings.",
               "properties": {
                 "refreshToken": {
                   "additionalProperties": true,
+                  "description": "Refresh token behaviour.",
                   "properties": {
                     "renewOnGrant": {
                       "default": false,
+                      "description": "Issue a new refresh token each time one is redeemed.",
                       "title": "renewOnGrant",
                       "type": "boolean"
                     },
                     "validityPeriod": {
                       "default": 86400,
+                      "description": "Refresh token lifetime in seconds.",
                       "title": "validityPeriod",
                       "type": "integer"
                     }
@@ -822,9 +910,11 @@
                 },
                 "authorizationCode": {
                   "additionalProperties": true,
+                  "description": "Authorization code behaviour.",
                   "properties": {
                     "validityPeriod": {
                       "default": 600,
+                      "description": "Seconds an authorization code may be redeemed within.",
                       "title": "validityPeriod",
                       "type": "integer"
                     }
@@ -835,9 +925,11 @@
                 },
                 "dcr": {
                   "additionalProperties": true,
+                  "description": "Dynamic Client Registration settings.",
                   "properties": {
                     "insecure": {
                       "default": false,
+                      "description": "Allow client registration without authentication. Leave off outside local development.",
                       "title": "insecure",
                       "type": "boolean"
                     }
@@ -853,29 +945,35 @@
             },
             "consent": {
               "additionalProperties": true,
+              "description": "The consent service that records user approval of scope grants.",
               "properties": {
                 "enabled": {
                   "default": true,
+                  "description": "Run the consent service.",
                   "title": "enabled",
                   "type": "boolean"
                 },
                 "baseUrl": {
                   "default": "http://localhost:9090/api/v1",
+                  "description": "Base URL Thunder calls the consent service on.",
                   "title": "baseUrl",
                   "type": "string"
                 },
                 "timeout": {
                   "default": 5,
+                  "description": "Seconds Thunder waits for a consent service response.",
                   "title": "timeout",
                   "type": "integer"
                 },
                 "maxRetries": {
                   "default": 3,
+                  "description": "Retries before a consent call is treated as failed.",
                   "title": "maxRetries",
                   "type": "integer"
                 },
                 "server": {
                   "additionalProperties": true,
+                  "description": "Listener for the consent service.",
                   "properties": {
                     "port": {
                       "default": 9090,
@@ -885,6 +983,7 @@
                     },
                     "hostname": {
                       "default": "localhost",
+                      "description": "Hostname the consent service binds to.",
                       "title": "hostname",
                       "type": "string"
                     }
@@ -895,19 +994,23 @@
                 },
                 "database": {
                   "additionalProperties": true,
+                  "description": "Database backing the consent service.",
                   "properties": {
                     "type": {
                       "default": "sqlite",
+                      "description": "Database engine for consent records.",
                       "title": "type",
                       "type": "string"
                     },
                     "sqlitePath": {
                       "default": "repository/database/consentdb.db",
+                      "description": "Path to the SQLite consent database.",
                       "title": "sqlitePath",
                       "type": "string"
                     },
                     "sqliteOptions": {
                       "default": "_pragma=journal_mode(WAL)&_pragma=cache_size(-16000)",
+                      "description": "Extra SQLite options appended to the connection string.",
                       "title": "sqliteOptions",
                       "type": "string"
                     }
@@ -923,12 +1026,14 @@
             },
             "cors": {
               "additionalProperties": true,
+              "description": "Cross-origin policy for Thunder's own endpoints.",
               "properties": {
                 "allowedOrigins": {
                   "default": [
                     "http://localhost:3000",
                     "http://console.amp.localhost:8080"
                   ],
+                  "description": "Browser origins allowed to call Thunder. Narrow this in production.",
                   "items": {
                     "type": "string"
                   },
@@ -947,55 +1052,67 @@
         },
         "setup": {
           "additionalProperties": true,
+          "description": "One-off job that initialises Thunder after install.",
           "properties": {
             "enabled": {
               "default": true,
+              "description": "Run the setup job. It runs on first install only, via a Helm hook.",
               "title": "enabled",
               "type": "boolean"
             },
             "backoffLimit": {
               "default": 3,
+              "description": "Retries before the setup job is marked failed.",
               "title": "backoffLimit",
               "type": "integer"
             },
             "ttlSecondsAfterFinished": {
               "default": 86400,
+              "description": "Seconds a failed setup job is kept before cleanup, where 0 keeps it indefinitely. Applies only when preserveJob is false.",
               "title": "ttlSecondsAfterFinished",
               "type": "integer"
             },
             "preserveJob": {
               "default": true,
+              "description": "Keep the setup job after it completes. When false, a successful job is deleted immediately and a failed one after ttlSecondsAfterFinished.",
               "title": "preserveJob",
               "type": "boolean"
             },
             "debug": {
               "default": false,
+              "description": "Emit verbose setup logs.",
               "title": "debug",
               "type": "boolean"
             },
             "admin": {
               "additionalProperties": true,
+              "description": "Thunder's own native admin user (created by its built-in bootstrap, backend/cmd/server/bootstrap/01-default-resources.yaml, type \"Person\", fixed id 01900000-0000-7000-8000-000000000030) is deliberately left at its default username \"admin\" here \u2014 67-amp-default-users.yaml below re-targets our own admin bootstrap entry at this SAME fixed id instead of creating a separate user, merging the two into a single account. That account already sits in Thunder's built-in \"Administrators\" group (system permission), so it works for both the AMP console and ThunderID's own native console without needing a second AMP-side role for it. Leave password empty for production: this chart's own admin-credentials.yaml then generates a random 10-character value itself (reused across reinstalls the same way Thunder's own admin-secret.yaml already does), so there is no shipped default for anyone to leave unchanged. Set it explicitly (the local dev, quick-start, and VM installers all set it to a fixed value) only when a memorable password matters more than a generated one \u2014 e.g. a machine only the operator can reach. Either way, retrieve the real value in effect any time with: kubectl get secret amp-admin-credentials -n <thunder-namespace> -o jsonpath='{.data.password}' | base64 -d",
               "properties": {
                 "username": {
                   "default": "admin",
+                  "description": "Username of the administrator account created at setup.",
                   "title": "username",
                   "type": "string"
                 },
                 "password": {
                   "default": "",
+                  "description": "Administrator password set inline. Leave empty to generate a random one. Ignored when passwordRef is set.",
                   "title": "password",
                   "type": "string"
                 },
                 "passwordRef": {
                   "additionalProperties": true,
+                  "description": "Secret holding the administrator password.",
                   "properties": {
                     "name": {
                       "default": "amp-admin-credentials",
+                      "description": "Name of that Secret.",
                       "title": "name",
                       "type": "string"
                     },
                     "key": {
                       "default": "password",
+                      "description": "Key within that Secret.",
                       "title": "key",
                       "type": "string"
                     }
@@ -1011,9 +1128,11 @@
             },
             "resources": {
               "additionalProperties": true,
+              "description": "Compute resources for the setup job.",
               "properties": {
                 "limits": {
                   "additionalProperties": true,
+                  "description": "Maximum resources the setup job may use.",
                   "properties": {
                     "cpu": {
                       "default": "500m",
@@ -1034,6 +1153,7 @@
                 },
                 "requests": {
                   "additionalProperties": true,
+                  "description": "Resources reserved for the setup job at scheduling time.",
                   "properties": {
                     "cpu": {
                       "default": "250m",
@@ -1064,9 +1184,11 @@
         },
         "bootstrap": {
           "additionalProperties": true,
+          "description": "Job that seeds the OAuth clients, organization unit, and console branding the platform expects.",
           "properties": {
             "enabled": {
               "default": true,
+              "description": "Run the bootstrap job.",
               "title": "enabled",
               "type": "boolean"
             },
@@ -1202,9 +1324,11 @@
             },
             "configMap": {
               "additionalProperties": true,
+              "description": "ConfigMap holding the bootstrap payload.",
               "properties": {
                 "name": {
                   "default": "amp-thunder-bootstrap",
+                  "description": "Name of the ConfigMap holding the bootstrap payload.",
                   "title": "name",
                   "type": "string"
                 },
@@ -1221,6 +1345,7 @@
                     "58-amctl-client.yaml",
                     "59-am-mcp-client.yaml",
                     "60-amp-resource-server.yaml",
+                    "60-mcp-resource-servers.yaml",
                     "61-amp-role-admin.yaml",
                     "62-amp-role-developer.yaml",
                     "63-amp-role-ai-lead.yaml",
@@ -1236,6 +1361,7 @@
                     "73-am-obs-mcp-client.yaml",
                     "73-amp-csp-config.yaml"
                   ],
+                  "description": "Bootstrap files to mount from the ConfigMap. Leave empty to mount the whole ConfigMap, which replaces the chart's defaults.",
                   "items": {
                     "type": "string"
                   },
@@ -1249,10 +1375,11 @@
             },
             "observerResourceReaderClient": {
               "additionalProperties": true,
+              "description": "Observer Resource Reader Client configuration (for observability plane to read resources)",
               "properties": {
                 "clientId": {
                   "default": "openchoreo-observer-resource-reader-client",
-                  "description": "OAuth 2.0 client ID",
+                  "description": "OAuth 2.0 client ID Allowed values: clusterauthzrolebinding is already created with this clientId by openchoreo, so it should not be changed unless the corresponding ClusterAuthzRoleBinding is also updated.",
                   "title": "clientId",
                   "type": "string"
                 },
@@ -1316,10 +1443,11 @@
             },
             "workloadPublisherClient": {
               "additionalProperties": true,
+              "description": "Workload Publisher Client configuration (for CI workflows to create workloads)",
               "properties": {
                 "clientId": {
                   "default": "openchoreo-workload-publisher-client",
-                  "description": "OAuth 2.0 client ID",
+                  "description": "OAuth 2.0 client ID Allowed values: clusterauthzrolebinding is already created with this clientId by openchoreo, so it should not be changed unless the corresponding ClusterAuthzRoleBinding is also updated.",
                   "title": "clientId",
                   "type": "string"
                 },
@@ -1383,6 +1511,7 @@
             },
             "ampApiClient": {
               "additionalProperties": true,
+              "description": "AMP API Client configuration",
               "properties": {
                 "clientId": {
                   "default": "amp-api-client",
@@ -1450,6 +1579,7 @@
             },
             "ampSystemClient": {
               "additionalProperties": true,
+              "description": "AMP System Client configuration (for agent-manager to provision per-org OAuth apps via Thunder admin API) WARNING: clientSecret below is a LOCAL-DEVELOPMENT-ONLY placeholder. In production, override ampSystemClient.clientSecret via a Kubernetes Secret or external secret manager. Deploying with this default value is insecure.",
               "properties": {
                 "clientId": {
                   "default": "amp-system-client",
@@ -1517,6 +1647,7 @@
             },
             "ampPublisherClient": {
               "additionalProperties": true,
+              "description": "AMP Publisher Client configuration (for evaluation job to publish scores)",
               "properties": {
                 "clientId": {
                   "default": "amp-publisher-client",
@@ -1526,7 +1657,7 @@
                 },
                 "clientSecret": {
                   "default": "amp-publisher-client-secret",
-                  "description": "OAuth 2.0 client secret",
+                  "description": "OAuth 2.0 client secret Allowed values: Override in production; must match the value stored in OpenBao at secret/amp-publisher-client-secret (used by ExternalSecret at workflow runtime).",
                   "title": "clientSecret",
                   "type": "string"
                 },
@@ -1584,6 +1715,7 @@
             },
             "amObserverClient": {
               "additionalProperties": true,
+              "description": "AM Observer Client configuration (dedicated outbound identity for agent-manager-observer's calls to the OpenChoreo observer backend). Its authority comes from the OpenChoreo ClusterAuthzRoleBinding (amp-observer-reader-binding in wso2-amp-platform-resources-extension), NOT from AMP scopes \u2014 it has no scope allowance at all, so its tokens fail agent-manager-service's scope checks by construction. WARNING: clientSecret below is a LOCAL-DEVELOPMENT-ONLY placeholder. In production, override amObserverClient.clientSecret via a Kubernetes Secret or external secret manager. Deploying with this default value is insecure. NOTE: pre-install bootstrap job only \u2014 see the upgrade note on mcpResourceServers below / docs/reference/mcp-server.mdx.",
               "properties": {
                 "clientId": {
                   "default": "am-observer-client",
@@ -1651,6 +1783,7 @@
             },
             "amCliClient": {
               "additionalProperties": true,
+              "description": "AMP CLI Client configuration (public PKCE client for interactive login)",
               "properties": {
                 "clientId": {
                   "default": "amctl",
@@ -1755,6 +1888,7 @@
                     "ouId",
                     "ouHandle"
                   ],
+                  "description": "User attributes released to the CLI after login.",
                   "items": {
                     "type": "string"
                   },
@@ -1768,6 +1902,7 @@
             },
             "amMcpClient": {
               "additionalProperties": true,
+              "description": "AMP MCP Client configuration (public PKCE client for interactive login)",
               "properties": {
                 "clientId": {
                   "default": "am-mcp",
@@ -1873,6 +2008,7 @@
                     "ouId",
                     "ouHandle"
                   ],
+                  "description": "User attributes released to the MCP server after login.",
                   "items": {
                     "type": "string"
                   },
@@ -1886,6 +2022,7 @@
             },
             "amObsMcpClient": {
               "additionalProperties": true,
+              "description": "AMP Observer MCP Client configuration (public PKCE client for the observer MCP server's interactive login). Allowed ONLY the OIDC scopes plus the four observability data-read scopes; the am-service MCP client (amMcpClient above) is allowed the rest of the catalog. NOTE: pre-install bootstrap job only \u2014 see the upgrade note on mcpResourceServers below / docs/reference/mcp-server.mdx.",
               "properties": {
                 "clientId": {
                   "default": "am-obs-mcp",
@@ -2004,6 +2141,7 @@
                     "ouId",
                     "ouHandle"
                   ],
+                  "description": "User attributes released to the Observer MCP server after login.",
                   "items": {
                     "type": "string"
                   },
@@ -2017,17 +2155,13 @@
             },
             "agentManagerMcpBaseUrl": {
               "default": "http://api.amp.localhost:8080",
-              "description": "RFC 8707 resource-server definitions for the platform's own MCP endpoints (agent-manager's MCP endpoint, its docker-compose dev variant, and the observer's MCP endpoint). NOT currently consumed by any template in this chart \u2014 nothing renders these into Thunder on install/upgrade yet; see deployments/setup/register-amp-resources.sh for the manual/bash registration that has to be run by hand instead. baseUrlValue names the scalar below holding that entry's base URL; permissionSet picks which slice of the amp permission tree it gets (\"amp-minus-observability\" or \"observability-only\"); `optional: true` entries are skipped when their base URL is empty.",
+              "description": "RFC 8707 resource servers for the public MCP origins. The bootstrap renders these as separate resource servers; urn:wso2:amp remains the platform API resource identifier. baseUrlValue selects the deployment- specific origin \u2014 one scalar per MCP endpoint, overridden to whatever that install actually serves (docker-compose dev, k3d, a VM, or a real domain); there is no separate \"dev\" scalar to keep in sync, the same way observerMcpBaseUrl has never needed one.",
               "title": "agentManagerMcpBaseUrl",
-              "type": "string"
-            },
-            "agentManagerMcpDevBaseUrl": {
-              "default": "",
-              "title": "agentManagerMcpDevBaseUrl",
               "type": "string"
             },
             "observerMcpBaseUrl": {
               "default": "http://traces.amp.localhost:11080",
+              "description": "Base URL of the Observer MCP server, registered as a resource server.",
               "title": "observerMcpBaseUrl",
               "type": "string"
             },
@@ -2035,27 +2169,22 @@
               "default": [
                 {
                   "name": "AMP Agent Manager MCP",
+                  "id": "amp-agent-manager-mcp-resource-server",
                   "handle": "",
                   "baseUrlValue": "agentManagerMcpBaseUrl",
                   "description": "Resource identifier for the agent-manager MCP endpoint",
                   "permissionSet": "amp-minus-observability"
                 },
                 {
-                  "name": "AMP Agent Manager MCP (dev)",
-                  "handle": "",
-                  "baseUrlValue": "agentManagerMcpDevBaseUrl",
-                  "optional": true,
-                  "description": "Resource identifier for the agent-manager MCP endpoint on the docker-compose dev stack",
-                  "permissionSet": "amp-minus-observability"
-                },
-                {
                   "name": "AMP Observer MCP",
+                  "id": "amp-observer-mcp-resource-server",
                   "handle": "",
                   "baseUrlValue": "observerMcpBaseUrl",
                   "description": "Resource identifier for the observer MCP endpoint",
                   "permissionSet": "observability-only"
                 }
               ],
+              "description": "MCP resource servers registered so agent tokens can be scoped to them.",
               "items": {
                 "type": "object"
               },
@@ -2064,6 +2193,7 @@
             },
             "ampConsoleClient": {
               "additionalProperties": true,
+              "description": "AMP Console Client configuration",
               "properties": {
                 "clientId": {
                   "default": "amp-console-client",
@@ -2091,6 +2221,7 @@
                 },
                 "logoUrl": {
                   "default": "https://wso2.cachefly.net/wso2/sites/all/image_resources/logos/WSO2-Pulse-Orange.webp",
+                  "description": "Logo shown on the Console's login and consent screens.",
                   "title": "logoUrl",
                   "type": "string"
                 },
@@ -2180,6 +2311,7 @@
                     "ouId",
                     "ouHandle"
                   ],
+                  "description": "User attributes released to the Console after login.",
                   "items": {
                     "type": "string"
                   },
@@ -2193,32 +2325,39 @@
             },
             "ampConsoleTheme": {
               "additionalProperties": true,
+              "description": "Agent Manager Console Theme (applied to amp-console-client sign-in page)",
               "properties": {
                 "handle": {
                   "default": "wso2-agent-manager-console",
+                  "description": "Unique handle identifying the Console theme.",
                   "title": "handle",
                   "type": "string"
                 },
                 "displayName": {
                   "default": "WSO2 Agent Manager Console Theme",
+                  "description": "Human-readable name for the Console theme.",
                   "title": "displayName",
                   "type": "string"
                 },
                 "theme": {
                   "additionalProperties": true,
+                  "description": "The theme definition itself.",
                   "properties": {
                     "direction": {
                       "default": "ltr",
+                      "description": "Text direction, ltr or rtl.",
                       "title": "direction",
                       "type": "string"
                     },
                     "defaultColorScheme": {
                       "default": "light",
+                      "description": "Colour scheme used before the user expresses a preference.",
                       "title": "defaultColorScheme",
                       "type": "string"
                     },
                     "shape": {
                       "additionalProperties": true,
+                      "description": "Shape tokens such as corner radius.",
                       "properties": {
                         "borderRadius": {
                           "default": 8,
@@ -2233,6 +2372,7 @@
                     },
                     "typography": {
                       "additionalProperties": true,
+                      "description": "Typography tokens for the Console.",
                       "properties": {
                         "fontFamily": {
                           "default": "Inter Variable, sans-serif",
@@ -2242,6 +2382,7 @@
                         },
                         "h1": {
                           "additionalProperties": true,
+                          "description": "Styling for top-level headings.",
                           "properties": {
                             "fontSize": {
                               "default": "1.75rem",
@@ -2257,6 +2398,7 @@
                             },
                             "lineHeight": {
                               "default": 1.3,
+                              "description": "Line height for top-level headings.",
                               "title": "lineHeight",
                               "type": "number"
                             }
@@ -2272,12 +2414,15 @@
                     },
                     "colorSchemes": {
                       "additionalProperties": true,
+                      "description": "Light and dark colour palettes.",
                       "properties": {
                         "light": {
                           "additionalProperties": true,
+                          "description": "Palette used in light mode.",
                           "properties": {
                             "colors": {
                               "additionalProperties": true,
+                              "description": "Colour tokens for light mode.",
                               "properties": {
                                 "primary": {
                                   "additionalProperties": true,
@@ -2387,9 +2532,11 @@
                         },
                         "dark": {
                           "additionalProperties": true,
+                          "description": "Palette used in dark mode.",
                           "properties": {
                             "colors": {
                               "additionalProperties": true,
+                              "description": "Colour tokens for dark mode.",
                               "properties": {
                                 "primary": {
                                   "additionalProperties": true,
@@ -2514,6 +2661,7 @@
             },
             "ampConsoleLayout": {
               "additionalProperties": true,
+              "description": "Agent Manager Console Layout (split-screen sign-in page for amp-console-client).",
               "properties": {
                 "id": {
                   "default": "0e0dc039-bae9-4563-82b9-ee4e76f9a58c",
@@ -2639,19 +2787,23 @@
             },
             "organizationUnit": {
               "additionalProperties": true,
+              "description": "Default Organization unit configuration",
               "properties": {
                 "name": {
                   "default": "Default",
+                  "description": "Display name of the default organization unit.",
                   "title": "name",
                   "type": "string"
                 },
                 "handle": {
                   "default": "default",
+                  "description": "Handle of the default organization unit. Appears in token claims.",
                   "title": "handle",
                   "type": "string"
                 },
                 "description": {
                   "default": "Default organizational unit",
+                  "description": "Description of the default organization unit.",
                   "title": "description",
                   "type": "string"
                 }
@@ -2662,14 +2814,17 @@
             },
             "userSchema": {
               "additionalProperties": true,
+              "description": "User schema configuration",
               "properties": {
                 "name": {
                   "default": "engineer",
+                  "description": "Name of the user attribute schema.",
                   "title": "name",
                   "type": "string"
                 },
                 "allowSelfRegistration": {
                   "default": true,
+                  "description": "Let users register themselves rather than being invited.",
                   "title": "allowSelfRegistration",
                   "type": "boolean"
                 }
