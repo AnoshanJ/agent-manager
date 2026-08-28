@@ -78,7 +78,6 @@ for (const name of Object.keys(TITLES)) {
     "---", `title: ${TITLES[name]}`, "---", "",
     `# ${TITLES[name]}`, "",
     chartDescription(name), "",
-    `Helm chart values reference for \`${name}\`, generated from the chart's \`values.schema.json\`.`, "",
     "```bash",
     `helm install ${name.replace("wso2-", "")} oci://ghcr.io/wso2/helm-charts/${name} \\`,
     "  --namespace <namespace> --create-namespace \\",
