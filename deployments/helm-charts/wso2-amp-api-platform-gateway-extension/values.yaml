@@ -95,10 +95,9 @@ apiGateway:
     host: "amp-api-gateway-manager.wso2-amp.svc.cluster.local:9243"
     tls:
       enabled: true
-      # Skip verification of the control plane's TLS certificate. True by default
-      # because the control plane serves a self-signed certificate in-cluster.
-      # Note: the template applies `| default true`, and Go templates treat false as
-      # empty, so setting this to false here does not currently disable it.
+      # Skip verification of the control plane's TLS certificate. True because the
+      # control plane serves a self-signed certificate in-cluster; set to false only
+      # where the gateway can trust the control plane's certificate chain.
       insecureSkipVerify: true
 
   # ConfigMap containing full Helm values for the gateway Helm chart.
