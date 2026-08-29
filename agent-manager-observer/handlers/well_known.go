@@ -26,7 +26,8 @@ import (
 )
 
 // protectedResourceMetadata is the RFC 9728 OAuth 2.0 Protected Resource
-// Metadata document served at /.well-known/oauth-protected-resource.
+// Metadata document served at the root compatibility location and the RFC
+// 9728 path-specific /.well-known/oauth-protected-resource/mcp location.
 type protectedResourceMetadata struct {
 	Resource               string   `json:"resource"`
 	AuthorizationServers   []string `json:"authorization_servers,omitempty"`
@@ -40,7 +41,15 @@ type protectedResourceMetadata struct {
 //
 // Ported from agent-manager-service/api/well_known_routes.go.
 func RegisterWellKnownRoutes(mux *http.ServeMux, cfg config.AuthConfig) {
-	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+	handler := protectedResourceMetadataHandler(cfg)
+	// Keep the root document as a compatibility alias for existing observer API
+	// clients, while MCP clients use the RFC 9728 path-specific location.
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", handler)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", handler)
+}
+
+func protectedResourceMetadataHandler(cfg config.AuthConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ServerPublicURL == "" {
 			logger.GetLogger(r.Context()).Error("SERVER_PUBLIC_URL is not configured; cannot serve protected resource metadata")
 			http.Error(w, "protected resource metadata not configured", http.StatusServiceUnavailable)
@@ -64,5 +73,5 @@ func RegisterWellKnownRoutes(mux *http.ServeMux, cfg config.AuthConfig) {
 		if err := json.NewEncoder(w).Encode(body); err != nil {
 			logger.GetLogger(r.Context()).Error("failed to encode protected resource metadata", "error", err)
 		}
-	})
+	}
 }

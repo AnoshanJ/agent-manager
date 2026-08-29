@@ -72,6 +72,30 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	}
 }
 
+func TestWellKnownOAuthProtectedResource_MCPPath(t *testing.T) {
+	cfg := config.AuthConfig{
+		ServerPublicURL:      "https://traces.amp.example.com/",
+		AuthorizationServers: []string{"https://thunder.example.com"},
+		ScopesSupported:      []string{"amp:observability:trace-read"},
+	}
+
+	mux := setupWellKnownMux(cfg)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource/mcp", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body protectedResourceMetadata
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body.Resource != "https://traces.amp.example.com/mcp" {
+		t.Fatalf("expected normalized MCP resource, got %q", body.Resource)
+	}
+}
+
 func TestWellKnownOAuthProtectedResource_MissingPublicURL(t *testing.T) {
 	cfg := config.AuthConfig{
 		AuthorizationServers: []string{"https://thunder.example.com"},
