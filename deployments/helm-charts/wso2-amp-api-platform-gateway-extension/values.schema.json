@@ -213,6 +213,12 @@
                   "description": "Use TLS when connecting to the control plane.",
                   "title": "enabled",
                   "type": "boolean"
+                },
+                "insecureSkipVerify": {
+                  "default": true,
+                  "description": "Skip verification of the control plane's TLS certificate. True by default because the control plane serves a self-signed certificate in-cluster. Note: the template applies `| default true`, and Go templates treat false as empty, so setting this to false here does not currently disable it.",
+                  "title": "insecureSkipVerify",
+                  "type": "boolean"
                 }
               },
               "required": [],

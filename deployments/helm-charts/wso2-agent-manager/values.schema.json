@@ -1088,6 +1088,12 @@
                   "title": "url",
                   "type": "string"
                 },
+                "path": {
+                  "default": "secret",
+                  "description": "KV mount path git credentials are read from.",
+                  "title": "path",
+                  "type": "string"
+                },
                 "token": {
                   "default": "root",
                   "description": "OpenBao token. When set, it is stored in the chart-managed Secret and injected via secretKeyRef \u2014 never as a plaintext env var in the pod spec. For production, use existingSecret instead.",

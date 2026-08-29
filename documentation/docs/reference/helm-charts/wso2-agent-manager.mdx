@@ -144,6 +144,7 @@ helm install agent-manager oci://ghcr.io/wso2/helm-charts/wso2-agent-manager \
 | `agentManagerService.config.openbao.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set; the chart-managed Secret always uses the fixed key "openbao-token". | string | `"openbao-token"` |
 | `agentManagerService.config.workflowPlaneOpenbao` | Workflow Plane OpenBao configuration (for Git Secrets) Used to fetch git credentials for private repository access | object |  |
 | `agentManagerService.config.workflowPlaneOpenbao.url` | Workflow plane OpenBao URL | string | `"http://openbao.openbao.svc.cluster.local:8200"` |
+| `agentManagerService.config.workflowPlaneOpenbao.path` | KV mount path git credentials are read from. | string | `"secret"` |
 | `agentManagerService.config.workflowPlaneOpenbao.token` | OpenBao token. When set, it is stored in the chart-managed Secret and injected via secretKeyRef — never as a plaintext env var in the pod spec. For production, use existingSecret instead. | string | `"root"` |
 | `agentManagerService.config.workflowPlaneOpenbao.existingSecret` | Secret holding that instance's access token. | string | `""` |
 | `agentManagerService.config.workflowPlaneOpenbao.existingSecretKey` | Key to read from existingSecret. Applies ONLY when existingSecret is set. The chart-managed Secret packs both OpenBao tokens into one Secret, so this token is stored there under the distinct key "workflow-plane-openbao-token". | string | `"openbao-token"` |
