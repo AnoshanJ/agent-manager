@@ -58,8 +58,8 @@ func TestWellKnownOAuthProtectedResource_HappyPath(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if body.Resource != cfg.ServerPublicURL+"/mcp" {
-		t.Errorf("expected resource %q, got %q", cfg.ServerPublicURL+"/mcp", body.Resource)
+	if body.Resource != ampAPIResourceIdentifier {
+		t.Errorf("expected REST API resource %q, got %q", ampAPIResourceIdentifier, body.Resource)
 	}
 	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != "https://thunder.example.com" {
 		t.Errorf("expected authorization_servers [https://thunder.example.com], got %v", body.AuthorizationServers)
@@ -93,6 +93,9 @@ func TestWellKnownOAuthProtectedResource_MCPPath(t *testing.T) {
 	}
 	if body.Resource != "https://traces.amp.example.com/mcp" {
 		t.Fatalf("expected normalized MCP resource, got %q", body.Resource)
+	}
+	if body.Resource == ampAPIResourceIdentifier {
+		t.Fatal("expected MCP metadata to remain distinct from REST API metadata")
 	}
 }
 
