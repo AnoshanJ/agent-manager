@@ -339,6 +339,8 @@ agentManagerService:
     workflowPlaneOpenbao:
       # Workflow plane OpenBao URL
       url: "http://openbao.openbao.svc.cluster.local:8200"
+      # KV mount path git credentials are read from.
+      path: "secret"
       # OpenBao token. When set, it is stored in the chart-managed Secret and
       # injected via secretKeyRef — never as a plaintext env var in the pod spec.
       # For production, use existingSecret instead.

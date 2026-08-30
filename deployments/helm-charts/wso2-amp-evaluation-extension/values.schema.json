@@ -38,6 +38,12 @@
       "additionalProperties": false,
       "description": "AMP Evaluation image configuration",
       "properties": {
+        "workflowNamespace": {
+          "default": "default",
+          "description": "Namespace OpenChoreo runs this environment's Argo workflows in. The evaluation job namespace is derived from it as \"workflows-<value>\".",
+          "title": "workflowNamespace",
+          "type": "string"
+        },
         "image": {
           "additionalProperties": false,
           "description": "Docker image configuration for monitor evaluation",

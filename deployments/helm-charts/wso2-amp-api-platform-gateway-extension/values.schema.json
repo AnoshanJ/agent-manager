@@ -213,6 +213,12 @@
                   "description": "Use TLS when connecting to the control plane.",
                   "title": "enabled",
                   "type": "boolean"
+                },
+                "insecureSkipVerify": {
+                  "default": true,
+                  "description": "Skip verification of the control plane's TLS certificate. True because the control plane serves a self-signed certificate in-cluster; set to false only where the gateway can trust the control plane's certificate chain.",
+                  "title": "insecureSkipVerify",
+                  "type": "boolean"
                 }
               },
               "required": [],

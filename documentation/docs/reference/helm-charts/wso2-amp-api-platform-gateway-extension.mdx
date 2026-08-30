@@ -37,6 +37,7 @@ helm install amp-api-platform-gateway-extension oci://ghcr.io/wso2/helm-charts/w
 | `apiGateway.controlPlane.host` | In-cluster address of the control plane. | string | `"amp-api-gateway-manager.wso2-amp.svc.cluster.local:9243"` |
 | `apiGateway.controlPlane.tls` | TLS settings for the control-plane connection. | object |  |
 | `apiGateway.controlPlane.tls.enabled` | Use TLS when connecting to the control plane. | boolean | `true` |
+| `apiGateway.controlPlane.tls.insecureSkipVerify` | Skip verification of the control plane's TLS certificate. True by default because the control plane serves a self-signed certificate in-cluster. Note: the template applies `\| default true`, and Go templates treat false as empty, so setting this to false here does not currently disable it. | boolean | `true` |
 | `apiGateway.config` | ConfigMap containing full Helm values for the gateway Helm chart. The gateway-operator reads this and passes it when deploying the gateway stack. | object |  |
 | `apiGateway.config.configMapName` | Name of the ConfigMap to create with gateway Helm values. Defaults to "&lt;release-name&gt;-config" if empty. | string | `""` |
 | `apiGateway.config.policyConfigurations` | Policy configurations rendered under [policy_configurations.*] in config.toml. Consumed by policies that reference $&#123;config.policy_configurations.&lt;section&gt;.&lt;key&gt;&#125;. | object |  |

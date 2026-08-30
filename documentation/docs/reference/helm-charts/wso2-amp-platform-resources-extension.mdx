@@ -73,6 +73,7 @@ helm install amp-platform-resources-extension oci://ghcr.io/wso2/helm-charts/wso
 | `environment.gateway.http` | http: agent-facing host (distinct from the gateway-runtime host gateway.localhost). | object |  |
 | `environment.gateway.http.host` | Hostname routed to agents in this environment. | string | `"am-gateway.localhost"` |
 | `environment.gateway.http.port` | Port the HTTP listener serves on. | integer | `19080` |
+| `environment.gateway.https` | https: optional TLS-fronted variant. Unset by default (local/compose serves agents over plain http, tlsEnabled=false). Set host/port on TLS deployments (e.g. the VM installer) so the binding carries an https externalURL; otherwise the tlsEnabled console reads a missing variant and the invoke URL is empty. | object | `{}` |
 
 ## externalSecrets
 
