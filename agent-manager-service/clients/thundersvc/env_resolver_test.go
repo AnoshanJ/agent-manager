@@ -50,20 +50,21 @@ func fakeResolveBaseURL(_ context.Context, _, _, _ string) (string, string, bool
 	return "http://fake-thunder:8090", "", true
 }
 
-// noHandleReader stands in for an environment that was never provisioned
-// through add-environment-thunder.sh (or whose registration never completed):
-// no URL handle exists, so Resolve must report ErrThunderNotProvisioned — there
-// is no fallback to compute an address from org/env.
-func noHandleReader(context.Context, string, string) (string, error) {
+// noURLReader stands in for an environment that was never provisioned
+// through add-environment-thunder.sh or a control plane (or whose
+// registration never completed): no URL exists, so Resolve must report
+// ErrThunderNotProvisioned — there is no fallback to compute an address from
+// org/env.
+func noURLReader(context.Context, string, string) (string, error) {
 	return "", nil
 }
 
-// okHandleReader returns a fixed handle for any (ouID, env) — the common case
-// for tests that don't care about the handle lookup itself, just that Resolve
-// gets past it.
-func okHandleReader(handle string) ReadThunderHandleFunc {
+// okURLReader returns a fixed thunderURL for any (ouID, env) — the common
+// case for tests that don't care about the URL lookup itself, just that
+// Resolve gets past it.
+func okURLReader(thunderURL string) ReadThunderURLFunc {
 	return func(context.Context, string, string) (string, error) {
-		return handle, nil
+		return thunderURL, nil
 	}
 }
 
@@ -73,7 +74,7 @@ func TestEnvThunderResolver_Resolve_Success(t *testing.T) {
 		gotOUID, gotEnv = ouID, env
 		return "amp-system-client", "the-system-client-secret", nil
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -85,7 +86,7 @@ func TestEnvThunderResolver_Resolve_Success(t *testing.T) {
 // TestEnvThunderResolver_Resolve_UsesStoredClientID confirms the resolver uses
 // the client ID returned by the reader (not only the well-known constant).
 func TestEnvThunderResolver_Resolve_UsesStoredClientID(t *testing.T) {
-	resolver := newEnvThunderResolverWithReader(okReader("custom-client-id", "s3cr3t"), okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("custom-client-id", "s3cr3t"), okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -101,7 +102,7 @@ func TestEnvThunderResolver_Resolve_RejectsPathBreakingSegments(t *testing.T) {
 		t.Fatal("must not read the store when a segment is invalid")
 		return "", "", nil // unreachable — t.Fatal above halts the test
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	cases := []struct{ ouID, ns, env string }{
 		{"..", testOrgNamespace, "staging"},
@@ -127,7 +128,7 @@ func TestEnvThunderResolver_Resolve_Caches(t *testing.T) {
 		calls++
 		return "amp-system-client", "s3cr3t", nil
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	c1, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -146,7 +147,7 @@ func TestEnvThunderResolver_Resolve_ExpiresAfterTTL(t *testing.T) {
 		calls++
 		return "amp-system-client", "s3cr3t", nil
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 	now := time.Now()
 	resolver.now = func() time.Time { return now }
 	resolver.ttl = time.Minute
@@ -180,7 +181,7 @@ func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t
 		atomic.AddInt64(&probeCalls, 1)
 		return "http://fake-thunder:8090", "", true
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), probeFn)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), probeFn)
 
 	const goroutines = 20
 	clients := make([]ThunderClient, goroutines)
@@ -208,7 +209,7 @@ func TestEnvThunderResolver_Resolve_ConcurrentCacheMiss_DedupesViaSingleflight(t
 }
 
 func TestEnvThunderResolver_Resolve_DifferentEnvironmentsAreNotCachedTogether(t *testing.T) {
-	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	staging, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -228,7 +229,7 @@ func TestEnvThunderResolver_Resolve_DifferentOUIDsAreNotCachedTogether(t *testin
 		gotOUIDs = append(gotOUIDs, ouID)
 		return "amp-system-client", "s3cr3t-" + ouID, nil
 	}
-	resolver := newEnvThunderResolverWithReader(read, okHandleReader("x7f2q9kz"), fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, okURLReader("x7f2q9kz"), fakeResolveBaseURL)
 
 	acme, err := resolver.Resolve(context.Background(), "ou-acme", testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -243,14 +244,14 @@ func TestEnvThunderResolver_Resolve_NotProvisioned_NoRow(t *testing.T) {
 	read := func(context.Context, string, string) (string, string, error) {
 		return "", "", ErrThunderNotProvisioned
 	}
-	resolver := newEnvThunderResolverWithReader(read, noHandleReader, fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, noURLReader, fakeResolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "no-such-env")
 	assert.True(t, errors.Is(err, ErrThunderNotProvisioned))
 }
 
 func TestEnvThunderResolver_Resolve_NotProvisioned_EmptySecret(t *testing.T) {
-	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", ""), noHandleReader, fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", ""), noURLReader, fakeResolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "half-provisioned-env")
 	assert.True(t, errors.Is(err, ErrThunderNotProvisioned))
@@ -267,7 +268,7 @@ func TestEnvThunderResolver_Resolve_NoHandleRegistered(t *testing.T) {
 		resolveBaseURLCalled = true
 		return "", "", false
 	}
-	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), noHandleReader, resolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), noURLReader, resolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "never-registered-env")
 	assert.True(t, errors.Is(err, ErrThunderNotProvisioned), "no handle must be treated as not-provisioned")
@@ -292,7 +293,7 @@ func TestEnvThunderResolver_Resolve_ReadErrorPropagates(t *testing.T) {
 	read := func(context.Context, string, string) (string, string, error) {
 		return "", "", boom
 	}
-	resolver := newEnvThunderResolverWithReader(read, noHandleReader, fakeResolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(read, noURLReader, fakeResolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.Error(t, err)
@@ -305,7 +306,7 @@ func TestEnvThunderResolver_Resolve_UsesResolvedBaseURLAndDialOverride(t *testin
 		gotNamespace, gotEnv = ns, env
 		return "http://acme-staging.amp.localhost:8080", "host.docker.internal:8080", true
 	}
-	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okHandleReader("x7f2q9kz"), resolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader("x7f2q9kz"), resolveBaseURL)
 
 	client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.NoError(t, err)
@@ -323,7 +324,7 @@ func TestEnvThunderResolver_Resolve_ThunderUnreachable(t *testing.T) {
 	resolveBaseURL := func(_ context.Context, _, _, _ string) (string, string, bool) {
 		return "", "", false
 	}
-	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okHandleReader("x7f2q9kz"), resolveBaseURL)
+	resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader("x7f2q9kz"), resolveBaseURL)
 
 	_, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 	require.Error(t, err)

@@ -25,11 +25,11 @@ import "context"
 // injected and mocked in unit tests.
 type Prober interface {
 	// Probe reports reachability of the env-Thunder instance addressed by
-	// handle (its registered EnvThunderURL — see ThunderExternalTokenURL).
-	// handle is required: callers only ever probe an environment that already
-	// has one registered — there is no address to probe otherwise, and no
-	// fallback pattern computed from org/env.
-	Probe(ctx context.Context, org, env, handle string) bool
+	// thunderURL (its registered EnvThunderURL.ThunderURL — see
+	// ThunderExternalTokenURL). thunderURL is required: callers only ever
+	// probe an environment that already has one registered — there is no
+	// address to probe otherwise, and no fallback pattern computed from org/env.
+	Probe(ctx context.Context, org, env, thunderURL string) bool
 }
 
 // liveProber is the production Prober, backed by ThunderProbe.
@@ -40,6 +40,6 @@ func NewProber() Prober {
 	return liveProber{}
 }
 
-func (liveProber) Probe(ctx context.Context, org, env, handle string) bool {
-	return ThunderProbe(ctx, org, env, handle)
+func (liveProber) Probe(ctx context.Context, org, env, thunderURL string) bool {
+	return ThunderProbe(ctx, org, env, thunderURL)
 }

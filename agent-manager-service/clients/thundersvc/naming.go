@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/utils/ssrf"
 )
 
 const (
@@ -107,43 +108,30 @@ func ThunderTokenURL(org, env string) string {
 	return ThunderInternalURL(org, env) + "/oauth2/token"
 }
 
-// ThunderExternalTokenURL returns the public OAuth2 token endpoint for the env-Thunder instance.
-// Reachable from outside the cluster via the HTTPRoute that maps the handle -> the
-// Thunder service (locally through the k3d gateway; on a VM through the Caddy
-// wildcard site — see deployments/vm/lib-vm.sh).
-// Use this in developer-facing API responses (console copy-buttons, Identity page, etc.).
-// See thunderExternalOrigin for handle.
-func ThunderExternalTokenURL(handle string) string {
-	return thunderExternalOrigin(handle) + "/oauth2/token"
+// ThunderExternalTokenURL returns the public OAuth2 token endpoint for the
+// env-Thunder instance, given its stored EnvThunderURL.ThunderURL origin.
+func ThunderExternalTokenURL(thunderURL string) string {
+	return thunderURL + "/oauth2/token"
 }
 
-// ThunderExternalJWKSURL returns the public JWKS endpoint for the env-Thunder instance.
-// Reachable from outside the cluster via the same route as ThunderExternalTokenURL.
-// Use this in developer-facing API responses. See thunderExternalOrigin for handle.
-func ThunderExternalJWKSURL(handle string) string {
-	return thunderExternalOrigin(handle) + "/oauth2/jwks"
+// ThunderExternalJWKSURL returns the public JWKS endpoint for the env-Thunder
+// instance, given its stored origin.
+func ThunderExternalJWKSURL(thunderURL string) string {
+	return thunderURL + "/oauth2/jwks"
 }
 
-// thunderExternalOrigin returns "<scheme>://<handle>.<baseDomain>[:8080]" — the
-// externally reachable origin for an env-Thunder instance, addressed by its
-// EnvThunderURL handle (see that model's doc comment for why org/env are never
-// used here: every environment is assigned a handle — user-chosen or generated —
-// at provisioning time, so there is nothing else this could be built from).
-// baseDomain is deployment-specific (THUNDER_HOST_BASE_DOMAIN, e.g. "amp.localhost"
-// for local dev or a VM's own real domain) — the handle sits directly under it,
-// with no fixed subdomain segment in between, so a VM's domain shape is honored
-// exactly as configured. reservedThunderHandles (environment_service.go) blocks
-// handles that would collide with the platform's own fixed subdomains (console,
-// api, thunder, etc.) under the same baseDomain.
-// Local dev (config.TLSConfig.EnableTLS == false, the default) reaches env-Thunder
-// directly on the k3d gateway's plain-HTTP port 8080. VM/production deployments
-// (TLS_ENABLED=true — the same flag deployments/vm/lib-vm.sh already sets for
-// platform Thunder's own advertised URLs) front env-Thunder with Caddy on the
-// standard HTTPS port instead, so no port is appended:
-// deployments/scripts/thunder-naming.sh's thunder_issuer() must produce the SAME
-// scheme/port shape when TLS_ENABLED=true, or the URL reported here won't match
-// what env-Thunder itself self-configured as its issuer/publicUrl.
-func thunderExternalOrigin(handle string) string {
+// ThunderOriginFromHandle returns "<scheme>://<handle>.<baseDomain>[:8080]" for
+// an on-prem-registered instance. WRITE-TIME ONLY: called from
+// EnvironmentService.SetThunderURL to compute the value stored as
+// EnvThunderURL.ThunderURL, never by a reader — readers always use the stored
+// value directly, since one global base-domain config can't describe every
+// environment once a cloud control plane provisions across different domains.
+//
+// Scheme/port must match what env-Thunder itself self-configured as its
+// issuer (see thunder-naming.sh's thunder_issuer(), which must stay in sync):
+// local dev (TLS disabled) uses plain HTTP on port 8080; TLS_ENABLED=true
+// (VM/production, fronted by Caddy) drops the port and uses HTTPS.
+func ThunderOriginFromHandle(handle string) string {
 	if handle == "" {
 		panic("thunder url handle must not be empty — callers must check for \"not provisioned\" before building a URL")
 	}
@@ -154,10 +142,12 @@ func thunderExternalOrigin(handle string) string {
 	return fmt.Sprintf("http://%s:8080", host)
 }
 
-// ThunderIssuerURL returns the public issuer URL for the env-Thunder instance —
-// what Thunder stamps into the JWT iss claim. See thunderExternalOrigin for handle.
-func ThunderIssuerURL(handle string) string {
-	return thunderExternalOrigin(handle)
+// ThunderIssuerURL returns the public issuer URL for the env-Thunder
+// instance — what Thunder stamps into the JWT iss claim. Currently an
+// identity function over the stored origin, kept as a distinct name so
+// callers stay self-documenting.
+func ThunderIssuerURL(thunderURL string) string {
+	return thunderURL
 }
 
 // isValidJWKS reports whether body is a syntactically valid JWKS document (a JSON
@@ -180,9 +170,19 @@ func isValidJWKS(body []byte) bool {
 // is empty when the base URL's own host is directly dialable; when set, callers must
 // dial resolveToHost while keeping the base URL's host as the HTTP Host header, so
 // Kgateway's host-based routing still selects the right backend.
+// external marks the ONE candidate dialed by its own host with no internal
+// override — the exact stored EnvThunderURL.ThunderURL. For an on-prem
+// (handle) row that value is server-computed under AMS's own trusted base
+// domain, but for a SaaS (url) row it's caller-supplied — so this candidate,
+// and only this one, is dialed with ssrf.NewClient (re-resolves at dial time,
+// re-validates every redirect hop) rather than the plain default client.
+// Cluster-internal DNS and the local-dev host-override candidates are never
+// marked external: they're either AMS-computed or deliberately private-target
+// by design, and would be wrongly rejected by the SSRF guard's private-IP check.
 type thunderURLCandidate struct {
 	baseURL       string
 	resolveToHost string
+	external      bool
 }
 
 // thunderBaseURLCandidates returns, in preference order, every base URL an env-Thunder
@@ -202,16 +202,17 @@ type thunderURLCandidate struct {
 // env-Thunder's admin API for per-agent client provisioning) build their attempts from
 // this same list, so the two can never drift out of sync with each other.
 //
-// handle builds the external candidate (see thunderExternalOrigin — it must be
-// non-empty; callers check for "not provisioned" before ever reaching here). The
-// internal cluster-DNS candidate is unaffected — it's addressed by org/env, not
-// part of the guessable attack surface handle replaces (see EnvThunderURL's doc
-// comment).
-func thunderBaseURLCandidates(org, env, handle string) []thunderURLCandidate {
-	externalBaseURL := thunderExternalOrigin(handle)
+// thunderURL is the stored EnvThunderURL.ThunderURL origin and builds the
+// external candidate directly; it must be non-empty (callers check for "not
+// provisioned" before ever reaching here).
+func thunderBaseURLCandidates(org, env, thunderURL string) []thunderURLCandidate {
+	if thunderURL == "" {
+		panic("thunder url must not be empty — callers must check for \"not provisioned\" before building candidates")
+	}
+	externalBaseURL := thunderURL
 	candidates := []thunderURLCandidate{
 		{baseURL: ThunderInternalURL(org, env)},
-		{baseURL: externalBaseURL},
+		{baseURL: externalBaseURL, external: true},
 	}
 	if config.GetConfig().IsLocalDevEnv {
 		candidates = append(
@@ -228,7 +229,11 @@ func thunderBaseURLCandidates(org, env, handle string) []thunderURLCandidate {
 // Thunder instance, since an unrelated server answering on a probed fallback address
 // would otherwise be misreported as reachable. Optionally dials resolveToHost instead
 // of the URL's own host (see thunderURLCandidate).
-func probeThunderURL(ctx context.Context, url, resolveToHost string) bool {
+//
+// external selects an SSRF-hardened client (re-resolves at dial time, re-validates
+// every redirect hop) instead of the plain default one — see thunderURLCandidate's
+// doc comment for exactly which candidate this applies to and why.
+func probeThunderURL(ctx context.Context, url, resolveToHost string, external bool) bool {
 	const probeTimeout = 2 * time.Second
 	reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -240,7 +245,11 @@ func probeThunderURL(ctx context.Context, url, resolveToHost string) bool {
 		req.Host = req.URL.Host
 		req.URL.Host = resolveToHost
 	}
-	resp, err := http.DefaultClient.Do(req)
+	httpClient := http.DefaultClient
+	if external {
+		httpClient = ssrf.NewClient(probeTimeout)
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -263,14 +272,14 @@ type thunderURLProber func(ctx context.Context, candidate thunderURLCandidate) b
 
 // defaultThunderURLProber is the real, network-probing implementation used outside tests.
 func defaultThunderURLProber(ctx context.Context, candidate thunderURLCandidate) bool {
-	return probeThunderURL(ctx, candidate.baseURL+"/oauth2/jwks", candidate.resolveToHost)
+	return probeThunderURL(ctx, candidate.baseURL+"/oauth2/jwks", candidate.resolveToHost, candidate.external)
 }
 
 // resolveThunderBaseURL returns the first candidate base URL that prober reports as
 // reachable, trying them in thunderBaseURLCandidates' preference order. ok is false
 // if none respond.
-func resolveThunderBaseURL(ctx context.Context, org, env, handle string, prober thunderURLProber) (candidate thunderURLCandidate, ok bool) {
-	for _, c := range thunderBaseURLCandidates(org, env, handle) {
+func resolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, prober thunderURLProber) (candidate thunderURLCandidate, ok bool) {
+	for _, c := range thunderBaseURLCandidates(org, env, thunderURL) {
 		if prober(ctx, c) {
 			return c, true
 		}
@@ -283,9 +292,9 @@ func resolveThunderBaseURL(ctx context.Context, org, env, handle string, prober 
 // dev only) Docker Desktop/Linux host-networking fallbacks. Callers that build an HTTP
 // client against the result must dial resolveToHost (when non-empty) instead of the
 // base URL's own host, while still sending the base URL's host as the Host header.
-// See ThunderExternalTokenURL for handle.
-func ResolveThunderBaseURL(ctx context.Context, org, env, handle string) (baseURL, resolveToHost string, ok bool) {
-	c, ok := resolveThunderBaseURL(ctx, org, env, handle, defaultThunderURLProber)
+// thunderURL is the stored EnvThunderURL.ThunderURL origin.
+func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string) (baseURL, resolveToHost string, ok bool) {
+	c, ok := resolveThunderBaseURL(ctx, org, env, thunderURL, defaultThunderURLProber)
 	return c.baseURL, c.resolveToHost, ok
 }
 
@@ -294,17 +303,17 @@ func ResolveThunderBaseURL(ctx context.Context, org, env, handle string) (baseUR
 // as an actual JWKS document via isValidJWKS — not just an HTTP 200). All candidates
 // are probed CONCURRENTLY, not one after another, so latency is bounded by a single
 // probe's 2-second timeout rather than the sum of however many are tried. Callers treat
-// a negative probe as "not provisioned" and skip the env. See ThunderExternalTokenURL
-// for handle.
-func ThunderProbe(ctx context.Context, org, env, handle string) bool {
-	candidates := thunderBaseURLCandidates(org, env, handle)
+// a negative probe as "not provisioned" and skip the env. thunderURL is the stored
+// EnvThunderURL.ThunderURL origin.
+func ThunderProbe(ctx context.Context, org, env, thunderURL string) bool {
+	candidates := thunderBaseURLCandidates(org, env, thunderURL)
 
 	probeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	results := make(chan bool, len(candidates))
 	for _, c := range candidates {
 		go func(c thunderURLCandidate) {
-			results <- probeThunderURL(probeCtx, c.baseURL+"/oauth2/jwks", c.resolveToHost)
+			results <- probeThunderURL(probeCtx, c.baseURL+"/oauth2/jwks", c.resolveToHost, c.external)
 		}(c)
 	}
 
