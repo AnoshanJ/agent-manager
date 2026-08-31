@@ -83,11 +83,9 @@ func addTool[T any](reg *toolRegistry, server *gomcp.Server, tool *gomcp.Tool,
 }
 
 // authzMiddleware returns a server middleware that authorizes every tools/call
-// against the registry, mirroring middleware.RequirePermission semantics:
-// RBAC_ENABLED=false skips the scope check (zero-downtime rollout switch),
-// while the unknown-tool denial applies regardless. Denials are returned as
-// IsError tool results so MCP clients surface an actionable message instead
-// of a protocol error.
+// against the registry, mirroring middleware.RequirePermission semantics.
+// Denials are returned as IsError tool results so MCP clients surface an
+// actionable message instead of a protocol error.
 func (reg *toolRegistry) authzMiddleware() gomcp.Middleware {
 	return func(next gomcp.MethodHandler) gomcp.MethodHandler {
 		return func(ctx context.Context, method string, req gomcp.Request) (gomcp.Result, error) {
