@@ -187,7 +187,14 @@ func (r *envThunderResolver) Resolve(ctx context.Context, ouID, orgNamespace, en
 		// The System RS identifier is "<issuer>/mcp", derived from the env-Thunder issuer
 		// URL — not the (possibly cluster-internal) dialable base URL selected above.
 		systemResource := SystemResourceIdentifier(ThunderIssuerURL(thunderURL))
-		client := NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource)
+		// baseURL==thunderURL with no override identifies the one candidate that
+		// may be a SaaS-registered, caller-supplied URL — cluster-internal DNS
+		// never equals thunderURL, and local-dev fallbacks always set resolveToHost.
+		newClient := NewThunderClientWithDialOverride
+		if resolveToHost == "" && baseURL == thunderURL {
+			newClient = NewEnvThunderClient
+		}
+		client := newClient(baseURL, clientID, clientSecret, resolveToHost, systemResource)
 
 		r.mu.Lock()
 		r.cache[cacheKey] = cachedThunderClient{client: client, cachedAt: r.now()}

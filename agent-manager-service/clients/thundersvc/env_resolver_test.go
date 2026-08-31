@@ -19,6 +19,9 @@ package thundersvc
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -318,6 +321,65 @@ func TestEnvThunderResolver_Resolve_UsesResolvedBaseURLAndDialOverride(t *testin
 	require.True(t, ok)
 	assert.Equal(t, "http://acme-staging.amp.localhost:8080", tc.baseURL)
 	require.NotNil(t, tc.httpClient.Transport, "a non-empty dial override must install a custom transport")
+}
+
+// TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalWinner proves the
+// resolver itself, not just the two constructors in isolation, picks the
+// SSRF-hardened client only for the plain-external winner (baseURL==thunderURL,
+// no override). A cluster-internal-DNS-shaped or dial-override winner must get
+// the plain client, since neither is caller-influenced.
+func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalWinner(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	doGet := func(t *testing.T, client ThunderClient) error {
+		t.Helper()
+		tc, ok := client.(*thunderClient)
+		require.True(t, ok)
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tc.baseURL, nil)
+		require.NoError(t, err)
+		resp, err := tc.httpClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		return err
+	}
+
+	t.Run("plain external winner (baseURL==thunderURL, no override): SSRF-hardened, loopback rejected", func(t *testing.T) {
+		resolveBaseURL := func(_ context.Context, _, _, thunderURL string) (string, string, bool) {
+			return thunderURL, "", true
+		}
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader(server.URL), resolveBaseURL)
+
+		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
+		require.NoError(t, err)
+		assert.Error(t, doGet(t, client), "the loopback server must be rejected — this is what a SaaS-supplied thunder_url pointed at an internal address would hit")
+	})
+
+	t.Run("cluster-internal-DNS-shaped winner (baseURL != thunderURL): plain client, loopback reachable", func(t *testing.T) {
+		resolveBaseURL := func(_ context.Context, _, _, _ string) (string, string, bool) {
+			return server.URL, "", true // baseURL deliberately does NOT equal thunderURL below
+		}
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader("http://different-thunder-url:8080"), resolveBaseURL)
+
+		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
+		require.NoError(t, err)
+		assert.NoError(t, doGet(t, client), "AMS's own cluster-internal candidate must never be SSRF-checked, or real in-cluster DNS (always a private IP) would always be rejected")
+	})
+
+	t.Run("dial-override winner: plain client, loopback reachable regardless of baseURL", func(t *testing.T) {
+		overrideHost := strings.TrimPrefix(server.URL, "http://")
+		resolveBaseURL := func(_ context.Context, _, _, thunderURL string) (string, string, bool) {
+			return thunderURL, overrideHost, true
+		}
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okURLReader("http://unreachable.invalid:9999"), resolveBaseURL)
+
+		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
+		require.NoError(t, err)
+		assert.NoError(t, doGet(t, client), "an explicit dial override is always AMS's own trusted target, so it must not be SSRF-checked")
+	})
 }
 
 func TestEnvThunderResolver_Resolve_ThunderUnreachable(t *testing.T) {
