@@ -160,16 +160,6 @@ func TestAuthzMiddlewareDeniesUnregisteredTool(t *testing.T) {
 	}
 }
 
-func TestAuthzMiddlewareDeniesCallWithoutClaims(t *testing.T) {
-	reg := newToolRegistry()
-	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
-	// No claims on context at all — nothing to authorize against.
-	_, nextCalled := callToolViaMiddleware(t, reg, context.Background(), "some_tool")
-	if nextCalled {
-		t.Fatal("next handler ran for a call carrying no claims")
-	}
-}
-
 func TestAuthzMiddlewareDeniesMissingScope(t *testing.T) {
 	reg := newToolRegistry()
 	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}
@@ -186,9 +176,9 @@ func TestAuthzMiddlewareDeniesMissingScope(t *testing.T) {
 	}
 }
 
-// TestAuthzMiddlewareDeniesWhenNoClaimsOnContext pins that RBAC enabled with
-// no claims/scopes at all on the context (not even an empty scope string)
-// fails closed rather than open.
+// TestAuthzMiddlewareDeniesWhenNoClaimsOnContext pins that a call carrying no
+// claims/scopes at all (not even an empty scope string) fails closed rather
+// than open.
 func TestAuthzMiddlewareDeniesWhenNoClaimsOnContext(t *testing.T) {
 	reg := newToolRegistry()
 	reg.permissions["some_tool"] = []rbac.Permission{rbac.AgentBuild}

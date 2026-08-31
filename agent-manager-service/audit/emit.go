@@ -316,8 +316,8 @@ func Denied(perm rbac.Permission) Option {
 	}
 }
 
-// RequiredPermissions records the permissions that gate a route. Recorded even
-// when the check was skipped, so a record shows what would have applied.
+// RequiredPermissions records the permissions that gate a route, on allow and
+// deny alike, so a record shows what was checked.
 func RequiredPermissions(perms ...rbac.Permission) Option {
 	return func(e *Event) {
 		if scope := ScopesOf(perms); scope != "" {

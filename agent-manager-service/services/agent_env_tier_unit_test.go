@@ -84,15 +84,8 @@ func tierService(envs map[string]bool, lookupErr error) (*agentManagerService, *
 // scopes.
 func tierCtx(t *testing.T, scopes ...rbac.Permission) context.Context {
 	t.Helper()
-	scope := ""
-	for i, perm := range scopes {
-		if i > 0 {
-			scope += " "
-		}
-		scope += perm.Scope()
-	}
 	return jwtassertion.ContextWithTokenClaimsAndScope(auditableCtx(t),
-		&jwtassertion.TokenClaims{OuId: tierOUID, Scope: scope})
+		&jwtassertion.TokenClaims{OuId: tierOUID, Scope: audit.ScopesOf(scopes)})
 }
 
 // tierGrantedCtx is the caller the deploy and promote fixtures assume: it holds
@@ -101,7 +94,7 @@ func tierCtx(t *testing.T, scopes ...rbac.Permission) context.Context {
 func tierGrantedCtx(t *testing.T) context.Context {
 	t.Helper()
 	return jwtassertion.ContextWithTokenClaimsAndScope(auditableCtx(t), &jwtassertion.TokenClaims{
-		Scope: rbac.AgentEnvNonProduction.Scope() + " " + rbac.AgentEnvProduction.Scope(),
+		Scope: audit.ScopesOf([]rbac.Permission{rbac.AgentEnvNonProduction, rbac.AgentEnvProduction}),
 	})
 }
 

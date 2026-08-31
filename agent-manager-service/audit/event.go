@@ -160,9 +160,8 @@ type Event struct {
 	StatusCode   int     `json:"statusCode,omitempty"`
 	ErrorCode    string  `json:"errorCode,omitempty"`
 	ErrorMessage string  `json:"errorMessage,omitempty"`
-	// RequiredPermission is the scope that gated this call, recorded even when
-	// the check was skipped, so a record shows on its face what would have
-	// applied.
+	// RequiredPermission is the scope that gated this call, recorded on allow
+	// and deny alike so a record shows on its face what was checked.
 	RequiredPermission string `json:"requiredPermission,omitempty"`
 	// Details carries operation-specific fields. Only keys present in the
 	// action's schema survive; see schema.go.
