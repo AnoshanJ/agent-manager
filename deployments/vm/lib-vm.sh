@@ -58,7 +58,7 @@ amp_helm_args() {
       "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
       "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
+      "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/mcp" \
       "--set" "${k}.config.thunder.baseURL=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.thunder.resolveToHost=amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090" \
       "--set" "${k}.config.tlsEnabled=true" \
@@ -161,8 +161,8 @@ build_gateway_helm_args() {
 #
 # authorizationServers/audience are restated for the version-skew reason noted
 # above amp_helm_args (including the "urn:wso2:amp" identifier value). The last
-# audience entry is the observer MCP token's `aud` (publicUrl plus a trailing
-# slash); the first three cover console/amctl tokens.
+# audience entry is the observer MCP token's `aud` (its public `/mcp`
+# resource); the first three cover console/amctl tokens.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
@@ -170,7 +170,7 @@ observability_helm_args() {
     "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}" \
-    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
+    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/mcp"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.
