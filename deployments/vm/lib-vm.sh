@@ -62,7 +62,7 @@ amp_helm_args() {
       "--set" "${k}.config.thunder.baseURL=https://${AMP_HOST_THUNDER}" \
       "--set" "${k}.config.thunder.resolveToHost=amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090" \
       "--set" "${k}.config.tlsEnabled=true" \
-      "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+      "--set" "${k}.config.idpHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
       "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
       "--set" "${k}.config.agentsHttpPort=443" \
       "--set" "${k}.config.agentsHttpsPort=443" \
@@ -78,7 +78,7 @@ amp_helm_args() {
     "--set" "console.config.apiBaseUrl=https://${AMP_HOST_API}" \
     "--set" "agentManagerService.config.amObserverPublicURL=https://${AMP_HOST_OBSERVER}" \
     "--set" "console.config.instrumentationUrl=https://${AMP_HOST_GATEWAY}/otel" \
-    "--set" "console.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+    "--set" "console.config.idpHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
     "--set" "console.config.tlsEnabled=true"
 
   # Console and API are ClusterIP behind the OC control-plane kgateway; their

@@ -28,11 +28,12 @@ import (
 )
 
 // TestThunderOriginFromHandle_RespectsBaseDomainConfig locks in that a VM
-// deployment's THUNDER_HOST_BASE_DOMAIN override flows straight through into
+// deployment's IDP_HOST_BASE_DOMAIN override flows straight through into
 // the on-prem write-time origin computation — this is what makes
 // deployments/vm/lib-vm.sh setting the same value (both for
-// add-environment-thunder.sh and this Go config) keep the URL AMS stores and
-// the actually-deployed Thunder instance's own issuer in sync.
+// add-environment-thunder.sh's THUNDER_HOST_BASE_DOMAIN and this Go config)
+// keep the URL AMS stores and the actually-deployed Thunder instance's own
+// issuer in sync.
 func TestThunderOriginFromHandle_RespectsBaseDomainConfig(t *testing.T) {
 	orig := config.GetConfig().ThunderHostBaseDomain
 	defer func() { config.GetConfig().ThunderHostBaseDomain = orig }()

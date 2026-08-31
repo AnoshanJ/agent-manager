@@ -33,7 +33,7 @@ import (
 //
 // Existing handle-based rows are preserved. Their URL is backfilled through
 // the same configuration-aware helper used by the live write path, so an
-// upgrade respects TLS_ENABLED and THUNDER_HOST_BASE_DOMAIN instead of
+// upgrade respects TLS_ENABLED and IDP_HOST_BASE_DOMAIN instead of
 // assuming the local-development origin.
 //
 // uq_env_thunder_urls_url is the new primary invariant. uq_env_thunder_urls_handle
