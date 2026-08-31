@@ -49,7 +49,6 @@ import {
   useGetAgent,
   useGetAgentConfigurations,
   useGetDeploymentPipeline,
-  useListAgentDeployments,
   useListEnvironments,
 } from "@agent-management-platform/api-client";
 import type {
@@ -176,21 +175,6 @@ export function PromoteAgentDrawer({
       { orgName: orgId, projName: projectId, agentName: agentId },
       { environment: formState.targetEnvironment },
     );
-
-  // Deployment status per environment, used only to tell whether the chosen
-  // target has ever been deployed. Drives the wording of the config-source
-  // hint below (base config on a first promotion vs the target's own current
-  // config on a re-promotion).
-  const { data: deployments } = useListAgentDeployments({
-    orgName: orgId,
-    projName: projectId,
-    agentName: agentId,
-  });
-
-  const targetAlreadyDeployed = useMemo(() => {
-    const status = deployments?.[formState.targetEnvironment]?.status;
-    return !!status && status !== "not-deployed";
-  }, [deployments, formState.targetEnvironment]);
 
   // Tracks which target env we've already pre-filled the editor for, so we fill
   // once per target rather than on every background refetch.

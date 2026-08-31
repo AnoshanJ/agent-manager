@@ -534,14 +534,17 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 	bindingName := componentName + "-" + environment
 	existing, err := c.findReleaseBindingForEnv(ctx, namespaceName, componentName, environment)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to look up release binding for component %q in environment %q: %w",
+			componentName, environment, err)
 	}
 	if existing != nil {
 		return c.retryReleaseBindingUpdate(ctx, namespaceName, existing.Metadata.Name, func(rb *gen.ReleaseBinding) {
 			rb.Spec.ReleaseName = &releaseName
-			if workloadOverrides != nil {
-				rb.Spec.WorkloadOverrides = workloadOverrides
-			}
+			// Assigned unconditionally: the caller's configuration is authoritative for
+			// this environment, so an empty one (nil here) must clear whatever a previous
+			// binding held rather than leaving it in force. Unlike
+			// ReplaceReleaseBindingWorkloadOverrides, this is not a partial edit.
+			rb.Spec.WorkloadOverrides = workloadOverrides
 			bumpRestartedAt(rb)
 		})
 	}
@@ -576,9 +579,11 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 	if createResp.StatusCode() == http.StatusConflict {
 		return c.retryReleaseBindingUpdate(ctx, namespaceName, bindingName, func(rb *gen.ReleaseBinding) {
 			rb.Spec.ReleaseName = &releaseName
-			if workloadOverrides != nil {
-				rb.Spec.WorkloadOverrides = workloadOverrides
-			}
+			// Assigned unconditionally: the caller's configuration is authoritative for
+			// this environment, so an empty one (nil here) must clear whatever a previous
+			// binding held rather than leaving it in force. Unlike
+			// ReplaceReleaseBindingWorkloadOverrides, this is not a partial edit.
+			rb.Spec.WorkloadOverrides = workloadOverrides
 			bumpRestartedAt(rb)
 		})
 	}

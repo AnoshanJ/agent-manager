@@ -1703,14 +1703,18 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				ctx, ouID, projectName, req.Name, firstEnv, kindEnvVars, kindFileVars,
 			); err != nil {
 				s.logger.Error("Failed to create release binding for kind-sourced agent",
-					"agentName", req.Name, "environment", firstEnv, "error", err)
+					"agentName", req.Name, "ouID", ouID, "projectName", projectName,
+					"environment", firstEnv, "error", err)
 				if hasSecrets {
 					s.cleanupSecretsOnRollback(ctx, secretLocation)
 				}
 				if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
-					s.logger.Error("Failed to rollback agent creation after release-binding failure", "agentName", req.Name, "error", errDeletion)
+					s.logger.Error("Failed to rollback agent creation after release-binding failure",
+						"agentName", req.Name, "ouID", ouID, "projectName", projectName,
+						"environment", firstEnv, "error", errDeletion)
 				}
-				return err
+				return fmt.Errorf("failed to create release binding for agent %q in environment %q: %w",
+					req.Name, firstEnv, err)
 			}
 			s.logger.Info("Bound kind-sourced agent release to environment", "agentName", req.Name, "environment", firstEnv)
 		} else {
