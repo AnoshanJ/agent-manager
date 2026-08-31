@@ -164,12 +164,6 @@ type Event struct {
 	// the check was skipped, so a record shows on its face what would have
 	// applied.
 	RequiredPermission string `json:"requiredPermission,omitempty"`
-	// RBACEnforced is false when RBAC_ENABLED=false. The platform defaults to
-	// that state, so recording it is the difference between an audit trail that
-	// documents its own enforcement gap and one that silently implies a check
-	// happened.
-	RBACEnforced bool `json:"rbacEnforced"`
-
 	// Details carries operation-specific fields. Only keys present in the
 	// action's schema survive; see schema.go.
 	Details map[string]any `json:"details,omitempty"`

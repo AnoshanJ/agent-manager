@@ -170,7 +170,6 @@ func newEvent(ctx context.Context, action Action) Event {
 		e.UserAgent = src.UserAgent
 		e.RequestMethod = src.Method
 		e.RequestPath = src.Pattern
-		e.RBACEnforced = src.RBACEnforced
 		e.RequiredPermission = src.RequiredPermission
 		if src.ActorType != "" {
 			e.ActorType = src.ActorType
@@ -344,11 +343,6 @@ func ScopesOf(perms []rbac.Permission) string {
 		}
 		return joinScopes(scopes)
 	}
-}
-
-// RBACEnforced records whether authorization was actually checked.
-func RBACEnforced(enforced bool) Option {
-	return func(e *Event) { e.RBACEnforced = enforced }
 }
 
 // Detail attaches one structured field.

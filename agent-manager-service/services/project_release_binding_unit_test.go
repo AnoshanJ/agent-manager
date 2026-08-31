@@ -197,7 +197,6 @@ func (s *recordingProvisioningStub) ProvisionForEnvironmentIfMissing(_ context.C
 }
 
 func TestPromoteAgent_BindingFailureAbortsBeforeAnyTargetWrite(t *testing.T) {
-	setRBACEnabledForTier(t, false)
 	boom := errors.New("openchoreo unavailable")
 	promoteCalled := false
 	provisionCalled := false
@@ -249,7 +248,7 @@ func TestPromoteAgent_BindingFailureAbortsBeforeAnyTargetWrite(t *testing.T) {
 		logger:                    discardLogger(),
 	}
 
-	err := s.PromoteAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
+	err := s.PromoteAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
 		SourceEnvironment: "dev",
 		TargetEnvironment: "staging",
 	})
@@ -263,7 +262,6 @@ func TestPromoteAgent_BindingFailureAbortsBeforeAnyTargetWrite(t *testing.T) {
 }
 
 func TestDeployAgent_BindingFailureAbortsDeploy(t *testing.T) {
-	setRBACEnabledForTier(t, false)
 	boom := errors.New("openchoreo unavailable")
 	deployCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
@@ -287,7 +285,7 @@ func TestDeployAgent_BindingFailureAbortsDeploy(t *testing.T) {
 	}
 	s := &agentManagerService{ocClient: ocClient, logger: discardLogger()}
 
-	_, err := s.DeployAgent(auditableCtx(t), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{
+	_, err := s.DeployAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{
 		ImageId: "registry.example.com/my-agent:v1",
 	})
 
