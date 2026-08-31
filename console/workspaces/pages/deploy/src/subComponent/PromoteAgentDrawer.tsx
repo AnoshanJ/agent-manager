@@ -511,18 +511,6 @@ export function PromoteAgentDrawer({
                   unmountOnExit
                 >
                   <Stack spacing={2}>
-                    <Alert severity="info">
-                      <Typography variant="body2">
-                        {targetAlreadyDeployed
-                          ? `These values are the current configuration of ${envDisplayName(
-                              formState.targetEnvironment,
-                            )}. Editing them here will update that environment on promote.`
-                          : `These values are inherited from the agent's base configuration. Review and adjust them for ${envDisplayName(
-                              formState.targetEnvironment,
-                            )} before promoting.`}
-                      </Typography>
-                    </Alert>
-
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1.5}>

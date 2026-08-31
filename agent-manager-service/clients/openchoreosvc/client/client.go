@@ -101,6 +101,9 @@ type OpenChoreoClient interface {
 	// Deployment Operations
 	Deploy(ctx context.Context, ouID, projectName, componentName string, req DeployRequest) error
 	CreateInternalAgentFromKindWorkload(ctx context.Context, ouID, projectName, componentName string, req InternalAgentFromKindWorkloadRequest) error
+	// CreateKindAgentReleaseAndBinding cuts the ComponentRelease for a kind-sourced agent and
+	// binds it to the environment, carrying that environment's configuration as workloadOverrides.
+	CreateKindAgentReleaseAndBinding(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []EnvVar, fileOverrides []FileVar) error
 	GetDeployments(ctx context.Context, ouID, pipelineName, projectName, componentName string) ([]*models.DeploymentResponse, error)
 	UpdateDeploymentState(ctx context.Context, ouID, projectName, componentName, environment string, state gen.ReleaseBindingSpecState) error
 	IsDeploymentInProgress(ctx context.Context, ouID, componentName, environment string) (bool, error)

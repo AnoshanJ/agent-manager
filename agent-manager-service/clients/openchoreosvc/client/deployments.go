@@ -106,9 +106,13 @@ func (c *openChoreoClient) CreateInternalAgentFromKindWorkload(ctx context.Conte
 		endpointMap[name] = workloadEp
 	}
 
-	envVars := toGenEnvVars(req.Env)
-	fileVars := toGenFileVars(req.Files)
-
+	// Env vars and file mounts are deliberately NOT set here. A value on the Workload is
+	// inherited by every environment, and a ReleaseBinding's workloadOverrides can replace
+	// such a value per environment but cannot remove it — making the inheritance impossible
+	// to opt out of. Configuration therefore lives only on the per-environment binding,
+	// written by CreateKindAgentReleaseAndBinding; the Workload carries just the image and
+	// the environment-independent endpoint contract. This mirrors amp-generate-workload,
+	// which splits the same two documents for source-built agents.
 	workload := gen.CreateWorkloadJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:      workloadName,
@@ -117,8 +121,6 @@ func (c *openChoreoClient) CreateInternalAgentFromKindWorkload(ctx context.Conte
 		Spec: &gen.WorkloadSpec{
 			Container: &gen.WorkloadContainer{
 				Image: req.ImageID,
-				Env:   &envVars,
-				Files: &fileVars,
 			},
 			Owner: &struct {
 				ComponentName string `json:"componentName"`
@@ -470,6 +472,126 @@ func (c *openChoreoClient) ReplaceReleaseBindingWorkloadOverrides(ctx context.Co
 
 		bumpRestartedAt(rb)
 	})
+}
+
+// CreateKindAgentReleaseAndBinding cuts a ComponentRelease for a kind-sourced agent and binds
+// it to the given environment, carrying the environment's configuration as the binding's
+// workloadOverrides.
+//
+// Why this exists: kind-sourced agents run no build workflow, so nothing runs
+// amp-generate-workload to do this for them. They used to rely on OpenChoreo's autoDeploy,
+// but a controller-created binding carries no overrides — and configuration must not sit on
+// the shared Workload, because a value there is inherited by every environment and a binding
+// can replace but never remove it. This is the backend's equivalent of that workflow's
+// Steps 6-7, and is why kind components are now created with autoDeploy off.
+//
+// The binding name follows the same convention the workflow and the promotion path use:
+// <component>-<environment>. Passing nil overrides leaves spec.workloadOverrides unset.
+func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
+	ctx context.Context, ouID, projectName, componentName, environment string,
+	envOverrides []EnvVar, fileOverrides []FileVar,
+) error {
+	namespaceName := c.NamespaceFor(ouID)
+
+	// Step 1: cut the release from the component's current state. The name is left to the
+	// API server to generate; the response carries it back for the binding to pin.
+	releaseResp, err := c.ocClient.GenerateReleaseWithResponse(ctx, namespaceName, componentName,
+		gen.GenerateReleaseJSONRequestBody{})
+	if err != nil {
+		return fmt.Errorf("failed to generate component release for kind-sourced agent: %w", err)
+	}
+	if releaseResp.StatusCode() != http.StatusCreated || releaseResp.JSON201 == nil {
+		return handleErrorResponse(releaseResp.StatusCode(), ErrorResponses{
+			JSON400: releaseResp.JSON400,
+			JSON401: releaseResp.JSON401,
+			JSON403: releaseResp.JSON403,
+			JSON500: releaseResp.JSON500,
+		})
+	}
+	releaseName := releaseResp.JSON201.Metadata.Name
+	if releaseName == "" {
+		return fmt.Errorf("component release for %q was created without a name", componentName)
+	}
+
+	var workloadOverrides *gen.WorkloadOverrides
+	if len(envOverrides) > 0 || len(fileOverrides) > 0 {
+		container := &gen.ContainerOverride{}
+		if len(envOverrides) > 0 {
+			envVars := toGenEnvVars(envOverrides)
+			container.Env = &envVars
+		}
+		if len(fileOverrides) > 0 {
+			fileVars := toGenFileVars(fileOverrides)
+			container.Files = &fileVars
+		}
+		workloadOverrides = &gen.WorkloadOverrides{Container: container}
+	}
+
+	// Step 2: bind the release to the environment. A binding can already exist when an
+	// agent is recreated over a previous one, so update rather than fail on that path;
+	// retryReleaseBindingUpdate re-reads per attempt, as the backend races other writers
+	// of this same binding (MCP env vars, runtime class).
+	bindingName := componentName + "-" + environment
+	existing, err := c.findReleaseBindingForEnv(ctx, namespaceName, componentName, environment)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return c.retryReleaseBindingUpdate(ctx, namespaceName, existing.Metadata.Name, func(rb *gen.ReleaseBinding) {
+			rb.Spec.ReleaseName = &releaseName
+			if workloadOverrides != nil {
+				rb.Spec.WorkloadOverrides = workloadOverrides
+			}
+			bumpRestartedAt(rb)
+		})
+	}
+
+	activeState := gen.ReleaseBindingSpecStateActive
+	createBody := gen.CreateReleaseBindingJSONRequestBody{
+		Metadata: gen.ObjectMeta{
+			Name:      bindingName,
+			Namespace: &namespaceName,
+		},
+		Spec: &gen.ReleaseBindingSpec{
+			Environment:       environment,
+			ReleaseName:       &releaseName,
+			State:             &activeState,
+			WorkloadOverrides: workloadOverrides,
+			Owner: struct {
+				ComponentName string `json:"componentName"`
+				ProjectName   string `json:"projectName"`
+			}{
+				ComponentName: componentName,
+				ProjectName:   projectName,
+			},
+		},
+	}
+
+	createResp, err := c.ocClient.CreateReleaseBindingWithResponse(ctx, namespaceName, createBody)
+	if err != nil {
+		return fmt.Errorf("failed to create release binding for kind-sourced agent: %w", err)
+	}
+	// A concurrent writer can win the create; adopt the binding it made rather than failing
+	// the agent creation, mirroring the workflow's 409 handling.
+	if createResp.StatusCode() == http.StatusConflict {
+		return c.retryReleaseBindingUpdate(ctx, namespaceName, bindingName, func(rb *gen.ReleaseBinding) {
+			rb.Spec.ReleaseName = &releaseName
+			if workloadOverrides != nil {
+				rb.Spec.WorkloadOverrides = workloadOverrides
+			}
+			bumpRestartedAt(rb)
+		})
+	}
+	if createResp.StatusCode() != http.StatusCreated {
+		return handleErrorResponse(createResp.StatusCode(), ErrorResponses{
+			JSON400: createResp.JSON400,
+			JSON401: createResp.JSON401,
+			JSON403: createResp.JSON403,
+			JSON500: createResp.JSON500,
+		})
+	}
+
+	return nil
 }
 
 // PromoteComponent promotes a component from sourceEnvironment to targetEnvironment.

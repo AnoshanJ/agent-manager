@@ -1677,11 +1677,12 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				return envErr
 			}
 			kindEndpoints := inputInterfaceToEndpoints(createAgentReq.InputInterface, req.Name)
+			// Env/Files are carried to the binding below, not the Workload: a value on the
+			// Workload is inherited by every environment and a binding can replace but never
+			// remove it. CreateInternalAgentFromKindWorkload writes only image + endpoints.
 			if err := s.ocClient.CreateInternalAgentFromKindWorkload(ctx, ouID, projectName, req.Name, client.InternalAgentFromKindWorkloadRequest{
 				ImageID:   imageID,
 				Endpoints: kindEndpoints,
-				Env:       kindEnvVars,
-				Files:     kindFileVars,
 			}); err != nil {
 				s.logger.Error("Failed to create internal-agent-from-kind workload", "agentName", req.Name, "error", err)
 				if hasSecrets {
@@ -1693,6 +1694,25 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				return err
 			}
 			s.logger.Info("Created internal-agent-from-kind workload", "agentName", req.Name)
+
+			// Cut the release and bind it to the first environment, carrying the resolved
+			// configuration as the binding's workloadOverrides. This is what
+			// amp-generate-workload does for source-built agents; kind components are
+			// created with autoDeploy off so nothing else deploys them.
+			if err := s.ocClient.CreateKindAgentReleaseAndBinding(
+				ctx, ouID, projectName, req.Name, firstEnv, kindEnvVars, kindFileVars,
+			); err != nil {
+				s.logger.Error("Failed to create release binding for kind-sourced agent",
+					"agentName", req.Name, "environment", firstEnv, "error", err)
+				if hasSecrets {
+					s.cleanupSecretsOnRollback(ctx, secretLocation)
+				}
+				if errDeletion := s.ocClient.DeleteComponent(ctx, ouID, projectName, req.Name); errDeletion != nil {
+					s.logger.Error("Failed to rollback agent creation after release-binding failure", "agentName", req.Name, "error", errDeletion)
+				}
+				return err
+			}
+			s.logger.Info("Bound kind-sourced agent release to environment", "agentName", req.Name, "environment", firstEnv)
 		} else {
 			if err := s.triggerInitialBuild(ctx, ouID, projectName, req); err != nil {
 				s.logger.Warn("Failed to trigger initial build for agent, build can be triggered manually", "agentName", req.Name, "error", err)
