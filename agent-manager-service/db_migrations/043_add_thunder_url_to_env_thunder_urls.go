@@ -62,6 +62,15 @@ var migration043 = migration{
 			}
 
 			for _, row := range rows {
+				// The pre-migration schema only required thunder_handle NOT NULL,
+				// with no CHECK against an empty string, so one is a storable
+				// (if never application-written) value. ThunderOriginFromHandle
+				// panics on "" — inside this transaction that would roll back
+				// and re-panic, wedging the upgrade on every retry. Fail with a
+				// clear, row-identifying error instead of hitting that panic.
+				if row.ThunderHandle == "" {
+					return fmt.Errorf("env_thunder_urls row %s has an empty thunder_handle — clear or fix it manually before re-running this migration", row.ID)
+				}
 				thunderURL := thundersvc.ThunderOriginFromHandle(row.ThunderHandle)
 				if err := tx.Exec(
 					`UPDATE env_thunder_urls SET thunder_url = ? WHERE id = ?`,
