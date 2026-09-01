@@ -35,7 +35,7 @@ The authorization mechanism is identical for every agent. The only difference is
 
 ## Prerequisites
 
-- `amctl` installed and logged in against your control plane if your follow the `amctl` path (see [CLI Installation](./cli-installation.mdx) and [`amctl login`](../reference/cli/login.mdx)).
+- `amctl` installed and logged in against your control plane if you follow the `amctl` path (see [CLI Installation](./cli-installation.mdx) and [`amctl login`](../reference/cli/login.mdx)).
 - An AI Gateway registered and active for the environment you are configuring.
 - A **GitHub Personal Access Token**. Read access is enough for `github:read`; add issue write access only if you want to exercise `github:write`. Create one at [github.com/settings/tokens](https://github.com/settings/tokens).
 
@@ -50,9 +50,9 @@ Register the upstream MCP server as an identity-secured MCP proxy. The proxy's `
 ### In the Console
 
 1. Switch to the organization view and go to **MCP Servers** under **Resources**.
-2. Click **Register MCP Server** and give it the name `GitHub` and the context path `/default/github`.
+2. Click **Register MCP Server** and give it the name `GitHub` and the context path `/github`.
 3. Add an endpoint with the **MCP Server Endpoint URL** `https://api.githubcopilot.com/mcp/`, then open **Advanced Configuration** and add the header `Authorization` with the value `Bearer <your-github-pat>`. Agent Manager discovers the server's tools as you add the endpoint. Now save the MCP proxy.
-4. Open the proxy's **Security** tab and set **Authentication** to **Oauth**. This is what turns on per-tool authorization — without it there are no scopes to define in Step 2.
+4. Open the proxy's **Security** tab and set **Authentication** to **OAuth**. This is what turns on per-tool authorization — without it there are no scopes to define in Step 2.
 
 Full field reference: [Register an MCP Proxy](./register-mcp-proxy.mdx).
 
@@ -66,7 +66,7 @@ echo '{"url": "https://api.githubcopilot.com/mcp/",
   | amctl api /orgs/default/mcp-proxies/fetch-server-info -X POST --input -
 ```
 
-Then create the proxy with identity security enabled, passing the discovered tools as the endpoint's capabilities:
+Then create the proxy with identity security enabled. List only the tools this guide goes on to gate, rather than everything discovery returned — a tool present in `capabilities` but absent from every scope in Step 2 stays callable by any authenticated caller:
 
 ```bash
 amctl api /orgs/default/mcp-proxies -X POST --input - <<'JSON'
@@ -84,7 +84,10 @@ amctl api /orgs/default/mcp-proxies -X POST --input - <<'JSON'
       "url": "https://api.githubcopilot.com/mcp/",
       "auth": {"type": "api-key", "header": "Authorization", "value": "Bearer <your-github-pat>"}
     }},
-    "capabilities": {"tools": [ /* tools from fetch-server-info */ ]},
+    "capabilities": {"tools": [
+      "search_issues", "list_issues", "issue_read",
+      "issue_write", "add_issue_comment"
+    ]},
     "security": {"enabled": true, "identity": {"enabled": true}},
     "environments": [{"environmentUuid": "<environment-uuid>"}]
   }]
@@ -218,7 +221,7 @@ Once a role is assigned, the platform enforces it automatically:
 2. The agent calls a tool through the gateway endpoint (`/github/mcp`).
 3. The gateway authenticates the token, then authorizes the specific tool against the token's scopes:
    - `github-reader` calling `search_issues` → **allowed** (`github:read` covers it).
-   - `github-reader` calling `create_issue` → **denied** (`github:write` required, not granted).
+   - `github-reader` calling `issue_write` → **denied** (`github:write` required, not granted).
    - `github-triager` calling either → **allowed**.
 
 Changing who can do what is now a matter of editing scopes and role assignments — the agents themselves do not change.

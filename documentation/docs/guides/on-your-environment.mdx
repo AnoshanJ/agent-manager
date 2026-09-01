@@ -1256,16 +1256,6 @@ helm upgrade --install observability-traces-opensearch \
   --timeout 10m
 ```
 
-:::warning Pin the tracing module to 0.6.0 or later
-The OpenChoreo 1.2.0 observer returns a span's status as an object
-(`{code, message}`), but the tracing adapter at 0.5.0 and 0.5.1 still expects a
-string. With those versions the span-details endpoint returns `500` and traces are
-silently dropped — the traces list loads, individual traces do not open. 0.6.0
-handles the object form.
-
-Upstream's own install script still pins 0.5.0; do not follow it here.
-:::
-
 :::warning GKE: free port 2020 before enabling Fluent Bit
 Fluent Bit runs with `hostNetwork: true` (its Kubernetes filter reads from the node-local kubelet) and binds its monitoring server to **port 2020** on every node. GKE's built-in `fluentbit-gke` logging agent already occupies that port, so all Fluent Bit pods stay in `CrashLoopBackOff` with `Cannot listen on 0.0.0.0:2020` — and the only visible symptom is that logs never reach OpenSearch.
 
