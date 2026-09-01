@@ -264,7 +264,7 @@ func TestUpdateAgentConfigurations_ProductionNeedsProductionScope(t *testing.T) 
 		GetEnvironmentFunc: func(_ context.Context, _, name string) (*models.EnvironmentResponse, error) {
 			return &models.EnvironmentResponse{Name: name, IsProduction: true}, nil
 		},
-		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
 			overridesReplaced = true
 			return nil
 		},
