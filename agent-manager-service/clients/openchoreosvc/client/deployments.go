@@ -110,7 +110,7 @@ func (c *openChoreoClient) CreateInternalAgentFromKindWorkload(ctx context.Conte
 	// inherited by every environment, and a ReleaseBinding's workloadOverrides can replace
 	// such a value per environment but cannot remove it — making the inheritance impossible
 	// to opt out of. Configuration therefore lives only on the per-environment binding,
-	// written by CreateKindAgentReleaseAndBinding; the Workload carries just the image and
+	// written by EnsureReleaseAndBinding; the Workload carries just the image and
 	// the environment-independent endpoint contract. This mirrors amp-generate-workload,
 	// which splits the same two documents for source-built agents.
 	workload := gen.CreateWorkloadJSONRequestBody{
@@ -386,8 +386,9 @@ func (c *openChoreoClient) UpdateReleaseBindingTraitConfigs(ctx context.Context,
 // EnsureReleaseBindingRuntimeClass idempotently reconciles runtimeClassName on a release
 // binding's ComponentTypeEnvironmentConfigs for (component, environment).
 //
-// Why this exists: OpenChoreo's AutoDeploy creates the release binding when a build completes,
-// WITHOUT going through the backend's deploy-time config write — so an agent in an isolation-tier
+// Why this exists: the build workflow creates the release binding when a build completes,
+// WITHOUT going through the backend's deploy-time config write — it writes the release pin and
+// workloadOverrides only, never componentTypeEnvironmentConfigs — so an agent in an isolation-tier
 // environment first comes up on the default (runc) runtime. This is called from the deploy-status
 // read path to correct that out-of-band binding.
 //
@@ -474,20 +475,29 @@ func (c *openChoreoClient) ReplaceReleaseBindingWorkloadOverrides(ctx context.Co
 	})
 }
 
-// CreateKindAgentReleaseAndBinding cuts a ComponentRelease for a kind-sourced agent and binds
+// EnsureReleaseAndBinding cuts a ComponentRelease from the component's current state and binds
 // it to the given environment, carrying the environment's configuration as the binding's
-// workloadOverrides.
+// workloadOverrides. Creates the binding when the environment has none, and otherwise repins
+// the existing one, so both an agent's first deployment and every redeploy use this one path.
 //
-// Why this exists: kind-sourced agents run no build workflow, so nothing runs
-// amp-generate-workload to do this for them. They used to rely on OpenChoreo's autoDeploy,
-// but a controller-created binding carries no overrides — and configuration must not sit on
-// the shared Workload, because a value there is inherited by every environment and a binding
-// can replace but never remove it. This is the backend's equivalent of that workflow's
-// Steps 6-7, and is why kind components are now created with autoDeploy off.
+// Why this exists: components are created with autoDeploy off, so OpenChoreo's Component
+// controller neither cuts releases nor owns the binding. Nothing else notices that the
+// Workload's image changed — the ReleaseBinding renders from the frozen workload copy inside
+// the pinned ComponentRelease, never from the live Workload — so an image write that is not
+// followed by a new release and a repin is invisible to the data plane.
+//
+// autoDeploy is off because a controller-created binding carries no overrides, and
+// configuration must not sit on the shared Workload: a value there is inherited by every
+// environment and a binding can replace but never remove it. This is the backend's equivalent
+// of amp-generate-workload's Steps 6-7, which do the same for a build.
+//
+// Call it AFTER every write this deployment makes to the Component and the Workload: the
+// release freezes the component's traits, parameters and workload as they are at this moment,
+// so anything written afterwards waits for the next release.
 //
 // The binding name follows the same convention the workflow and the promotion path use:
 // <component>-<environment>. Passing nil overrides leaves spec.workloadOverrides unset.
-func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
+func (c *openChoreoClient) EnsureReleaseAndBinding(
 	ctx context.Context, ouID, projectName, componentName, environment string,
 	envOverrides []EnvVar, fileOverrides []FileVar,
 ) error {
@@ -498,7 +508,7 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 	releaseResp, err := c.ocClient.GenerateReleaseWithResponse(ctx, namespaceName, componentName,
 		gen.GenerateReleaseJSONRequestBody{})
 	if err != nil {
-		return fmt.Errorf("failed to generate component release for kind-sourced agent: %w", err)
+		return fmt.Errorf("failed to generate component release for component %q: %w", componentName, err)
 	}
 	if releaseResp.StatusCode() != http.StatusCreated || releaseResp.JSON201 == nil {
 		return handleErrorResponse(releaseResp.StatusCode(), ErrorResponses{
@@ -527,10 +537,12 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 		workloadOverrides = &gen.WorkloadOverrides{Container: container}
 	}
 
-	// Step 2: bind the release to the environment. A binding can already exist when an
-	// agent is recreated over a previous one, so update rather than fail on that path;
-	// retryReleaseBindingUpdate re-reads per attempt, as the backend races other writers
-	// of this same binding (MCP env vars, runtime class).
+	// Step 2: bind the release to the environment. A binding usually already exists — every
+	// redeploy comes through here, and so does an agent recreated over a previous one — so
+	// update rather than fail on that path; retryReleaseBindingUpdate re-reads per attempt, as
+	// the backend races other writers of this same binding (MCP env vars, runtime class) and
+	// the build workflow, which repins this same field at the end of a build.
+	activeState := gen.ReleaseBindingSpecStateActive
 	bindingName := componentName + "-" + environment
 	existing, err := c.findReleaseBindingForEnv(ctx, namespaceName, componentName, environment)
 	if err != nil {
@@ -545,20 +557,28 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 			// binding held rather than leaving it in force. Unlike
 			// ReplaceReleaseBindingWorkloadOverrides, this is not a partial edit.
 			rb.Spec.WorkloadOverrides = workloadOverrides
+			// Force the binding back to Active. An agent undeployed via UpdateDeploymentState
+			// leaves this at Undeploy, and the read feeding this mutator round-trips it, so a binding
+			// adopted here would pin the release and carry the overrides while the data plane
+			// tore the resources down — with nothing in the response signalling it. Both callers
+			// are explicit deploy intents, so deploying an undeployed agent should redeploy it.
+			rb.Spec.State = &activeState
 			bumpRestartedAt(rb)
 		})
 	}
 
-	activeState := gen.ReleaseBindingSpecStateActive
 	createBody := gen.CreateReleaseBindingJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:      bindingName,
 			Namespace: &namespaceName,
 		},
 		Spec: &gen.ReleaseBindingSpec{
-			Environment:       environment,
-			ReleaseName:       &releaseName,
-			State:             &activeState,
+			Environment: environment,
+			ReleaseName: &releaseName,
+			// spec.state is left unset: the ReleaseBinding CRD defaults it to Active
+			// (+kubebuilder:default=Active), so a create needs no opinion here. The update
+			// paths above do set it, because defaulting cannot help an existing binding
+			// whose state round-trips through the read.
 			WorkloadOverrides: workloadOverrides,
 			Owner: struct {
 				ComponentName string `json:"componentName"`
@@ -572,7 +592,7 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 
 	createResp, err := c.ocClient.CreateReleaseBindingWithResponse(ctx, namespaceName, createBody)
 	if err != nil {
-		return fmt.Errorf("failed to create release binding for kind-sourced agent: %w", err)
+		return fmt.Errorf("failed to create release binding for component %q: %w", componentName, err)
 	}
 	// A concurrent writer can win the create; adopt the binding it made rather than failing
 	// the agent creation, mirroring the workflow's 409 handling.
@@ -584,6 +604,12 @@ func (c *openChoreoClient) CreateKindAgentReleaseAndBinding(
 			// binding held rather than leaving it in force. Unlike
 			// ReplaceReleaseBindingWorkloadOverrides, this is not a partial edit.
 			rb.Spec.WorkloadOverrides = workloadOverrides
+			// Force the binding back to Active. An agent undeployed via UpdateDeploymentState
+			// leaves this at Undeploy, and the read feeding this mutator round-trips it, so a binding
+			// adopted here would pin the release and carry the overrides while the data plane
+			// tore the resources down — with nothing in the response signalling it. Both callers
+			// are explicit deploy intents, so deploying an undeployed agent should redeploy it.
+			rb.Spec.State = &activeState
 			bumpRestartedAt(rb)
 		})
 	}

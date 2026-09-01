@@ -470,6 +470,17 @@ spec:
                   -H "Content-Type: application/json" \
                   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
                   -d @/mnt/vol/releasebinding.json)
+              elif [ "${BINDING_GET_HTTP_CODE}" -ge 500 ]; then
+                # The read is as racy as the write below, so spend the same retry budget on
+                # it rather than failing the build on a transient API-server error.
+                if [ "${BINDING_ATTEMPT}" -lt "${BINDING_MAX_ATTEMPTS}" ]; then
+                  echo "ReleaseBinding lookup failed (HTTP ${BINDING_GET_HTTP_CODE}), attempt ${BINDING_ATTEMPT} of ${BINDING_MAX_ATTEMPTS}; retrying"
+                  BINDING_ATTEMPT=$((BINDING_ATTEMPT + 1))
+                  sleep 2
+                  continue
+                fi
+                echo "Failed to look up ReleaseBinding after ${BINDING_MAX_ATTEMPTS} attempts (HTTP ${BINDING_GET_HTTP_CODE}): ${BINDING_GET_BODY}"
+                exit 1
               else
                 echo "Failed to look up ReleaseBinding (HTTP ${BINDING_GET_HTTP_CODE}): ${BINDING_GET_BODY}"
                 exit 1

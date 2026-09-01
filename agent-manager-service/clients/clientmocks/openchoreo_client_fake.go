@@ -39,9 +39,6 @@ import (
 //			CreateInternalAgentFromKindWorkloadFunc: func(ctx context.Context, ouID string, projectName string, componentName string, req client.InternalAgentFromKindWorkloadRequest) error {
 //				panic("mock out the CreateInternalAgentFromKindWorkload method")
 //			},
-//			CreateKindAgentReleaseAndBindingFunc: func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
-//				panic("mock out the CreateKindAgentReleaseAndBinding method")
-//			},
 //			CreateProjectFunc: func(ctx context.Context, ouID string, req client.CreateProjectRequest) error {
 //				panic("mock out the CreateProject method")
 //			},
@@ -86,6 +83,9 @@ import (
 //			},
 //			EnsureProjectReleaseBindingFunc: func(ctx context.Context, ouID string, projectName string, environmentName string) error {
 //				panic("mock out the EnsureProjectReleaseBinding method")
+//			},
+//			EnsureReleaseAndBindingFunc: func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+//				panic("mock out the EnsureReleaseAndBinding method")
 //			},
 //			EnsureReleaseBindingRuntimeClassFunc: func(ctx context.Context, ouID string, componentName string, environment string, desiredRuntimeClass string) error {
 //				panic("mock out the EnsureReleaseBindingRuntimeClass method")
@@ -274,9 +274,6 @@ type OpenChoreoClientMock struct {
 	// CreateInternalAgentFromKindWorkloadFunc mocks the CreateInternalAgentFromKindWorkload method.
 	CreateInternalAgentFromKindWorkloadFunc func(ctx context.Context, ouID string, projectName string, componentName string, req client.InternalAgentFromKindWorkloadRequest) error
 
-	// CreateKindAgentReleaseAndBindingFunc mocks the CreateKindAgentReleaseAndBinding method.
-	CreateKindAgentReleaseAndBindingFunc func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error
-
 	// CreateProjectFunc mocks the CreateProject method.
 	CreateProjectFunc func(ctx context.Context, ouID string, req client.CreateProjectRequest) error
 
@@ -321,6 +318,9 @@ type OpenChoreoClientMock struct {
 
 	// EnsureProjectReleaseBindingFunc mocks the EnsureProjectReleaseBinding method.
 	EnsureProjectReleaseBindingFunc func(ctx context.Context, ouID string, projectName string, environmentName string) error
+
+	// EnsureReleaseAndBindingFunc mocks the EnsureReleaseAndBinding method.
+	EnsureReleaseAndBindingFunc func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error
 
 	// EnsureReleaseBindingRuntimeClassFunc mocks the EnsureReleaseBindingRuntimeClass method.
 	EnsureReleaseBindingRuntimeClassFunc func(ctx context.Context, ouID string, componentName string, environment string, desiredRuntimeClass string) error
@@ -564,23 +564,6 @@ type OpenChoreoClientMock struct {
 			// Req is the req argument value.
 			Req client.InternalAgentFromKindWorkloadRequest
 		}
-		// CreateKindAgentReleaseAndBinding holds details about calls to the CreateKindAgentReleaseAndBinding method.
-		CreateKindAgentReleaseAndBinding []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// OuID is the ouID argument value.
-			OuID string
-			// ProjectName is the projectName argument value.
-			ProjectName string
-			// ComponentName is the componentName argument value.
-			ComponentName string
-			// Environment is the environment argument value.
-			Environment string
-			// EnvOverrides is the envOverrides argument value.
-			EnvOverrides []client.EnvVar
-			// FileOverrides is the fileOverrides argument value.
-			FileOverrides []client.FileVar
-		}
 		// CreateProject holds details about calls to the CreateProject method.
 		CreateProject []struct {
 			// Ctx is the ctx argument value.
@@ -727,6 +710,23 @@ type OpenChoreoClientMock struct {
 			ProjectName string
 			// EnvironmentName is the environmentName argument value.
 			EnvironmentName string
+		}
+		// EnsureReleaseAndBinding holds details about calls to the EnsureReleaseAndBinding method.
+		EnsureReleaseAndBinding []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OuID is the ouID argument value.
+			OuID string
+			// ProjectName is the projectName argument value.
+			ProjectName string
+			// ComponentName is the componentName argument value.
+			ComponentName string
+			// Environment is the environment argument value.
+			Environment string
+			// EnvOverrides is the envOverrides argument value.
+			EnvOverrides []client.EnvVar
+			// FileOverrides is the fileOverrides argument value.
+			FileOverrides []client.FileVar
 		}
 		// EnsureReleaseBindingRuntimeClass holds details about calls to the EnsureReleaseBindingRuntimeClass method.
 		EnsureReleaseBindingRuntimeClass []struct {
@@ -1341,7 +1341,6 @@ type OpenChoreoClientMock struct {
 	lockCreateEnvironment                      sync.RWMutex
 	lockCreateGitSecret                        sync.RWMutex
 	lockCreateInternalAgentFromKindWorkload    sync.RWMutex
-	lockCreateKindAgentReleaseAndBinding       sync.RWMutex
 	lockCreateProject                          sync.RWMutex
 	lockCreateSecret                           sync.RWMutex
 	lockCreateSecretReference                  sync.RWMutex
@@ -1357,6 +1356,7 @@ type OpenChoreoClientMock struct {
 	lockDetachTrait                            sync.RWMutex
 	lockEnsureClusterRoleBinding               sync.RWMutex
 	lockEnsureProjectReleaseBinding            sync.RWMutex
+	lockEnsureReleaseAndBinding                sync.RWMutex
 	lockEnsureReleaseBindingRuntimeClass       sync.RWMutex
 	lockExpireWorkflowRun                      sync.RWMutex
 	lockGetBuild                               sync.RWMutex
@@ -1725,62 +1725,6 @@ func (mock *OpenChoreoClientMock) CreateInternalAgentFromKindWorkloadCalls() []s
 	mock.lockCreateInternalAgentFromKindWorkload.RLock()
 	calls = mock.calls.CreateInternalAgentFromKindWorkload
 	mock.lockCreateInternalAgentFromKindWorkload.RUnlock()
-	return calls
-}
-
-// CreateKindAgentReleaseAndBinding calls CreateKindAgentReleaseAndBindingFunc.
-func (mock *OpenChoreoClientMock) CreateKindAgentReleaseAndBinding(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
-	if mock.CreateKindAgentReleaseAndBindingFunc == nil {
-		panic("OpenChoreoClientMock.CreateKindAgentReleaseAndBindingFunc: method is nil but OpenChoreoClient.CreateKindAgentReleaseAndBinding was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		OuID          string
-		ProjectName   string
-		ComponentName string
-		Environment   string
-		EnvOverrides  []client.EnvVar
-		FileOverrides []client.FileVar
-	}{
-		Ctx:           ctx,
-		OuID:          ouID,
-		ProjectName:   projectName,
-		ComponentName: componentName,
-		Environment:   environment,
-		EnvOverrides:  envOverrides,
-		FileOverrides: fileOverrides,
-	}
-	mock.lockCreateKindAgentReleaseAndBinding.Lock()
-	mock.calls.CreateKindAgentReleaseAndBinding = append(mock.calls.CreateKindAgentReleaseAndBinding, callInfo)
-	mock.lockCreateKindAgentReleaseAndBinding.Unlock()
-	return mock.CreateKindAgentReleaseAndBindingFunc(ctx, ouID, projectName, componentName, environment, envOverrides, fileOverrides)
-}
-
-// CreateKindAgentReleaseAndBindingCalls gets all the calls that were made to CreateKindAgentReleaseAndBinding.
-// Check the length with:
-//
-//	len(mockedOpenChoreoClient.CreateKindAgentReleaseAndBindingCalls())
-func (mock *OpenChoreoClientMock) CreateKindAgentReleaseAndBindingCalls() []struct {
-	Ctx           context.Context
-	OuID          string
-	ProjectName   string
-	ComponentName string
-	Environment   string
-	EnvOverrides  []client.EnvVar
-	FileOverrides []client.FileVar
-} {
-	var calls []struct {
-		Ctx           context.Context
-		OuID          string
-		ProjectName   string
-		ComponentName string
-		Environment   string
-		EnvOverrides  []client.EnvVar
-		FileOverrides []client.FileVar
-	}
-	mock.lockCreateKindAgentReleaseAndBinding.RLock()
-	calls = mock.calls.CreateKindAgentReleaseAndBinding
-	mock.lockCreateKindAgentReleaseAndBinding.RUnlock()
 	return calls
 }
 
@@ -2405,6 +2349,62 @@ func (mock *OpenChoreoClientMock) EnsureProjectReleaseBindingCalls() []struct {
 	mock.lockEnsureProjectReleaseBinding.RLock()
 	calls = mock.calls.EnsureProjectReleaseBinding
 	mock.lockEnsureProjectReleaseBinding.RUnlock()
+	return calls
+}
+
+// EnsureReleaseAndBinding calls EnsureReleaseAndBindingFunc.
+func (mock *OpenChoreoClientMock) EnsureReleaseAndBinding(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+	if mock.EnsureReleaseAndBindingFunc == nil {
+		panic("OpenChoreoClientMock.EnsureReleaseAndBindingFunc: method is nil but OpenChoreoClient.EnsureReleaseAndBinding was just called")
+	}
+	callInfo := struct {
+		Ctx           context.Context
+		OuID          string
+		ProjectName   string
+		ComponentName string
+		Environment   string
+		EnvOverrides  []client.EnvVar
+		FileOverrides []client.FileVar
+	}{
+		Ctx:           ctx,
+		OuID:          ouID,
+		ProjectName:   projectName,
+		ComponentName: componentName,
+		Environment:   environment,
+		EnvOverrides:  envOverrides,
+		FileOverrides: fileOverrides,
+	}
+	mock.lockEnsureReleaseAndBinding.Lock()
+	mock.calls.EnsureReleaseAndBinding = append(mock.calls.EnsureReleaseAndBinding, callInfo)
+	mock.lockEnsureReleaseAndBinding.Unlock()
+	return mock.EnsureReleaseAndBindingFunc(ctx, ouID, projectName, componentName, environment, envOverrides, fileOverrides)
+}
+
+// EnsureReleaseAndBindingCalls gets all the calls that were made to EnsureReleaseAndBinding.
+// Check the length with:
+//
+//	len(mockedOpenChoreoClient.EnsureReleaseAndBindingCalls())
+func (mock *OpenChoreoClientMock) EnsureReleaseAndBindingCalls() []struct {
+	Ctx           context.Context
+	OuID          string
+	ProjectName   string
+	ComponentName string
+	Environment   string
+	EnvOverrides  []client.EnvVar
+	FileOverrides []client.FileVar
+} {
+	var calls []struct {
+		Ctx           context.Context
+		OuID          string
+		ProjectName   string
+		ComponentName string
+		Environment   string
+		EnvOverrides  []client.EnvVar
+		FileOverrides []client.FileVar
+	}
+	mock.lockEnsureReleaseAndBinding.RLock()
+	calls = mock.calls.EnsureReleaseAndBinding
+	mock.lockEnsureReleaseAndBinding.RUnlock()
 	return calls
 }
 

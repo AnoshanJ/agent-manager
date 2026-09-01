@@ -1059,7 +1059,7 @@ func TestCreateAgentFromKind_SecretConfigDefaults(t *testing.T) {
 		// Kind creation now also cuts the ComponentRelease and binds it to the first
 		// environment, which is where its configuration lives; the shared mock has no
 		// default for it either.
-		openChoreoClient.CreateKindAgentReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+		openChoreoClient.EnsureReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 			return nil
 		}
 		secretMgmtClient := apitestutils.CreateMockSecretManagementClient()
@@ -1120,7 +1120,7 @@ func TestCreateAgentFromKind_SecretConfigDefaults(t *testing.T) {
 		// Kind creation now also cuts the ComponentRelease and binds it to the first
 		// environment, which is where its configuration lives; the shared mock has no
 		// default for it either.
-		openChoreoClient.CreateKindAgentReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+		openChoreoClient.EnsureReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 			return nil
 		}
 		secretMgmtClient := apitestutils.CreateMockSecretManagementClient()
@@ -1300,7 +1300,7 @@ func TestCreateAgentFromKind_SecretConfigDefaults(t *testing.T) {
 			// Kind creation now also cuts the ComponentRelease and binds it to the first
 			// environment, which is where its configuration lives; the shared mock has no
 			// default for it either.
-			openChoreoClient.CreateKindAgentReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+			openChoreoClient.EnsureReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 				return nil
 			}
 			env := []map[string]interface{}{

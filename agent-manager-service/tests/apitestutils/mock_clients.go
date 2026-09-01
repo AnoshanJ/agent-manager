@@ -208,6 +208,9 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 		ReplaceReleaseBindingWorkloadOverridesFunc: func(ctx context.Context, ouID string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 			return nil
 		},
+		EnsureReleaseAndBindingFunc: func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+			return nil
+		},
 		GetComponentConfigurationsFunc: func(ctx context.Context, namespaceName string, projectName string, componentName string, environment string) ([]models.EnvVars, error) {
 			return nil, nil
 		},

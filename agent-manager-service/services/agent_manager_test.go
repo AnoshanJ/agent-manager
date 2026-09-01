@@ -562,7 +562,7 @@ func TestUpdateAgentConfigurations_IdentityInjectionError_AbortsUpdate(t *testin
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
-		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
 			overridesReplaced = true
 			return nil
 		},
@@ -608,7 +608,7 @@ func TestUpdateAgentConfigurations_RejectsUnownedSecretRef(t *testing.T) {
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
-		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
 			overridesReplaced = true
 			return nil
 		},
@@ -1844,11 +1844,11 @@ func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerServi
 		IsDeploymentInProgressFunc: func(context.Context, string, string, string) (bool, error) {
 			return false, nil
 		},
-		// Deploy writes env vars and file mounts to the environment's ReleaseBinding and leaves the
-		// component-wide base alone. ReplaceComponentEnvVars and ReplaceComponentFileMounts are
-		// left unstubbed on purpose: a regression that writes the shared base again panics here
-		// instead of silently leaking config into every environment.
-		ReplaceReleaseBindingWorkloadOverridesFunc: func(context.Context, string, string, string, []client.EnvVar, []client.FileVar) error {
+		// Deploy cuts the release and writes env vars and file mounts to the environment's
+		// ReleaseBinding, leaving the component-wide base alone. ReplaceComponentEnvVars and
+		// ReplaceComponentFileMounts are left unstubbed on purpose: a regression that writes the
+		// shared base again panics here instead of silently leaking config into every environment.
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
 			return nil
 		},
 		UpdateComponentDeploymentConfigFunc: func(_ context.Context, _, _, _ string, req client.ComponentDeploymentConfigRequest) error {
