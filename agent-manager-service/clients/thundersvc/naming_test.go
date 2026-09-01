@@ -126,28 +126,33 @@ func TestThunderBaseURLCandidates_PanicsOnEmptyThunderURL(t *testing.T) {
 			t.Error(`expected thunderBaseURLCandidates with an empty thunderURL to panic`)
 		}
 	}()
-	thunderBaseURLCandidates("acme", "staging", "")
+	thunderBaseURLCandidates("acme", "staging", "", false)
 }
 
-// TestThunderBaseURLCandidates_OnlyThePlainExternalOneIsMarkedExternal locks
-// in exactly which candidate gets the SSRF-hardened client in probeThunderURL:
-// the plain external one (the stored, possibly caller-supplied URL, dialed by
-// its own host with no override) — never cluster-internal DNS or a local-dev
-// host-override, both of which are legitimately private-target by design and
-// would be wrongly rejected by the SSRF guard.
-func TestThunderBaseURLCandidates_OnlyThePlainExternalOneIsMarkedExternal(t *testing.T) {
+// TestThunderBaseURLCandidates_OnlyThePlainExternalOneCanBeMarkedExternal locks
+// in exactly which candidate CAN get the SSRF-hardened client in
+// probeThunderURL: the plain external one (dialed by its own host with no
+// override) — never cluster-internal DNS or a local-dev host-override, both
+// of which are legitimately private-target by design and would be wrongly
+// rejected by the SSRF guard. Whether that one candidate actually gets marked
+// depends on callerSupplied — a SaaS row's value is attacker-influenced, an
+// on-prem row's is AMS's own trusted computation (and can legitimately be
+// private, e.g. a VM install's sslip.io hostname over a LAN IP).
+func TestThunderBaseURLCandidates_OnlyThePlainExternalOneCanBeMarkedExternal(t *testing.T) {
 	orig := config.GetConfig().IsLocalDevEnv
 	config.GetConfig().IsLocalDevEnv = true
 	defer func() { config.GetConfig().IsLocalDevEnv = orig }()
 
-	candidates := thunderBaseURLCandidates("acme", "staging", "https://stage-idp.example.com")
-	if len(candidates) != 4 {
-		t.Fatalf("expected 4 candidates (internal, external, 2 local-dev overrides), got %d", len(candidates))
-	}
-	for i, c := range candidates {
-		wantExternal := i == 1
-		if c.external != wantExternal {
-			t.Errorf("candidate %d (%+v): external = %v, want %v", i, c, c.external, wantExternal)
+	for _, callerSupplied := range []bool{true, false} {
+		candidates := thunderBaseURLCandidates("acme", "staging", "https://stage-idp.example.com", callerSupplied)
+		if len(candidates) != 4 {
+			t.Fatalf("expected 4 candidates (internal, external, 2 local-dev overrides), got %d", len(candidates))
+		}
+		for i, c := range candidates {
+			wantExternal := i == 1 && callerSupplied
+			if c.external != wantExternal {
+				t.Errorf("callerSupplied=%v, candidate %d (%+v): external = %v, want %v", callerSupplied, i, c, c.external, wantExternal)
+			}
 		}
 	}
 }
@@ -288,7 +293,7 @@ func TestResolveThunderBaseURL_PrefersClusterInternal(t *testing.T) {
 		return c.baseURL == ThunderInternalURL("acme", "staging")
 	}
 
-	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", prober)
+	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", false, prober)
 	if !ok {
 		t.Fatal("expected ok=true when the cluster-internal candidate is reachable")
 	}
@@ -309,7 +314,7 @@ func TestResolveThunderBaseURL_FallsBackToExternalIngress(t *testing.T) {
 		return c.baseURL == externalBaseURL && c.resolveToHost == ""
 	}
 
-	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", externalBaseURL, prober)
+	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", externalBaseURL, false, prober)
 	if !ok {
 		t.Fatal("expected ok=true when the external ingress candidate is reachable")
 	}
@@ -339,7 +344,7 @@ func TestResolveThunderBaseURL_ExternalCandidateIsThunderURLVerbatim(t *testing.
 		return c.baseURL == storedThunderURL && c.resolveToHost == ""
 	}
 
-	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", storedThunderURL, prober)
+	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", storedThunderURL, false, prober)
 	if !ok {
 		t.Fatal("expected ok=true when the external candidate (verbatim) is reachable")
 	}
@@ -363,7 +368,7 @@ func TestResolveThunderBaseURL_FallsBackToDockerDesktop(t *testing.T) {
 		return c.resolveToHost == "host.docker.internal:8080"
 	}
 
-	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", prober)
+	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", false, prober)
 	if !ok {
 		t.Fatal("expected ok=true when only the host.docker.internal candidate is reachable")
 	}
@@ -381,7 +386,7 @@ func TestResolveThunderBaseURL_FallsBackToLoopback(t *testing.T) {
 		return c.resolveToHost == "127.0.0.1:8080"
 	}
 
-	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", prober)
+	got, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", false, prober)
 	if !ok {
 		t.Fatal("expected ok=true when only the 127.0.0.1 candidate is reachable")
 	}
@@ -393,7 +398,7 @@ func TestResolveThunderBaseURL_FallsBackToLoopback(t *testing.T) {
 func TestResolveThunderBaseURL_AllUnreachable(t *testing.T) {
 	prober := func(_ context.Context, _ thunderURLCandidate) bool { return false }
 
-	_, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", prober)
+	_, ok := resolveThunderBaseURL(context.Background(), "acme", "staging", "x7f2q9kz", false, prober)
 	if ok {
 		t.Error("expected ok=false when no candidate is reachable")
 	}
@@ -405,7 +410,7 @@ func TestResolveThunderBaseURL_PublicWrapperUsesRealCascadeShape(t *testing.T) {
 	// definitely-unreachable org/env, rather than e.g. always returning ok=true.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, _, ok := ResolveThunderBaseURL(ctx, "nonexistent-org-xyz", "nonexistent-env-xyz", "nonexistent-handle-xyz")
+	_, _, ok := ResolveThunderBaseURL(ctx, "nonexistent-org-xyz", "nonexistent-env-xyz", "nonexistent-handle-xyz", false)
 	if ok {
 		t.Error("expected ok=false for an org/env with no env-Thunder deployed anywhere reachable")
 	}

@@ -76,14 +76,16 @@ type (
 	// ReadThunderURLFunc reads an env-Thunder's registered origin (see
 	// EnvThunderURL.ThunderURL) from AMS's own Postgres, keyed by (ouID, envName).
 	// A missing row means this environment was never provisioned — it returns
-	// ("", nil), never a value computed from (ouID, envName). Works identically
-	// for an on-prem (handle-derived) or SaaS (control-plane-supplied) row —
-	// the resolver never needs to know which path produced the stored URL.
-	ReadThunderURLFunc func(ctx context.Context, ouID, envName string) (thunderURL string, err error)
+	// ("", false, nil), never a value computed from (ouID, envName).
+	// callerSupplied reports whether the row came from the SaaS/control-plane
+	// path (no handle) rather than the on-prem (handle) one — needed so the
+	// candidate cascade below can tell an attacker-influenced value from one
+	// AMS computed itself under its own trusted domain.
+	ReadThunderURLFunc func(ctx context.Context, ouID, envName string) (thunderURL string, callerSupplied bool, err error)
 
 	// resolveBaseURLFunc picks a reachable base URL for an env-Thunder instance —
 	// injectable so tests don't depend on real network probing.
-	resolveBaseURLFunc func(ctx context.Context, org, env, thunderURL string) (baseURL, resolveToHost string, ok bool)
+	resolveBaseURLFunc func(ctx context.Context, org, env, thunderURL string, callerSupplied bool) (baseURL, resolveToHost string, ok bool)
 )
 
 // envThunderResolver reads the system-client credential via the injected
@@ -172,7 +174,7 @@ func (r *envThunderResolver) Resolve(ctx context.Context, ouID, orgNamespace, en
 		// fallback to a pattern computed from org/env. A missing URL means
 		// this env-Thunder was never provisioned, same as a missing
 		// system-client secret above: ErrThunderNotProvisioned, not a guess.
-		thunderURL, err := r.readThunderURL(ctx, ouID, envName)
+		thunderURL, callerSupplied, err := r.readThunderURL(ctx, ouID, envName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read env-thunder url for %s/%s: %w", ouID, envName, err)
 		}
@@ -180,18 +182,20 @@ func (r *envThunderResolver) Resolve(ctx context.Context, ouID, orgNamespace, en
 			return nil, ErrThunderNotProvisioned
 		}
 
-		baseURL, resolveToHost, ok := r.resolveBaseURL(ctx, orgNamespace, envName, thunderURL)
+		baseURL, resolveToHost, ok := r.resolveBaseURL(ctx, orgNamespace, envName, thunderURL, callerSupplied)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s/%s", ErrThunderUnreachable, orgNamespace, envName)
 		}
 		// The System RS identifier is "<issuer>/mcp", derived from the env-Thunder issuer
 		// URL — not the (possibly cluster-internal) dialable base URL selected above.
 		systemResource := SystemResourceIdentifier(ThunderIssuerURL(thunderURL))
-		// baseURL==thunderURL with no override identifies the one candidate that
-		// may be a SaaS-registered, caller-supplied URL — cluster-internal DNS
-		// never equals thunderURL, and local-dev fallbacks always set resolveToHost.
+		// baseURL==thunderURL with no override identifies the plain-external
+		// candidate; callerSupplied says whether ITS VALUE is attacker-influenced
+		// (a SaaS row) rather than AMS's own trusted computation (an on-prem
+		// row, which can legitimately be a private address — see
+		// thunderURLCandidate's doc comment). Both must hold to harden the dial.
 		newClient := NewThunderClientWithDialOverride
-		if resolveToHost == "" && baseURL == thunderURL {
+		if resolveToHost == "" && baseURL == thunderURL && callerSupplied {
 			newClient = NewEnvThunderClient
 		}
 		client := newClient(baseURL, clientID, clientSecret, resolveToHost, systemResource)

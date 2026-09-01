@@ -44,16 +44,19 @@ func ResolveThunderURL(ctx context.Context, urlRepo repositories.EnvThunderURLRe
 }
 
 // NewEnvThunderURLReader builds the resolver's DB-backed URL reader —
-// ResolveThunderURL widened to thundersvc.ReadThunderURLFunc's shape (the
-// resolver only needs the origin, so Handle is discarded). Lives in services
-// (not wiring), same as NewEnvThunderSecretReader, so app.Run's provisioning
-// factory can share it without an import cycle.
+// ResolveThunderURL widened to thundersvc.ReadThunderURLFunc's shape.
+// callerSupplied (Handle == "") tells the resolver whether this row's URL is
+// attacker-influenced (a SaaS row) or AMS's own trusted computation (an
+// on-prem row) — see thunderURLCandidate's doc comment for why that decides
+// which candidate gets SSRF-hardened. Lives in services (not wiring), same as
+// NewEnvThunderSecretReader, so app.Run's provisioning factory can share it
+// without an import cycle.
 func NewEnvThunderURLReader(urlRepo repositories.EnvThunderURLRepository) thundersvc.ReadThunderURLFunc {
-	return func(ctx context.Context, ouID, envName string) (string, error) {
+	return func(ctx context.Context, ouID, envName string) (string, bool, error) {
 		rec, err := ResolveThunderURL(ctx, urlRepo, ouID, envName)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		return rec.URL, nil
+		return rec.URL, rec.Handle == "", nil
 	}
 }

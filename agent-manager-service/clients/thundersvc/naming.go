@@ -40,7 +40,19 @@ const (
 	// just guards against an unrelated server on a fallback address streaming an
 	// unbounded body.
 	maxJWKSProbeBodyBytes = 64 * 1024
+
+	// probeTimeout bounds a single candidate probe (see probeThunderURL).
+	probeTimeout = 2 * time.Second
 )
+
+// ssrfProbeClient is the shared SSRF-hardened client for every external probe
+// (see probeThunderURL). ssrf.NewClient clones http.DefaultTransport, giving
+// it its own connection pool — building one per probe call would leak a pool
+// per call, since ThunderProbe runs once per environment on every
+// ListThunderInstances (every console Identity page load). http.Client is
+// safe for concurrent use, so one shared instance is enough; the per-request
+// timeout already comes from probeThunderURL's own reqCtx.
+var ssrfProbeClient = ssrf.NewClient(probeTimeout)
 
 // ThunderReleaseName returns the Helm release name (and namespace) for an env-Thunder instance.
 // Mirrors thunder_release_name() in deployments/scripts/thunder-naming.sh — must stay in sync.
@@ -171,14 +183,17 @@ func isValidJWKS(body []byte) bool {
 // dial resolveToHost while keeping the base URL's host as the HTTP Host header, so
 // Kgateway's host-based routing still selects the right backend.
 // external marks the ONE candidate dialed by its own host with no internal
-// override — the exact stored EnvThunderURL.ThunderURL. For an on-prem
-// (handle) row that value is server-computed under AMS's own trusted base
-// domain, but for a SaaS (url) row it's caller-supplied — so this candidate,
-// and only this one, is dialed with ssrf.NewClient (re-resolves at dial time,
-// re-validates every redirect hop) rather than the plain default client.
-// Cluster-internal DNS and the local-dev host-override candidates are never
-// marked external: they're either AMS-computed or deliberately private-target
-// by design, and would be wrongly rejected by the SSRF guard's private-IP check.
+// override — the exact stored EnvThunderURL.ThunderURL — AND whose value is
+// caller-supplied (a SaaS/control-plane row, no handle). That combination is
+// dialed with ssrf.NewClient (re-resolves at dial time, re-validates every
+// redirect hop) rather than the plain default client. An on-prem (handle) row
+// is never marked external even at this same candidate position: that value
+// is server-computed under AMS's own trusted base domain and can legitimately
+// be a private address (e.g. a VM install's sslip.io hostname over a LAN IP,
+// or an internal corporate DNS name) — SSRF-hardening it would wrongly reject
+// a working deployment. Cluster-internal DNS and the local-dev host-override
+// candidates are never marked external either, for the same private-target-by
+// -design reason.
 type thunderURLCandidate struct {
 	baseURL       string
 	resolveToHost string
@@ -204,15 +219,18 @@ type thunderURLCandidate struct {
 //
 // thunderURL is the stored EnvThunderURL.ThunderURL origin and builds the
 // external candidate directly; it must be non-empty (callers check for "not
-// provisioned" before ever reaching here).
-func thunderBaseURLCandidates(org, env, thunderURL string) []thunderURLCandidate {
+// provisioned" before ever reaching here). callerSupplied reports whether
+// thunderURL came from a SaaS/control-plane row (no handle) rather than an
+// on-prem (handle) row — see thunderURLCandidate's doc comment for why this,
+// not candidate position alone, decides which candidate gets marked external.
+func thunderBaseURLCandidates(org, env, thunderURL string, callerSupplied bool) []thunderURLCandidate {
 	if thunderURL == "" {
 		panic("thunder url must not be empty — callers must check for \"not provisioned\" before building candidates")
 	}
 	externalBaseURL := thunderURL
 	candidates := []thunderURLCandidate{
 		{baseURL: ThunderInternalURL(org, env)},
-		{baseURL: externalBaseURL, external: true},
+		{baseURL: externalBaseURL, external: callerSupplied},
 	}
 	if config.GetConfig().IsLocalDevEnv {
 		candidates = append(
@@ -234,7 +252,6 @@ func thunderBaseURLCandidates(org, env, thunderURL string) []thunderURLCandidate
 // every redirect hop) instead of the plain default one — see thunderURLCandidate's
 // doc comment for exactly which candidate this applies to and why.
 func probeThunderURL(ctx context.Context, url, resolveToHost string, external bool) bool {
-	const probeTimeout = 2 * time.Second
 	reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
@@ -247,7 +264,7 @@ func probeThunderURL(ctx context.Context, url, resolveToHost string, external bo
 	}
 	httpClient := http.DefaultClient
 	if external {
-		httpClient = ssrf.NewClient(probeTimeout)
+		httpClient = ssrfProbeClient
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -278,8 +295,8 @@ func defaultThunderURLProber(ctx context.Context, candidate thunderURLCandidate)
 // resolveThunderBaseURL returns the first candidate base URL that prober reports as
 // reachable, trying them in thunderBaseURLCandidates' preference order. ok is false
 // if none respond.
-func resolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, prober thunderURLProber) (candidate thunderURLCandidate, ok bool) {
-	for _, c := range thunderBaseURLCandidates(org, env, thunderURL) {
+func resolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, callerSupplied bool, prober thunderURLProber) (candidate thunderURLCandidate, ok bool) {
+	for _, c := range thunderBaseURLCandidates(org, env, thunderURL, callerSupplied) {
 		if prober(ctx, c) {
 			return c, true
 		}
@@ -292,9 +309,10 @@ func resolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, pro
 // dev only) Docker Desktop/Linux host-networking fallbacks. Callers that build an HTTP
 // client against the result must dial resolveToHost (when non-empty) instead of the
 // base URL's own host, while still sending the base URL's host as the Host header.
-// thunderURL is the stored EnvThunderURL.ThunderURL origin.
-func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string) (baseURL, resolveToHost string, ok bool) {
-	c, ok := resolveThunderBaseURL(ctx, org, env, thunderURL, defaultThunderURLProber)
+// thunderURL is the stored EnvThunderURL.ThunderURL origin; callerSupplied reports
+// whether it came from a SaaS/control-plane row (no handle) rather than an on-prem one.
+func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, callerSupplied bool) (baseURL, resolveToHost string, ok bool) {
+	c, ok := resolveThunderBaseURL(ctx, org, env, thunderURL, callerSupplied, defaultThunderURLProber)
 	return c.baseURL, c.resolveToHost, ok
 }
 
@@ -304,9 +322,10 @@ func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string) (ba
 // are probed CONCURRENTLY, not one after another, so latency is bounded by a single
 // probe's 2-second timeout rather than the sum of however many are tried. Callers treat
 // a negative probe as "not provisioned" and skip the env. thunderURL is the stored
-// EnvThunderURL.ThunderURL origin.
-func ThunderProbe(ctx context.Context, org, env, thunderURL string) bool {
-	candidates := thunderBaseURLCandidates(org, env, thunderURL)
+// EnvThunderURL.ThunderURL origin; callerSupplied reports whether it came from a
+// SaaS/control-plane row (no handle) rather than an on-prem one.
+func ThunderProbe(ctx context.Context, org, env, thunderURL string, callerSupplied bool) bool {
+	candidates := thunderBaseURLCandidates(org, env, thunderURL, callerSupplied)
 
 	probeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

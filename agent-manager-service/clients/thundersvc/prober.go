@@ -29,7 +29,10 @@ type Prober interface {
 	// ThunderExternalTokenURL). thunderURL is required: callers only ever
 	// probe an environment that already has one registered — there is no
 	// address to probe otherwise, and no fallback pattern computed from org/env.
-	Probe(ctx context.Context, org, env, thunderURL string) bool
+	// callerSupplied reports whether thunderURL came from a SaaS/control-plane
+	// row (no handle) rather than an on-prem one — see thunderURLCandidate's
+	// doc comment for why this decides which candidate gets SSRF-hardened.
+	Probe(ctx context.Context, org, env, thunderURL string, callerSupplied bool) bool
 }
 
 // liveProber is the production Prober, backed by ThunderProbe.
@@ -40,6 +43,6 @@ func NewProber() Prober {
 	return liveProber{}
 }
 
-func (liveProber) Probe(ctx context.Context, org, env, thunderURL string) bool {
-	return ThunderProbe(ctx, org, env, thunderURL)
+func (liveProber) Probe(ctx context.Context, org, env, thunderURL string, callerSupplied bool) bool {
+	return ThunderProbe(ctx, org, env, thunderURL, callerSupplied)
 }

@@ -14,7 +14,7 @@ import (
 //
 //		// make and configure a mocked thundersvc.Prober
 //		mockedProber := &ThunderProberMock{
-//			ProbeFunc: func(ctx context.Context, org string, env string, thunderURL string) bool {
+//			ProbeFunc: func(ctx context.Context, org string, env string, thunderURL string, callerSupplied bool) bool {
 //				panic("mock out the Probe method")
 //			},
 //		}
@@ -25,7 +25,7 @@ import (
 //	}
 type ThunderProberMock struct {
 	// ProbeFunc mocks the Probe method.
-	ProbeFunc func(ctx context.Context, org string, env string, thunderURL string) bool
+	ProbeFunc func(ctx context.Context, org string, env string, thunderURL string, callerSupplied bool) bool
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -39,31 +39,35 @@ type ThunderProberMock struct {
 			Env string
 			// ThunderURL is the thunderURL argument value.
 			ThunderURL string
+			// CallerSupplied is the callerSupplied argument value.
+			CallerSupplied bool
 		}
 	}
 	lockProbe sync.RWMutex
 }
 
 // Probe calls ProbeFunc.
-func (mock *ThunderProberMock) Probe(ctx context.Context, org string, env string, thunderURL string) bool {
+func (mock *ThunderProberMock) Probe(ctx context.Context, org string, env string, thunderURL string, callerSupplied bool) bool {
 	if mock.ProbeFunc == nil {
 		panic("ThunderProberMock.ProbeFunc: method is nil but Prober.Probe was just called")
 	}
 	callInfo := struct {
-		Ctx        context.Context
-		Org        string
-		Env        string
-		ThunderURL string
+		Ctx            context.Context
+		Org            string
+		Env            string
+		ThunderURL     string
+		CallerSupplied bool
 	}{
-		Ctx:        ctx,
-		Org:        org,
-		Env:        env,
-		ThunderURL: thunderURL,
+		Ctx:            ctx,
+		Org:            org,
+		Env:            env,
+		ThunderURL:     thunderURL,
+		CallerSupplied: callerSupplied,
 	}
 	mock.lockProbe.Lock()
 	mock.calls.Probe = append(mock.calls.Probe, callInfo)
 	mock.lockProbe.Unlock()
-	return mock.ProbeFunc(ctx, org, env, thunderURL)
+	return mock.ProbeFunc(ctx, org, env, thunderURL, callerSupplied)
 }
 
 // ProbeCalls gets all the calls that were made to Probe.
@@ -71,16 +75,18 @@ func (mock *ThunderProberMock) Probe(ctx context.Context, org string, env string
 //
 //	len(mockedProber.ProbeCalls())
 func (mock *ThunderProberMock) ProbeCalls() []struct {
-	Ctx        context.Context
-	Org        string
-	Env        string
-	ThunderURL string
+	Ctx            context.Context
+	Org            string
+	Env            string
+	ThunderURL     string
+	CallerSupplied bool
 } {
 	var calls []struct {
-		Ctx        context.Context
-		Org        string
-		Env        string
-		ThunderURL string
+		Ctx            context.Context
+		Org            string
+		Env            string
+		ThunderURL     string
+		CallerSupplied bool
 	}
 	mock.lockProbe.RLock()
 	calls = mock.calls.Probe
