@@ -1442,11 +1442,24 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 
 		// config.GetConfig().ThunderHostBaseDomain defaults to "amp.localhost"
 		// in this unit-test environment (no IDP_HOST_BASE_DOMAIN override).
-		for _, reserved := range []string{"https://console.amp.localhost", "https://api.amp.localhost", "https://thunder.amp.localhost", "https://gateway.amp.localhost"} {
+		for _, reserved := range []string{"https://console.amp.localhost", "https://api.amp.localhost", "https://thunder.amp.localhost", "https://gateway.amp.localhost", "https://console.amp.localhost."} {
 			_, err := svc.SetThunderURL(context.Background(), "ou-123", "prod", "", reserved)
 			require.Error(t, err, "url %q must be rejected", reserved)
 			assert.ErrorIs(t, err, utils.ErrInvalidThunderURL, "url %q", reserved)
+			assert.Contains(t, err.Error(), "reserved subdomain", "url %q must be rejected by the reserved-subdomain guard", reserved)
 		}
+	})
+
+	t.Run("rejects a terminal-dot reserved url when the configured base domain also has a terminal dot", func(t *testing.T) {
+		orig := config.GetConfig().ThunderHostBaseDomain
+		defer func() { config.GetConfig().ThunderHostBaseDomain = orig }()
+		config.GetConfig().ThunderHostBaseDomain = "amp.localhost."
+
+		svc := newEnvServiceWithThunderURLRepo(&repomocks.EnvThunderURLRepositoryMock{})
+		_, err := svc.SetThunderURL(context.Background(), "ou-123", "prod", "", "https://console.amp.localhost.")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, utils.ErrInvalidThunderURL)
+		assert.Contains(t, err.Error(), "reserved subdomain")
 	})
 
 	t.Run("does not reject a reserved-looking label under a DIFFERENT domain (the normal SaaS case)", func(t *testing.T) {

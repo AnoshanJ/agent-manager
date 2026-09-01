@@ -754,8 +754,10 @@ func validateThunderURL(ctx context.Context, rawURL string) (string, error) {
 	// system-client credentials, and advertise it as the environment's
 	// issuer/JWKS. A url under a DIFFERENT domain (the normal SaaS case) never
 	// matches this deployment's base domain, so this never fires for it.
-	if label, rest, ok := strings.Cut(parsed.Hostname(), "."); ok &&
-		strings.EqualFold(rest, config.GetConfig().ThunderHostBaseDomain) &&
+	hostname := strings.TrimSuffix(parsed.Hostname(), ".")
+	baseDomain := strings.TrimSuffix(config.GetConfig().ThunderHostBaseDomain, ".")
+	if label, rest, ok := strings.Cut(hostname, "."); ok &&
+		strings.EqualFold(rest, baseDomain) &&
 		reservedThunderHandles[strings.ToLower(label)] {
 		return "", fmt.Errorf("%w: %q is a reserved subdomain of %s", utils.ErrInvalidThunderURL, label, rest)
 	}
