@@ -44,6 +44,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -808,7 +809,7 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 			},
 		}
 		prober := &clientmocks.ThunderProberMock{
-			ProbeFunc: func(_ context.Context, _, _, _ string) bool { return false },
+			ProbeFunc: func(_ context.Context, _, _, _ string, _ bool) bool { return false },
 		}
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(_ context.Context, _, envName string) (*models.EnvThunderURL, error) {
@@ -925,11 +926,13 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 		urls := map[string]string{"dev": "http://aaaa1111.amp.localhost:8080", "staging": "https://staging.tenant42.example.com"}
 		handles := map[string]string{"dev": "aaaa1111"} // staging: no handle (SaaS-style row)
 		var probedURLs []string
+		callerSuppliedByURL := map[string]bool{}
 		var mu sync.Mutex
 		prober := &clientmocks.ThunderProberMock{
-			ProbeFunc: func(_ context.Context, _, _, thunderURL string) bool {
+			ProbeFunc: func(_ context.Context, _, _, thunderURL string, callerSupplied bool) bool {
 				mu.Lock()
 				probedURLs = append(probedURLs, thunderURL)
+				callerSuppliedByURL[thunderURL] = callerSupplied
 				mu.Unlock()
 				return true
 			},
@@ -952,6 +955,8 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 		require.Len(t, resp.ThunderInstances, 2)
 		assert.ElementsMatch(t, []string{urls["dev"], urls["staging"]}, probedURLs,
 			"the probe must target each env's own registered origin, never a value derived from org/env")
+		assert.False(t, callerSuppliedByURL[urls["dev"]], "dev is on-prem (handle-registered) — its URL is AMS's own computation, not caller-supplied")
+		assert.True(t, callerSuppliedByURL[urls["staging"]], "staging is SaaS-registered (no handle) — its URL is caller-supplied, so the probe must know to SSRF-harden it")
 
 		dev := resp.ThunderInstances[0]
 		assert.Equal(t, "dev", dev.EnvName)
@@ -1069,47 +1074,21 @@ func TestEnvironmentService_SetThunderSystemClientSecret(t *testing.T) {
 		assert.ErrorIs(t, err, boom)
 	})
 
-	// A credential must never be storable without a handle already existing —
-	// see SetThunderSystemClientSecret's own doc comment for why: this keeps a
-	// missing env_thunder_urls row a trustworthy "not provisioned" signal.
-	t.Run("provisions a thunder url handle before storing a credential, when none is registered yet", func(t *testing.T) {
-		var urlInserted *models.EnvThunderURL
+	// SetThunderSystemClientSecret must NEVER touch env_thunder_urls — on-prem
+	// or SaaS, registering a URL is SetThunderURL's job alone, called
+	// independently. Auto-provisioning a handle here would silently stamp a
+	// bogus origin for a SaaS environment that hasn't been registered yet,
+	// permanently blocking its real registration (SetThunderURL never
+	// overwrites an existing one).
+	t.Run("stores the credential even when no thunder url is registered yet, without touching the registration", func(t *testing.T) {
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
-				return nil, gorm.ErrRecordNotFound
-			},
-			InsertFunc: func(_ context.Context, rec *models.EnvThunderURL) error {
-				urlInserted = rec
-				return nil
-			},
-		}
-		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
-			GetFunc: func(context.Context, string, string) (*models.EnvThunderSystemClient, error) {
-				return nil, gorm.ErrRecordNotFound
-			},
-			UpsertFunc: func(context.Context, *models.EnvThunderSystemClient) error { return nil },
-		}
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		svc := NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, systemClientRepo, urlRepo, envTestKey)
-
-		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
-
-		require.NoError(t, err)
-		require.NotNil(t, urlInserted, "a handle must be provisioned before a credential is ever stored")
-		assert.Equal(t, "ou-123", urlInserted.OUID)
-		assert.Equal(t, "staging", urlInserted.EnvName)
-		require.NotNil(t, urlInserted.ThunderHandle)
-		assert.Len(t, *urlInserted.ThunderHandle, generatedThunderHandleLen)
-	})
-
-	t.Run("reuses an already-registered handle instead of claiming a new one", func(t *testing.T) {
-		existing := &models.EnvThunderURL{OUID: "ou-123", EnvName: "staging", ThunderHandle: strPtr("already-registered-handle"), ThunderURL: "http://already-registered-handle.amp.localhost:8080"}
-		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
-			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
-				return existing, nil
+				t.Fatal("must never read or write env_thunder_urls")
+				//nolint:nilnil // unreachable: t.Fatal stops execution
+				return nil, nil
 			},
 			InsertFunc: func(context.Context, *models.EnvThunderURL) error {
-				t.Fatal("must not claim a new handle when one is already registered")
+				t.Fatal("must never provision a thunder url as a side effect of storing a credential")
 				return nil
 			},
 		}
@@ -1122,27 +1101,6 @@ func TestEnvironmentService_SetThunderSystemClientSecret(t *testing.T) {
 		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
 
 		require.NoError(t, err)
-	})
-
-	t.Run("does not store the credential when handle provisioning fails", func(t *testing.T) {
-		boom := errors.New("db down")
-		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
-			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
-				return nil, boom
-			},
-		}
-		systemClientRepo := &repomocks.EnvThunderSystemClientRepositoryMock{
-			UpsertFunc: func(context.Context, *models.EnvThunderSystemClient) error {
-				t.Fatal("must not store the credential when handle provisioning fails")
-				return nil
-			},
-		}
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		svc := NewEnvironmentService(logger, &repomocks.GatewayRepositoryMock{}, &clientmocks.OpenChoreoClientMock{}, &clientmocks.ThunderProberMock{}, nil, systemClientRepo, urlRepo, envTestKey)
-
-		err := svc.SetThunderSystemClientSecret(context.Background(), "ou-123", "staging", "amp-system-client", "s3cr3t")
-
-		require.Error(t, err)
 	})
 }
 
@@ -1477,6 +1435,41 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 			require.Error(t, err, "url %q must be rejected", private)
 			assert.ErrorIs(t, err, utils.ErrInvalidThunderURL, "url %q", private)
 		}
+	})
+
+	t.Run("rejects a url whose first label is reserved under this deployment's own base domain", func(t *testing.T) {
+		svc := newEnvServiceWithThunderURLRepo(&repomocks.EnvThunderURLRepositoryMock{})
+
+		// config.GetConfig().ThunderHostBaseDomain defaults to "amp.localhost"
+		// in this unit-test environment (no IDP_HOST_BASE_DOMAIN override).
+		for _, reserved := range []string{"https://console.amp.localhost", "https://api.amp.localhost", "https://thunder.amp.localhost", "https://gateway.amp.localhost"} {
+			_, err := svc.SetThunderURL(context.Background(), "ou-123", "prod", "", reserved)
+			require.Error(t, err, "url %q must be rejected", reserved)
+			assert.ErrorIs(t, err, utils.ErrInvalidThunderURL, "url %q", reserved)
+		}
+	})
+
+	t.Run("does not reject a reserved-looking label under a DIFFERENT domain (the normal SaaS case)", func(t *testing.T) {
+		// Both cases below fail (the host doesn't actually resolve — no live
+		// network dependency needed), but for DIFFERENT reasons: the error
+		// message distinguishes "rejected as a reserved subdomain" (fires only
+		// when the host sits under THIS deployment's configured base domain)
+		// from a generic SSRF/DNS failure (any other domain, the normal SaaS
+		// case, where a reserved-looking label is just a coincidence).
+		orig := config.GetConfig().ThunderHostBaseDomain
+		defer func() { config.GetConfig().ThunderHostBaseDomain = orig }()
+
+		svc := newEnvServiceWithThunderURLRepo(&repomocks.EnvThunderURLRepositoryMock{})
+
+		config.GetConfig().ThunderHostBaseDomain = "internal.test"
+		_, err := svc.SetThunderURL(context.Background(), "ou-123", "prod", "", "https://console.internal.test")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved subdomain", "must reject: this host sits under the configured base domain")
+
+		config.GetConfig().ThunderHostBaseDomain = "some-other-domain.test"
+		_, err = svc.SetThunderURL(context.Background(), "ou-123", "prod", "", "https://console.internal.test")
+		require.Error(t, err, "still fails, but only because the host doesn't resolve")
+		assert.NotContains(t, err.Error(), "reserved subdomain", "must NOT be rejected as reserved: this host is no longer under the configured base domain")
 	})
 
 	t.Run("re-supplying the SAME url as what's already registered is a no-op", func(t *testing.T) {

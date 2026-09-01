@@ -25,12 +25,14 @@ import (
 	"math/big"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -561,7 +563,7 @@ func (s *environmentService) ListThunderInstances(ctx context.Context, ouID stri
 			if rec.URL == "" {
 				return // not provisioned — reachable[idx] stays false, no probe needed
 			}
-			reachable[idx] = s.thunderProber.Probe(ctx, orgNamespace, envName, rec.URL)
+			reachable[idx] = s.thunderProber.Probe(ctx, orgNamespace, envName, rec.URL, rec.Handle == "")
 		}(i, env.Name)
 	}
 	wg.Wait()
@@ -744,6 +746,18 @@ func validateThunderURL(ctx context.Context, rawURL string) (string, error) {
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", fmt.Errorf("%w: must not contain a query or fragment", utils.ErrInvalidThunderURL)
+	}
+	// A url under THIS deployment's own base domain is still checked against
+	// reservedThunderHandles, the same protection the handle path enforces:
+	// without it, a caller could register e.g. "https://console.<baseDomain>"
+	// and AMS would dial the platform's own console with the environment's
+	// system-client credentials, and advertise it as the environment's
+	// issuer/JWKS. A url under a DIFFERENT domain (the normal SaaS case) never
+	// matches this deployment's base domain, so this never fires for it.
+	if label, rest, ok := strings.Cut(parsed.Hostname(), "."); ok &&
+		strings.EqualFold(rest, config.GetConfig().ThunderHostBaseDomain) &&
+		reservedThunderHandles[strings.ToLower(label)] {
+		return "", fmt.Errorf("%w: %q is a reserved subdomain of %s", utils.ErrInvalidThunderURL, label, rest)
 	}
 	origin := fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
 	if err := ssrf.ValidateURL(ctx, origin); err != nil {
@@ -991,26 +1005,27 @@ func (s *environmentService) ThunderHandleRegistered(ctx context.Context, handle
 // SetThunderSystemClientSecret encrypts and upserts the env-Thunder system-client
 // credential, keyed by ouID.
 //
-// Provisions a URL handle (auto-generating one if none is registered yet)
-// BEFORE ever storing the credential — never the other way around. This
-// guarantees every environment with a system-client credential also has a
-// handle row, so ResolveThunderHandle's "not provisioned" answer stays
-// trustworthy: a credential can never exist without a handle already existing
-// first. add-environment-thunder.sh happens to call register_thunder_url
-// before store_via_ams today, but that's an external, unenforced ordering;
-// this call makes the invariant hold by construction for every caller,
-// present and future, not just today's one script. SetThunderURL with an
-// empty handle is already an idempotent no-op when one is already registered,
-// so this changes nothing for an environment that already has one.
+// Does NOT provision a thunder-url registration — on-prem or SaaS, that's
+// SetThunderURL's job, called independently (by add-environment-thunder.sh's
+// register_thunder_url, or by the control plane's own PUT .../thunder-url).
+// This method previously auto-generated a handle here if none was registered
+// yet, to guarantee "a credential never exists without a registration." That
+// guarantee doesn't hold for the SaaS path: a control plane that stores the
+// credential before registering its URL would have gotten a bogus
+// handle-based origin permanently stamped, since SetThunderURL never
+// overwrites an existing registration — the real URL registration would then
+// fail forever with ErrThunderURLTaken. Silently fabricating a registration
+// nobody asked for is worse than a transient "not provisioned": Resolve()
+// already checks the credential and the URL as two independent pieces (see
+// EnvThunderResolver.Resolve), so a credential existing without a URL row is
+// a valid, correctly-handled state — it just reports ErrThunderNotProvisioned
+// until the real registration lands.
 func (s *environmentService) SetThunderSystemClientSecret(ctx context.Context, ouID, envName, clientID, clientSecret string) error {
 	if clientSecret == "" {
 		return fmt.Errorf("%w: clientSecret is required", utils.ErrInvalidInput)
 	}
 	if ouID == "" {
 		return fmt.Errorf("%w: ouID is required", utils.ErrInvalidInput)
-	}
-	if _, err := s.SetThunderURL(ctx, ouID, envName, "", ""); err != nil {
-		return fmt.Errorf("failed to ensure a thunder url handle exists for %s/%s: %w", ouID, envName, err)
 	}
 	encrypted, err := utils.EncryptBytes([]byte(clientSecret), s.encryptionKey)
 	if err != nil {
