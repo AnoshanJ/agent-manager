@@ -155,7 +155,7 @@ func NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveTo
 // NewEnvThunderClient is NewThunderClientWithDialOverride's env-Thunder variant:
 // when resolveToHost is empty, the dial is SSRF-hardened (re-resolved at
 // connect time, every redirect re-validated) rather than plain. Use this
-// wherever baseURL may be a SaaS-registered EnvThunderURL.ThunderURL, since
+// wherever baseURL may be a caller-supplied EnvThunderURL.ThunderURL, since
 // that value is only checked once at registration time (see
 // EnvironmentService.validateThunderURL) yet gets dialed for every later
 // admin/token call. Platform Thunder's clients deliberately keep using

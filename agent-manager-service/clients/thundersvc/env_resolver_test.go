@@ -53,28 +53,27 @@ func fakeResolveBaseURL(_ context.Context, _, _, _ string, _ bool) (string, stri
 	return "http://fake-thunder:8090", "", true
 }
 
-// noURLReader stands in for an environment that was never provisioned
-// through add-environment-thunder.sh or a control plane (or whose
-// registration never completed): no URL exists, so Resolve must report
-// ErrThunderNotProvisioned — there is no fallback to compute an address from
-// org/env.
+// noURLReader stands in for an environment that was never provisioned: no
+// URL exists, so Resolve must report ErrThunderNotProvisioned — there is no
+// fallback to compute an address from org/env.
 func noURLReader(context.Context, string, string) (string, bool, error) {
 	return "", false, nil
 }
 
-// okURLReader returns a fixed thunderURL for any (ouID, env), reported as an
-// on-prem (handle) row — the common case for tests that don't care about the
-// URL lookup itself, just that Resolve gets past it. Use okSaaSURLReader for
-// tests specifically about the SaaS/caller-supplied distinction.
+// okURLReader returns a fixed thunderURL for any (ouID, env), reported as a
+// handle-derived row — the common case for tests that don't care about the
+// URL lookup itself, just that Resolve gets past it. Use
+// okCallerSuppliedURLReader for tests specifically about the
+// caller-supplied distinction.
 func okURLReader(thunderURL string) ReadThunderURLFunc {
 	return func(context.Context, string, string) (string, bool, error) {
 		return thunderURL, false, nil
 	}
 }
 
-// okSaaSURLReader is okURLReader's counterpart for a SaaS/control-plane row
-// (no handle) — callerSupplied is true.
-func okSaaSURLReader(thunderURL string) ReadThunderURLFunc {
+// okCallerSuppliedURLReader is okURLReader's counterpart for a row registered
+// with no handle — callerSupplied is true.
+func okCallerSuppliedURLReader(thunderURL string) ReadThunderURLFunc {
 	return func(context.Context, string, string) (string, bool, error) {
 		return thunderURL, true, nil
 	}
@@ -332,15 +331,16 @@ func TestEnvThunderResolver_Resolve_UsesResolvedBaseURLAndDialOverride(t *testin
 	require.NotNil(t, tc.httpClient.Transport, "a non-empty dial override must install a custom transport")
 }
 
-// TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalSaaSWinner proves
-// the resolver itself, not just the two constructors in isolation, picks the
-// SSRF-hardened client only when BOTH hold: the winning candidate is the
-// plain-external one (baseURL==thunderURL, no override) AND the row is
-// SaaS/caller-supplied (no handle). Candidate position alone is not enough —
-// an on-prem row landing on that exact same position (e.g. a VM install whose
-// sslip.io hostname resolves to a private LAN IP) must NOT be hardened, or a
-// working deployment goes from reachable to permanently ErrThunderUnreachable.
-func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalSaaSWinner(t *testing.T) {
+// TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalCallerSuppliedWinner
+// proves the resolver itself, not just the two constructors in isolation,
+// picks the SSRF-hardened client only when BOTH hold: the winning candidate
+// is the plain-external one (baseURL==thunderURL, no override) AND the row is
+// caller-supplied (no handle). Candidate position alone is not enough — a
+// handle-derived row landing on that exact same position (e.g. a VM install
+// whose sslip.io hostname resolves to a private LAN IP) must NOT be hardened,
+// or a working deployment goes from reachable to permanently
+// ErrThunderUnreachable.
+func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalCallerSuppliedWinner(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	server := httptest.NewServer(mux)
@@ -359,15 +359,15 @@ func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalSaaSWinner(t *tes
 		return err
 	}
 
-	t.Run("plain external winner, SaaS row (no handle): SSRF-hardened, loopback rejected", func(t *testing.T) {
+	t.Run("plain external winner, caller-supplied row (no handle): SSRF-hardened, loopback rejected", func(t *testing.T) {
 		resolveBaseURL := func(_ context.Context, _, _, thunderURL string, _ bool) (string, string, bool) {
 			return thunderURL, "", true
 		}
-		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okSaaSURLReader(server.URL), resolveBaseURL)
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okCallerSuppliedURLReader(server.URL), resolveBaseURL)
 
 		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 		require.NoError(t, err)
-		assert.Error(t, doGet(t, client), "the loopback server must be rejected — this is what a SaaS-supplied thunder_url pointed at an internal address would hit")
+		assert.Error(t, doGet(t, client), "the loopback server must be rejected — this is what a caller-supplied thunder_url pointed at an internal address would hit")
 	})
 
 	t.Run("plain external winner, on-prem row (handle): plain client, loopback reachable", func(t *testing.T) {
@@ -385,7 +385,7 @@ func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalSaaSWinner(t *tes
 		resolveBaseURL := func(_ context.Context, _, _, _ string, _ bool) (string, string, bool) {
 			return server.URL, "", true // baseURL deliberately does NOT equal thunderURL below
 		}
-		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okSaaSURLReader("http://different-thunder-url:8080"), resolveBaseURL)
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okCallerSuppliedURLReader("http://different-thunder-url:8080"), resolveBaseURL)
 
 		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 		require.NoError(t, err)
@@ -397,7 +397,7 @@ func TestEnvThunderResolver_Resolve_HardensOnlyThePlainExternalSaaSWinner(t *tes
 		resolveBaseURL := func(_ context.Context, _, _, thunderURL string, _ bool) (string, string, bool) {
 			return thunderURL, overrideHost, true
 		}
-		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okSaaSURLReader("http://unreachable.invalid:9999"), resolveBaseURL)
+		resolver := newEnvThunderResolverWithReader(okReader("amp-system-client", "s3cr3t"), okCallerSuppliedURLReader("http://unreachable.invalid:9999"), resolveBaseURL)
 
 		client, err := resolver.Resolve(context.Background(), testOUID, testOrgNamespace, "staging")
 		require.NoError(t, err)

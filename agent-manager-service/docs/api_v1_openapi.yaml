@@ -2070,9 +2070,9 @@ paths:
         - Environments
       summary: Register an environment's env-Thunder URL
       description: |
-        Bootstrap-only endpoint used by add-environment-thunder.sh (on-prem)
-        or a control plane (SaaS) before/while provisioning an environment's
-        dedicated Thunder instance. Registers the environment's
+        Bootstrap-only endpoint used by add-environment-thunder.sh, or by any
+        caller that already knows the full origin, before/while provisioning
+        an environment's dedicated Thunder instance. Registers the environment's
         externally-reachable env-Thunder origin (issuer/token/JWKS URLs) via
         exactly one of two mutually-exclusive request fields — see
         ThunderUrlRequest. Without this, an on-prem URL would be 100%
@@ -2090,8 +2090,8 @@ paths:
         Both handle and the resolved url are globally unique across ALL
         orgs/environments (every env-Thunder instance's HTTPRoute attaches to
         the same shared Gateway, so hostname routing is cluster-wide, not
-        per-org — and a SaaS control plane's own domain space is a single
-        namespace the same way). If a caller-supplied handle or url collides
+        per-org — and a caller-supplied url is expected to be globally unique
+        the same way). If a caller-supplied handle or url collides
         with a different environment's, this returns 409. A collision on a
         GENERATED handle is retried internally with a fresh value and never
         surfaces as a 409.
@@ -14471,15 +14471,15 @@ components:
         Registers an environment's env-Thunder origin via exactly one of two
         mutually-exclusive fields — setting both is rejected with 400:
 
-        - `handle` (on-prem path): an unguessable label AMS resolves into the
+        - `handle` (handle path): an unguessable label AMS resolves into the
           full origin itself, replacing the predictable "<org>-<env>" pattern.
           Optional — omit it (or send an empty string, with url also omitted)
           to have the server generate one.
-        - `url` (SaaS/control-plane path): the full origin the caller has
-          already provisioned, for deployments where different environments
-          can live under different domains and there is no single pattern AMS
-          could compute. AMS validates and stores it verbatim; the
-          environment's registration then has no handle at all.
+        - `url` (url path): the full origin the caller has already
+          provisioned, for deployments where different environments can live
+          under different domains and there is no single pattern AMS could
+          compute. AMS validates and stores it verbatim; the environment's
+          registration then has no handle at all.
       properties:
         handle:
           type: string
@@ -14498,7 +14498,7 @@ components:
           format: uri
           description: |
             The full env-Thunder origin (scheme + host, no path/query/fragment)
-            this environment is already reachable at — the SaaS/control-plane
+            this environment is already reachable at — the url registration
             path. Must be http or https, resolve to a public IP address (no
             private/loopback hosts), and be globally unique across all
             orgs/environments. Mutually exclusive with handle.

@@ -4862,15 +4862,15 @@ type ThunderUrlAvailabilityResponse struct {
 // ThunderUrlRequest Registers an environment's env-Thunder origin via exactly one of two
 // mutually-exclusive fields — setting both is rejected with 400:
 //
-//   - `handle` (on-prem path): an unguessable label AMS resolves into the
+//   - `handle` (handle path): an unguessable label AMS resolves into the
 //     full origin itself, replacing the predictable "<org>-<env>" pattern.
 //     Optional — omit it (or send an empty string, with url also omitted)
 //     to have the server generate one.
-//   - `url` (SaaS/control-plane path): the full origin the caller has
-//     already provisioned, for deployments where different environments
-//     can live under different domains and there is no single pattern AMS
-//     could compute. AMS validates and stores it verbatim; the
-//     environment's registration then has no handle at all.
+//   - `url` (url path): the full origin the caller has already
+//     provisioned, for deployments where different environments can live
+//     under different domains and there is no single pattern AMS could
+//     compute. AMS validates and stores it verbatim; the environment's
+//     registration then has no handle at all.
 type ThunderUrlRequest struct {
 	// Handle DNS-label-safe handle (lowercase alphanumeric with hyphens, no
 	// leading/trailing hyphen) that replaces "<org>-<env>" in
@@ -4880,7 +4880,7 @@ type ThunderUrlRequest struct {
 	Handle *string `json:"handle,omitempty"`
 
 	// Url The full env-Thunder origin (scheme + host, no path/query/fragment)
-	// this environment is already reachable at — the SaaS/control-plane
+	// this environment is already reachable at — the url registration
 	// path. Must be http or https, resolve to a public IP address (no
 	// private/loopback hosts), and be globally unique across all
 	// orgs/environments. Mutually exclusive with handle.

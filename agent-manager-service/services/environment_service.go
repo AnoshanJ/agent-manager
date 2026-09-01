@@ -60,11 +60,10 @@ type EnvironmentService interface {
 	//     replaces the predictable <org>-<env> segment of the environment's
 	//     hostname; AMS computes and stores the full origin server-side. An
 	//     empty handle auto-generates one.
-	//   - url set: SaaS/control-plane path. The caller already knows the
-	//     real, already-provisioned origin (a cloud control plane can put
-	//     different environments under different domains, so there is no
-	//     single pattern AMS could compute); AMS validates and stores it
-	//     verbatim, with no handle at all.
+	//   - url set: the caller already knows the real, already-provisioned
+	//     origin (useful when different environments live under different
+	//     domains, so there is no single pattern AMS could compute); AMS
+	//     validates and stores it verbatim, with no handle at all.
 	// Returns utils.ErrThunderHandleAndURLBothSet if both are non-empty,
 	// utils.ErrThunderHandleTaken/utils.ErrThunderURLTaken if the respective
 	// value is already registered to a different environment.
@@ -713,7 +712,7 @@ func generateThunderHandle() (string, error) {
 // maxThunderURLLen mirrors the thunder_url column's VARCHAR(2048) cap.
 const maxThunderURLLen = 2048
 
-// validateThunderURL checks rawURL's shape for the SaaS/control-plane
+// validateThunderURL checks rawURL's shape for the caller-supplied URL
 // registration path and returns it normalized to a bare "scheme://host[:port]"
 // origin (stripping any trailing "/", since callers append their own paths).
 // Must be an absolute http(s) origin with no userinfo/path/query/fragment.
@@ -752,7 +751,7 @@ func validateThunderURL(ctx context.Context, rawURL string) (string, error) {
 	// without it, a caller could register e.g. "https://console.<baseDomain>"
 	// and AMS would dial the platform's own console with the environment's
 	// system-client credentials, and advertise it as the environment's
-	// issuer/JWKS. A url under a DIFFERENT domain (the normal SaaS case) never
+	// issuer/JWKS. A url under a DIFFERENT domain (the common case) never
 	// matches this deployment's base domain, so this never fires for it.
 	hostname := strings.TrimSuffix(parsed.Hostname(), ".")
 	baseDomain := strings.TrimSuffix(config.GetConfig().ThunderHostBaseDomain, ".")
@@ -846,14 +845,14 @@ func (s *environmentService) SetThunderURL(ctx context.Context, ouID, envName, h
 // up-front read, or by losing an insert race — see claimThunderHandle): a
 // blank or matching request reuses it as a no-op; a different EXPLICIT
 // request is rejected. Also correctly rejects an explicit handle against an
-// existing SaaS-registered (handle-less) row, since existing.Handle is "" there.
+// existing caller-supplied (handle-less) row, since existing.Handle is "" there.
 func (s *environmentService) reuseOrRejectThunderHandle(existing models.ThunderURLRecord, requested, ouID, envName string) (models.ThunderURLRecord, error) {
 	if requested == "" || requested == existing.Handle {
 		s.logger.Info("Reusing already-registered env-thunder url handle", "ouID", ouID, "envName", envName)
 		return existing, nil
 	}
 	if existing.Handle == "" {
-		return models.ThunderURLRecord{}, fmt.Errorf("%w: %s/%s already has a registered thunder url %q (registered via the control-plane URL path, no handle) — call DeleteThunderURL first to change it",
+		return models.ThunderURLRecord{}, fmt.Errorf("%w: %s/%s already has a registered thunder url %q (registered via the url path, no handle) — call DeleteThunderURL first to change it",
 			utils.ErrThunderHandleTaken, ouID, envName, existing.URL)
 	}
 	return models.ThunderURLRecord{}, fmt.Errorf("%w: %s/%s already has a registered handle %q — call DeleteThunderURL first to change it",
@@ -861,7 +860,7 @@ func (s *environmentService) reuseOrRejectThunderHandle(existing models.ThunderU
 }
 
 // reuseOrRejectThunderURL is reuseOrRejectThunderHandle's counterpart for the
-// SaaS/control-plane URL path: a matching re-registration is a no-op; a
+// caller-supplied URL path: a matching re-registration is a no-op; a
 // different one is rejected, regardless of which path originally minted the
 // existing record.
 func (s *environmentService) reuseOrRejectThunderURL(existing models.ThunderURLRecord, requested, ouID, envName string) (models.ThunderURLRecord, error) {
@@ -874,7 +873,7 @@ func (s *environmentService) reuseOrRejectThunderURL(existing models.ThunderURLR
 }
 
 // toThunderURLRecord converts a stored row into the public ThunderURLRecord
-// shape, dereferencing ThunderHandle (nil for a SaaS/control-plane row) down
+// shape, dereferencing ThunderHandle (nil for a caller-supplied row) down
 // to "" — see EnvThunderURL's doc comment for why the column is a *string.
 func toThunderURLRecord(row *models.EnvThunderURL) models.ThunderURLRecord {
 	rec := models.ThunderURLRecord{URL: row.ThunderURL}
@@ -921,11 +920,11 @@ func (s *environmentService) claimThunderHandle(ctx context.Context, ouID, envNa
 }
 
 // claimThunderURL attempts to insert-claim rawURL (already validated and
-// normalized) for (ouID, envName), with no handle at all — the SaaS/
-// control-plane registration path. Mirrors claimThunderHandle's concurrency
-// handling, one level simpler since there is no generated-value retry loop
-// for this path: the caller already knows the exact URL it wants, so there is
-// nothing to regenerate on collision.
+// normalized) for (ouID, envName), with no handle at all — the caller-supplied
+// URL registration path. Mirrors claimThunderHandle's concurrency handling,
+// one level simpler since there is no generated-value retry loop for this
+// path: the caller already knows the exact URL it wants, so there is nothing
+// to regenerate on collision.
 func (s *environmentService) claimThunderURL(ctx context.Context, ouID, envName, rawURL string) (models.ThunderURLRecord, error) {
 	rec := &models.EnvThunderURL{OUID: ouID, EnvName: envName, ThunderURL: rawURL}
 	err := s.envThunderURLRepo.Insert(ctx, rec)
@@ -1007,18 +1006,18 @@ func (s *environmentService) ThunderHandleRegistered(ctx context.Context, handle
 // SetThunderSystemClientSecret encrypts and upserts the env-Thunder system-client
 // credential, keyed by ouID.
 //
-// Does NOT provision a thunder-url registration — on-prem or SaaS, that's
-// SetThunderURL's job, called independently (by add-environment-thunder.sh's
-// register_thunder_url, or by the control plane's own PUT .../thunder-url).
-// This method previously auto-generated a handle here if none was registered
-// yet, to guarantee "a credential never exists without a registration." That
-// guarantee doesn't hold for the SaaS path: a control plane that stores the
-// credential before registering its URL would have gotten a bogus
-// handle-based origin permanently stamped, since SetThunderURL never
-// overwrites an existing registration — the real URL registration would then
-// fail forever with ErrThunderURLTaken. Silently fabricating a registration
-// nobody asked for is worse than a transient "not provisioned": Resolve()
-// already checks the credential and the URL as two independent pieces (see
+// Does NOT provision a thunder-url registration — that's SetThunderURL's job,
+// called independently (by add-environment-thunder.sh's register_thunder_url,
+// or by a caller's own PUT .../thunder-url). This method previously
+// auto-generated a handle here if none was registered yet, to guarantee "a
+// credential never exists without a registration." That guarantee doesn't
+// hold for the url-registration path: a caller that stores the credential
+// before registering its URL would have gotten a bogus handle-based origin
+// permanently stamped, since SetThunderURL never overwrites an existing
+// registration — the real URL registration would then fail forever with
+// ErrThunderURLTaken. Silently fabricating a registration nobody asked for is
+// worse than a transient "not provisioned": Resolve() already checks the
+// credential and the URL as two independent pieces (see
 // EnvThunderResolver.Resolve), so a credential existing without a URL row is
 // a valid, correctly-handled state — it just reports ErrThunderNotProvisioned
 // until the real registration lands.

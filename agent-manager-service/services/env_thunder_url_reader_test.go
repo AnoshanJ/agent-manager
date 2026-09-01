@@ -48,7 +48,7 @@ func TestResolveThunderURL(t *testing.T) {
 		assert.Equal(t, "http://x7f2q9kz.amp.localhost:8080", rec.URL)
 	})
 
-	t.Run("returns the registered SaaS record (url only, no handle)", func(t *testing.T) {
+	t.Run("returns the registered caller-supplied record (url only, no handle)", func(t *testing.T) {
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				return &models.EnvThunderURL{ThunderURL: "https://stage-idp.tenant42.example.com"}, nil

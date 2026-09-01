@@ -920,11 +920,11 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 			},
 		}
 		// Each env has its OWN distinct registered origin — nothing derived
-		// from org/env. "staging" is deliberately given a SaaS-style
+		// from org/env. "staging" is deliberately given a caller-supplied
 		// (handle-less) row to prove the response doesn't depend on a handle
 		// being present at all.
 		urls := map[string]string{"dev": "http://aaaa1111.amp.localhost:8080", "staging": "https://staging.tenant42.example.com"}
-		handles := map[string]string{"dev": "aaaa1111"} // staging: no handle (SaaS-style row)
+		handles := map[string]string{"dev": "aaaa1111"} // staging: no handle (caller-supplied row)
 		var probedURLs []string
 		callerSuppliedByURL := map[string]bool{}
 		var mu sync.Mutex
@@ -956,7 +956,7 @@ func TestEnvironmentService_ListThunderInstances(t *testing.T) {
 		assert.ElementsMatch(t, []string{urls["dev"], urls["staging"]}, probedURLs,
 			"the probe must target each env's own registered origin, never a value derived from org/env")
 		assert.False(t, callerSuppliedByURL[urls["dev"]], "dev is on-prem (handle-registered) — its URL is AMS's own computation, not caller-supplied")
-		assert.True(t, callerSuppliedByURL[urls["staging"]], "staging is SaaS-registered (no handle) — its URL is caller-supplied, so the probe must know to SSRF-harden it")
+		assert.True(t, callerSuppliedByURL[urls["staging"]], "staging is caller-supplied (no handle) — its URL is caller-supplied, so the probe must know to SSRF-harden it")
 
 		dev := resp.ThunderInstances[0]
 		assert.Equal(t, "dev", dev.EnvName)
@@ -1074,12 +1074,11 @@ func TestEnvironmentService_SetThunderSystemClientSecret(t *testing.T) {
 		assert.ErrorIs(t, err, boom)
 	})
 
-	// SetThunderSystemClientSecret must NEVER touch env_thunder_urls — on-prem
-	// or SaaS, registering a URL is SetThunderURL's job alone, called
-	// independently. Auto-provisioning a handle here would silently stamp a
-	// bogus origin for a SaaS environment that hasn't been registered yet,
-	// permanently blocking its real registration (SetThunderURL never
-	// overwrites an existing one).
+	// SetThunderSystemClientSecret must NEVER touch env_thunder_urls —
+	// registering a URL is SetThunderURL's job alone, called independently.
+	// Auto-provisioning a handle here would silently stamp a bogus origin for
+	// an environment that hasn't been registered yet, permanently blocking
+	// its real registration (SetThunderURL never overwrites an existing one).
 	t.Run("stores the credential even when no thunder url is registered yet, without touching the registration", func(t *testing.T) {
 		urlRepo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
@@ -1339,7 +1338,7 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 		assert.Len(t, resolved.Handle, generatedThunderHandleLen)
 	})
 
-	// --- SaaS/control-plane url path ---
+	// --- caller-supplied url path ---
 
 	t.Run("stores a caller-supplied url verbatim, with no handle at all", func(t *testing.T) {
 		var stored *models.EnvThunderURL
@@ -1356,7 +1355,7 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 
 		resolved, err := svc.SetThunderURL(context.Background(), "ou-123", "prod", "", "https://8.8.8.8")
 		require.NoError(t, err)
-		assert.Empty(t, resolved.Handle, "the SaaS path never produces a handle")
+		assert.Empty(t, resolved.Handle, "the url path never produces a handle")
 		assert.Equal(t, "https://8.8.8.8", resolved.URL)
 		require.NotNil(t, stored)
 		assert.Empty(t, stored.ThunderHandle)
@@ -1462,13 +1461,13 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 		assert.Contains(t, err.Error(), "reserved subdomain")
 	})
 
-	t.Run("does not reject a reserved-looking label under a DIFFERENT domain (the normal SaaS case)", func(t *testing.T) {
+	t.Run("does not reject a reserved-looking label under a DIFFERENT domain (the common case)", func(t *testing.T) {
 		// Both cases below fail (the host doesn't actually resolve — no live
 		// network dependency needed), but for DIFFERENT reasons: the error
 		// message distinguishes "rejected as a reserved subdomain" (fires only
 		// when the host sits under THIS deployment's configured base domain)
-		// from a generic SSRF/DNS failure (any other domain, the normal SaaS
-		// case, where a reserved-looking label is just a coincidence).
+		// from a generic SSRF/DNS failure (any other domain, where a
+		// reserved-looking label is just a coincidence).
 		orig := config.GetConfig().ThunderHostBaseDomain
 		defer func() { config.GetConfig().ThunderHostBaseDomain = orig }()
 
@@ -1517,7 +1516,7 @@ func TestEnvironmentService_SetThunderURL(t *testing.T) {
 		assert.ErrorIs(t, err, utils.ErrThunderURLTaken)
 	})
 
-	t.Run("an explicit handle request against an existing SaaS-registered (handle-less) row is rejected", func(t *testing.T) {
+	t.Run("an explicit handle request against an existing caller-supplied (handle-less) row is rejected", func(t *testing.T) {
 		repo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				return &models.EnvThunderURL{ThunderURL: "https://8.8.8.8"}, nil
@@ -1815,7 +1814,7 @@ func TestEnvironmentService_GetThunderURL(t *testing.T) {
 		assert.Equal(t, "http://x7f2q9kzab.amp.localhost:8080", resolved.URL)
 	})
 
-	t.Run("returns the registered SaaS record (url only, no handle)", func(t *testing.T) {
+	t.Run("returns the registered caller-supplied record (url only, no handle)", func(t *testing.T) {
 		repo := &repomocks.EnvThunderURLRepositoryMock{
 			GetFunc: func(context.Context, string, string) (*models.EnvThunderURL, error) {
 				return &models.EnvThunderURL{ThunderURL: "https://8.8.8.8"}, nil

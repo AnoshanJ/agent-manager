@@ -137,7 +137,7 @@ func ThunderExternalJWKSURL(thunderURL string) string {
 // EnvironmentService.SetThunderURL to compute the value stored as
 // EnvThunderURL.ThunderURL, never by a reader — readers always use the stored
 // value directly, since one global base-domain config can't describe every
-// environment once a cloud control plane provisions across different domains.
+// environment once a caller can register a URL under a different domain.
 //
 // Scheme/port must match what env-Thunder itself self-configured as its
 // issuer (see thunder-naming.sh's thunder_issuer(), which must stay in sync):
@@ -184,9 +184,9 @@ func isValidJWKS(body []byte) bool {
 // Kgateway's host-based routing still selects the right backend.
 // external marks the ONE candidate dialed by its own host with no internal
 // override — the exact stored EnvThunderURL.ThunderURL — AND whose value is
-// caller-supplied (a SaaS/control-plane row, no handle). That combination is
+// caller-supplied (a row registered with no handle). That combination is
 // dialed with ssrf.NewClient (re-resolves at dial time, re-validates every
-// redirect hop) rather than the plain default client. An on-prem (handle) row
+// redirect hop) rather than the plain default client. A handle-derived row
 // is never marked external even at this same candidate position: that value
 // is server-computed under AMS's own trusted base domain and can legitimately
 // be a private address (e.g. a VM install's sslip.io hostname over a LAN IP,
@@ -220,9 +220,10 @@ type thunderURLCandidate struct {
 // thunderURL is the stored EnvThunderURL.ThunderURL origin and builds the
 // external candidate directly; it must be non-empty (callers check for "not
 // provisioned" before ever reaching here). callerSupplied reports whether
-// thunderURL came from a SaaS/control-plane row (no handle) rather than an
-// on-prem (handle) row — see thunderURLCandidate's doc comment for why this,
-// not candidate position alone, decides which candidate gets marked external.
+// thunderURL was supplied directly by the caller (no handle) rather than
+// computed by AMS from a handle — see thunderURLCandidate's doc comment for
+// why this, not candidate position alone, decides which candidate gets
+// marked external.
 func thunderBaseURLCandidates(org, env, thunderURL string, callerSupplied bool) []thunderURLCandidate {
 	if thunderURL == "" {
 		panic("thunder url must not be empty — callers must check for \"not provisioned\" before building candidates")
@@ -310,7 +311,8 @@ func resolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, cal
 // client against the result must dial resolveToHost (when non-empty) instead of the
 // base URL's own host, while still sending the base URL's host as the Host header.
 // thunderURL is the stored EnvThunderURL.ThunderURL origin; callerSupplied reports
-// whether it came from a SaaS/control-plane row (no handle) rather than an on-prem one.
+// whether it was supplied directly by the caller (no handle) rather than computed
+// by AMS from a handle.
 func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, callerSupplied bool) (baseURL, resolveToHost string, ok bool) {
 	c, ok := resolveThunderBaseURL(ctx, org, env, thunderURL, callerSupplied, defaultThunderURLProber)
 	return c.baseURL, c.resolveToHost, ok
@@ -322,8 +324,8 @@ func ResolveThunderBaseURL(ctx context.Context, org, env, thunderURL string, cal
 // are probed CONCURRENTLY, not one after another, so latency is bounded by a single
 // probe's 2-second timeout rather than the sum of however many are tried. Callers treat
 // a negative probe as "not provisioned" and skip the env. thunderURL is the stored
-// EnvThunderURL.ThunderURL origin; callerSupplied reports whether it came from a
-// SaaS/control-plane row (no handle) rather than an on-prem one.
+// EnvThunderURL.ThunderURL origin; callerSupplied reports whether it was supplied
+// directly by the caller (no handle) rather than computed by AMS from a handle.
 func ThunderProbe(ctx context.Context, org, env, thunderURL string, callerSupplied bool) bool {
 	candidates := thunderBaseURLCandidates(org, env, thunderURL, callerSupplied)
 

@@ -25,11 +25,11 @@ import (
 // EnvThunderURL records an environment's externally-reachable env-Thunder
 // origin, keyed by (OUID, EnvName). ThunderURL is always set and is the
 // authoritative value every reader uses. ThunderHandle is set only for the
-// on-prem path (AMS computes ThunderURL from it); nil for a SaaS row, which
-// supplies ThunderURL directly. ThunderHandle is *string, not string, so an
-// omitted handle writes SQL NULL rather than "" — uq_env_thunder_urls_handle
-// relies on Postgres never treating multiple NULLs as conflicting to let any
-// number of SaaS rows coexist.
+// handle path (AMS computes ThunderURL from it); nil for a row that supplies
+// ThunderURL directly. ThunderHandle is *string, not string, so an omitted
+// handle writes SQL NULL rather than "" — uq_env_thunder_urls_handle relies
+// on Postgres never treating multiple NULLs as conflicting to let any number
+// of handle-less rows coexist.
 type EnvThunderURL struct {
 	ID            uuid.UUID `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
 	OUID          string    `gorm:"column:ou_id;not null;uniqueIndex:uq_env_thunder_urls_ou_env"`

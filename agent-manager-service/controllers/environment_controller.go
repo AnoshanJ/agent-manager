@@ -547,7 +547,7 @@ func (c *environmentController) SetThunderURL(w http.ResponseWriter, r *http.Req
 }
 
 // toThunderUrlResponse maps a resolved record to the wire response, omitting
-// Handle entirely (rather than an empty string) for a SaaS/control-plane row
+// Handle entirely (rather than an empty string) for a caller-supplied row
 // that has none — spec.ThunderUrlResponse.Handle is optional for exactly
 // this reason.
 func toThunderUrlResponse(rec models.ThunderURLRecord) spec.ThunderUrlResponse {

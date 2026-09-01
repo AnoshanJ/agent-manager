@@ -49,8 +49,8 @@ type EnvThunderURLRepository interface {
 	//     to a DIFFERENT (OUID, EnvName) — a genuine cross-environment
 	//     collision, unrelated to concurrency.
 	//   - utils.ErrThunderURLTaken: rec.ThunderURL is already registered to a
-	//     DIFFERENT (OUID, EnvName) — same idea, for the SaaS/control-plane
-	//     path that has no handle to collide on instead.
+	//     DIFFERENT (OUID, EnvName) — same idea, for a caller-supplied url
+	//     that has no handle to collide on instead.
 	Insert(ctx context.Context, rec *models.EnvThunderURL) error
 	// Delete removes the handle record for (ouID, envName). Deleting a
 	// non-existent row is not an error.

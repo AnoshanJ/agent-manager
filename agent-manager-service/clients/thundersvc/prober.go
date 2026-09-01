@@ -29,9 +29,10 @@ type Prober interface {
 	// ThunderExternalTokenURL). thunderURL is required: callers only ever
 	// probe an environment that already has one registered — there is no
 	// address to probe otherwise, and no fallback pattern computed from org/env.
-	// callerSupplied reports whether thunderURL came from a SaaS/control-plane
-	// row (no handle) rather than an on-prem one — see thunderURLCandidate's
-	// doc comment for why this decides which candidate gets SSRF-hardened.
+	// callerSupplied reports whether thunderURL was supplied directly by the
+	// caller (no handle) rather than computed by AMS from a handle — see
+	// thunderURLCandidate's doc comment for why this decides which candidate
+	// gets SSRF-hardened.
 	Probe(ctx context.Context, org, env, thunderURL string, callerSupplied bool) bool
 }
 

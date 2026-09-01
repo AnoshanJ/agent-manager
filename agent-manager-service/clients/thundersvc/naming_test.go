@@ -53,7 +53,7 @@ func TestThunderOriginFromHandle_RespectsBaseDomainConfig(t *testing.T) {
 // rather than the k3d gateway's plain-HTTP :8080 in local dev. Also confirms
 // ThunderIssuerURL/ThunderExternalTokenURL/ThunderExternalJWKSURL only ever
 // use the already-resolved origin they're given — no independent TLS/domain
-// awareness of their own, since a SaaS-registered row's origin never came
+// awareness of their own, since a caller-supplied row's origin never came
 // from this config at all.
 func TestThunderOriginFromHandle_RespectsTLSConfig(t *testing.T) {
 	origDomain := config.GetConfig().ThunderHostBaseDomain
@@ -135,9 +135,10 @@ func TestThunderBaseURLCandidates_PanicsOnEmptyThunderURL(t *testing.T) {
 // override) — never cluster-internal DNS or a local-dev host-override, both
 // of which are legitimately private-target by design and would be wrongly
 // rejected by the SSRF guard. Whether that one candidate actually gets marked
-// depends on callerSupplied — a SaaS row's value is attacker-influenced, an
-// on-prem row's is AMS's own trusted computation (and can legitimately be
-// private, e.g. a VM install's sslip.io hostname over a LAN IP).
+// depends on callerSupplied — a caller-supplied row's value is
+// attacker-influenced, a handle-derived row's is AMS's own trusted
+// computation (and can legitimately be private, e.g. a VM install's
+// sslip.io hostname over a LAN IP).
 func TestThunderBaseURLCandidates_OnlyThePlainExternalOneCanBeMarkedExternal(t *testing.T) {
 	orig := config.GetConfig().IsLocalDevEnv
 	config.GetConfig().IsLocalDevEnv = true
@@ -328,7 +329,7 @@ func TestResolveThunderBaseURL_FallsBackToExternalIngress(t *testing.T) {
 // passed in — no independent recomputation from TLS config or anything else.
 // That TLS-aware computation only ever happens once, at registration time,
 // in ThunderOriginFromHandle (see its own tests); the candidate cascade must
-// never re-derive it, since a SaaS-registered row's origin never came from
+// never re-derive it, since a caller-supplied row's origin never came from
 // this process's TLS config at all.
 func TestResolveThunderBaseURL_ExternalCandidateIsThunderURLVerbatim(t *testing.T) {
 	origTLS := config.GetConfig().TLSConfig.EnableTLS

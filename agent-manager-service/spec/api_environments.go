@@ -1617,9 +1617,9 @@ func (r ApiSetEnvironmentThunderUrlRequest) Execute() (*ThunderUrlResponse, *htt
 /*
 SetEnvironmentThunderUrl Register an environment's env-Thunder URL
 
-Bootstrap-only endpoint used by add-environment-thunder.sh (on-prem)
-or a control plane (SaaS) before/while provisioning an environment's
-dedicated Thunder instance. Registers the environment's
+Bootstrap-only endpoint used by add-environment-thunder.sh, or by any
+caller that already knows the full origin, before/while provisioning
+an environment's dedicated Thunder instance. Registers the environment's
 externally-reachable env-Thunder origin (issuer/token/JWKS URLs) via
 exactly one of two mutually-exclusive request fields — see
 ThunderUrlRequest. Without this, an on-prem URL would be 100%
@@ -1637,8 +1637,8 @@ actually assigned.
 Both handle and the resolved url are globally unique across ALL
 orgs/environments (every env-Thunder instance's HTTPRoute attaches to
 the same shared Gateway, so hostname routing is cluster-wide, not
-per-org — and a SaaS control plane's own domain space is a single
-namespace the same way). If a caller-supplied handle or url collides
+per-org — and a caller-supplied url is expected to be globally unique
+the same way). If a caller-supplied handle or url collides
 with a different environment's, this returns 409. A collision on a
 GENERATED handle is retried internally with a fresh value and never
 surfaces as a 409.

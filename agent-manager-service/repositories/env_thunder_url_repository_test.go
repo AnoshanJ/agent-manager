@@ -172,13 +172,13 @@ func TestEnvThunderURLRepo_DeleteIsIdempotent(t *testing.T) {
 	require.NoError(t, repo.Delete(context.Background(), ouID, env))
 }
 
-// TestEnvThunderURLRepo_SaaSRowsHaveNoHandleButMustHaveAUniqueURL covers the
-// SaaS/control-plane registration path: a row with no thunder_handle at all
-// (NULL — Postgres never conflicts two NULLs on uq_env_thunder_urls_handle),
-// but thunder_url is the primary invariant there, enforced by
-// uq_env_thunder_urls_url exactly like the handle-based path enforces
-// uq_env_thunder_urls_handle.
-func TestEnvThunderURLRepo_SaaSRowsHaveNoHandleButMustHaveAUniqueURL(t *testing.T) {
+// TestEnvThunderURLRepo_CallerSuppliedRowsHaveNoHandleButMustHaveAUniqueURL
+// covers the caller-supplied url registration path: a row with no
+// thunder_handle at all (NULL — Postgres never conflicts two NULLs on
+// uq_env_thunder_urls_handle), but thunder_url is the primary invariant
+// there, enforced by uq_env_thunder_urls_url exactly like the handle-based
+// path enforces uq_env_thunder_urls_handle.
+func TestEnvThunderURLRepo_CallerSuppliedRowsHaveNoHandleButMustHaveAUniqueURL(t *testing.T) {
 	repo := NewEnvThunderURLRepo(db.GetDB())
 	const ouA, envA = "ou-test-saas-url-a", "env-thunder-saas-url-a"
 	const ouB, envB = "ou-test-saas-url-b", "env-thunder-saas-url-b"
@@ -190,7 +190,7 @@ func TestEnvThunderURLRepo_SaaSRowsHaveNoHandleButMustHaveAUniqueURL(t *testing.
 
 	got, err := repo.Get(context.Background(), ouA, envA)
 	require.NoError(t, err)
-	assert.Empty(t, got.ThunderHandle, "a SaaS-registered row has no handle")
+	assert.Empty(t, got.ThunderHandle, "a caller-supplied row has no handle")
 	assert.Equal(t, sharedURL, got.ThunderURL)
 
 	err = repo.Insert(context.Background(), &models.EnvThunderURL{OUID: ouB, EnvName: envB, ThunderURL: sharedURL})
@@ -201,12 +201,12 @@ func TestEnvThunderURLRepo_SaaSRowsHaveNoHandleButMustHaveAUniqueURL(t *testing.
 	assert.True(t, errors.Is(getErr, gorm.ErrRecordNotFound), "the rejected insert for envB must not have created a row")
 }
 
-// TestEnvThunderURLRepo_MultipleSaaSRowsWithoutHandlesDoNotConflict proves
-// Postgres's NULL semantics hold here: two handle-less (SaaS) rows for
-// different environments and different URLs must both succeed — NULL never
-// equals NULL under a unique constraint, so uq_env_thunder_urls_handle never
-// fires for either of them.
-func TestEnvThunderURLRepo_MultipleSaaSRowsWithoutHandlesDoNotConflict(t *testing.T) {
+// TestEnvThunderURLRepo_MultipleCallerSuppliedRowsWithoutHandlesDoNotConflict
+// proves Postgres's NULL semantics hold here: two handle-less
+// (caller-supplied) rows for different environments and different URLs must
+// both succeed — NULL never equals NULL under a unique constraint, so
+// uq_env_thunder_urls_handle never fires for either of them.
+func TestEnvThunderURLRepo_MultipleCallerSuppliedRowsWithoutHandlesDoNotConflict(t *testing.T) {
 	repo := NewEnvThunderURLRepo(db.GetDB())
 	const ouA, envA = "ou-test-saas-no-handle-a", "env-thunder-saas-no-handle-a"
 	const ouB, envB = "ou-test-saas-no-handle-b", "env-thunder-saas-no-handle-b"

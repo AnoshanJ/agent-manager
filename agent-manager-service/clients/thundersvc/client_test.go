@@ -115,7 +115,7 @@ func TestNewEnvThunderClient_HardensOnlyTheNoOverrideDial(t *testing.T) {
 
 	t.Run("env-Thunder constructor: no-override dial is rejected as an SSRF target", func(t *testing.T) {
 		err := doGet(NewEnvThunderClient(server.URL, "cid", "secret", "", server.URL+"/mcp"))
-		assert.Error(t, err, "the loopback test server must be REJECTED — this is exactly the case a SaaS-supplied thunder_url pointed at an internal address would hit")
+		assert.Error(t, err, "the loopback test server must be REJECTED — this is exactly the case a caller-supplied thunder_url pointed at an internal address would hit")
 	})
 
 	t.Run("env-Thunder constructor: an explicit dial override is unaffected, same as the plain constructor", func(t *testing.T) {

@@ -152,8 +152,7 @@ var (
 	// registered for an environment. Maps to 404.
 	ErrThunderHandleNotFound = errors.New("thunder url handle not found")
 	// ErrInvalidThunderURL is returned when a caller-supplied full env-Thunder
-	// URL (the SaaS/control-plane registration path) fails shape or SSRF
-	// validation. Maps to 400.
+	// URL (the url registration path) fails shape or SSRF validation. Maps to 400.
 	ErrInvalidThunderURL = errors.New("invalid thunder url")
 	// ErrThunderURLTaken is returned when a caller-supplied full env-Thunder URL
 	// is already registered to a different (org, env) pair. Maps to 409.
