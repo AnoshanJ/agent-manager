@@ -8,6 +8,16 @@ Agents can be configured to use one or more [MCP Proxies](./register-mcp-proxy.m
 
 The agent does not embed the proxy. It references it, and the platform resolves the proxy's endpoint for the agent's target environment at deploy time. Because the org-level proxy owns its per-environment gateway artifacts, changing the proxy does not redeploy the agent automatically — the agent picks up any change on its next deployment.
 
+:::tip
+The API key described in this guide **authenticates** the agent: it proves the caller
+is allowed to reach the proxy at all. It says nothing about *which* tools that agent
+may invoke — any agent holding a valid key can call every tool the endpoint exposes.
+
+When you need that granularity(controling which agent access which tool). See
+[Authorize Agent Access to MCP Tools](./authorize-agent-access-to-mcp-tools.mdx),
+which covers per-tool **authorization** on top of authentication.
+:::
+
 ## Prerequisites
 
 - At least one MCP Proxy registered at the org level (see [Register an MCP Proxy](./register-mcp-proxy.mdx))
@@ -246,3 +256,4 @@ Use the **Search by name or description...** box to filter. Multiple configurati
 - For external agents, the Endpoint URL routes traffic through the AI Gateway, applying any security, access control, and rewrite rules configured on the endpoint serving that environment.
 - The external agent API Key is displayed only right after it is generated or rotated. If lost, rotate the key from the tool configuration's API key section (per environment) to obtain a new value.
 - A single proxy attached from the Configure page maps to every environment in the agent's pipeline; the proxy supplies each environment's endpoint. To use different proxies per environment, attach them during agent creation.
+- An API key controls **whether** an agent may call the proxy, not **which tools** it may call. For per-tool control, use an identity-secured proxy with scopes and roles — see [Authorize Agent Access to MCP Tools](./authorize-agent-access-to-mcp-tools.mdx).

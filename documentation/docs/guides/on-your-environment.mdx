@@ -787,7 +787,7 @@ Install the Control Plane with hostnames, TLS, and Thunder OIDC. The OpenChoreo 
 ```bash
 helm upgrade --install openchoreo-control-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-control-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-control-plane \
   --create-namespace \
   --values - <<EOF
@@ -828,7 +828,7 @@ kubectl wait --for=condition=Available \
 ```
 
 :::note Webhook race condition
-If the install fails with `no endpoints available for service "controller-manager-webhook-service"`, this is a known transient race in OpenChoreo v1.1.1. Wait for the control plane deployments to become ready, then rerun the `helm upgrade --install` command.
+If the install fails with `no endpoints available for service "controller-manager-webhook-service"`, this is a known transient race in the OpenChoreo control-plane install. Wait for the control plane deployments to become ready, then rerun the `helm upgrade --install` command.
 ```bash
 kubectl wait --for=condition=Available deployment --all \
   -n openchoreo-control-plane --timeout=300s
@@ -841,7 +841,7 @@ EKS LoadBalancers return a hostname instead of an IP — resolve it with `dig` w
 
 #### Patch the service-account entitlement claim (required with Thunder ≥ 0.45)
 
-Thunder 0.45+ puts the client name in the `client_id` claim (its `sub` is an opaque UUID), but OpenChoreo 1.1.1 extracts service-account entitlements from `sub`, and the chart does not expose the setting. Without this patch, every service-to-service call is **silently unauthorized** — the API returns `200` with empty lists and `403`s while all pods look healthy, and the gateway bootstrap later fails with `Environment 'default' not found`.
+Thunder 0.45+ puts the client name in the `client_id` claim (its `sub` is an opaque UUID), but OpenChoreo 1.2.0 extracts service-account entitlements from `sub`, and the chart does not expose the setting. Without this patch, every service-to-service call is **silently unauthorized** — the API returns `200` with empty lists and `403`s while all pods look healthy, and the gateway bootstrap later fails with `Environment 'default' not found`.
 
 ```bash
 patched_yaml=$(kubectl get configmap openchoreo-api-config -n openchoreo-control-plane -o yaml   | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
@@ -924,7 +924,7 @@ kubectl wait --for=condition=Ready certificate/dp-gateway-tls \
 
 helm install openchoreo-data-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-data-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-data-plane \
   --create-namespace \
   --set clusterAgent.tls.generateCerts=true \
@@ -1021,7 +1021,7 @@ Install the Workflow Plane:
 ```bash
 helm install openchoreo-workflow-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-workflow-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-workflow-plane \
   --create-namespace \
   --set clusterAgent.tls.generateCerts=true \
@@ -1177,7 +1177,7 @@ kubectl wait --for=condition=Ready certificate/obs-gateway-tls \
 
 helm install openchoreo-observability-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-observability-plane \
   --create-namespace \
   --set gateway.tls.enabled=true \
@@ -1218,7 +1218,7 @@ helm upgrade --install observability-logs-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
   --create-namespace \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.5.3 \
   --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
   --set adapter.openSearchSecretName="opensearch-admin-credentials" \
   --set openSearch.persistence.size=100Gi \
@@ -1231,7 +1231,7 @@ helm upgrade --install observability-logs-opensearch \
 helm upgrade observability-logs-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.5.3 \
   --reuse-values \
   --set fluent-bit.enabled=true \
   --timeout 10m
@@ -1249,7 +1249,7 @@ helm upgrade --install observability-traces-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-tracing-opensearch \
   --create-namespace \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.6.0 \
   --set openSearch.enabled=false \
   --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
   --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config" \
