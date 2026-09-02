@@ -411,6 +411,18 @@ func (c *environmentController) SetThunderSystemClient(w http.ResponseWriter, r 
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
+	// Header wins over the token; the context is rewritten too. Same pattern
+	// as ListGateways: WSO2 Cloud's control-plane token carries no org
+	// identity of its own, so it names the target via X-Impersonate-Org.
+	if impersonated, ok := impersonatedOUID(r); ok && impersonated != ouID {
+		log.Warn("SetThunderSystemClient: org impersonation header overrides token org",
+			"tokenOuID", ouID, "impersonatedOuID", impersonated)
+		ouID = impersonated
+		org, _ := middleware.GetResolvedOrg(ctx)
+		org.OUID = impersonated
+		ctx = middleware.WithResolvedOrg(ctx, org)
+	}
+
 	var req spec.ThunderSystemClientRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error("SetThunderSystemClient: failed to decode request", "error", err)
@@ -495,6 +507,18 @@ func (c *environmentController) SetThunderURL(w http.ResponseWriter, r *http.Req
 
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
+
+	// Header wins over the token; the context is rewritten too. Same pattern
+	// as ListGateways: WSO2 Cloud's control-plane token carries no org
+	// identity of its own, so it names the target via X-Impersonate-Org.
+	if impersonated, ok := impersonatedOUID(r); ok && impersonated != ouID {
+		log.Warn("SetThunderURL: org impersonation header overrides token org",
+			"tokenOuID", ouID, "impersonatedOuID", impersonated)
+		ouID = impersonated
+		org, _ := middleware.GetResolvedOrg(ctx)
+		org.OUID = impersonated
+		ctx = middleware.WithResolvedOrg(ctx, org)
+	}
 
 	// The request body itself is optional (an empty PUT means "generate one for
 	// me"), so a missing/empty body is not a decode error — only malformed JSON is.
