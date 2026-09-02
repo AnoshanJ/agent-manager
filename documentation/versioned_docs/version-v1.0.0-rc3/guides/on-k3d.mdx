@@ -282,6 +282,14 @@ kubectl wait --for=condition=Available \
   -n ${THUNDER_NS} --timeout=300s
 ```
 
+:::info Console admin password
+This install also generated the console's `admin` password. Retrieve it with:
+
+```bash
+kubectl get secret amp-admin-credentials -n ${THUNDER_NS} -o jsonpath='{.data.password}' | base64 -d
+```
+:::
+
 :::info
 No MCP overrides are needed here: `thunder.bootstrap.agentManagerMcpBaseUrl` and
 `observerMcpBaseUrl` become the OAuth resource-server identifiers Thunder
@@ -761,7 +769,7 @@ helm list -A | grep -E 'openchoreo|amp|gateway'
 | **Agent Manager Observer** | [http://traces.amp.localhost:11080](http://traces.amp.localhost:11080) |
 | **OTLP trace ingest (HTTP)** | http://default-default.gateway.localhost:19080/otel |
 
-**Default credentials:** `admin` / `admin`
+**Console login:** the username is `admin`; the password was generated at install time. Retrieve it as shown in [Step 6](#step-6-install-thunder-extension-identity-provider).
 
 :::note HTTPS ingest is disabled by default on this setup, and enabling it doesn't cover the documented hosts
 [values-dp.yaml](https://raw.githubusercontent.com/wso2/agent-manager/amp/v1.0.0-rc3/deployments/single-cluster/values-dp.yaml), installed in [Step 8](#step-8-setup-data-plane), sets `gateway.tls.enabled: false` even though it already configures `httpsPort: 19443` and a `certificateRefs` entry pointing at the `gateway-tls` Secret (created earlier by cert-manager). With TLS disabled, the Data Plane's `gateway-default` Gateway/Service only get an `http` listener — there is no 19443 listener to connect to, so an HTTPS OTLP endpoint is not reachable on a default install.
