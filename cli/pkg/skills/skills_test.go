@@ -41,6 +41,19 @@ func fakeFS(t *testing.T) fs.FS {
 	}
 }
 
+// writeSkillDir creates a skill directory in dest that amctl did not install.
+func writeSkillDir(t *testing.T, dest, name string) string {
+	t.Helper()
+	dir := filepath.Join(dest, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestDetectToolDirs_FindsExisting(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude", "skills")
@@ -318,13 +331,7 @@ func TestRemove_SkipsNonAmctlSymlinks(t *testing.T) {
 func TestRemove_LeavesSkillsAmctlDidNotInstall(t *testing.T) {
 	dest := t.TempDir()
 
-	foreign := filepath.Join(dest, "legible-code")
-	if err := os.MkdirAll(foreign, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(foreign, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	foreign := writeSkillDir(t, dest, "legible-code")
 
 	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
 		t.Fatalf("Install failed: %v", err)
@@ -348,13 +355,7 @@ func TestRemove_LeavesSkillsAmctlDidNotInstall(t *testing.T) {
 func TestRemove_WithoutManifestRemovesNothing(t *testing.T) {
 	dest := t.TempDir()
 
-	skillDir := filepath.Join(dest, "skill-creator")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	skillDir := writeSkillDir(t, dest, "skill-creator")
 
 	result, err := Remove(dest, nil)
 	if err != nil {
@@ -379,13 +380,7 @@ func TestRemove_ForgetsSkillsItRemoved(t *testing.T) {
 	}
 
 	// A skill re-created by hand under the old name is no longer amctl's.
-	skillDir := filepath.Join(dest, "use-amctl")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSkillDir(t, dest, "use-amctl")
 
 	result, err := Remove(dest, nil)
 	if err != nil {
@@ -393,5 +388,41 @@ func TestRemove_ForgetsSkillsItRemoved(t *testing.T) {
 	}
 	if len(result.RemovedSkills) != 0 {
 		t.Errorf("removed skills = %v, want none after the manifest was cleared", result.RemovedSkills)
+	}
+}
+
+func TestRemove_ReleasesRecordForDirDeletedByHand(t *testing.T) {
+	dest := t.TempDir()
+	toolDir := t.TempDir()
+
+	if _, err := Install(context.Background(), fakeFS(t), dest, []string{toolDir}); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(dest, "use-amctl")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Remove(dest, []string{toolDir})
+	if err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if len(result.RemovedSkills) != 0 {
+		t.Errorf("removed skills = %v, want none — the directory was already gone", result.RemovedSkills)
+	}
+	if len(result.RemovedLinks) != 1 {
+		t.Errorf("removed links = %v, want the dangling link scrubbed", result.RemovedLinks)
+	}
+	if _, err := os.Lstat(filepath.Join(toolDir, "use-amctl")); !os.IsNotExist(err) {
+		t.Error("dangling symlink should be removed")
+	}
+
+	// The stale claim is released, so a hand-made skill of the same name is safe.
+	writeSkillDir(t, dest, "use-amctl")
+	result, err = Remove(dest, nil)
+	if err != nil {
+		t.Fatalf("second Remove failed: %v", err)
+	}
+	if len(result.RemovedSkills) != 0 {
+		t.Errorf("removed skills = %v, want none after the claim was released", result.RemovedSkills)
 	}
 }

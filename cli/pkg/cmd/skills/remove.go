@@ -77,38 +77,30 @@ func runRemove(ctx context.Context, opts *RemoveOptions) error {
 
 	if len(result.RemovedSkills) == 0 && len(result.RemovedLinks) == 0 {
 		fmt.Fprintln(w, "No skills installed by amctl.")
-		printUnmanaged(opts, result.UnmanagedSkills)
-		return nil
+	} else {
+		fmt.Fprintln(w, "Removing skills...")
+		fmt.Fprintln(w)
+
+		for _, link := range result.RemovedLinks {
+			fmt.Fprintf(w, "  %s Removed link %s\n", cs.SuccessIcon(), link)
+		}
+		for _, name := range result.RemovedSkills {
+			fmt.Fprintf(w, "  %s Removed %s\n", cs.SuccessIcon(), name)
+		}
+
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Removed %s and %s.\n",
+			plural(len(result.RemovedSkills), "skill", "skills"),
+			plural(len(result.RemovedLinks), "link", "links"),
+		)
 	}
 
-	fmt.Fprintln(w, "Removing skills...")
-	fmt.Fprintln(w)
-
-	for _, link := range result.RemovedLinks {
-		fmt.Fprintf(w, "  %s Removed link %s\n", cs.SuccessIcon(), link)
+	if len(result.UnmanagedSkills) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Left %s in %s that amctl did not install: %s\n",
+			plural(len(result.UnmanagedSkills), "skill", "skills"),
+			opts.DestDir, strings.Join(result.UnmanagedSkills, ", "))
 	}
-	for _, name := range result.RemovedSkills {
-		fmt.Fprintf(w, "  %s Removed %s\n", cs.SuccessIcon(), name)
-	}
-
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "Removed %s and %s.\n",
-		plural(len(result.RemovedSkills), "skill", "skills"),
-		plural(len(result.RemovedLinks), "link", "links"),
-	)
-	printUnmanaged(opts, result.UnmanagedSkills)
 
 	return nil
-}
-
-// printUnmanaged reports skills left in place because amctl has no record of
-// installing them.
-func printUnmanaged(opts *RemoveOptions, names []string) {
-	if len(names) == 0 {
-		return
-	}
-	w := opts.IO.ErrOut
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "Left %s in %s that amctl did not install: %s\n",
-		plural(len(names), "skill", "skills"), opts.DestDir, strings.Join(names, ", "))
 }
