@@ -18,6 +18,7 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -202,7 +203,7 @@ func TestRemove_CleansUpSymlinksAndDirs(t *testing.T) {
 		t.Fatalf("Install failed: %v", err)
 	}
 
-	result, err := Remove(dest, []string{toolDir})
+	result, err := Remove(context.Background(), dest, []string{toolDir})
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestRemove_NothingInstalled(t *testing.T) {
 	dest := t.TempDir()
 	toolDir := t.TempDir()
 
-	result, err := Remove(dest, []string{toolDir})
+	result, err := Remove(context.Background(), dest, []string{toolDir})
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -237,7 +238,7 @@ func TestRemove_NothingInstalled(t *testing.T) {
 func TestRemove_DestDirDoesNotExist(t *testing.T) {
 	// dest path that doesn't exist at all; Remove should no-op cleanly.
 	dest := filepath.Join(t.TempDir(), "does-not-exist")
-	result, err := Remove(dest, nil)
+	result, err := Remove(context.Background(), dest, nil)
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -316,7 +317,7 @@ func TestRemove_SkipsNonAmctlSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Remove(dest, []string{toolDir})
+	result, err := Remove(context.Background(), dest, []string{toolDir})
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -337,7 +338,7 @@ func TestRemove_LeavesSkillsAmctlDidNotInstall(t *testing.T) {
 		t.Fatalf("Install failed: %v", err)
 	}
 
-	result, err := Remove(dest, nil)
+	result, err := Remove(context.Background(), dest, nil)
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -357,7 +358,7 @@ func TestRemove_WithoutManifestRemovesNothing(t *testing.T) {
 
 	skillDir := writeSkillDir(t, dest, "skill-creator")
 
-	result, err := Remove(dest, nil)
+	result, err := Remove(context.Background(), dest, nil)
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -375,14 +376,14 @@ func TestRemove_ForgetsSkillsItRemoved(t *testing.T) {
 	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
-	if _, err := Remove(dest, nil); err != nil {
+	if _, err := Remove(context.Background(), dest, nil); err != nil {
 		t.Fatalf("first Remove failed: %v", err)
 	}
 
 	// A skill re-created by hand under the old name is no longer amctl's.
 	writeSkillDir(t, dest, "use-amctl")
 
-	result, err := Remove(dest, nil)
+	result, err := Remove(context.Background(), dest, nil)
 	if err != nil {
 		t.Fatalf("second Remove failed: %v", err)
 	}
@@ -402,7 +403,7 @@ func TestRemove_ReleasesRecordForDirDeletedByHand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Remove(dest, []string{toolDir})
+	result, err := Remove(context.Background(), dest, []string{toolDir})
 	if err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -418,11 +419,55 @@ func TestRemove_ReleasesRecordForDirDeletedByHand(t *testing.T) {
 
 	// The stale claim is released, so a hand-made skill of the same name is safe.
 	writeSkillDir(t, dest, "use-amctl")
-	result, err = Remove(dest, nil)
+	result, err = Remove(context.Background(), dest, nil)
 	if err != nil {
 		t.Fatalf("second Remove failed: %v", err)
 	}
 	if len(result.RemovedSkills) != 0 {
 		t.Errorf("removed skills = %v, want none after the claim was released", result.RemovedSkills)
+	}
+}
+
+func TestRemove_UnreadableManifestDeletesNothing(t *testing.T) {
+	dest := t.TempDir()
+
+	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+	manifestPath := filepath.Join(dest, manifestName)
+	if err := os.WriteFile(manifestPath, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Remove(context.Background(), dest, nil)
+	if err == nil {
+		t.Fatal("expected an error for a manifest that exists but cannot be parsed")
+	}
+	if len(result.RemovedSkills) != 0 {
+		t.Errorf("removed skills = %v, want none", result.RemovedSkills)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "use-amctl", "SKILL.md")); err != nil {
+		t.Errorf("skill should survive an unreadable record: %v", err)
+	}
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Errorf("the record itself should survive: %v", err)
+	}
+}
+
+func TestRemove_StopsOnCancelledContext(t *testing.T) {
+	dest := t.TempDir()
+
+	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := Remove(ctx, dest, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Remove error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "use-amctl", "SKILL.md")); err != nil {
+		t.Errorf("skill should survive a cancelled remove: %v", err)
 	}
 }

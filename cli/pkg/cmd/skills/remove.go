@@ -62,7 +62,7 @@ func NewRemoveCmd(f *cmdutil.Factory) *cobra.Command {
 func runRemove(ctx context.Context, opts *RemoveOptions) error {
 	scope := render.Scope{}
 
-	result, err := skills.Remove(opts.DestDir, opts.ToolDirs)
+	result, err := skills.Remove(ctx, opts.DestDir, opts.ToolDirs)
 	if err != nil {
 		return render.Error(opts.IO, scope,
 			clierr.Newf(clierr.SkillRemoveFailed, "%v", err))

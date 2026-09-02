@@ -88,18 +88,22 @@ type manifest struct {
 	Skills []string `json:"skills"`
 }
 
-// readManifest returns the skill names amctl recorded in destDir. A missing
-// or unreadable manifest yields no names, which makes Remove a no-op rather
-// than a guess about what amctl owns. Names are validated because Remove
-// turns them straight into paths it deletes.
-func readManifest(destDir string) []string {
+// readManifest returns the skill names amctl recorded in destDir. Only an
+// absent manifest means "amctl owns nothing"; a record that exists but cannot
+// be read is an error, because silently treating it as empty would let Remove
+// discard ownership it merely failed to load. Names are validated because
+// Remove turns them straight into paths it deletes.
+func readManifest(destDir string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(destDir, manifestName))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("read install record: %w", err)
 	}
 	var m manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil
+		return nil, fmt.Errorf("parse install record %s: %w", filepath.Join(destDir, manifestName), err)
 	}
 	var names []string
 	for _, name := range m.Skills {
@@ -107,7 +111,7 @@ func readManifest(destDir string) []string {
 			names = append(names, name)
 		}
 	}
-	return names
+	return names, nil
 }
 
 // writeManifest records names as the set of skills amctl owns in destDir,
@@ -212,7 +216,10 @@ func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string)
 
 	// Persist ownership even when a later skill fails, so a partial install
 	// stays removable.
-	owned := readManifest(destDir)
+	owned, err := readManifest(destDir)
+	if err != nil {
+		return result, err
+	}
 	defer func() {
 		if writeErr := writeManifest(destDir, owned); writeErr != nil && err == nil {
 			err = fmt.Errorf("record installed skills: %w", writeErr)
@@ -326,13 +333,16 @@ func List(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) ([
 }
 
 // Remove deletes the skills amctl installed into destDir, as recorded in the
-// manifest, and scrubs any symlinks in toolDirs that point at them. Skill
+// manifest, stopping if ctx is cancelled between skills; and scrubs any symlinks in toolDirs that point at them. Skill
 // directories amctl has no record of are reported as unmanaged and left
 // alone. Disk-only — no network access.
-func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
+func Remove(ctx context.Context, destDir string, toolDirs []string) (RemoveResult, error) {
 	var result RemoveResult
 
-	owned := readManifest(destDir)
+	owned, err := readManifest(destDir)
+	if err != nil {
+		return result, err
+	}
 
 	unmanaged, err := unmanagedSkills(destDir, owned)
 	if err != nil {
@@ -341,6 +351,9 @@ func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
 	result.UnmanagedSkills = unmanaged
 
 	for _, name := range owned {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		skillDir := filepath.Join(destDir, name)
 
 		links, err := scrubLinks(skillDir, name, toolDirs)
