@@ -615,14 +615,13 @@ func (c *thunderClient) createApp(ctx context.Context, token, appName, ouID stri
 					"clientId":                appName,
 					"grantTypes":              []string{"client_credentials"},
 					"tokenEndpointAuthMethod": "client_secret_basic",
-					// Thunder only embeds ouId/ouHandle as token claims when a client's own
-					// clientConfig.attributes opts in — without this, RequireOrgMatch in
-					// agent-manager-service rejects this app's tokens as "missing ou
-					// identity in token" even though ouId above is set correctly.
+					// Thunder only embeds configured OU attributes as token claims. Agent
+					// Manager requires ouId/ouHandle, while Cloud Obs Proxy also requires
+					// ouName when the evaluation job's token is passed through for trace reads.
 					"token": map[string]any{
 						"accessToken": map[string]any{
 							"clientConfig": map[string]any{
-								"attributes": []string{"ouId", "ouHandle"},
+								"attributes": []string{"ouId", "ouName", "ouHandle"},
 							},
 						},
 					},

@@ -175,10 +175,9 @@ func TestFetchSystemToken_ResourceSelection(t *testing.T) {
 	}
 }
 
-// TestCreateApp_SendsRequiredApplicationType guards against a regression:
-// applications require a "type" field on create, and a POST /applications
-// missing it fails outright. createApp's payload must always include it.
-func TestCreateApp_SendsRequiredApplicationType(t *testing.T) {
+// TestCreateApp_SendsRequiredApplicationConfiguration guards the application type
+// and OU claims required by Agent Manager and Cloud Obs Proxy.
+func TestCreateApp_SendsRequiredApplicationConfiguration(t *testing.T) {
 	var gotBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("/applications", func(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +206,6 @@ func TestCreateApp_SendsRequiredApplicationType(t *testing.T) {
 	require.True(t, ok)
 	clientConfig, ok := config["token"].(map[string]any)["accessToken"].(map[string]any)["clientConfig"].(map[string]any)
 	require.True(t, ok)
-	assert.ElementsMatch(t, []any{"ouId", "ouHandle"}, clientConfig["attributes"],
-		"clientConfig.attributes must opt this client_credentials app into ouId/ouHandle token claims, or RequireOrgMatch rejects its tokens as missing ou identity")
+	assert.ElementsMatch(t, []any{"ouId", "ouName", "ouHandle"}, clientConfig["attributes"],
+		"clientConfig.attributes must include every OU claim required by Agent Manager and Cloud Obs Proxy")
 }
