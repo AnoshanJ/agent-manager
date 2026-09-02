@@ -154,7 +154,17 @@ func NewIdentityClient(baseURL, clientID, clientSecret string) IdentityClient {
 // resolves via the host machine's own DNS/hosts setup. An empty resolveToHost
 // behaves exactly like NewIdentityClient.
 func NewIdentityClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost string) IdentityClient {
-	c := NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, SystemResourceIdentifier(baseURL))
+	return NewIdentityClientWithSystemResource(
+		baseURL, clientID, clientSecret, resolveToHost, SystemResourceIdentifier(baseURL),
+	)
+}
+
+// NewIdentityClientWithSystemResource creates a Thunder identity client with an
+// explicitly selected System resource server. When systemResource is empty, the
+// OAuth token request omits the RFC 8707 resource parameter and Thunder resolves
+// its configured default resource server.
+func NewIdentityClientWithSystemResource(baseURL, clientID, clientSecret, resolveToHost, systemResource string) IdentityClient {
+	c := NewThunderClientWithDialOverride(baseURL, clientID, clientSecret, resolveToHost, systemResource)
 	return c.(IdentityClient)
 }
 

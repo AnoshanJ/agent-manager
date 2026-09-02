@@ -252,9 +252,10 @@ func (c *thunderClient) fetchSystemToken(ctx context.Context) (string, int, erro
 		"grant_type": {"client_credentials"},
 		"scope":      {"system"},
 	}
-	// Scope the token to Thunder's System resource server so the "system" permission is
-	// actually granted (see systemResource field). Omitting this drops the scope and the
-	// admin APIs reject the call with AUTH-4030.
+	// Scope the token to Thunder's System resource server when the deployment has one.
+	// An empty value deliberately omits the RFC 8707 resource parameter so Thunder can
+	// use its configured default resource server; that default must grant this system
+	// client the "system" permission required by the admin APIs.
 	if c.systemResource != "" {
 		data.Set("resource", c.systemResource)
 	}

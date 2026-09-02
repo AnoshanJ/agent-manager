@@ -267,10 +267,12 @@ func loadEnvs() {
 
 	// Thunder admin API configuration for provisioning per-org OAuth apps
 	config.Thunder = ThunderConfig{
-		BaseURL:       r.readOptionalString("THUNDER_BASE_URL", ""),
-		ClientID:      r.readOptionalString("THUNDER_CLIENT_ID", ""),
-		ClientSecret:  r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
-		ResolveToHost: r.readOptionalString("THUNDER_RESOLVE_TO_HOST", ""),
+		BaseURL:                  r.readOptionalString("THUNDER_BASE_URL", ""),
+		ClientID:                 r.readOptionalString("THUNDER_CLIENT_ID", ""),
+		ClientSecret:             r.readOptionalString("THUNDER_CLIENT_SECRET", ""),
+		ResolveToHost:            r.readOptionalString("THUNDER_RESOLVE_TO_HOST", ""),
+		UseDefaultResourceServer: r.readOptionalBool("AMP_USE_THUNDER_DEFAULT_RESOURCE_SERVER", false),
+		SystemResourceIdentifier: r.readOptionalString("AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER", ""),
 	}
 	if config.Thunder.BaseURL != "" && (config.Thunder.ClientID == "" || config.Thunder.ClientSecret == "") {
 		r.errors = append(r.errors, fmt.Errorf("THUNDER_BASE_URL is set but THUNDER_CLIENT_ID and/or THUNDER_CLIENT_SECRET are missing"))
@@ -285,6 +287,7 @@ func loadEnvs() {
 			r.errors = append(r.errors, fmt.Errorf("THUNDER_RESOLVE_TO_HOST must contain a non-empty host and port"))
 		}
 	}
+	validateThunderConfig(config, r)
 
 	config.TLSConfig = TLSConfig{
 		EnableTLS: r.readOptionalBool("TLS_ENABLED", false),
@@ -455,6 +458,40 @@ func validateOAuthAuthorizationServers(cfg *Config, r *configReader) {
 		if u.Host == "" {
 			r.errors = append(r.errors, fmt.Errorf("OAUTH_AUTHORIZATION_SERVERS entry %q must have a non-empty host", raw))
 		}
+	}
+}
+
+func validateThunderConfig(cfg *Config, r *configReader) {
+	thunder := cfg.Thunder
+	if thunder.UseDefaultResourceServer && thunder.SystemResourceIdentifier != "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"AMP_USE_THUNDER_DEFAULT_RESOURCE_SERVER cannot be true when AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER is set",
+		))
+	}
+	if (thunder.UseDefaultResourceServer || thunder.SystemResourceIdentifier != "") && thunder.BaseURL == "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"AMP_USE_THUNDER_DEFAULT_RESOURCE_SERVER and AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER require THUNDER_BASE_URL",
+		))
+	}
+	if thunder.SystemResourceIdentifier == "" {
+		return
+	}
+	u, err := url.Parse(thunder.SystemResourceIdentifier)
+	if err != nil || !u.IsAbs() {
+		r.errors = append(r.errors, fmt.Errorf(
+			"AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER %q must be an absolute URI", thunder.SystemResourceIdentifier,
+		))
+		return
+	}
+	if u.Fragment != "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER %q must not contain a fragment", thunder.SystemResourceIdentifier,
+		))
+	}
+	if (u.Scheme == "http" || u.Scheme == "https") && u.Host == "" {
+		r.errors = append(r.errors, fmt.Errorf(
+			"AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER %q must have a non-empty host", thunder.SystemResourceIdentifier,
+		))
 	}
 }
 
