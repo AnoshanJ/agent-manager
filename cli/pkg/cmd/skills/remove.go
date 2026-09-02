@@ -19,6 +19,7 @@ package skills
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -61,7 +62,7 @@ func NewRemoveCmd(f *cmdutil.Factory) *cobra.Command {
 func runRemove(ctx context.Context, opts *RemoveOptions) error {
 	scope := render.Scope{}
 
-	result, err := skills.Remove(opts.DestDir, opts.ToolDirs)
+	result, err := skills.Remove(ctx, opts.DestDir, opts.ToolDirs)
 	if err != nil {
 		return render.Error(opts.IO, scope,
 			clierr.Newf(clierr.SkillRemoveFailed, "%v", err))
@@ -75,25 +76,31 @@ func runRemove(ctx context.Context, opts *RemoveOptions) error {
 	w := opts.IO.ErrOut
 
 	if len(result.RemovedSkills) == 0 && len(result.RemovedLinks) == 0 {
-		fmt.Fprintln(w, "No skills installed.")
-		return nil
+		fmt.Fprintln(w, "No skills installed by amctl.")
+	} else {
+		fmt.Fprintln(w, "Removing skills...")
+		fmt.Fprintln(w)
+
+		for _, link := range result.RemovedLinks {
+			fmt.Fprintf(w, "  %s Removed link %s\n", cs.SuccessIcon(), link)
+		}
+		for _, name := range result.RemovedSkills {
+			fmt.Fprintf(w, "  %s Removed %s\n", cs.SuccessIcon(), name)
+		}
+
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Removed %s and %s.\n",
+			plural(len(result.RemovedSkills), "skill", "skills"),
+			plural(len(result.RemovedLinks), "link", "links"),
+		)
 	}
 
-	fmt.Fprintln(w, "Removing skills...")
-	fmt.Fprintln(w)
-
-	for _, link := range result.RemovedLinks {
-		fmt.Fprintf(w, "  %s Removed link %s\n", cs.SuccessIcon(), link)
+	if len(result.UnmanagedSkills) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Left %s in %s that amctl did not install: %s\n",
+			plural(len(result.UnmanagedSkills), "skill", "skills"),
+			opts.DestDir, strings.Join(result.UnmanagedSkills, ", "))
 	}
-	for _, name := range result.RemovedSkills {
-		fmt.Fprintf(w, "  %s Removed %s\n", cs.SuccessIcon(), name)
-	}
-
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "Removed %s and %s.\n",
-		plural(len(result.RemovedSkills), "skill", "skills"),
-		plural(len(result.RemovedLinks), "link", "links"),
-	)
 
 	return nil
 }

@@ -18,11 +18,13 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -54,9 +56,12 @@ type InstallResult struct {
 }
 
 // RemoveResult holds the outcome of a Remove operation.
+// UnmanagedSkills names skill directories amctl has no install record for;
+// they are reported but left on disk.
 type RemoveResult struct {
-	RemovedSkills []string `json:"removed_skills"`
-	RemovedLinks  []string `json:"removed_links"`
+	RemovedSkills   []string `json:"removed_skills"`
+	RemovedLinks    []string `json:"removed_links"`
+	UnmanagedSkills []string `json:"unmanaged_skills,omitempty"`
 }
 
 // SkillInfo describes a skill in the catalog and any on-disk presence.
@@ -71,6 +76,71 @@ type SkillInfo struct {
 
 // DefaultDestRel is the relative path (from home) for the canonical skill directory.
 const DefaultDestRel = ".agents/skills"
+
+// manifestName is the file inside destDir recording which skills amctl
+// installed. Remove deletes only what this manifest claims, so skills the
+// user put in destDir themselves are never touched — destDir is frequently a
+// symlink into a directory the user manages by other means.
+const manifestName = ".amctl-skills.json"
+
+// manifest is the on-disk shape of manifestName.
+type manifest struct {
+	Skills []string `json:"skills"`
+}
+
+// readManifest returns the skill names amctl recorded in destDir. Only an
+// absent manifest means "amctl owns nothing"; a record that exists but cannot
+// be read is an error, because silently treating it as empty would let Remove
+// discard ownership it merely failed to load. Names are validated because
+// Remove turns them straight into paths it deletes.
+func readManifest(destDir string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(destDir, manifestName))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read install record: %w", err)
+	}
+	var m manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse install record %s: %w", filepath.Join(destDir, manifestName), err)
+	}
+	var names []string
+	for _, name := range m.Skills {
+		if validSkillName(name) {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+// writeManifest records names as the set of skills amctl owns in destDir,
+// deleting the manifest once nothing is left to own.
+func writeManifest(destDir string, names []string) error {
+	path := filepath.Join(destDir, manifestName)
+	if len(names) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	slices.Sort(names)
+	data, err := json.MarshalIndent(manifest{Skills: names}, "", "  ")
+	if err != nil {
+		return err
+	}
+	// The manifest decides what Remove may delete, so commit it atomically: a
+	// half-written file reads back as "amctl owns nothing".
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
 
 // KnownNativeTools lists tools that read installed skills directly from
 // DefaultDestRel and therefore do not need a per-tool symlink directory.
@@ -135,9 +205,7 @@ func ResolveLocations() (destDir string, toolDirs []string, err error) {
 // Install reads every skill under fsys's "skilldata" root, writes it to
 // destDir, and creates symlinks from each toolDir to the canonical skill
 // directory.
-func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) (InstallResult, error) {
-	var result InstallResult
-
+func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) (result InstallResult, err error) {
 	entries, err := fs.ReadDir(fsys, "skilldata")
 	if err != nil {
 		return result, fmt.Errorf("read skilldata: %w", err)
@@ -145,6 +213,18 @@ func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string)
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return result, fmt.Errorf("create dest dir %s: %w", destDir, err)
 	}
+
+	// Persist ownership even when a later skill fails, so a partial install
+	// stays removable.
+	owned, err := readManifest(destDir)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if writeErr := writeManifest(destDir, owned); writeErr != nil && err == nil {
+			err = fmt.Errorf("record installed skills: %w", writeErr)
+		}
+	}()
 
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -176,6 +256,9 @@ func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string)
 		if err := os.Rename(tmpDir, skillDir); err != nil {
 			os.RemoveAll(tmpDir)
 			return result, fmt.Errorf("install %s: %w", skillDir, err)
+		}
+		if !slices.Contains(owned, name) {
+			owned = append(owned, name)
 		}
 		data, _ := fs.ReadFile(fsys, "skilldata/"+name+"/SKILL.md")
 		meta := parseFrontmatter(data)
@@ -249,51 +332,94 @@ func List(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) ([
 	return infos, nil
 }
 
-// Remove walks destDir for installed skills (subdirectories containing a
-// SKILL.md), scrubs any symlinks in toolDirs that point at them, and
-// deletes the canonical directories. Disk-only — no network access.
-func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
+// Remove deletes the skills amctl installed into destDir, as recorded in the
+// manifest, stopping if ctx is cancelled between skills; and scrubs any symlinks in toolDirs that point at them. Skill
+// directories amctl has no record of are reported as unmanaged and left
+// alone. Disk-only — no network access.
+func Remove(ctx context.Context, destDir string, toolDirs []string) (RemoveResult, error) {
 	var result RemoveResult
 
-	entries, err := os.ReadDir(destDir)
+	owned, err := readManifest(destDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return result, nil
-		}
-		return result, fmt.Errorf("read dest dir: %w", err)
+		return result, err
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	unmanaged, err := unmanagedSkills(destDir, owned)
+	if err != nil {
+		return result, err
+	}
+	result.UnmanagedSkills = unmanaged
+
+	for _, name := range owned {
+		if err := ctx.Err(); err != nil {
+			return result, err
 		}
-		name := entry.Name()
 		skillDir := filepath.Join(destDir, name)
-		if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+
+		links, err := scrubLinks(skillDir, name, toolDirs)
+		result.RemovedLinks = append(result.RemovedLinks, links...)
+		if err != nil {
+			return result, err
+		}
+
+		// A record can outlive its directory when the user deletes one by
+		// hand; dropping the claim is all that is left to do.
+		if _, err := os.Stat(skillDir); err != nil {
 			continue
 		}
-
-		for _, td := range toolDirs {
-			linkPath := filepath.Join(td, name)
-			target, err := os.Readlink(linkPath)
-			if err != nil {
-				continue
-			}
-			if filepath.Clean(target) != skillDir {
-				continue
-			}
-			if err := os.Remove(linkPath); err != nil {
-				return result, fmt.Errorf("remove symlink %s: %w", linkPath, err)
-			}
-			result.RemovedLinks = append(result.RemovedLinks, linkPath)
-		}
-
 		if err := os.RemoveAll(skillDir); err != nil {
 			return result, fmt.Errorf("remove skill dir %s: %w", skillDir, err)
 		}
 		result.RemovedSkills = append(result.RemovedSkills, name)
 	}
+
+	if err := writeManifest(destDir, nil); err != nil {
+		return result, fmt.Errorf("update install record: %w", err)
+	}
 	return result, nil
+}
+
+// unmanagedSkills lists the skill directories in destDir that amctl has no
+// install record for, so Remove can report what it deliberately left alone.
+func unmanagedSkills(destDir string, owned []string) ([]string, error) {
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read dest dir: %w", err)
+	}
+
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || slices.Contains(owned, name) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(destDir, name, "SKILL.md")); err != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// scrubLinks removes the symlinks in toolDirs that point at skillDir,
+// including ones left dangling by a directory the user deleted by hand.
+func scrubLinks(skillDir, name string, toolDirs []string) ([]string, error) {
+	var removed []string
+	for _, td := range toolDirs {
+		linkPath := filepath.Join(td, name)
+		target, err := os.Readlink(linkPath)
+		if err != nil || filepath.Clean(target) != skillDir {
+			continue
+		}
+		if err := os.Remove(linkPath); err != nil {
+			return removed, fmt.Errorf("remove symlink %s: %w", linkPath, err)
+		}
+		removed = append(removed, linkPath)
+	}
+	return removed, nil
 }
 
 // extractSkillFS copies every regular file under skilldata/<name> in fsys
