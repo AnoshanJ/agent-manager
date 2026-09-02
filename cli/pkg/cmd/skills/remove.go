@@ -19,6 +19,7 @@ package skills
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -75,7 +76,8 @@ func runRemove(ctx context.Context, opts *RemoveOptions) error {
 	w := opts.IO.ErrOut
 
 	if len(result.RemovedSkills) == 0 && len(result.RemovedLinks) == 0 {
-		fmt.Fprintln(w, "No skills installed.")
+		fmt.Fprintln(w, "No skills installed by amctl.")
+		printUnmanaged(opts, result.UnmanagedSkills)
 		return nil
 	}
 
@@ -94,6 +96,19 @@ func runRemove(ctx context.Context, opts *RemoveOptions) error {
 		plural(len(result.RemovedSkills), "skill", "skills"),
 		plural(len(result.RemovedLinks), "link", "links"),
 	)
+	printUnmanaged(opts, result.UnmanagedSkills)
 
 	return nil
+}
+
+// printUnmanaged reports skills left in place because amctl has no record of
+// installing them.
+func printUnmanaged(opts *RemoveOptions, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	w := opts.IO.ErrOut
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Left %s in %s that amctl did not install: %s\n",
+		plural(len(names), "skill", "skills"), opts.DestDir, strings.Join(names, ", "))
 }

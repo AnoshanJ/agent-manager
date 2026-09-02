@@ -314,3 +314,84 @@ func TestRemove_SkipsNonAmctlSymlinks(t *testing.T) {
 		t.Error("user content should still exist")
 	}
 }
+
+func TestRemove_LeavesSkillsAmctlDidNotInstall(t *testing.T) {
+	dest := t.TempDir()
+
+	foreign := filepath.Join(dest, "legible-code")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+
+	result, err := Remove(dest, nil)
+	if err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if len(result.RemovedSkills) != 1 || result.RemovedSkills[0] != "use-amctl" {
+		t.Errorf("removed skills = %v, want [use-amctl]", result.RemovedSkills)
+	}
+	if _, err := os.Stat(filepath.Join(foreign, "SKILL.md")); err != nil {
+		t.Errorf("skill amctl did not install should survive: %v", err)
+	}
+	if len(result.UnmanagedSkills) != 1 || result.UnmanagedSkills[0] != "legible-code" {
+		t.Errorf("unmanaged skills = %v, want [legible-code]", result.UnmanagedSkills)
+	}
+}
+
+func TestRemove_WithoutManifestRemovesNothing(t *testing.T) {
+	dest := t.TempDir()
+
+	skillDir := filepath.Join(dest, "skill-creator")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Remove(dest, nil)
+	if err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if len(result.RemovedSkills) != 0 {
+		t.Errorf("removed skills = %v, want none without an install record", result.RemovedSkills)
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+		t.Errorf("skill dir should survive: %v", err)
+	}
+}
+
+func TestRemove_ForgetsSkillsItRemoved(t *testing.T) {
+	dest := t.TempDir()
+
+	if _, err := Install(context.Background(), fakeFS(t), dest, nil); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+	if _, err := Remove(dest, nil); err != nil {
+		t.Fatalf("first Remove failed: %v", err)
+	}
+
+	// A skill re-created by hand under the old name is no longer amctl's.
+	skillDir := filepath.Join(dest, "use-amctl")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillFrontmatter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Remove(dest, nil)
+	if err != nil {
+		t.Fatalf("second Remove failed: %v", err)
+	}
+	if len(result.RemovedSkills) != 0 {
+		t.Errorf("removed skills = %v, want none after the manifest was cleared", result.RemovedSkills)
+	}
+}

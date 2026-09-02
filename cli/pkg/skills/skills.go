@@ -18,11 +18,14 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -54,9 +57,12 @@ type InstallResult struct {
 }
 
 // RemoveResult holds the outcome of a Remove operation.
+// UnmanagedSkills names skill directories amctl has no install record for;
+// they are reported but left on disk.
 type RemoveResult struct {
-	RemovedSkills []string `json:"removed_skills"`
-	RemovedLinks  []string `json:"removed_links"`
+	RemovedSkills   []string `json:"removed_skills"`
+	RemovedLinks    []string `json:"removed_links"`
+	UnmanagedSkills []string `json:"unmanaged_skills,omitempty"`
 }
 
 // SkillInfo describes a skill in the catalog and any on-disk presence.
@@ -71,6 +77,56 @@ type SkillInfo struct {
 
 // DefaultDestRel is the relative path (from home) for the canonical skill directory.
 const DefaultDestRel = ".agents/skills"
+
+// manifestName is the file inside destDir recording which skills amctl
+// installed. Remove deletes only what this manifest claims, so skills the
+// user put in destDir themselves are never touched — destDir is frequently a
+// symlink into a directory the user manages by other means.
+const manifestName = ".amctl-skills.json"
+
+// manifest is the on-disk shape of manifestName.
+type manifest struct {
+	Skills []string `json:"skills"`
+}
+
+// readManifest returns the skill names amctl recorded in destDir. A missing
+// or unreadable manifest yields no names, which makes Remove a no-op rather
+// than a guess about what amctl owns.
+func readManifest(destDir string) []string {
+	data, err := os.ReadFile(filepath.Join(destDir, manifestName))
+	if err != nil {
+		return nil
+	}
+	var m manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	var names []string
+	for _, name := range m.Skills {
+		if validSkillName(name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// writeManifest records names as the set of skills amctl owns in destDir,
+// deleting the manifest once nothing is left to own.
+func writeManifest(destDir string, names []string) error {
+	path := filepath.Join(destDir, manifestName)
+	if len(names) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	sort.Strings(names)
+	data, err := json.MarshalIndent(manifest{Skills: names}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
+}
 
 // KnownNativeTools lists tools that read installed skills directly from
 // DefaultDestRel and therefore do not need a per-tool symlink directory.
@@ -135,9 +191,7 @@ func ResolveLocations() (destDir string, toolDirs []string, err error) {
 // Install reads every skill under fsys's "skilldata" root, writes it to
 // destDir, and creates symlinks from each toolDir to the canonical skill
 // directory.
-func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) (InstallResult, error) {
-	var result InstallResult
-
+func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) (result InstallResult, err error) {
 	entries, err := fs.ReadDir(fsys, "skilldata")
 	if err != nil {
 		return result, fmt.Errorf("read skilldata: %w", err)
@@ -145,6 +199,15 @@ func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string)
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return result, fmt.Errorf("create dest dir %s: %w", destDir, err)
 	}
+
+	// Persist ownership even when a later skill fails, so a partial install
+	// stays removable.
+	owned := readManifest(destDir)
+	defer func() {
+		if writeErr := writeManifest(destDir, owned); writeErr != nil && err == nil {
+			err = fmt.Errorf("record installed skills: %w", writeErr)
+		}
+	}()
 
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -176,6 +239,9 @@ func Install(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string)
 		if err := os.Rename(tmpDir, skillDir); err != nil {
 			os.RemoveAll(tmpDir)
 			return result, fmt.Errorf("install %s: %w", skillDir, err)
+		}
+		if !slices.Contains(owned, name) {
+			owned = append(owned, name)
 		}
 		data, _ := fs.ReadFile(fsys, "skilldata/"+name+"/SKILL.md")
 		meta := parseFrontmatter(data)
@@ -249,9 +315,10 @@ func List(ctx context.Context, fsys fs.FS, destDir string, toolDirs []string) ([
 	return infos, nil
 }
 
-// Remove walks destDir for installed skills (subdirectories containing a
-// SKILL.md), scrubs any symlinks in toolDirs that point at them, and
-// deletes the canonical directories. Disk-only — no network access.
+// Remove deletes the skills amctl installed into destDir, as recorded in the
+// manifest, and scrubs any symlinks in toolDirs that point at them. Skill
+// directories amctl has no record of are reported as unmanaged and left
+// alone. Disk-only — no network access.
 func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
 	var result RemoveResult
 
@@ -263,6 +330,8 @@ func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
 		return result, fmt.Errorf("read dest dir: %w", err)
 	}
 
+	owned := readManifest(destDir)
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -270,6 +339,10 @@ func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
 		name := entry.Name()
 		skillDir := filepath.Join(destDir, name)
 		if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+			continue
+		}
+		if !slices.Contains(owned, name) {
+			result.UnmanagedSkills = append(result.UnmanagedSkills, name)
 			continue
 		}
 
@@ -292,6 +365,13 @@ func Remove(destDir string, toolDirs []string) (RemoveResult, error) {
 			return result, fmt.Errorf("remove skill dir %s: %w", skillDir, err)
 		}
 		result.RemovedSkills = append(result.RemovedSkills, name)
+	}
+
+	remaining := slices.DeleteFunc(owned, func(name string) bool {
+		return slices.Contains(result.RemovedSkills, name)
+	})
+	if err := writeManifest(destDir, remaining); err != nil {
+		return result, fmt.Errorf("update install record: %w", err)
 	}
 	return result, nil
 }

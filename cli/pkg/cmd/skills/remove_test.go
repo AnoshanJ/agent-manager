@@ -104,3 +104,28 @@ func TestRemoveCmd_JSONNoTextOutput(t *testing.T) {
 		t.Errorf("expected no stderr output in JSON mode, got:\n%s", errOut.String())
 	}
 }
+
+func TestRemoveCmd_ReportsUnmanagedSkills(t *testing.T) {
+	dest := t.TempDir()
+
+	foreign := filepath.Join(dest, "legible-code")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, "SKILL.md"), []byte("---\nname: legible-code\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	io, _, errOut := newTextIO()
+	if err := runRemove(context.Background(), &RemoveOptions{IO: io, DestDir: dest}); err != nil {
+		t.Fatalf("runRemove failed: %v", err)
+	}
+
+	output := errOut.String()
+	if !strings.Contains(output, "amctl did not install") {
+		t.Errorf("expected a note about skills amctl did not install, got:\n%s", output)
+	}
+	if _, err := os.Stat(filepath.Join(foreign, "SKILL.md")); err != nil {
+		t.Errorf("unmanaged skill should survive: %v", err)
+	}
+}
