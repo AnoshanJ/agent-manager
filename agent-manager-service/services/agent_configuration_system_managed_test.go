@@ -177,16 +177,18 @@ func TestSystemManagedLLMURLUsesGatewayRuntimeURL(t *testing.T) {
 	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy", url)
 }
 
-// TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL guards the fallback: a gateway with no
-// in-cluster address must abort the injection rather than hand the pod a vhost it cannot reach.
-func TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL(t *testing.T) {
+// TestSystemManagedLLMURLFallsBackToVhostWithoutRuntimeURL covers the cloud gateway: nothing
+// registers a runtimeUrl there, and the pod reaches the gateway over the public vhost, so the
+// injection must resolve rather than abort.
+func TestSystemManagedLLMURLFallsBackToVhostWithoutRuntimeURL(t *testing.T) {
 	gateway := newGateway(t, models.GatewayRoleEgress, true)
 	gateway.Vhost = "https://gateway.example.com"
 	gateway.RuntimeURL = ""
 
-	_, err := callSystemManagedLLMURL(t, gateway, "/llm/proxy")
+	url, err := callSystemManagedLLMURL(t, gateway, "/llm/proxy")
 
-	require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
+	require.NoError(t, err)
+	require.Equal(t, "https://gateway.example.com/llm/proxy", url)
 }
 
 // callSystemManagedLLMURL resolves the LLM URL for a config whose single mapping is deployed
