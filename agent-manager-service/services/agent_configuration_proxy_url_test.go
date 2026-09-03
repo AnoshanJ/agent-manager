@@ -93,7 +93,7 @@ func TestResourceIdentifierUnchangedByVhostScheme(t *testing.T) {
 	require.Equal(t, buildMCPProxyURL(prefixed, cfg), buildMCPProxyURL(bare, cfg))
 }
 
-func TestBuildInternalProxyURLUsesRuntimeURL(t *testing.T) {
+func TestBuildAgentProxyURLPrefersRuntimeURL(t *testing.T) {
 	// Plaintext http on a non-standard port: the scheme must survive verbatim.
 	gateway := &models.Gateway{
 		Vhost:      "https://dev-acme.gateway.example.com",
@@ -101,24 +101,25 @@ func TestBuildInternalProxyURLUsesRuntimeURL(t *testing.T) {
 	}
 	contextPath := "/llm/proxy"
 
-	withContext, err := buildInternalProxyURL(gateway, &contextPath)
-	require.NoError(t, err)
-	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy", withContext)
-
-	bare, err := buildInternalProxyURL(gateway, nil)
-	require.NoError(t, err)
-	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893", bare)
+	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy",
+		buildAgentProxyURL(gateway, &contextPath))
+	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893",
+		buildAgentProxyURL(gateway, nil))
 }
 
-func TestBuildInternalProxyURLRejectsMissingRuntimeURL(t *testing.T) {
-	// A gateway with no reachable in-cluster address must fail closed, never fall back
-	// to the vhost. Migration 038 only backfills "api-platform-" names, so this is live.
+func TestBuildAgentProxyURLFallsBackToVhostWithoutRuntimeURL(t *testing.T) {
+	// A gateway registered with no in-cluster address — every cloud gateway, since only the
+	// on-prem gateway extension chart POSTs a runtimeUrl. The agent reaches it over the same
+	// public host its MCP proxies already use, so this must not fail.
 	contextPath := "/llm/proxy"
 	empty := &models.Gateway{UUID: uuid.New(), Vhost: "https://gw.example.com"}
-	_, err := buildInternalProxyURL(empty, &contextPath)
-	require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
+	require.Equal(t, "https://gw.example.com/llm/proxy", buildAgentProxyURL(empty, &contextPath))
+	require.Equal(t, "https://gw.example.com", buildAgentProxyURL(empty, nil))
 
 	whitespace := &models.Gateway{UUID: uuid.New(), Vhost: "https://gw.example.com", RuntimeURL: "   "}
-	_, err = buildInternalProxyURL(whitespace, &contextPath)
-	require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
+	require.Equal(t, "https://gw.example.com/llm/proxy", buildAgentProxyURL(whitespace, &contextPath))
+
+	// A bare vhost still picks up the https default, as the public builder does.
+	bare := &models.Gateway{UUID: uuid.New(), Vhost: "gw.example.com"}
+	require.Equal(t, "https://gw.example.com/llm/proxy", buildAgentProxyURL(bare, &contextPath))
 }
