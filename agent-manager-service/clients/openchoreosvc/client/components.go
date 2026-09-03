@@ -1254,14 +1254,34 @@ func (c *openChoreoClient) ListComponents(ctx context.Context, ouID, projectName
 
 	components := make([]*models.AgentResponse, 0, len(resp.JSON200.Items))
 	for i := range resp.JSON200.Items {
-		comp, err := convertComponentFromTyped(&resp.JSON200.Items[i])
+		item := &resp.JSON200.Items[i]
+		if item.Spec == nil || !isAgentComponentType(item.Spec.ComponentType.Name) {
+			// Projects are shared across WSO2 Cloud products, so a project can contain
+			// components other products created (e.g. a plain "deployment/service").
+			// Agent Manager should only ever list components it itself provisions.
+			continue
+		}
+		comp, err := convertComponentFromTyped(item)
 		if err != nil {
-			slog.Error("failed to convert component", "component", resp.JSON200.Items[i].Metadata.Name, "error", err)
+			slog.Error("failed to convert component", "component", item.Metadata.Name, "error", err)
 			continue
 		}
 		components = append(components, comp)
 	}
 	return components, nil
+}
+
+// isAgentComponentType reports whether componentTypeName is one of the component
+// types agent-manager itself creates (see getOpenChoreoComponentType and
+// buildInternalAgentFromKindComponentRequestBody). Used to filter out components
+// created by other products sharing the same project.
+func isAgentComponentType(componentTypeName string) bool {
+	switch ComponentType(componentTypeName) {
+	case ComponentTypeInternalAgentAPI, ComponentTypeExternalAgentAPI:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *openChoreoClient) ListComponentsByKind(ctx context.Context, ouID, projectName, kindName string) ([]*models.AgentResponse, error) {
