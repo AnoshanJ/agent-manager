@@ -1271,6 +1271,35 @@ func (c *openChoreoClient) ListComponents(ctx context.Context, ouID, projectName
 	return components, nil
 }
 
+// CountProjectComponents counts every component in the project, whichever product created it.
+//
+// ListComponents answers "which agents does this project have"; this answers "is this project
+// empty". The two differ because projects are shared: a project holding only another product's
+// components has no agents but is not empty, and deleting it would take that product's
+// components with it (the Project carries an openchoreo.dev/project-cleanup finalizer).
+func (c *openChoreoClient) CountProjectComponents(ctx context.Context, ouID, projectName string) (int, error) {
+	namespaceName := c.NamespaceFor(ouID)
+	resp, err := c.ocClient.ListComponentsWithResponse(ctx, namespaceName, &gen.ListComponentsParams{
+		Project: &projectName,
+		Limit:   &defaultListLimit,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list components: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return 0, handleErrorResponse(resp.StatusCode(), ErrorResponses{
+			JSON401: resp.JSON401,
+			JSON403: resp.JSON403,
+			JSON404: resp.JSON404,
+			JSON500: resp.JSON500,
+		})
+	}
+	if resp.JSON200 == nil {
+		return 0, nil
+	}
+	return len(resp.JSON200.Items), nil
+}
+
 // isAgentComponentType reports whether componentTypeName is one of the component
 // types agent-manager itself creates (see getOpenChoreoComponentType and
 // buildInternalAgentFromKindComponentRequestBody). Used to filter out components
