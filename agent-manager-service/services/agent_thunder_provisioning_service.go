@@ -172,11 +172,36 @@ type AgentThunderProvisioningService interface {
 	HealSecretRef(ctx context.Context, binding models.AgentThunderClient) error
 }
 
+// EnvThunderEndpointResolverSetter lets app.Run apply one deployment endpoint
+// policy consistently to shared API services and DB-backed provisioning.
+type EnvThunderEndpointResolverSetter interface {
+	SetEnvThunderEndpointResolver(thundersvc.EnvThunderEndpointResolver)
+}
+
+type agentThunderEndpointResolver struct {
+	mu       sync.RWMutex
+	resolver thundersvc.EnvThunderEndpointResolver
+}
+
+func (r *agentThunderEndpointResolver) ResolveEndpoints(ctx context.Context, ouID, orgNamespace, envName, storedURL string, callerSupplied bool) (thundersvc.EnvThunderEndpoints, error) {
+	r.mu.RLock()
+	resolver := r.resolver
+	r.mu.RUnlock()
+	if resolver == nil {
+		resolver = thundersvc.DefaultEnvThunderEndpointResolver()
+	}
+	return resolver.ResolveEndpoints(ctx, ouID, orgNamespace, envName, storedURL, callerSupplied)
+}
+
+func (r *agentThunderEndpointResolver) set(resolver thundersvc.EnvThunderEndpointResolver) {
+	r.mu.Lock()
+	r.resolver = resolver
+	r.mu.Unlock()
+}
+
 // AgentThunderBindingState is a minimal, internal snapshot of one binding's
-// provisioning state — deliberately not the same type as
-// models.AgentIdentityEnvironmentView (the public API shape for GET
-// .../identities), since HasSecret exposes internal-agent secret presence
-// that view intentionally does not surface for every provisioning type.
+// provisioning state. It deliberately differs from the public API view because
+// HasSecret exposes internal-agent secret presence.
 type AgentThunderBindingState struct {
 	ProvisioningType models.AgentProvisioningType
 	Status           models.AgentThunderStatus
@@ -209,8 +234,17 @@ type agentThunderProvisioningService struct {
 	workloadInjectorMu sync.RWMutex
 	workloadInjector   AgentIdentityInjectionService
 	logger             *slog.Logger
+	endpointResolver   *agentThunderEndpointResolver
 	bindingLocks       keyedMutex
 }
+
+func (s *agentThunderProvisioningService) SetEnvThunderEndpointResolver(resolver thundersvc.EnvThunderEndpointResolver) {
+	if s.endpointResolver != nil {
+		s.endpointResolver.set(resolver)
+	}
+}
+
+var _ EnvThunderEndpointResolverSetter = (*agentThunderProvisioningService)(nil)
 
 // agentIdentitySecretLocation returns the secretmanagersvc.SecretLocation for
 // one binding's stored credential. Deterministic from (org, project, env,
@@ -467,17 +501,21 @@ func DBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secre
 	return func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
 		envThunderRepo := repositories.NewEnvThunderSystemClientRepo(db)
 		envThunderURLRepo := repositories.NewEnvThunderURLRepo(db)
-		return NewAgentThunderProvisioningService(
+		endpointResolver := &agentThunderEndpointResolver{}
+		service := NewAgentThunderProvisioningService(
 			repositories.NewAgentThunderClientRepo(db),
-			thundersvc.NewEnvThunderResolver(
+			thundersvc.NewEnvThunderResolverWithEndpoints(
 				NewEnvThunderSecretReader(envThunderRepo, encryptionKey),
 				NewEnvThunderURLReader(envThunderURLRepo),
+				endpointResolver,
 			),
 			secretMgmtClient,
 			ocClient,
 			nil, // workload injector — see doc comment above
 			slog.Default(),
 		)
+		service.(*agentThunderProvisioningService).endpointResolver = endpointResolver
+		return service
 	}
 }
 

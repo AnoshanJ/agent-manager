@@ -41,6 +41,28 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
+type endpointResolverStub struct {
+	managementURL string
+}
+
+func (r endpointResolverStub) ResolveEndpoints(context.Context, string, string, string, string, bool) (thundersvc.EnvThunderEndpoints, error) {
+	return thundersvc.EnvThunderEndpoints{
+		ManagementURL:    r.managementURL,
+		TokenURL:         "https://token.example.com/oauth2/token",
+		SystemTokenScope: "tenant_instance:system",
+	}, nil
+}
+
+func TestAgentThunderEndpointResolverCanBeConfiguredAfterFactoryConstruction(t *testing.T) {
+	holder := &agentThunderEndpointResolver{}
+	service := &agentThunderProvisioningService{endpointResolver: holder}
+	service.SetEnvThunderEndpointResolver(endpointResolverStub{managementURL: "http://internal.example.com"})
+
+	endpoints, err := holder.ResolveEndpoints(context.Background(), "ou-id", "org", "dev-eu", "https://public.example.com", true)
+	require.NoError(t, err)
+	require.Equal(t, "http://internal.example.com", endpoints.ManagementURL)
+}
+
 // testOCClientResolvingSecretRefs returns an OpenChoreoClientMock whose
 // GetSecretReference resolves ANY secret ref name to a "resolved/<name>" KV
 // key holding the agent-identity client-secret data source — standing in for

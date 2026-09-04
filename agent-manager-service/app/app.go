@@ -35,6 +35,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	occlient "github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
+	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/db"
 	dbmigrations "github.com/wso2/agent-manager/agent-manager-service/db_migrations"
@@ -63,6 +64,13 @@ type Options struct {
 	// default) preserves the script-driven behavior; cloud deployments inject an
 	// implementation. See services.GatewayConfigApplier.
 	GatewayConfigApplier services.GatewayConfigApplier
+	// EnvThunderEndpointResolver optionally separates environment-Thunder
+	// management and OAuth endpoints. nil preserves on-premises behavior. Run
+	// automatically applies it to endpoint-aware provisioning implementations.
+	EnvThunderEndpointResolver thundersvc.EnvThunderEndpointResolver
+	// BackgroundContextDecorator optionally marks contexts created for trusted
+	// background workers. Request contexts never pass through this hook.
+	BackgroundContextDecorator func(context.Context) context.Context
 	// AgentThunderProvisioning is the deployment-specific AgentID provisioning
 	// implementation. A factory because the open-source impl is DB-backed and the
 	// DB is initialized inside Run. nil disables provisioning (identity endpoints
@@ -163,9 +171,12 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 			os.Exit(1)
 		}
 		agentThunderProvisioning = opts.AgentThunderProvisioning(database, secretMgmtClientForProvisioning, ocClientForProvisioning, encryptionKey)
+		if setter, ok := agentThunderProvisioning.(services.EnvThunderEndpointResolverSetter); ok {
+			setter.SetEnvThunderEndpointResolver(opts.EnvThunderEndpointResolver)
+		}
 	}
 
-	dependencies, err := wiring.InitializeAppParams(cfg, database, authProvider, secretProvider, opts.GatewayConfigApplier, agentThunderProvisioning, opts.BuildSecretProvisioner)
+	dependencies, err := wiring.InitializeAppParamsWithEnvThunderEndpoints(cfg, database, authProvider, secretProvider, opts.GatewayConfigApplier, agentThunderProvisioning, opts.BuildSecretProvisioner, opts.EnvThunderEndpointResolver)
 	if err != nil {
 		slog.Error("failed to initialize app dependencies", "error", err)
 		os.Exit(1)
@@ -191,6 +202,9 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 	// be lost — silently, which is the failure mode a context-carried recorder
 	// is most prone to.
 	backgroundCtx := audit.WithRecorder(context.Background(), dependencies.AuditRecorder)
+	if opts.BackgroundContextDecorator != nil {
+		backgroundCtx = opts.BackgroundContextDecorator(backgroundCtx)
+	}
 
 	// So a rotated agent's deferred pod rollout (see RefreshAfterRotation)
 	// stops waiting, or aborts an in-flight roll, once shutdown starts below

@@ -135,12 +135,16 @@ type IdentityClient interface {
 // baseURL is the platform Thunder public/issuer URL, so it also derives the System
 // resource indicator used to obtain system-scoped tokens for the admin identity APIs.
 func NewIdentityClient(baseURL, clientID, clientSecret string) IdentityClient {
+	httpClient := &http.Client{Timeout: httpClientTimeout}
 	return &thunderClient{
-		baseURL:        baseURL,
-		clientID:       clientID,
-		clientSecret:   clientSecret,
-		systemResource: SystemResourceIdentifier(baseURL),
-		httpClient:     &http.Client{Timeout: httpClientTimeout},
+		baseURL:          baseURL,
+		tokenURL:         strings.TrimRight(baseURL, "/") + "/oauth2/token",
+		clientID:         clientID,
+		clientSecret:     clientSecret,
+		systemTokenScope: "system",
+		systemResource:   SystemResourceIdentifier(baseURL),
+		httpClient:       httpClient,
+		tokenHTTPClient:  httpClient,
 	}
 }
 

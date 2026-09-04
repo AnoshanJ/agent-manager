@@ -208,12 +208,13 @@ type AgentIdentityShutdownContextSetter interface {
 }
 
 type agentIdentityInjectionService struct {
-	repo              repositories.AgentThunderClientRepository
-	agentConfigRepo   repositories.AgentConfigurationRepository
-	mcpProxyScopeRepo repositories.MCPProxyScopeRepository
-	ocClient          client.OpenChoreoClient
-	refreshInterval   string
-	logger            *slog.Logger
+	repo                 repositories.AgentThunderClientRepository
+	agentConfigRepo      repositories.AgentConfigurationRepository
+	mcpProxyScopeRepo    repositories.MCPProxyScopeRepository
+	ocClient             client.OpenChoreoClient
+	refreshInterval      string
+	logger               *slog.Logger
+	resolveTokenEndpoint func(context.Context, string, string, string) (string, error)
 	// now is injectable for tests; defaults to time.Now.
 	now func() time.Time
 	// after is injectable for tests; defaults to time.After. See
@@ -242,17 +243,33 @@ func NewAgentIdentityInjectionService(
 	refreshInterval string,
 	logger *slog.Logger,
 ) AgentIdentityInjectionService {
+	return NewAgentIdentityInjectionServiceWithTokenEndpointResolver(repo, agentConfigRepo, mcpProxyScopeRepo, ocClient, refreshInterval, logger, nil)
+}
+
+// NewAgentIdentityInjectionServiceWithTokenEndpointResolver creates the service
+// with an optional deployment-specific token endpoint lookup. A nil lookup
+// preserves the standard in-cluster on-premises endpoint.
+func NewAgentIdentityInjectionServiceWithTokenEndpointResolver(
+	repo repositories.AgentThunderClientRepository,
+	agentConfigRepo repositories.AgentConfigurationRepository,
+	mcpProxyScopeRepo repositories.MCPProxyScopeRepository,
+	ocClient client.OpenChoreoClient,
+	refreshInterval string,
+	logger *slog.Logger,
+	resolveTokenEndpoint func(context.Context, string, string, string) (string, error),
+) AgentIdentityInjectionService {
 	return &agentIdentityInjectionService{
-		repo:              repo,
-		agentConfigRepo:   agentConfigRepo,
-		mcpProxyScopeRepo: mcpProxyScopeRepo,
-		ocClient:          ocClient,
-		refreshInterval:   refreshInterval,
-		logger:            logger,
-		now:               time.Now,
-		after:             time.After,
-		rolloutTokens:     make(map[string]uint64),
-		shutdownCtx:       context.Background(),
+		repo:                 repo,
+		agentConfigRepo:      agentConfigRepo,
+		mcpProxyScopeRepo:    mcpProxyScopeRepo,
+		ocClient:             ocClient,
+		refreshInterval:      refreshInterval,
+		logger:               logger,
+		resolveTokenEndpoint: resolveTokenEndpoint,
+		now:                  time.Now,
+		after:                time.After,
+		rolloutTokens:        make(map[string]uint64),
+		shutdownCtx:          context.Background(),
 	}
 }
 
@@ -453,9 +470,9 @@ func (s *agentIdentityInjectionService) deleteSecretReference(ctx context.Contex
 	return nil
 }
 
-// buildEnvVars assembles the four identity env vars for one binding. The
-// token endpoint uses the cluster-internal env-Thunder URL: env-Thunder is not
-// published on the gateway vhost, so pods reach it by in-cluster address.
+// buildEnvVars assembles the four identity env vars for one binding. On-premises
+// deployments use the cluster-internal token endpoint; deployments with a
+// configured resolver may inject a separate public OAuth endpoint.
 //
 // The URL is built from ThunderOrgNamespace(), NOT binding.OUID: env-Thunder
 // is addressed by the org's namespace/handle (e.g. "default"), and binding.OUID
@@ -468,6 +485,13 @@ func (s *agentIdentityInjectionService) buildEnvVars(ctx context.Context, bindin
 	if err != nil {
 		return nil, err
 	}
+	tokenEndpoint := thundersvc.ThunderTokenURL(ThunderOrgNamespace(), binding.EnvironmentName)
+	if s.resolveTokenEndpoint != nil {
+		tokenEndpoint, err = s.resolveTokenEndpoint(ctx, binding.OUID, ThunderOrgNamespace(), binding.EnvironmentName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve agent identity token endpoint: %w", err)
+		}
+	}
 	return []client.EnvVar{
 		{Key: client.EnvVarAgentIDClientID, Value: binding.ThunderClientID},
 		{
@@ -479,7 +503,7 @@ func (s *agentIdentityInjectionService) buildEnvVars(ctx context.Context, bindin
 				},
 			},
 		},
-		{Key: client.EnvVarAgentIDTokenEndpoint, Value: thundersvc.ThunderTokenURL(ThunderOrgNamespace(), binding.EnvironmentName)},
+		{Key: client.EnvVarAgentIDTokenEndpoint, Value: tokenEndpoint},
 		{Key: client.EnvVarAgentIDScopes, Value: strings.Join(scopes, " ")},
 	}, nil
 }

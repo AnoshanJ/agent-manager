@@ -171,6 +171,45 @@ func TestAgentIdentityInjection_EnvVarsForEnvironment_BuildsVarsFromResolvedSecr
 	assert.Empty(t, byKey[client.EnvVarAgentIDScopes].Value, "no agent configuration means no MCP bindings, so no scopes to request")
 }
 
+func TestAgentIdentityInjection_EnvVarsForEnvironment_UsesDeploymentTokenEndpoint(t *testing.T) {
+	repo := identityRepoReturning(completedInternalBinding(), nil)
+	const publicTokenURL = "https://customer-test.example.com/oauth2/token"
+	resolverCalled := false
+	svc := NewAgentIdentityInjectionServiceWithTokenEndpointResolver(
+		repo, noMCPConfigRepo(), noMCPProxyScopeRepo(), injectableOCClient(), "1h", discardLogger(),
+		func(_ context.Context, ouID, orgNamespace, envName string) (string, error) {
+			resolverCalled = true
+			assert.Equal(t, testIdentityOrg, ouID)
+			assert.Equal(t, ThunderOrgNamespace(), orgNamespace)
+			assert.Equal(t, testIdentityEnv, envName)
+			return publicTokenURL, nil
+		},
+	)
+
+	envVars, err := svc.EnvVarsForEnvironment(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv)
+	require.NoError(t, err)
+	require.True(t, resolverCalled)
+	for _, envVar := range envVars {
+		if envVar.Key == client.EnvVarAgentIDTokenEndpoint {
+			assert.Equal(t, publicTokenURL, envVar.Value)
+			return
+		}
+	}
+	t.Fatal("Agent ID token endpoint env var was not injected")
+}
+
+func TestAgentIdentityInjection_EnvVarsForEnvironment_PropagatesTokenEndpointError(t *testing.T) {
+	expectedErr := errors.New("token endpoint unavailable")
+	svc := NewAgentIdentityInjectionServiceWithTokenEndpointResolver(
+		identityRepoReturning(completedInternalBinding(), nil), noMCPConfigRepo(), noMCPProxyScopeRepo(), injectableOCClient(), "1h", discardLogger(),
+		func(context.Context, string, string, string) (string, error) { return "", expectedErr },
+	)
+
+	envVars, err := svc.EnvVarsForEnvironment(context.Background(), testIdentityOrg, testIdentityProject, testIdentityAgent, testIdentityEnv)
+	require.ErrorIs(t, err, expectedErr)
+	require.Nil(t, envVars)
+}
+
 // TestAgentIdentityInjection_EnvVarsForEnvironment_CreateConflictFallsBackToUpdate
 // guards the concurrent-writer case: a create conflict (another request for
 // this same binding, or the reconciler, already created it) must fall back
