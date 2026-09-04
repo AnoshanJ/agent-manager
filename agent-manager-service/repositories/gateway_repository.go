@@ -53,14 +53,37 @@ type GatewayFilterOptions struct {
 	Offset              int     // Pagination offset
 }
 
+// GatewayFailureWindow bounds which disconnected gateways count as failed.
+//
+// Half-open, [NotOlderThan, StaleBefore): a gateway's updated_at must be before
+// StaleBefore and at or after NotOlderThan. Both bounds are needed because
+// updated_at is when liveness last changed, which conflates two very different
+// situations — a gateway that dropped five minutes ago, and one nobody has
+// touched in months.
+type GatewayFailureWindow struct {
+	// StaleBefore excludes gateways that only just disconnected: down, but not
+	// yet down long enough to be worth reporting.
+	StaleBefore time.Time
+	// NotOlderThan excludes gateways nothing has touched since before it —
+	// decommissioned or abandoned rows, which would otherwise be reported as
+	// failing forever and drown out the ones that just broke.
+	NotOlderThan time.Time
+}
+
 // GatewayFailureCounts is the result of one cross-organization health sweep:
 // how many gateways exist and how many of them have been disconnected past the
 // caller's threshold. Returned together because they come from a single query —
 // two separate counts could be taken either side of a status change and report
 // a fleet state that never existed.
 type GatewayFailureCounts struct {
-	Total  int64
+	// Total is every gateway in the deployment, abandoned ones included.
+	Total int64
+	// Failed is the gateways inside the failure window.
 	Failed int64
+	// Abandoned is the disconnected gateways older than the window's far edge.
+	// Reported separately because they are excluded from the denominator the
+	// failure percentage is taken over — see GatewayFailureWindow.
+	Abandoned int64
 }
 
 // GatewayRepository defines the interface for gateway data access
@@ -83,8 +106,8 @@ type GatewayRepository interface {
 	// Cross-organization fleet health. Both deliberately carry no ou_id
 	// predicate — they back the platform-admin failure summary, which reports
 	// on every tenant at once. Nothing else may call them.
-	CountFailureSummaryAllOrgs(ctx context.Context, staleBefore time.Time) (GatewayFailureCounts, error)
-	ListFailedGatewaysAllOrgs(ctx context.Context, staleBefore time.Time, limit int) ([]*models.Gateway, error)
+	CountFailureSummaryAllOrgs(ctx context.Context, window GatewayFailureWindow) (GatewayFailureCounts, error)
+	ListFailedGatewaysAllOrgs(ctx context.Context, window GatewayFailureWindow, limit int) ([]*models.Gateway, error)
 
 	// Transaction-scoped operations. The ingress cap is enforced in the service under
 	// pg_advisory_xact_lock, so the service needs to drive a transaction it can also
@@ -644,32 +667,52 @@ func (r *GatewayRepo) CountIngressCapableInEnvironment(tx *gorm.DB, environmentI
 	return count, nil
 }
 
-// failedGatewayCondition is the SQL predicate for "failed": disconnected, and
-// disconnected since before staleBefore.
+// failedGatewayCondition is the SQL predicate for "failed": disconnected, down
+// long enough to matter, and not so long that it is no longer news.
 //
 // is_active is WebSocket liveness and updated_at is when that liveness last
 // changed (UpdateActiveStatus writes both together), so the pair reads as "has
-// been down for a while" rather than "is down right now". Two consequences are
-// inherent to the definition and not bugs here: a gateway whose row was edited
-// while disconnected has a fresher updated_at and drops out until the threshold
-// passes again, and a gateway whose holding pod died without cleanup stays
-// is_active=true and is never counted.
-const failedGatewayCondition = "is_active = false AND updated_at < ?"
-
-// CountFailureSummaryAllOrgs counts every gateway in the deployment and how many
-// of them are failed, in one round trip.
+// been down for a while" rather than "is down right now".
 //
-// Conditional aggregation rather than two queries: the total and the failed
-// count must describe the same instant, and this is also one scan instead of
-// two. deleted_at IS NULL is spelled out because raw SQL bypasses GORM's
-// soft-delete scope.
+// Two consequences are inherent to the definition and not bugs here: a gateway
+// whose row was edited while disconnected has a fresher updated_at and drops out
+// until the staleness threshold passes again, and a gateway whose holding pod
+// died without cleanup stays is_active=true and is never counted.
+const failedGatewayCondition = "is_active = false AND updated_at < ? AND updated_at >= ?"
+
+// abandonedGatewayCondition matches the rows past the window's far edge:
+// disconnected, and untouched for longer than the caller is willing to call a
+// failure. Decommissioned or forgotten, not broken.
+//
+// is_active = false is load-bearing, not incidental. updated_at is equally old
+// on a gateway that has been connected without interruption for months, because
+// nothing writes the column while a connection holds. Matching on age alone
+// would classify the healthiest gateways in the fleet as abandoned and pull them
+// out of the denominator, inflating the failure percentage instead of sharpening
+// it. Only a gateway that is both old and down is abandoned.
+const abandonedGatewayCondition = "is_active = false AND updated_at < ?"
+
+// CountFailureSummaryAllOrgs counts every gateway in the deployment, how many
+// are failed, and how many are abandoned, in one round trip.
+//
+// Conditional aggregation rather than three queries: all three counts must
+// describe the same instant, or the arithmetic between them (total - abandoned)
+// describes a fleet that never existed. It is also one scan instead of three.
+// deleted_at IS NULL is spelled out because raw SQL bypasses GORM's soft-delete
+// scope.
+//
+// For a disconnected gateway the three buckets partition cleanly: too fresh to
+// be failed, inside the window, or past it and abandoned.
 func (r *GatewayRepo) CountFailureSummaryAllOrgs(
-	ctx context.Context, staleBefore time.Time,
+	ctx context.Context, window GatewayFailureWindow,
 ) (GatewayFailureCounts, error) {
 	var counts GatewayFailureCounts
 	err := r.db.WithContext(ctx).
 		Table("gateways").
-		Select("COUNT(*) AS total, COUNT(*) FILTER (WHERE "+failedGatewayCondition+") AS failed", staleBefore).
+		Select("COUNT(*) AS total"+
+			", COUNT(*) FILTER (WHERE "+failedGatewayCondition+") AS failed"+
+			", COUNT(*) FILTER (WHERE "+abandonedGatewayCondition+") AS abandoned",
+			window.StaleBefore, window.NotOlderThan, window.NotOlderThan).
 		Where("deleted_at IS NULL").
 		Scan(&counts).Error
 	if err != nil {
@@ -686,7 +729,7 @@ func (r *GatewayRepo) CountFailureSummaryAllOrgs(
 // defensive: this list is unbounded in the number of tenants and is served to a
 // polling caller.
 func (r *GatewayRepo) ListFailedGatewaysAllOrgs(
-	ctx context.Context, staleBefore time.Time, limit int,
+	ctx context.Context, window GatewayFailureWindow, limit int,
 ) ([]*models.Gateway, error) {
 	if limit <= 0 {
 		return []*models.Gateway{}, nil
@@ -694,7 +737,7 @@ func (r *GatewayRepo) ListFailedGatewaysAllOrgs(
 	var gateways []*models.Gateway
 	err := r.db.WithContext(ctx).
 		Model(&models.Gateway{}).
-		Where(failedGatewayCondition, staleBefore).
+		Where(failedGatewayCondition, window.StaleBefore, window.NotOlderThan).
 		Order("updated_at ASC").
 		Limit(limit).
 		Find(&gateways).Error

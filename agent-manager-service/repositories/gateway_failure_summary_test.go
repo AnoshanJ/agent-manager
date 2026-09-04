@@ -87,12 +87,15 @@ func TestGatewayRepo_FailureSummaryAllOrgs(t *testing.T) {
 	repo := NewGatewayRepo(db.GetDB())
 	ctx := context.Background()
 
-	// Well clear of every fixture's updated_at, so "stale" and "fresh" are not
-	// decided by how long the test itself takes.
-	const threshold = 5 * time.Minute
-	staleBefore := time.Now().Add(-threshold)
+	// Well clear of every fixture's updated_at, so "stale", "fresh" and
+	// "abandoned" are not decided by how long the test itself takes.
+	now := time.Now()
+	window := GatewayFailureWindow{
+		StaleBefore:  now.Add(-5 * time.Minute),
+		NotOlderThan: now.Add(-7 * 24 * time.Hour),
+	}
 
-	baseline, err := repo.CountFailureSummaryAllOrgs(ctx, staleBefore)
+	baseline, err := repo.CountFailureSummaryAllOrgs(ctx, window)
 	require.NoError(t, err)
 
 	const orgA, orgB = "ou-failure-summary-a", "ou-failure-summary-b"
@@ -112,17 +115,28 @@ func TestGatewayRepo_FailureSummaryAllOrgs(t *testing.T) {
 	// scope, so deleted_at IS NULL has to be spelled out in the query — this
 	// fixture is what proves it was.
 	insertFailureFixture(t, orgA, "gw-soft-deleted-stale", false, hourAgo, true)
+	// ABANDONED, not failed: down for eight days, past the window's far edge.
+	// In total, out of the denominator.
+	insertFailureFixture(t, orgA, "gw-abandoned", false, time.Now().Add(-8*24*time.Hour), false)
+	// NOT abandoned despite an equally ancient updated_at, because it is still
+	// connected. This is the fixture that catches an age-only abandoned
+	// predicate: nothing writes updated_at while a connection holds, so a
+	// gateway up for eight days straight looks exactly as old as a dead one.
+	insertFailureFixture(t, orgB, "gw-long-lived-healthy", true, time.Now().Add(-8*24*time.Hour), false)
 
-	got, err := repo.CountFailureSummaryAllOrgs(ctx, staleBefore)
+	got, err := repo.CountFailureSummaryAllOrgs(ctx, window)
 	require.NoError(t, err)
 
-	assert.Equal(t, baseline.Total+4, got.Total,
-		"four live fixtures were inserted; the soft-deleted one must not be in total")
+	assert.Equal(t, baseline.Total+6, got.Total,
+		"six live fixtures were inserted; the soft-deleted one must not be in total, "+
+			"but the abandoned one must — it is excluded from the denominator, not from the fleet")
 	assert.Equal(t, baseline.Failed+2, got.Failed,
-		"only the two inactive-and-stale fixtures are failures")
+		"only the two inactive gateways inside the window are failures")
+	assert.Equal(t, baseline.Abandoned+1, got.Abandoned,
+		"the gateway down for eight days is abandoned, not failed")
 
 	// The detail list must agree with the count on which rows are failing.
-	failed, err := repo.ListFailedGatewaysAllOrgs(ctx, staleBefore, 1000)
+	failed, err := repo.ListFailedGatewaysAllOrgs(ctx, window, 1000)
 	require.NoError(t, err)
 
 	byID := make(map[uuid.UUID]*models.Gateway, len(failed))
@@ -140,6 +154,8 @@ func TestGatewayRepo_FailureSummaryAllOrgs(t *testing.T) {
 	assert.False(t, byName["gw-inactive-fresh"], "a recently disconnected gateway is not yet failed")
 	assert.False(t, byName["gw-active-stale"], "a connected gateway is not failed")
 	assert.False(t, byName["gw-soft-deleted-stale"], "a soft-deleted gateway must be excluded")
+	assert.False(t, byName["gw-abandoned"], "a gateway down for eight days is abandoned, not failed")
+	assert.False(t, byName["gw-long-lived-healthy"], "a connected gateway is never failed, however old its row")
 }
 
 // TestGatewayRepo_ListFailedGatewaysAllOrgs_Limit pins the cap and the ordering
@@ -148,20 +164,24 @@ func TestGatewayRepo_FailureSummaryAllOrgs(t *testing.T) {
 func TestGatewayRepo_ListFailedGatewaysAllOrgs_Limit(t *testing.T) {
 	repo := NewGatewayRepo(db.GetDB())
 	ctx := context.Background()
-	staleBefore := time.Now().Add(-5 * time.Minute)
+	now := time.Now()
+	window := GatewayFailureWindow{
+		StaleBefore:  now.Add(-5 * time.Minute),
+		NotOlderThan: now.Add(-7 * 24 * time.Hour),
+	}
 
 	const org = "ou-failure-summary-limit"
-	oldest := insertFailureFixture(t, org, "gw-limit-oldest", false, time.Now().Add(-48*time.Hour), false)
+	oldest := insertFailureFixture(t, org, "gw-limit-oldest", false, time.Now().Add(-6*24*time.Hour), false)
 	insertFailureFixture(t, org, "gw-limit-newer", false, time.Now().Add(-30*time.Minute), false)
 
 	// A limit of 1 over the whole table must return the single oldest failure
 	// anywhere, which is this fixture unless another test left something older
 	// still — hence the ordering assertion below rather than an identity one.
-	one, err := repo.ListFailedGatewaysAllOrgs(ctx, staleBefore, 1)
+	one, err := repo.ListFailedGatewaysAllOrgs(ctx, window, 1)
 	require.NoError(t, err)
 	require.Len(t, one, 1, "limit must be honoured")
 
-	all, err := repo.ListFailedGatewaysAllOrgs(ctx, staleBefore, 1000)
+	all, err := repo.ListFailedGatewaysAllOrgs(ctx, window, 1000)
 	require.NoError(t, err)
 	require.NotEmpty(t, all)
 	assert.Equal(t, all[0].UUID, one[0].UUID,
@@ -177,11 +197,11 @@ func TestGatewayRepo_ListFailedGatewaysAllOrgs_Limit(t *testing.T) {
 			oldestSeen = true
 		}
 	}
-	assert.True(t, oldestSeen, "the 48-hour-old failure must appear in the unbounded list")
+	assert.True(t, oldestSeen, "the six-day-old failure must appear in the unbounded list")
 
 	// A non-positive limit asks for nothing and must return nothing, rather
 	// than falling through to an unbounded scan.
-	none, err := repo.ListFailedGatewaysAllOrgs(ctx, staleBefore, 0)
+	none, err := repo.ListFailedGatewaysAllOrgs(ctx, window, 0)
 	require.NoError(t, err)
 	assert.Empty(t, none)
 }

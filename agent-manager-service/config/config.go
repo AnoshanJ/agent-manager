@@ -155,6 +155,22 @@ type Config struct {
 	// it is read once per request so a change needs no code release.
 	GatewayFailureThresholdSeconds int
 
+	// GatewayFailureMaxAgeSeconds is the far edge of the failure window: a
+	// disconnected gateway whose last update is older than this is no longer
+	// reported as failed.
+	//
+	// Without an upper bound, a gateway that was decommissioned — or simply
+	// abandoned — counts as a fresh failure forever, and enough of them push the
+	// fleet permanently over its percentage threshold, which makes the whole
+	// signal useless. Must exceed GatewayFailureThresholdSeconds, or the window
+	// is empty and nothing can ever be reported failed.
+	//
+	// In seconds, matching its sibling above rather than being friendlier to read
+	// as days, so the two can be compared directly at startup — and so
+	// mistakenly setting "7" instead of 604800 is caught there rather than
+	// silently narrowing the window to seven seconds.
+	GatewayFailureMaxAgeSeconds int
+
 	// GatewayFailurePercentageThreshold is the share of failed gateways, as a
 	// percentage of the whole fleet, at or above which the fleet is reported
 	// unhealthy — the summary route answers with 503 rather than 200.

@@ -309,6 +309,17 @@ func loadEnvs() {
 		r.errors = append(r.errors, fmt.Errorf(
 			"GATEWAY_FAILURE_THRESHOLD_SECONDS must be greater than 0, got %d", config.GatewayFailureThresholdSeconds))
 	}
+	// 604800 = 7 days. Checked against the staleness threshold rather than only
+	// on its own: co-dependent values are validated together, and an upper bound
+	// at or below the lower one leaves an empty window that reports every fleet
+	// healthy — a failure mode with no symptom.
+	config.GatewayFailureMaxAgeSeconds = int(r.readOptionalInt64("GATEWAY_FAILURE_MAX_AGE_SECONDS", 604800))
+	if config.GatewayFailureMaxAgeSeconds <= config.GatewayFailureThresholdSeconds {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_FAILURE_MAX_AGE_SECONDS (%d) must be greater than GATEWAY_FAILURE_THRESHOLD_SECONDS (%d), "+
+				"or no gateway can ever be reported as failed",
+			config.GatewayFailureMaxAgeSeconds, config.GatewayFailureThresholdSeconds))
+	}
 	// Both ends are rejected rather than clamped, because either would make the
 	// health verdict a constant: at 0 an empty fleet already reports unhealthy,
 	// and above 100 no fleet ever can.

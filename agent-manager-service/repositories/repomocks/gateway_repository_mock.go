@@ -6,7 +6,6 @@ package repomocks
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -25,7 +24,7 @@ import (
 //			CountActiveTokensFunc: func(gatewayId string) (int, error) {
 //				panic("mock out the CountActiveTokens method")
 //			},
-//			CountFailureSummaryAllOrgsFunc: func(ctx context.Context, staleBefore time.Time) (repositories.GatewayFailureCounts, error) {
+//			CountFailureSummaryAllOrgsFunc: func(ctx context.Context, window repositories.GatewayFailureWindow) (repositories.GatewayFailureCounts, error) {
 //				panic("mock out the CountFailureSummaryAllOrgs method")
 //			},
 //			CountIngressCapableInEnvironmentFunc: func(tx *gorm.DB, environmentID string) (int64, error) {
@@ -103,7 +102,7 @@ import (
 //			ListFunc: func() ([]*models.Gateway, error) {
 //				panic("mock out the List method")
 //			},
-//			ListFailedGatewaysAllOrgsFunc: func(ctx context.Context, staleBefore time.Time, limit int) ([]*models.Gateway, error) {
+//			ListFailedGatewaysAllOrgsFunc: func(ctx context.Context, window repositories.GatewayFailureWindow, limit int) ([]*models.Gateway, error) {
 //				panic("mock out the ListFailedGatewaysAllOrgs method")
 //			},
 //			ListIdentityProvidersByEnvironmentFunc: func(environmentID string) ([]models.GatewayIdentityProvider, error) {
@@ -150,7 +149,7 @@ type GatewayRepositoryMock struct {
 	CountActiveTokensFunc func(gatewayId string) (int, error)
 
 	// CountFailureSummaryAllOrgsFunc mocks the CountFailureSummaryAllOrgs method.
-	CountFailureSummaryAllOrgsFunc func(ctx context.Context, staleBefore time.Time) (repositories.GatewayFailureCounts, error)
+	CountFailureSummaryAllOrgsFunc func(ctx context.Context, window repositories.GatewayFailureWindow) (repositories.GatewayFailureCounts, error)
 
 	// CountIngressCapableInEnvironmentFunc mocks the CountIngressCapableInEnvironment method.
 	CountIngressCapableInEnvironmentFunc func(tx *gorm.DB, environmentID string) (int64, error)
@@ -228,7 +227,7 @@ type GatewayRepositoryMock struct {
 	ListFunc func() ([]*models.Gateway, error)
 
 	// ListFailedGatewaysAllOrgsFunc mocks the ListFailedGatewaysAllOrgs method.
-	ListFailedGatewaysAllOrgsFunc func(ctx context.Context, staleBefore time.Time, limit int) ([]*models.Gateway, error)
+	ListFailedGatewaysAllOrgsFunc func(ctx context.Context, window repositories.GatewayFailureWindow, limit int) ([]*models.Gateway, error)
 
 	// ListIdentityProvidersByEnvironmentFunc mocks the ListIdentityProvidersByEnvironment method.
 	ListIdentityProvidersByEnvironmentFunc func(environmentID string) ([]models.GatewayIdentityProvider, error)
@@ -278,8 +277,8 @@ type GatewayRepositoryMock struct {
 		CountFailureSummaryAllOrgs []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// StaleBefore is the staleBefore argument value.
-			StaleBefore time.Time
+			// Window is the window argument value.
+			Window repositories.GatewayFailureWindow
 		}
 		// CountIngressCapableInEnvironment holds details about calls to the CountIngressCapableInEnvironment method.
 		CountIngressCapableInEnvironment []struct {
@@ -434,8 +433,8 @@ type GatewayRepositoryMock struct {
 		ListFailedGatewaysAllOrgs []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// StaleBefore is the staleBefore argument value.
-			StaleBefore time.Time
+			// Window is the window argument value.
+			Window repositories.GatewayFailureWindow
 			// Limit is the limit argument value.
 			Limit int
 		}
@@ -604,21 +603,21 @@ func (mock *GatewayRepositoryMock) CountActiveTokensCalls() []struct {
 }
 
 // CountFailureSummaryAllOrgs calls CountFailureSummaryAllOrgsFunc.
-func (mock *GatewayRepositoryMock) CountFailureSummaryAllOrgs(ctx context.Context, staleBefore time.Time) (repositories.GatewayFailureCounts, error) {
+func (mock *GatewayRepositoryMock) CountFailureSummaryAllOrgs(ctx context.Context, window repositories.GatewayFailureWindow) (repositories.GatewayFailureCounts, error) {
 	if mock.CountFailureSummaryAllOrgsFunc == nil {
 		panic("GatewayRepositoryMock.CountFailureSummaryAllOrgsFunc: method is nil but GatewayRepository.CountFailureSummaryAllOrgs was just called")
 	}
 	callInfo := struct {
-		Ctx         context.Context
-		StaleBefore time.Time
+		Ctx    context.Context
+		Window repositories.GatewayFailureWindow
 	}{
-		Ctx:         ctx,
-		StaleBefore: staleBefore,
+		Ctx:    ctx,
+		Window: window,
 	}
 	mock.lockCountFailureSummaryAllOrgs.Lock()
 	mock.calls.CountFailureSummaryAllOrgs = append(mock.calls.CountFailureSummaryAllOrgs, callInfo)
 	mock.lockCountFailureSummaryAllOrgs.Unlock()
-	return mock.CountFailureSummaryAllOrgsFunc(ctx, staleBefore)
+	return mock.CountFailureSummaryAllOrgsFunc(ctx, window)
 }
 
 // CountFailureSummaryAllOrgsCalls gets all the calls that were made to CountFailureSummaryAllOrgs.
@@ -626,12 +625,12 @@ func (mock *GatewayRepositoryMock) CountFailureSummaryAllOrgs(ctx context.Contex
 //
 //	len(mockedGatewayRepository.CountFailureSummaryAllOrgsCalls())
 func (mock *GatewayRepositoryMock) CountFailureSummaryAllOrgsCalls() []struct {
-	Ctx         context.Context
-	StaleBefore time.Time
+	Ctx    context.Context
+	Window repositories.GatewayFailureWindow
 } {
 	var calls []struct {
-		Ctx         context.Context
-		StaleBefore time.Time
+		Ctx    context.Context
+		Window repositories.GatewayFailureWindow
 	}
 	mock.lockCountFailureSummaryAllOrgs.RLock()
 	calls = mock.calls.CountFailureSummaryAllOrgs
@@ -1487,23 +1486,23 @@ func (mock *GatewayRepositoryMock) ListCalls() []struct {
 }
 
 // ListFailedGatewaysAllOrgs calls ListFailedGatewaysAllOrgsFunc.
-func (mock *GatewayRepositoryMock) ListFailedGatewaysAllOrgs(ctx context.Context, staleBefore time.Time, limit int) ([]*models.Gateway, error) {
+func (mock *GatewayRepositoryMock) ListFailedGatewaysAllOrgs(ctx context.Context, window repositories.GatewayFailureWindow, limit int) ([]*models.Gateway, error) {
 	if mock.ListFailedGatewaysAllOrgsFunc == nil {
 		panic("GatewayRepositoryMock.ListFailedGatewaysAllOrgsFunc: method is nil but GatewayRepository.ListFailedGatewaysAllOrgs was just called")
 	}
 	callInfo := struct {
-		Ctx         context.Context
-		StaleBefore time.Time
-		Limit       int
+		Ctx    context.Context
+		Window repositories.GatewayFailureWindow
+		Limit  int
 	}{
-		Ctx:         ctx,
-		StaleBefore: staleBefore,
-		Limit:       limit,
+		Ctx:    ctx,
+		Window: window,
+		Limit:  limit,
 	}
 	mock.lockListFailedGatewaysAllOrgs.Lock()
 	mock.calls.ListFailedGatewaysAllOrgs = append(mock.calls.ListFailedGatewaysAllOrgs, callInfo)
 	mock.lockListFailedGatewaysAllOrgs.Unlock()
-	return mock.ListFailedGatewaysAllOrgsFunc(ctx, staleBefore, limit)
+	return mock.ListFailedGatewaysAllOrgsFunc(ctx, window, limit)
 }
 
 // ListFailedGatewaysAllOrgsCalls gets all the calls that were made to ListFailedGatewaysAllOrgs.
@@ -1511,14 +1510,14 @@ func (mock *GatewayRepositoryMock) ListFailedGatewaysAllOrgs(ctx context.Context
 //
 //	len(mockedGatewayRepository.ListFailedGatewaysAllOrgsCalls())
 func (mock *GatewayRepositoryMock) ListFailedGatewaysAllOrgsCalls() []struct {
-	Ctx         context.Context
-	StaleBefore time.Time
-	Limit       int
+	Ctx    context.Context
+	Window repositories.GatewayFailureWindow
+	Limit  int
 } {
 	var calls []struct {
-		Ctx         context.Context
-		StaleBefore time.Time
-		Limit       int
+		Ctx    context.Context
+		Window repositories.GatewayFailureWindow
+		Limit  int
 	}
 	mock.lockListFailedGatewaysAllOrgs.RLock()
 	calls = mock.calls.ListFailedGatewaysAllOrgs

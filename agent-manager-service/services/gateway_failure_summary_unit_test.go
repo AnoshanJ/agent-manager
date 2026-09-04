@@ -44,6 +44,7 @@ func failureSummarySvc(repo repositories.GatewayRepository) *PlatformGatewayServ
 func summaryQuery(includeDetails bool) GatewayFailureSummaryQuery {
 	return GatewayFailureSummaryQuery{
 		StalenessThreshold:         5 * time.Minute,
+		MaxAge:                     7 * 24 * time.Hour,
 		FailurePercentageThreshold: 10,
 		IncludeDetails:             includeDetails,
 	}
@@ -59,7 +60,7 @@ func summaryQuery(includeDetails bool) GatewayFailureSummaryQuery {
 func TestGatewayFailureSummary_CountsOnly(t *testing.T) {
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{Total: 412, Failed: 7}, nil
 		},
@@ -72,45 +73,59 @@ func TestGatewayFailureSummary_CountsOnly(t *testing.T) {
 	assert.Equal(t, int64(412), resp.Total)
 	assert.Equal(t, int64(7), resp.Failed)
 	assert.Equal(t, 300, resp.StalenessThresholdSeconds)
+	assert.Equal(t, 7*24*60*60, resp.MaxAgeSeconds)
 	assert.Equal(t, float64(10), resp.FailurePercentageThreshold)
 	assert.False(t, resp.Truncated)
 	assert.Nil(t, resp.FailedGateways, "details must be omitted when not requested")
 	assert.False(t, resp.EvaluatedAt.IsZero(), "evaluatedAt must name the instant the counts describe")
 }
 
-// TestGatewayFailureSummary_StaleBeforeIsNowMinusThreshold pins the arithmetic
-// the whole endpoint rests on. Passing now+threshold, or the threshold itself,
-// would return a plausible-looking number that answers a different question.
-func TestGatewayFailureSummary_StaleBeforeIsNowMinusThreshold(t *testing.T) {
-	const threshold = 5 * time.Minute
-	var got time.Time
+// TestGatewayFailureSummary_WindowBoundsAreNowMinusThresholds pins the
+// arithmetic the whole endpoint rests on: both edges are measured back from the
+// same instant, and that instant is the one reported as EvaluatedAt.
+//
+// Getting a sign wrong here, or measuring the two edges from different clocks,
+// yields a plausible-looking number that answers a different question.
+func TestGatewayFailureSummary_WindowBoundsAreNowMinusThresholds(t *testing.T) {
+	const (
+		staleness = 5 * time.Minute
+		maxAge    = 7 * 24 * time.Hour
+	)
+	var got repositories.GatewayFailureWindow
 
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, staleBefore time.Time,
+			_ context.Context, window repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
-			got = staleBefore
-			return repositories.GatewayFailureCounts{Total: 1, Failed: 0}, nil
+			got = window
+			return repositories.GatewayFailureCounts{Total: 1, Failed: 0, Abandoned: 0}, nil
 		},
 	}
 
 	before := time.Now()
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
 		context.Background(), GatewayFailureSummaryQuery{
-			StalenessThreshold:         threshold,
+			StalenessThreshold:         staleness,
+			MaxAge:                     maxAge,
 			FailurePercentageThreshold: 10,
 			IncludeDetails:             false,
 		})
 	after := time.Now()
 
 	require.NoError(t, err)
-	assert.False(t, got.Before(before.Add(-threshold)),
-		"staleBefore is older than the call's own start minus the threshold")
-	assert.False(t, got.After(after.Add(-threshold)),
-		"staleBefore is newer than the call's own return minus the threshold")
-	// The cutoff and the reported instant must be exactly one threshold apart,
-	// or the response describes a window it did not query.
-	assert.WithinDuration(t, resp.EvaluatedAt.Add(-threshold), got, time.Millisecond)
+	assert.False(t, got.StaleBefore.Before(before.Add(-staleness)),
+		"StaleBefore is older than the call's own start minus the staleness threshold")
+	assert.False(t, got.StaleBefore.After(after.Add(-staleness)),
+		"StaleBefore is newer than the call's own return minus the staleness threshold")
+
+	// Both edges must come off the same instant, or the window drifts.
+	assert.WithinDuration(t, resp.EvaluatedAt.Add(-staleness), got.StaleBefore, time.Millisecond)
+	assert.WithinDuration(t, resp.EvaluatedAt.Add(-maxAge), got.NotOlderThan, time.Millisecond)
+	assert.True(t, got.NotOlderThan.Before(got.StaleBefore),
+		"the far edge must be older than the near edge, or the window is empty")
+
+	assert.Equal(t, int(staleness.Seconds()), resp.StalenessThresholdSeconds)
+	assert.Equal(t, int(maxAge.Seconds()), resp.MaxAgeSeconds)
 }
 
 // TestGatewayFailureSummary_RejectsInvalidThresholds refuses thresholds that
@@ -129,19 +144,31 @@ func TestGatewayFailureSummary_RejectsInvalidThresholds(t *testing.T) {
 		query GatewayFailureSummaryQuery
 	}{
 		{"zero staleness", GatewayFailureSummaryQuery{
-			StalenessThreshold: 0, FailurePercentageThreshold: 10, IncludeDetails: false,
+			StalenessThreshold: 0, MaxAge: time.Hour, FailurePercentageThreshold: 10, IncludeDetails: false,
 		}},
 		{"negative staleness", GatewayFailureSummaryQuery{
-			StalenessThreshold: -time.Minute, FailurePercentageThreshold: 10, IncludeDetails: false,
+			StalenessThreshold: -time.Minute, MaxAge: time.Hour, FailurePercentageThreshold: 10, IncludeDetails: false,
+		}},
+		// An empty window: no updated_at can be both older than the near edge
+		// and newer than the far one, so every fleet reports perfectly healthy.
+		// That is worse than an error, because it looks like an answer.
+		{"max age equal to staleness", GatewayFailureSummaryQuery{
+			StalenessThreshold: time.Hour, MaxAge: time.Hour, FailurePercentageThreshold: 10, IncludeDetails: false,
+		}},
+		{"max age below staleness", GatewayFailureSummaryQuery{
+			StalenessThreshold: time.Hour, MaxAge: time.Minute, FailurePercentageThreshold: 10, IncludeDetails: false,
+		}},
+		{"zero max age", GatewayFailureSummaryQuery{
+			StalenessThreshold: time.Minute, MaxAge: 0, FailurePercentageThreshold: 10, IncludeDetails: false,
 		}},
 		{"zero percentage", GatewayFailureSummaryQuery{
-			StalenessThreshold: time.Minute, FailurePercentageThreshold: 0, IncludeDetails: false,
+			StalenessThreshold: time.Minute, MaxAge: time.Hour, FailurePercentageThreshold: 0, IncludeDetails: false,
 		}},
 		{"negative percentage", GatewayFailureSummaryQuery{
-			StalenessThreshold: time.Minute, FailurePercentageThreshold: -1, IncludeDetails: false,
+			StalenessThreshold: time.Minute, MaxAge: time.Hour, FailurePercentageThreshold: -1, IncludeDetails: false,
 		}},
 		{"percentage over 100", GatewayFailureSummaryQuery{
-			StalenessThreshold: time.Minute, FailurePercentageThreshold: 100.01, IncludeDetails: false,
+			StalenessThreshold: time.Minute, MaxAge: time.Hour, FailurePercentageThreshold: 100.01, IncludeDetails: false,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,7 +185,7 @@ func TestGatewayFailureSummary_PropagatesCountError(t *testing.T) {
 	sentinel := errors.New("connection refused")
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{}, sentinel
 		},
@@ -181,12 +208,12 @@ func TestGatewayFailureSummary_PropagatesDetailError(t *testing.T) {
 	sentinel := errors.New("statement timeout")
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{Total: 10, Failed: 3}, nil
 		},
 		ListFailedGatewaysAllOrgsFunc: func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ repositories.GatewayFailureWindow, _ int,
 		) ([]*models.Gateway, error) {
 			return nil, sentinel
 		},
@@ -209,12 +236,12 @@ func TestGatewayFailureSummary_IncludeDetails(t *testing.T) {
 
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{Total: 10, Failed: 1}, nil
 		},
 		ListFailedGatewaysAllOrgsFunc: func(
-			_ context.Context, _ time.Time, limit int,
+			_ context.Context, _ repositories.GatewayFailureWindow, limit int,
 		) ([]*models.Gateway, error) {
 			// One over the cap, so a full page is distinguishable from a page
 			// that ends exactly at it.
@@ -250,14 +277,14 @@ func TestGatewayFailureSummary_TruncatesDetails(t *testing.T) {
 
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{
 				Total: 9000, Failed: int64(len(overflowing)),
 			}, nil
 		},
 		ListFailedGatewaysAllOrgsFunc: func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ repositories.GatewayFailureWindow, _ int,
 		) ([]*models.Gateway, error) {
 			return overflowing, nil
 		},
@@ -283,40 +310,50 @@ func TestGatewayFailureSummary_TruncatesDetails(t *testing.T) {
 // answering "10% failing, healthy: true".
 func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		total, failed  int64
-		threshold      float64
-		wantPercentage float64
-		wantHealthy    bool
+		name                     string
+		total, failed, abandoned int64
+		threshold                float64
+		wantPercentage           float64
+		wantHealthy              bool
 	}{
-		{"well under the threshold", 412, 7, 10, 1.7, true},
-		{"nothing failing", 100, 0, 10, 0, true},
-		{"just under the threshold", 1000, 99, 10, 9.9, true},
-		{"exactly at the threshold is unhealthy", 100, 10, 10, 10, false},
-		{"over the threshold", 100, 40, 10, 40, false},
-		{"whole fleet down", 8, 8, 10, 100, false},
-		{"sub-percent threshold catches a large fleet", 10000, 60, 0.5, 0.6, false},
-		{"rounded to two places", 3, 1, 50, 33.33, true},
+		{"well under the threshold", 412, 7, 0, 10, 1.7, true},
+		{"nothing failing", 100, 0, 0, 10, 0, true},
+		{"just under the threshold", 1000, 99, 0, 10, 9.9, true},
+		{"exactly at the threshold is unhealthy", 100, 10, 0, 10, 10, false},
+		{"over the threshold", 100, 40, 0, 10, 40, false},
+		{"whole fleet down", 8, 8, 0, 10, 100, false},
+		{"sub-percent threshold catches a large fleet", 10000, 60, 0, 0.5, 0.6, false},
+		{"rounded to two places", 3, 1, 0, 50, 33.33, true},
+		// The reason abandoned rows leave the denominator: every live gateway
+		// is down, and counting the 95 decommissioned ones would report 5%.
+		{"abandoned rows must not dilute a real outage", 100, 5, 95, 10, 100, false},
+		{"abandoned rows shrink the denominator", 100, 5, 50, 10, 10, false},
+		{"abandoned only, nothing failing", 100, 0, 90, 10, 0, true},
+		// Nothing left in scope: healthy at 0% rather than dividing by zero.
+		{"every gateway abandoned", 100, 0, 100, 10, 0, true},
 		// 9999/100000 is 9.999% raw, which rounds to exactly 10.00. The
 		// reported number and the verdict must agree, which is why the
 		// comparison uses the rounded value: against the raw quotient
 		// 9.999 < 10 would report this fleet healthy while printing "10".
-		{"rounds up onto the threshold", 100000, 9999, 10, 10, false},
+		{"rounds up onto the threshold", 100000, 9999, 0, 10, 10, false},
 		// An empty fleet: nothing is failing, and the division must not happen.
-		{"empty fleet is healthy", 0, 0, 10, 0, true},
+		{"empty fleet is healthy", 0, 0, 0, 10, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &repomocks.GatewayRepositoryMock{
 				CountFailureSummaryAllOrgsFunc: func(
-					_ context.Context, _ time.Time,
+					_ context.Context, _ repositories.GatewayFailureWindow,
 				) (repositories.GatewayFailureCounts, error) {
-					return repositories.GatewayFailureCounts{Total: tc.total, Failed: tc.failed}, nil
+					return repositories.GatewayFailureCounts{
+						Total: tc.total, Failed: tc.failed, Abandoned: tc.abandoned,
+					}, nil
 				},
 			}
 
 			resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
 				context.Background(), GatewayFailureSummaryQuery{
 					StalenessThreshold:         5 * time.Minute,
+					MaxAge:                     7 * 24 * time.Hour,
 					FailurePercentageThreshold: tc.threshold,
 					IncludeDetails:             false,
 				})
@@ -327,6 +364,9 @@ func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 			// The verdict must be exactly what the reported numbers imply, so a
 			// reader of the payload can never disagree with it.
 			assert.Equal(t, resp.FailurePercentage < resp.FailurePercentageThreshold, resp.Healthy)
+			// Total must always split into the denominator plus what was
+			// excluded from it, or the response cannot be reconciled.
+			assert.Equal(t, tc.total, resp.Considered+resp.Abandoned)
 		})
 	}
 }
@@ -341,12 +381,12 @@ func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 func TestGatewayFailureSummary_VerdictIsPresentWithDetails(t *testing.T) {
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
 			return repositories.GatewayFailureCounts{Total: 10, Failed: 9}, nil
 		},
 		ListFailedGatewaysAllOrgsFunc: func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ repositories.GatewayFailureWindow, _ int,
 		) ([]*models.Gateway, error) {
 			return []*models.Gateway{
 				{UUID: uuid.New(), Name: "gw-down", OUID: "ou-abc", UpdatedAt: time.Now().Add(-time.Hour)},

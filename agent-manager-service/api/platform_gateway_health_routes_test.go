@@ -46,17 +46,19 @@ import (
 // context, three more wrappers sit between it and the handler, and the handler
 // refuses if the stamp is missing. Testing the middleware and the handler apart
 // would not catch a chain that drops the request context between them.
-func platformHealthMux(t *testing.T, total, failed int64) *http.ServeMux {
+func platformHealthMux(t *testing.T, total, failed, abandoned int64) *http.ServeMux {
 	t.Helper()
 
 	repo := &repomocks.GatewayRepositoryMock{
 		CountFailureSummaryAllOrgsFunc: func(
-			_ context.Context, _ time.Time,
+			_ context.Context, _ repositories.GatewayFailureWindow,
 		) (repositories.GatewayFailureCounts, error) {
-			return repositories.GatewayFailureCounts{Total: total, Failed: failed}, nil
+			return repositories.GatewayFailureCounts{
+				Total: total, Failed: failed, Abandoned: abandoned,
+			}, nil
 		},
 		ListFailedGatewaysAllOrgsFunc: func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ repositories.GatewayFailureWindow, _ int,
 		) ([]*models.Gateway, error) {
 			return []*models.Gateway{
 				{UUID: uuid.New(), Name: "gw-down", OUID: "ou-abc", UpdatedAt: time.Now().Add(-time.Hour)},
@@ -130,7 +132,7 @@ func TestPlatformGatewayHealthRoute_AdmitsPlatformAdmin(t *testing.T) {
 
 	withFailurePercentageThreshold(t, 10)
 
-	rec := callPlatformHealth(t, platformHealthMux(t, 412, 7), "ou-platform-admin", false)
+	rec := callPlatformHealth(t, platformHealthMux(t, 412, 7, 0), "ou-platform-admin", false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("platform admin: want 200, got %d (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -158,7 +160,7 @@ func TestPlatformGatewayHealthRoute_RefusesTenantToken(t *testing.T) {
 
 	withPlatformAdminOUID(t, "ou-platform-admin")
 
-	rec := callPlatformHealth(t, platformHealthMux(t, 412, 7), "ou-some-tenant", false)
+	rec := callPlatformHealth(t, platformHealthMux(t, 412, 7, 0), "ou-some-tenant", false)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("tenant token with RBAC off: want 403, got %d (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -174,7 +176,7 @@ func TestPlatformGatewayHealthRoute_RefusesWhenUnconfigured(t *testing.T) {
 	withPlatformAdminOUID(t, "")
 
 	for _, tokenOUID := range []string{"ou-platform-admin", "ou-some-tenant", ""} {
-		if rec := callPlatformHealth(t, platformHealthMux(t, 412, 7), tokenOUID, false); rec.Code != http.StatusForbidden {
+		if rec := callPlatformHealth(t, platformHealthMux(t, 412, 7, 0), tokenOUID, false); rec.Code != http.StatusForbidden {
 			t.Errorf("unconfigured (token %q): want 403, got %d", tokenOUID, rec.Code)
 		}
 	}
@@ -212,7 +214,7 @@ func TestPlatformGatewayHealthRoute_UnhealthyFleetAnswers503(t *testing.T) {
 	withFailurePercentageThreshold(t, 10)
 
 	// 40 of 100 failing: four times the threshold.
-	rec := callPlatformHealth(t, platformHealthMux(t, 100, 40), "ou-platform-admin", false)
+	rec := callPlatformHealth(t, platformHealthMux(t, 100, 40, 0), "ou-platform-admin", false)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unhealthy fleet: want 503, got %d (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -248,7 +250,7 @@ func TestPlatformGatewayHealthRoute_StatusFollowsTheThreshold(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withFailurePercentageThreshold(t, tc.threshold)
-			rec := callPlatformHealth(t, platformHealthMux(t, 100, 5), "ou-platform-admin", false)
+			rec := callPlatformHealth(t, platformHealthMux(t, 100, 5, 0), "ou-platform-admin", false)
 			if rec.Code != tc.wantStatus {
 				t.Errorf("threshold %v: status = %d, want %d", tc.threshold, rec.Code, tc.wantStatus)
 			}
@@ -272,7 +274,7 @@ func TestPlatformGatewayHealthRoute_DetailedRequestAlwaysAnswers200(t *testing.T
 	withFailurePercentageThreshold(t, 10)
 
 	// The whole fleet is down — the worst case the summary form would 503 on.
-	rec := callPlatformHealth(t, platformHealthMux(t, 100, 100), "ou-platform-admin", true)
+	rec := callPlatformHealth(t, platformHealthMux(t, 100, 100, 0), "ou-platform-admin", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("detailed request: want 200 regardless of fleet health, got %d", rec.Code)
 	}
@@ -298,8 +300,37 @@ func TestPlatformGatewayHealthRoute_DetailedRequestIsStillAuthorized(t *testing.
 	withPlatformAdminOUID(t, "ou-platform-admin")
 	withFailurePercentageThreshold(t, 10)
 
-	rec := callPlatformHealth(t, platformHealthMux(t, 100, 100), "ou-some-tenant", true)
+	rec := callPlatformHealth(t, platformHealthMux(t, 100, 100, 0), "ou-some-tenant", true)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("tenant token on the detailed form: want 403, got %d", rec.Code)
+	}
+}
+
+// TestPlatformGatewayHealthRoute_AbandonedGatewaysDoNotDiluteTheVerdict is the
+// end-to-end version of the denominator rule, and it is a status-code test
+// rather than a payload one because that is the part an operator feels.
+//
+// 5 of 5 live gateways are down. Counting the 95 abandoned rows would put the
+// fleet at 5% — under the threshold — and answer 200 while every gateway anyone
+// still uses is unreachable. Excluding them reports 100% and answers 503.
+func TestPlatformGatewayHealthRoute_AbandonedGatewaysDoNotDiluteTheVerdict(t *testing.T) {
+	withPlatformAdminOUID(t, "ou-platform-admin")
+	withFailurePercentageThreshold(t, 10)
+
+	rec := callPlatformHealth(t, platformHealthMux(t, 100, 5, 95), "ou-platform-admin", false)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("every live gateway down: want 503, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	body := decodeSummary(t, rec)
+	if body.FailurePercentage != 100 {
+		t.Errorf("failurePercentage = %v, want 100 (5 failed of 5 considered)", body.FailurePercentage)
+	}
+	if body.Considered != 5 {
+		t.Errorf("considered = %d, want 5 (100 total less 95 abandoned)", body.Considered)
+	}
+	if body.Abandoned != 95 || body.Total != 100 {
+		t.Errorf("total/abandoned = %d/%d, want 100/95; both must be reported so the "+
+			"denominator is checkable", body.Total, body.Abandoned)
 	}
 }

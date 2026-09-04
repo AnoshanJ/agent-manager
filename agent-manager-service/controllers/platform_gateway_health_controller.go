@@ -71,6 +71,7 @@ func (c *gatewayController) GetPlatformGatewayFailureSummary(w http.ResponseWrit
 
 	summary, err := c.gatewayService.GetCrossOrgGatewayFailureSummary(ctx, services.GatewayFailureSummaryQuery{
 		StalenessThreshold:         time.Duration(cfg.GatewayFailureThresholdSeconds) * time.Second,
+		MaxAge:                     time.Duration(cfg.GatewayFailureMaxAgeSeconds) * time.Second,
 		FailurePercentageThreshold: cfg.GatewayFailurePercentageThreshold,
 		IncludeDetails:             includeDetails,
 	})

@@ -118,6 +118,9 @@ services:
       # when the fleet as a whole is reported unhealthy (503 instead of 200).
       - PLATFORM_ADMIN_OU_ID=${PLATFORM_ADMIN_OU_ID:-01900000-0000-7000-8000-000000000001}
       - GATEWAY_FAILURE_THRESHOLD_SECONDS=${GATEWAY_FAILURE_THRESHOLD_SECONDS:-300}
+      # 604800 = 7 days. Disconnected gateways older than this are reported
+      # as abandoned and excluded from the failure-percentage denominator.
+      - GATEWAY_FAILURE_MAX_AGE_SECONDS=${GATEWAY_FAILURE_MAX_AGE_SECONDS:-604800}
       - GATEWAY_FAILURE_PERCENTAGE_THRESHOLD=${GATEWAY_FAILURE_PERCENTAGE_THRESHOLD:-10}
     volumes:
       # Mount source code for hot-reloading

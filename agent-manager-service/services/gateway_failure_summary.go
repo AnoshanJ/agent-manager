@@ -31,6 +31,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
@@ -59,8 +60,12 @@ type FailedGatewayDetail struct {
 // arithmetic is testable without the environment.
 type GatewayFailureSummaryQuery struct {
 	// StalenessThreshold is how long a gateway must have been disconnected
-	// before it counts as failed.
+	// before it counts as failed — the near edge of the window.
 	StalenessThreshold time.Duration
+	// MaxAge is the far edge: a disconnected gateway whose last update is older
+	// than this is treated as decommissioned rather than failing. Must exceed
+	// StalenessThreshold.
+	MaxAge time.Duration
 	// FailurePercentageThreshold is the share of the fleet, in percent, at or
 	// above which the fleet is unhealthy.
 	FailurePercentageThreshold float64
@@ -75,12 +80,20 @@ type GatewayFailureSummaryQuery struct {
 // different answer at a different threshold, and a caller graphing this needs to
 // know which instant and which policy it describes.
 type GatewayFailureSummaryResponse struct {
-	Total  int64 `json:"total"`
+	// Total is every gateway in the deployment, abandoned ones included.
+	Total int64 `json:"total"`
+	// Abandoned is the disconnected gateways last updated before the window's
+	// far edge. Excluded from Considered, and so from the percentage.
+	Abandoned int64 `json:"abandoned"`
+	// Considered is the denominator: Total minus Abandoned. The fleet the
+	// verdict is actually about.
+	Considered int64 `json:"considered"`
+	// Failed is the gateways inside the failure window.
 	Failed int64 `json:"failed"`
 
-	// FailurePercentage is Failed as a percentage of Total, rounded to two
-	// decimal places. Zero when the fleet is empty — see the note in
-	// GetCrossOrgGatewayFailureSummary.
+	// FailurePercentage is Failed as a percentage of Considered — NOT of Total,
+	// so a pile of decommissioned gateways cannot dilute a real outage away.
+	// Rounded to two decimal places. Zero when Considered is zero.
 	FailurePercentage float64 `json:"failurePercentage"`
 	// Healthy is the verdict: FailurePercentage is below
 	// FailurePercentageThreshold.
@@ -96,8 +109,12 @@ type GatewayFailureSummaryResponse struct {
 	FailurePercentageThreshold float64 `json:"failurePercentageThreshold"`
 	// StalenessThresholdSeconds is how long a gateway must have been
 	// disconnected to be counted in Failed.
-	StalenessThresholdSeconds int       `json:"stalenessThresholdSeconds"`
-	EvaluatedAt               time.Time `json:"evaluatedAt"`
+	StalenessThresholdSeconds int `json:"stalenessThresholdSeconds"`
+	// MaxAgeSeconds is how stale a disconnected gateway may be and still count.
+	// Anything last updated before it is excluded from Failed — but not from
+	// Total, so the two can differ by more than Failed alone explains.
+	MaxAgeSeconds int       `json:"maxAgeSeconds"`
+	EvaluatedAt   time.Time `json:"evaluatedAt"`
 
 	// FailedGateways is populated only when details were requested. Omitted
 	// rather than sent empty, so an absent list is distinguishable from a fleet
@@ -112,13 +129,24 @@ type GatewayFailureSummaryResponse struct {
 // how many have been disconnected past the staleness threshold, and whether that
 // share puts the fleet over the failure-percentage threshold.
 //
-// A gateway is failed when it is not connected (is_active false) and has been in
-// that state since before now-StalenessThreshold.
+// A gateway is failed when it is not connected (is_active false) and its last
+// liveness change falls inside the window: older than StalenessThreshold, and
+// newer than MaxAge. The far edge matters as much as the near one — without it a
+// decommissioned gateway is reported as broken forever.
 //
-// An empty fleet is healthy at 0%. Nothing is failing when nothing exists, and
-// the alternative is a division by zero — but note this means a deployment that
-// has lost every gateway row reports the same verdict as one that never had any.
-// Total is what distinguishes them.
+// The window narrows Failed only. Total stays every gateway in the deployment,
+// because updated_at is just as old on one that has been connected without
+// interruption for months; ageing those out of the denominator would inflate the
+// percentage rather than sharpen it.
+//
+// The percentage is taken over Considered — every gateway except the abandoned
+// ones — so decommissioned rows cannot dilute a real outage. Total and Abandoned
+// are both reported so the denominator is checkable rather than implied.
+//
+// A fleet with nothing left to consider is healthy at 0%: nothing is failing
+// when nothing is in scope, and the alternative is a division by zero. Note that
+// this makes "no gateways at all" and "every gateway abandoned" report the same
+// verdict — Total and Abandoned are what tell them apart.
 //
 // When IncludeDetails is set, the failed rows are fetched in a second query, so
 // len(FailedGateways) can lag Failed by whatever changed in between. Failed is
@@ -130,6 +158,14 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 	if query.StalenessThreshold <= 0 {
 		return nil, fmt.Errorf("%w: gateway staleness threshold must be greater than zero", utils.ErrBadRequest)
 	}
+	// An upper bound at or below the lower one is an empty window: no updated_at
+	// can satisfy both, so every fleet reports perfectly healthy. Refused rather
+	// than served, because the answer would look valid and never be.
+	if query.MaxAge <= query.StalenessThreshold {
+		return nil, fmt.Errorf(
+			"%w: gateway failure max age must be greater than the staleness threshold",
+			utils.ErrBadRequest)
+	}
 	// Guarded here as well as at startup: this decides whether callers are told
 	// the fleet is broken, and a zero value arriving from an uninitialised
 	// struct would silently report every fleet unhealthy.
@@ -140,18 +176,28 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 	}
 
 	evaluatedAt := time.Now()
-	staleBefore := evaluatedAt.Add(-query.StalenessThreshold)
+	window := repositories.GatewayFailureWindow{
+		StaleBefore:  evaluatedAt.Add(-query.StalenessThreshold),
+		NotOlderThan: evaluatedAt.Add(-query.MaxAge),
+	}
 
-	counts, err := s.gatewayRepo.CountFailureSummaryAllOrgs(ctx, staleBefore)
+	counts, err := s.gatewayRepo.CountFailureSummaryAllOrgs(ctx, window)
 	if err != nil {
 		return nil, fmt.Errorf("failed to summarize gateway failures: %w", err)
 	}
 
-	percentage := failurePercentage(counts.Total, counts.Failed)
+	// Abandoned gateways leave the denominator. Counting them would let a
+	// deployment bury a real outage under decommissioned rows: 5 of 5 live
+	// gateways down reads as 5% — comfortably healthy — once 95 forgotten ones
+	// are in the divisor.
+	considered := counts.Total - counts.Abandoned
+	percentage := failurePercentage(considered, counts.Failed)
 
 	resp := &GatewayFailureSummaryResponse{
-		Total:  counts.Total,
-		Failed: counts.Failed,
+		Total:      counts.Total,
+		Abandoned:  counts.Abandoned,
+		Considered: considered,
+		Failed:     counts.Failed,
 
 		FailurePercentage: percentage,
 		// Compared against the same rounded value that is reported, not the raw
@@ -162,6 +208,7 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 
 		FailurePercentageThreshold: query.FailurePercentageThreshold,
 		StalenessThresholdSeconds:  int(query.StalenessThreshold.Seconds()),
+		MaxAgeSeconds:              int(query.MaxAge.Seconds()),
 		EvaluatedAt:                evaluatedAt,
 
 		FailedGateways: nil,
@@ -173,7 +220,7 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 
 	// One more than the cap, so a full page is distinguishable from a page that
 	// happens to end exactly at the cap.
-	gateways, err := s.gatewayRepo.ListFailedGatewaysAllOrgs(ctx, staleBefore, maxFailedGatewayDetailRows+1)
+	gateways, err := s.gatewayRepo.ListFailedGatewaysAllOrgs(ctx, window, maxFailedGatewayDetailRows+1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list failed gateways: %w", err)
 	}
@@ -201,14 +248,14 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 	return resp, nil
 }
 
-// failurePercentage returns failed as a percentage of total, to two decimal
-// places, and 0 for an empty fleet.
+// failurePercentage returns failed as a percentage of considered, to two decimal
+// places, and 0 when there is nothing in scope.
 //
 // Rounded before it is compared to anything, so the number in the response and
 // the number behind the verdict are the same number.
-func failurePercentage(total, failed int64) float64 {
-	if total <= 0 {
+func failurePercentage(considered, failed int64) float64 {
+	if considered <= 0 {
 		return 0
 	}
-	return math.Round(float64(failed)/float64(total)*10000) / 100
+	return math.Round(float64(failed)/float64(considered)*10000) / 100
 }
