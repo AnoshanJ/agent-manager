@@ -135,6 +135,35 @@ type Config struct {
 	// system clients always carry the root OU rather than a specific tenant's OU.
 	RootOUHandle string
 
+	// PlatformAdminOUID is the Thunder OU ID (claims.ouId) of the single
+	// organization allowed to call the cross-organization platform routes —
+	// today only the gateway failure summary. Empty denies every request to
+	// them; there is deliberately no "unset means allow all" reading, because
+	// these routes read every tenant's data and the check below is the only
+	// thing standing in front of them.
+	//
+	// Matched on the OU ID rather than the handle (unlike RootOUHandle above)
+	// because a handle is a renameable, re-claimable label: if an org handle is
+	// ever released and re-registered, a handle-based allowlist would silently
+	// hand platform-admin access to whoever claims it next. The OU ID does not
+	// move.
+	PlatformAdminOUID string
+
+	// GatewayFailureThresholdSeconds is how long a gateway must have been
+	// disconnected (is_active false) before it counts as failed. Configurable
+	// rather than a constant because the SLO differs per deployment shape, and
+	// it is read once per request so a change needs no code release.
+	GatewayFailureThresholdSeconds int
+
+	// GatewayFailurePercentageThreshold is the share of failed gateways, as a
+	// percentage of the whole fleet, at or above which the fleet is reported
+	// unhealthy — the summary route answers with 503 rather than 200.
+	//
+	// A float, not an int, because a large fleet's SLO lives below one percent:
+	// with whole numbers the strictest expressible threshold is 1%, which is
+	// 4 dead gateways out of 400 before anything is reported wrong.
+	GatewayFailurePercentageThreshold float64
+
 	// TLS Configurations
 	TLSConfig TLSConfig
 

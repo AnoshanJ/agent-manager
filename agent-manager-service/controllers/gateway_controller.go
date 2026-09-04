@@ -60,6 +60,10 @@ type GatewayController interface {
 	RevokeGatewayToken(w http.ResponseWriter, r *http.Request)
 	GetGatewayStatus(w http.ResponseWriter, r *http.Request)
 
+	// Cross-organization, platform-admin only. Not org-scoped like everything
+	// else on this interface — see the handler.
+	GetPlatformGatewayFailureSummary(w http.ResponseWriter, r *http.Request)
+
 	// Identity provider handlers
 	ListIdentityProviders(w http.ResponseWriter, r *http.Request)
 	ListGatewayIdentityProviders(w http.ResponseWriter, r *http.Request)

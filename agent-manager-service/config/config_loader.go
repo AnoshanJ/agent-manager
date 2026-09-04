@@ -295,6 +295,30 @@ func loadEnvs() {
 
 	config.RootOUHandle = r.readOptionalString("ROOT_OU_HANDLE", "admin")
 
+	// Cross-organization platform routes. Deliberately no default: an unset
+	// PLATFORM_ADMIN_OU_ID leaves the routes registered but refusing every
+	// caller, which is the safe end of the failure mode. Warned about rather
+	// than fatal so open-source and local-dev deployments — which have no
+	// platform-admin org at all — still start.
+	config.PlatformAdminOUID = strings.TrimSpace(r.readOptionalString("PLATFORM_ADMIN_OU_ID", ""))
+	if config.PlatformAdminOUID == "" {
+		slog.Warn("PLATFORM_ADMIN_OU_ID is not set; cross-organization platform routes will deny every request")
+	}
+	config.GatewayFailureThresholdSeconds = int(r.readOptionalInt64("GATEWAY_FAILURE_THRESHOLD_SECONDS", 300))
+	if config.GatewayFailureThresholdSeconds <= 0 {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_FAILURE_THRESHOLD_SECONDS must be greater than 0, got %d", config.GatewayFailureThresholdSeconds))
+	}
+	// Both ends are rejected rather than clamped, because either would make the
+	// health verdict a constant: at 0 an empty fleet already reports unhealthy,
+	// and above 100 no fleet ever can.
+	config.GatewayFailurePercentageThreshold = r.readOptionalFloat64("GATEWAY_FAILURE_PERCENTAGE_THRESHOLD", 10)
+	if config.GatewayFailurePercentageThreshold <= 0 || config.GatewayFailurePercentageThreshold > 100 {
+		r.errors = append(r.errors, fmt.Errorf(
+			"GATEWAY_FAILURE_PERCENTAGE_THRESHOLD must be greater than 0 and at most 100, got %v",
+			config.GatewayFailurePercentageThreshold))
+	}
+
 	// Audit defaults to on. A deployment that wants no audit trail has to say
 	// so explicitly, rather than acquiring one by omission.
 	config.Audit = AuditConfig{

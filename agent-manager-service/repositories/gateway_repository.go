@@ -53,6 +53,16 @@ type GatewayFilterOptions struct {
 	Offset              int     // Pagination offset
 }
 
+// GatewayFailureCounts is the result of one cross-organization health sweep:
+// how many gateways exist and how many of them have been disconnected past the
+// caller's threshold. Returned together because they come from a single query —
+// two separate counts could be taken either side of a status change and report
+// a fleet state that never existed.
+type GatewayFailureCounts struct {
+	Total  int64
+	Failed int64
+}
+
 // GatewayRepository defines the interface for gateway data access
 //
 //go:generate moq -rm -fmt goimports -skip-ensure -pkg repomocks -out repomocks/gateway_repository_mock.go . GatewayRepository:GatewayRepositoryMock
@@ -69,6 +79,12 @@ type GatewayRepository interface {
 	Delete(gatewayID, ouID string) error
 	UpdateGateway(gateway *models.Gateway) error
 	UpdateActiveStatus(gatewayId string, isActive bool) error
+
+	// Cross-organization fleet health. Both deliberately carry no ou_id
+	// predicate — they back the platform-admin failure summary, which reports
+	// on every tenant at once. Nothing else may call them.
+	CountFailureSummaryAllOrgs(ctx context.Context, staleBefore time.Time) (GatewayFailureCounts, error)
+	ListFailedGatewaysAllOrgs(ctx context.Context, staleBefore time.Time, limit int) ([]*models.Gateway, error)
 
 	// Transaction-scoped operations. The ingress cap is enforced in the service under
 	// pg_advisory_xact_lock, so the service needs to drive a transaction it can also
@@ -626,4 +642,64 @@ func (r *GatewayRepo) CountIngressCapableInEnvironment(tx *gorm.DB, environmentI
 		return 0, fmt.Errorf("failed to count ingress-capable gateways in environment %s: %w", environmentID, err)
 	}
 	return count, nil
+}
+
+// failedGatewayCondition is the SQL predicate for "failed": disconnected, and
+// disconnected since before staleBefore.
+//
+// is_active is WebSocket liveness and updated_at is when that liveness last
+// changed (UpdateActiveStatus writes both together), so the pair reads as "has
+// been down for a while" rather than "is down right now". Two consequences are
+// inherent to the definition and not bugs here: a gateway whose row was edited
+// while disconnected has a fresher updated_at and drops out until the threshold
+// passes again, and a gateway whose holding pod died without cleanup stays
+// is_active=true and is never counted.
+const failedGatewayCondition = "is_active = false AND updated_at < ?"
+
+// CountFailureSummaryAllOrgs counts every gateway in the deployment and how many
+// of them are failed, in one round trip.
+//
+// Conditional aggregation rather than two queries: the total and the failed
+// count must describe the same instant, and this is also one scan instead of
+// two. deleted_at IS NULL is spelled out because raw SQL bypasses GORM's
+// soft-delete scope.
+func (r *GatewayRepo) CountFailureSummaryAllOrgs(
+	ctx context.Context, staleBefore time.Time,
+) (GatewayFailureCounts, error) {
+	var counts GatewayFailureCounts
+	err := r.db.WithContext(ctx).
+		Table("gateways").
+		Select("COUNT(*) AS total, COUNT(*) FILTER (WHERE "+failedGatewayCondition+") AS failed", staleBefore).
+		Where("deleted_at IS NULL").
+		Scan(&counts).Error
+	if err != nil {
+		return GatewayFailureCounts{}, fmt.Errorf("failed to count gateway failure summary: %w", err)
+	}
+	return counts, nil
+}
+
+// ListFailedGatewaysAllOrgs returns the failed gateways across every
+// organization, oldest failure first, capped at limit rows.
+//
+// Oldest first because a truncated list should keep the longest-running
+// failures, which are the ones worth naming. The cap is required, not
+// defensive: this list is unbounded in the number of tenants and is served to a
+// polling caller.
+func (r *GatewayRepo) ListFailedGatewaysAllOrgs(
+	ctx context.Context, staleBefore time.Time, limit int,
+) ([]*models.Gateway, error) {
+	if limit <= 0 {
+		return []*models.Gateway{}, nil
+	}
+	var gateways []*models.Gateway
+	err := r.db.WithContext(ctx).
+		Model(&models.Gateway{}).
+		Where(failedGatewayCondition, staleBefore).
+		Order("updated_at ASC").
+		Limit(limit).
+		Find(&gateways).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list failed gateways: %w", err)
+	}
+	return gateways, nil
 }
