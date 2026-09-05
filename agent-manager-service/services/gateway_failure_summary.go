@@ -96,7 +96,10 @@ type GatewayFailureSummaryResponse struct {
 	// Rounded to two decimal places. Zero when Considered is zero.
 	FailurePercentage float64 `json:"failurePercentage"`
 	// Healthy is the verdict: FailurePercentage is below
-	// FailurePercentageThreshold.
+	// FailurePercentageThreshold AND the fleet has not gone silent (see the
+	// no-signal case in GetCrossOrgGatewayFailureSummary). It is therefore NOT
+	// derivable from FailurePercentage alone — read this field, do not
+	// recompute it.
 	//
 	// Always present, and it is the field to branch on. The summary form also
 	// signals this through the HTTP status, but a detailed request answers 200
@@ -134,19 +137,22 @@ type GatewayFailureSummaryResponse struct {
 // newer than MaxAge. The far edge matters as much as the near one — without it a
 // decommissioned gateway is reported as broken forever.
 //
-// The window narrows Failed only. Total stays every gateway in the deployment,
-// because updated_at is just as old on one that has been connected without
-// interruption for months; ageing those out of the denominator would inflate the
-// percentage rather than sharpen it.
+// Age never removes a CONNECTED gateway from anything. updated_at is just as old
+// on one that has held its connection for months, because nothing writes the
+// column while a connection lives, so an age-only rule would drop the healthiest
+// gateways in the fleet and inflate the percentage rather than sharpen it. Only
+// a gateway that is both old and disconnected is abandoned.
 //
 // The percentage is taken over Considered — every gateway except the abandoned
 // ones — so decommissioned rows cannot dilute a real outage. Total and Abandoned
 // are both reported so the denominator is checkable rather than implied.
 //
-// A fleet with nothing left to consider is healthy at 0%: nothing is failing
-// when nothing is in scope, and the alternative is a division by zero. Note that
-// this makes "no gateways at all" and "every gateway abandoned" report the same
-// verdict — Total and Abandoned are what tell them apart.
+// "Every gateway abandoned" and "no gateways at all" are deliberately NOT the
+// same verdict. A deployment with gateways, none of which are still in scope,
+// is reported unhealthy: the fleet has gone silent, and the 0% it would
+// otherwise show is an artefact of an empty denominator rather than a healthy
+// fleet. A deployment with no gateways at all is healthy — nothing is failing
+// when nothing exists.
 //
 // When IncludeDetails is set, the failed rows are fetched in a second query, so
 // len(FailedGateways) can lag Failed by whatever changed in between. Failed is
@@ -193,6 +199,16 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 	considered := counts.Total - counts.Abandoned
 	percentage := failurePercentage(considered, counts.Failed)
 
+	// A fleet that exists but has nothing left to consider is not healthy, it is
+	// silent: every gateway it has is disconnected and past MaxAge. The
+	// percentage reads 0 there only because the denominator is empty, and
+	// reporting that as healthy would switch the alarm off at the exact moment
+	// the whole fleet has been down longest — a prolonged total outage would
+	// cross MaxAge and turn the monitor green. An empty deployment (Total == 0)
+	// is a different thing and stays healthy: nothing is failing when nothing
+	// exists.
+	noSignal := considered == 0 && counts.Total > 0
+
 	resp := &GatewayFailureSummaryResponse{
 		Total:      counts.Total,
 		Abandoned:  counts.Abandoned,
@@ -204,7 +220,7 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 		// quotient. Rounding only the output would let a response read
 		// "10% failing, healthy: true" against a threshold of 10 — the payload
 		// contradicting its own verdict over a hidden fraction.
-		Healthy: percentage < query.FailurePercentageThreshold,
+		Healthy: !noSignal && percentage < query.FailurePercentageThreshold,
 
 		FailurePercentageThreshold: query.FailurePercentageThreshold,
 		StalenessThresholdSeconds:  int(query.StalenessThreshold.Seconds()),

@@ -81,13 +81,21 @@ func (c *gatewayController) GetPlatformGatewayFailureSummary(w http.ResponseWrit
 		return
 	}
 
+	// Logged on the verdict, not on the status. A dashboard polling with
+	// includeDetails=true gets 200 by design, and gating this warning on the
+	// status too would mean a degraded fleet produced no log line at all for
+	// exactly the caller most likely to be watching it.
+	if !summary.Healthy {
+		log.Warn("gateway fleet is over the failure threshold",
+			"failed", summary.Failed, "considered", summary.Considered,
+			"abandoned", summary.Abandoned, "total", summary.Total,
+			"failurePercentage", summary.FailurePercentage,
+			"thresholdPercentage", summary.FailurePercentageThreshold)
+	}
+
 	status := http.StatusOK
 	if !summary.Healthy && !includeDetails {
 		status = http.StatusServiceUnavailable
-		log.Warn("gateway fleet is over the failure threshold",
-			"failed", summary.Failed, "total", summary.Total,
-			"failurePercentage", summary.FailurePercentage,
-			"thresholdPercentage", summary.FailurePercentageThreshold)
 	}
 
 	// WriteSuccessResponse writes the payload under the status it is given; the

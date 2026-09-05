@@ -738,7 +738,11 @@ func (r *GatewayRepo) ListFailedGatewaysAllOrgs(
 	err := r.db.WithContext(ctx).
 		Model(&models.Gateway{}).
 		Where(failedGatewayCondition, window.StaleBefore, window.NotOlderThan).
-		Order("updated_at ASC").
+		// uuid breaks ties. Without it the "oldest N" page is not a stable set:
+		// gateways that dropped in the same write batch share an updated_at, and
+		// Postgres is free to order them differently between calls — so a capped
+		// list could show a different subset each poll.
+		Order("updated_at ASC, uuid ASC").
 		Limit(limit).
 		Find(&gateways).Error
 	if err != nil {

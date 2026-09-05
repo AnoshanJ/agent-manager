@@ -329,8 +329,11 @@ func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 		{"abandoned rows must not dilute a real outage", 100, 5, 95, 10, 100, false},
 		{"abandoned rows shrink the denominator", 100, 5, 50, 10, 10, false},
 		{"abandoned only, nothing failing", 100, 0, 90, 10, 0, true},
-		// Nothing left in scope: healthy at 0% rather than dividing by zero.
-		{"every gateway abandoned", 100, 0, 100, 10, 0, true},
+		// The fleet has gone silent: 100 gateways exist and not one is still in
+		// scope. The 0% is an empty denominator, not health, so this must report
+		// UNHEALTHY — otherwise a total outage lasting past MaxAge turns the
+		// monitor green at its worst moment.
+		{"every gateway abandoned is no-signal, not healthy", 100, 0, 100, 10, 0, false},
 		// 9999/100000 is 9.999% raw, which rounds to exactly 10.00. The
 		// reported number and the verdict must agree, which is why the
 		// comparison uses the rounded value: against the raw quotient
@@ -362,8 +365,13 @@ func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 			assert.Equal(t, tc.wantPercentage, resp.FailurePercentage)
 			assert.Equal(t, tc.wantHealthy, resp.Healthy)
 			// The verdict must be exactly what the reported numbers imply, so a
-			// reader of the payload can never disagree with it.
-			assert.Equal(t, resp.FailurePercentage < resp.FailurePercentageThreshold, resp.Healthy)
+			// reader of the payload can never disagree with it. Two inputs, not
+			// one: under the threshold AND still reporting. A fleet whose
+			// denominator has emptied is unhealthy at 0%.
+			stillReporting := resp.Considered > 0 || resp.Total == 0
+			assert.Equal(t,
+				stillReporting && resp.FailurePercentage < resp.FailurePercentageThreshold,
+				resp.Healthy)
 			// Total must always split into the denominator plus what was
 			// excluded from it, or the response cannot be reconciled.
 			assert.Equal(t, tc.total, resp.Considered+resp.Abandoned)
