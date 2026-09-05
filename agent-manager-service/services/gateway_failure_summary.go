@@ -175,7 +175,13 @@ func (s *PlatformGatewayService) GetCrossOrgGatewayFailureSummary(
 	// Guarded here as well as at startup: this decides whether callers are told
 	// the fleet is broken, and a zero value arriving from an uninitialised
 	// struct would silently report every fleet unhealthy.
-	if query.FailurePercentageThreshold <= 0 || query.FailurePercentageThreshold > 100 {
+	//
+	// NaN needs its own test because a range check cannot catch it — every
+	// comparison against NaN is false, so it reads as "in range" here and then
+	// makes the `percentage < threshold` verdict below false for every fleet.
+	if math.IsNaN(query.FailurePercentageThreshold) ||
+		query.FailurePercentageThreshold <= 0 ||
+		query.FailurePercentageThreshold > 100 {
 		return nil, fmt.Errorf(
 			"%w: gateway failure percentage threshold must be greater than zero and at most 100",
 			utils.ErrBadRequest)

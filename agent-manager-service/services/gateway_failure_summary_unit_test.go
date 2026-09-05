@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -169,6 +170,15 @@ func TestGatewayFailureSummary_RejectsInvalidThresholds(t *testing.T) {
 		}},
 		{"percentage over 100", GatewayFailureSummaryQuery{
 			StalenessThreshold: time.Minute, MaxAge: time.Hour, FailurePercentageThreshold: 100.01, IncludeDetails: false,
+		}},
+		// NaN is the one value a range check cannot reject: every comparison
+		// against it is false, so `<= 0` and `> 100` both read as "in range".
+		// It reaches the verdict as `percentage < NaN`, also false, which would
+		// report every fleet on earth unhealthy. ParseFloat accepts the literal
+		// "NaN", so a single operator typo is enough to get here.
+		{"NaN percentage", GatewayFailureSummaryQuery{
+			StalenessThreshold: time.Minute, MaxAge: time.Hour,
+			FailurePercentageThreshold: math.NaN(), IncludeDetails: false,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

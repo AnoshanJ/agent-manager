@@ -58,10 +58,17 @@ const platformAdminKey platformAdminCtxKey = iota
 func RequirePlatformAdminOU() func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			// Every denial below carries the correlation id. These are the only
+			// record of a refused cross-organization read outside the audit
+			// trail, and without it a 403 the caller reports cannot be tied to
+			// the request that produced it.
+			correlationID := utils.GetCorrelationId(r.Context())
+
 			adminOUID := config.GetConfig().PlatformAdminOUID
 			if adminOUID == "" {
 				slog.Warn("RequirePlatformAdminOU rejected",
-					"reason", "PLATFORM_ADMIN_OU_ID not configured", "path", r.URL.Path)
+					"reason", "PLATFORM_ADMIN_OU_ID not configured",
+					"correlationId", correlationID, "path", r.URL.Path)
 				recordAuthzDeny(r, "platform-admin-ou-not-configured")
 				utils.WriteErrorResponse(w, http.StatusForbidden, "forbidden")
 				return
@@ -69,8 +76,10 @@ func RequirePlatformAdminOU() func(http.HandlerFunc) http.HandlerFunc {
 
 			claims := jwtassertion.GetTokenClaims(r.Context())
 			if claims == nil || claims.OuId == "" {
+				// No ouId to log here — that absence is the reason for the denial.
 				slog.Warn("RequirePlatformAdminOU rejected",
-					"reason", "missing ou identity in token", "path", r.URL.Path)
+					"reason", "missing ou identity in token",
+					"correlationId", correlationID, "path", r.URL.Path)
 				recordAuthzDeny(r, "missing-ou-identity")
 				utils.WriteErrorResponse(w, http.StatusForbidden, "forbidden")
 				return
@@ -83,6 +92,7 @@ func RequirePlatformAdminOU() func(http.HandlerFunc) http.HandlerFunc {
 				// the config it came from.
 				slog.Warn("RequirePlatformAdminOU rejected",
 					"reason", "caller is not the platform admin organization",
+					"correlationId", correlationID,
 					"sub", claims.Sub, "ouId", claims.OuId, "path", r.URL.Path)
 				recordAuthzDeny(r, "not-platform-admin-ou", audit.Detail("callerOuId", claims.OuId))
 				utils.WriteErrorResponse(w, http.StatusForbidden, "forbidden")

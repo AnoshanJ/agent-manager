@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -323,8 +324,17 @@ func loadEnvs() {
 	// Both ends are rejected rather than clamped, because either would make the
 	// health verdict a constant: at 0 an empty fleet already reports unhealthy,
 	// and above 100 no fleet ever can.
+	//
+	// NaN is checked explicitly because it slips through a range test: every
+	// comparison against NaN is false, so `<= 0` and `> 100` both say "in
+	// range". ParseFloat accepts the literal "NaN", and the verdict downstream
+	// is `percentage < threshold`, also false — so an operator typo would boot
+	// a service that reports the fleet unhealthy on every single request.
+	// +Inf/-Inf need no special case; the range test already catches them.
 	config.GatewayFailurePercentageThreshold = r.readOptionalFloat64("GATEWAY_FAILURE_PERCENTAGE_THRESHOLD", 10)
-	if config.GatewayFailurePercentageThreshold <= 0 || config.GatewayFailurePercentageThreshold > 100 {
+	if math.IsNaN(config.GatewayFailurePercentageThreshold) ||
+		config.GatewayFailurePercentageThreshold <= 0 ||
+		config.GatewayFailurePercentageThreshold > 100 {
 		r.errors = append(r.errors, fmt.Errorf(
 			"GATEWAY_FAILURE_PERCENTAGE_THRESHOLD must be greater than 0 and at most 100, got %v",
 			config.GatewayFailurePercentageThreshold))
