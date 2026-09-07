@@ -149,7 +149,7 @@ export function OxygenLayout() {
                   avatar={avatar}
                 />
                 <UserMenu.Divider />
-                {orgId && (
+                {orgId && globalConfig.featureFlags?.enableProfileManagement === true && (
                   <UserMenu.Item
                     icon={<Settings />}
                     label="Profile Settings"
