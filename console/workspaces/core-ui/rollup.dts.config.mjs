@@ -39,7 +39,7 @@ const external = [
   '@wso2/oxygen-ui-icons-react',
   '@wso2/oxygen-ui-charts-react',
   '@tanstack/react-query',
-  '@asgardeo/react',
+  '@thunderid/react',
 ]
 
 // Style/asset imports carry no type information; stub them so the declaration
