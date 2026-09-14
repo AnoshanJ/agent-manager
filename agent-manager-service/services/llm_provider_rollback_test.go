@@ -39,7 +39,7 @@ func serviceForRollback(
 ) (*LLMProviderService, *LLMProviderDeploymentService) {
 	providerRepo := &repomocks.LLMProviderRepositoryMock{
 		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
-		DeleteFunc:               func(_, _ string) error { return deleteErr },
+		DeleteCtxFunc:            func(_ context.Context, _, _ string) error { return deleteErr },
 		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil },
 		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
 		ClearDeletingFunc:        func(_ uuid.UUID) error { return nil },
@@ -48,7 +48,7 @@ func serviceForRollback(
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
 			return []string{}, nil
 		},
-		GetTrackedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
+		GetTrackedGatewaysByProviderCtxFunc: func(_ context.Context, _ uuid.UUID, _ string) ([]string, error) {
 			return []string{}, nil
 		},
 	}
@@ -72,7 +72,7 @@ func TestDelete_AlreadyUndeployedProviderBroadcastsCanonicalUUID(t *testing.T) {
 		},
 		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
 		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil },
-		DeleteFunc: func(providerID, ouID string) error {
+		DeleteCtxFunc: func(_ context.Context, providerID, ouID string) error {
 			assert.Equal(t, created.UUID.String(), providerID)
 			assert.Equal(t, "ou-acme", ouID)
 			return nil
@@ -82,7 +82,7 @@ func TestDelete_AlreadyUndeployedProviderBroadcastsCanonicalUUID(t *testing.T) {
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
 			return nil, nil
 		},
-		GetTrackedGatewaysByProviderFunc: func(providerUUID uuid.UUID, ouID string) ([]string, error) {
+		GetTrackedGatewaysByProviderCtxFunc: func(_ context.Context, providerUUID uuid.UUID, ouID string) ([]string, error) {
 			assert.Equal(t, created.UUID, providerUUID)
 			assert.Equal(t, "ou-acme", ouID)
 			return []string{trackedGatewayID}, nil
@@ -216,6 +216,7 @@ func TestDelete_ClearsDeletingFlagWhenUndeployFails(t *testing.T) {
 		ClearDeletingFunc:        func(_ uuid.UUID) error { clearCalled = true; return nil },
 	}
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetTrackedGatewaysByProviderCtxFunc: func(context.Context, uuid.UUID, string) ([]string, error) { return []string{"gw-1"}, nil },
 		GetDeployedGatewaysByProviderFunc: func(_ uuid.UUID, _ string) ([]string, error) {
 			return []string{"gw-1"}, nil
 		},

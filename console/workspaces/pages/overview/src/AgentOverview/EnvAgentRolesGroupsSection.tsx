@@ -50,7 +50,9 @@ interface EnvAgentRolesGroupsSectionProps {
 export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProps> = ({
   orgId, projectId, agentId, envId,
 }) => {
-  const { binding, provisioned, isLoading: isLoadingIdentity } = useAgentIdentityBinding({
+  const {
+    binding, provisioned, isLoading: isLoadingIdentity, isError: isIdentityError,
+  } = useAgentIdentityBinding({
     orgId, projectId, agentId, envId,
   });
   const isFailed = binding?.status === "failed";
@@ -59,7 +61,7 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
   // (attempted, didn't work). Older internal and external agents can both
   // reach this state when an environment is added later, so the idempotent
   // action below repairs only this genuinely missing binding.
-  const hasNoBinding = !isLoadingIdentity && !binding;
+  const hasNoBinding = !isLoadingIdentity && !isIdentityError && !binding;
   const canSelfProvision = hasNoBinding;
 
   const { mutate: retryProvisioning, isPending: isRetrying } = useRetryAgentIdentityProvisioning();
@@ -132,6 +134,10 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
         </Avatar>
         {isLoadingIdentity ? (
           <Skeleton variant="text" width={160} height={20} />
+        ) : isIdentityError ? (
+          <Typography variant="body2" color="error">
+            Unable to load Agent ID
+          </Typography>
         ) : isFailed ? (
           <Typography variant="body2" color="error" fontWeight={600}>
             Provisioning Status : Failed
@@ -209,7 +215,12 @@ export const EnvAgentRolesGroupsSection: React.FC<EnvAgentRolesGroupsSectionProp
         </Box>
         )}
       </Box>
-      {isFailed && !isLoadingIdentity && (
+      {isIdentityError && (
+        <Alert severity="error" sx={{ mt: 1.5 }}>
+          Couldn&apos;t load the Agent ID for this environment. Refresh the page to try again.
+        </Alert>
+      )}
+      {isFailed && !isLoadingIdentity && !isIdentityError && (
         <Alert
           severity="error"
           icon={<AlertTriangle size={18} />}

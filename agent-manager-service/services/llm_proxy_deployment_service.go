@@ -610,7 +610,7 @@ func (s *LLMProxyDeploymentService) generateLLMProxyDeploymentYAML(proxy *models
 }
 
 // GatewayIDsForProxyDeletion returns every gateway that could still be holding
-// this proxy's config: the gateways it is recorded as deployed to, unioned with
+// this proxy's config: all gateways with deployment records, unioned with
 // all active gateways in the organization.
 //
 // The union is deliberate. A proxy whose deployment record has already been
@@ -618,43 +618,25 @@ func (s *LLMProxyDeploymentService) generateLLMProxyDeploymentYAML(proxy *models
 // gateway's own store forever — the gateway treats "undeployed" as a soft state
 // change that preserves the config, so nothing else ever reclaims it.
 //
-// Must be called BEFORE the proxy row is deleted: resolving the deployed gateways
-// needs the proxy's UUID.
-func (s *LLMProxyDeploymentService) GatewayIDsForProxyDeletion(proxyID, ouID string) []string {
+// Must be called BEFORE deletion removes the proxy's deployment records.
+func (s *LLMProxyDeploymentService) GatewayIDsForProxyDeletion(ctx context.Context, artifactUUID uuid.UUID, ouID string) ([]string, error) {
 	gatewayIDs := map[string]struct{}{}
-
-	if s.proxyRepo != nil && s.deploymentRepo != nil {
-		proxy, err := s.proxyRepo.GetByID(proxyID, ouID)
-		switch {
-		case err != nil:
-			slog.Warn("LLMProxyDeploymentService.GatewayIDsForProxyDeletion: failed to resolve proxy",
-				"proxyID", proxyID, "ouID", ouID, "error", err)
-		case proxy == nil:
-			slog.Warn("LLMProxyDeploymentService.GatewayIDsForProxyDeletion: proxy not found",
-				"proxyID", proxyID, "ouID", ouID)
-		default:
-			deployed, err := s.deploymentRepo.GetDeployedGatewaysByProvider(proxy.UUID, ouID)
-			if err != nil {
-				slog.Warn("LLMProxyDeploymentService.GatewayIDsForProxyDeletion: failed to get deployed gateways",
-					"proxyID", proxyID, "ouID", ouID, "error", err)
-			}
-			for _, gatewayID := range deployed {
-				if strings.TrimSpace(gatewayID) != "" {
-					gatewayIDs[gatewayID] = struct{}{}
-				}
+	if s.deploymentRepo != nil {
+		tracked, err := s.deploymentRepo.GetTrackedGatewaysByProviderCtx(ctx, artifactUUID, ouID)
+		if err != nil {
+			return nil, fmt.Errorf("get tracked deletion gateways: %w", err)
+		}
+		for _, id := range tracked {
+			if strings.TrimSpace(id) != "" {
+				gatewayIDs[id] = struct{}{}
 			}
 		}
 	}
-
 	if s.gatewayRepo != nil {
 		active := true
-		gateways, err := s.gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
-			OrganizationID: ouID,
-			Status:         &active,
-		})
+		gateways, err := s.gatewayRepo.ListWithFiltersCtx(ctx, repositories.GatewayFilterOptions{OrganizationID: ouID, Status: &active})
 		if err != nil {
-			slog.Warn("LLMProxyDeploymentService.GatewayIDsForProxyDeletion: failed to get active gateways",
-				"proxyID", proxyID, "ouID", ouID, "error", err)
+			return nil, fmt.Errorf("get active deletion gateways: %w", err)
 		}
 		for _, gateway := range gateways {
 			if gateway != nil {
@@ -662,12 +644,11 @@ func (s *LLMProxyDeploymentService) GatewayIDsForProxyDeletion(proxyID, ouID str
 			}
 		}
 	}
-
 	out := make([]string, 0, len(gatewayIDs))
-	for gatewayID := range gatewayIDs {
-		out = append(out, gatewayID)
+	for id := range gatewayIDs {
+		out = append(out, id)
 	}
-	return out
+	return out, nil
 }
 
 // BroadcastLLMProxyDeletion tells the given gateways to drop this proxy's config
@@ -677,7 +658,7 @@ func (s *LLMProxyDeploymentService) GatewayIDsForProxyDeletion(proxyID, ouID str
 //
 // Best-effort by design: a deletion already committed in the database must not be
 // rolled back because one gateway is unreachable.
-func (s *LLMProxyDeploymentService) BroadcastLLMProxyDeletion(proxyID, ouID string, gatewayIDs []string) {
+func (s *LLMProxyDeploymentService) BroadcastLLMProxyDeletion(ctx context.Context, proxyID, ouID string, gatewayIDs []string) {
 	if s.gatewayEventsService == nil || len(gatewayIDs) == 0 {
 		return
 	}
@@ -697,7 +678,7 @@ func (s *LLMProxyDeploymentService) BroadcastLLMProxyDeletion(proxyID, ouID stri
 		if strings.TrimSpace(gatewayID) == "" {
 			continue
 		}
-		if err := s.gatewayEventsService.BroadcastLLMProxyDeletionEvent(gatewayID, event); err != nil {
+		if err := s.gatewayEventsService.BroadcastLLMProxyDeletionEvent(ctx, gatewayID, event); err != nil {
 			slog.Warn("LLMProxyDeploymentService.BroadcastLLMProxyDeletion: failed to broadcast deletion event",
 				"proxyID", proxyID, "ouID", ouID, "gatewayID", gatewayID, "error", err)
 		} else {

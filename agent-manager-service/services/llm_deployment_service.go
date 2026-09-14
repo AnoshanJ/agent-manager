@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1134,31 +1135,24 @@ func isBoolTrue(v *bool) bool {
 // GatewayIDsForProviderDeletion returns every gateway that could still hold the
 // provider config: all gateways with a deployment-status record, regardless of
 // current state, unioned with all active gateways in the organization.
-func (s *LLMProviderDeploymentService) GatewayIDsForProviderDeletion(providerUUID uuid.UUID, ouID string) []string {
+func (s *LLMProviderDeploymentService) GatewayIDsForProviderDeletion(ctx context.Context, artifactUUID uuid.UUID, ouID string) ([]string, error) {
 	gatewayIDs := map[string]struct{}{}
-
 	if s.deploymentRepo != nil {
-		tracked, err := s.deploymentRepo.GetTrackedGatewaysByProvider(providerUUID, ouID)
+		tracked, err := s.deploymentRepo.GetTrackedGatewaysByProviderCtx(ctx, artifactUUID, ouID)
 		if err != nil {
-			slog.Warn("LLMProviderDeploymentService.GatewayIDsForProviderDeletion: failed to get tracked gateways",
-				"providerUUID", providerUUID, "ouID", ouID, "error", err)
+			return nil, fmt.Errorf("get tracked deletion gateways: %w", err)
 		}
-		for _, gatewayID := range tracked {
-			if strings.TrimSpace(gatewayID) != "" {
-				gatewayIDs[gatewayID] = struct{}{}
+		for _, id := range tracked {
+			if strings.TrimSpace(id) != "" {
+				gatewayIDs[id] = struct{}{}
 			}
 		}
 	}
-
 	if s.gatewayRepo != nil {
 		active := true
-		gateways, err := s.gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
-			OrganizationID: ouID,
-			Status:         &active,
-		})
+		gateways, err := s.gatewayRepo.ListWithFiltersCtx(ctx, repositories.GatewayFilterOptions{OrganizationID: ouID, Status: &active})
 		if err != nil {
-			slog.Warn("LLMProviderDeploymentService.GatewayIDsForProviderDeletion: failed to get active gateways",
-				"providerUUID", providerUUID, "ouID", ouID, "error", err)
+			return nil, fmt.Errorf("get active deletion gateways: %w", err)
 		}
 		for _, gateway := range gateways {
 			if gateway != nil {
@@ -1166,12 +1160,11 @@ func (s *LLMProviderDeploymentService) GatewayIDsForProviderDeletion(providerUUI
 			}
 		}
 	}
-
 	out := make([]string, 0, len(gatewayIDs))
-	for gatewayID := range gatewayIDs {
-		out = append(out, gatewayID)
+	for id := range gatewayIDs {
+		out = append(out, id)
 	}
-	return out
+	return out, nil
 }
 
 // BroadcastLLMProviderDeletion tells the given gateways to drop this provider's
@@ -1181,7 +1174,7 @@ func (s *LLMProviderDeploymentService) GatewayIDsForProviderDeletion(providerUUI
 //
 // Best-effort by design: a deletion already committed in the database must not be
 // rolled back because one gateway is unreachable.
-func (s *LLMProviderDeploymentService) BroadcastLLMProviderDeletion(providerID, ouID string, gatewayIDs []string) {
+func (s *LLMProviderDeploymentService) BroadcastLLMProviderDeletion(ctx context.Context, providerID, ouID string, gatewayIDs []string) {
 	if s.gatewayEventsService == nil || len(gatewayIDs) == 0 {
 		return
 	}
@@ -1206,7 +1199,7 @@ func (s *LLMProviderDeploymentService) BroadcastLLMProviderDeletion(providerID, 
 		if strings.TrimSpace(gatewayID) == "" {
 			continue
 		}
-		if err := s.gatewayEventsService.BroadcastLLMProviderDeletionEvent(gatewayID, event); err != nil {
+		if err := s.gatewayEventsService.BroadcastLLMProviderDeletionEvent(ctx, gatewayID, event); err != nil {
 			slog.Warn("LLMProviderDeploymentService.BroadcastLLMProviderDeletion: failed to broadcast deletion event",
 				"providerID", providerID, "ouID", ouID, "gatewayID", gatewayID, "error", err)
 		} else {

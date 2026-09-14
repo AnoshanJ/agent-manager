@@ -17,6 +17,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -36,14 +37,14 @@ func TestGatewayIDsForProviderDeletion_UnionsTrackedAndActiveGateways(t *testing
 	activeGatewayID := uuid.New()
 
 	deploymentRepo := &repomocks.DeploymentRepositoryMock{
-		GetTrackedGatewaysByProviderFunc: func(actualProviderUUID uuid.UUID, ouID string) ([]string, error) {
+		GetTrackedGatewaysByProviderCtxFunc: func(_ context.Context, actualProviderUUID uuid.UUID, ouID string) ([]string, error) {
 			assert.Equal(t, providerUUID, actualProviderUUID)
 			assert.Equal(t, "ou-acme", ouID)
 			return []string{trackedGatewayID.String(), sharedGatewayID.String(), ""}, nil
 		},
 	}
 	gatewayRepo := &repomocks.GatewayRepositoryMock{
-		ListWithFiltersFunc: func(filters repositories.GatewayFilterOptions) ([]*models.Gateway, error) {
+		ListWithFiltersCtxFunc: func(_ context.Context, filters repositories.GatewayFilterOptions) ([]*models.Gateway, error) {
 			assert.Equal(t, "ou-acme", filters.OrganizationID)
 			require.NotNil(t, filters.Status)
 			assert.True(t, *filters.Status)
@@ -56,7 +57,8 @@ func TestGatewayIDsForProviderDeletion_UnionsTrackedAndActiveGateways(t *testing
 	}
 	svc := &LLMProviderDeploymentService{deploymentRepo: deploymentRepo, gatewayRepo: gatewayRepo}
 
-	actual := svc.GatewayIDsForProviderDeletion(providerUUID, "ou-acme")
+	actual, err := svc.GatewayIDsForProviderDeletion(context.Background(), providerUUID, "ou-acme")
+	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{
 		trackedGatewayID.String(),

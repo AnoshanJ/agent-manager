@@ -1044,7 +1044,7 @@ func (c *llmController) DeleteLLMProxy(w http.ResponseWriter, r *http.Request) {
 	proxyID := r.PathValue(utils.PathParamProxyId)
 
 	// Resolve project name to UUID (validates project exists)
-	_, err := c.resolveProjectUUID(ctx, ouID, projectName)
+	projectUUID, err := c.resolveProjectUUID(ctx, ouID, projectName)
 	if err != nil {
 		if errors.Is(err, utils.ErrProjectNotFound) {
 			log.Error("DeleteLLMProxy: project not found", "ouID", ouID, "projectName", projectName, "error", err)
@@ -1056,7 +1056,7 @@ func (c *llmController) DeleteLLMProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.proxyService.Delete(proxyID, ouID, c.proxyDeploymentService); err != nil {
+	if err := c.proxyService.DeleteInProject(ctx, proxyID, ouID, projectUUID, c.proxyDeploymentService); err != nil {
 		switch {
 		case errors.Is(err, utils.ErrLLMProxyNotFound):
 			utils.WriteErrorResponse(w, http.StatusNotFound, "LLM proxy not found")
