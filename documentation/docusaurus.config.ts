@@ -20,17 +20,10 @@ const releaseUrl = /^v\d+\.\d+\.\d+/.test(latestVersion)
   ? `https://github.com/wso2/agent-manager/releases/tag/amp%2F${latestVersion}`
   : 'https://github.com/wso2/agent-manager/releases';
 
-// The snapshot whose pages carry `slug:` overrides for the reorganised paths.
-// Pinned to a literal rather than derived from latestVersion: the pre-reorg URLs
-// belong to this specific version, so its redirects must survive future version
-// cuts. Older versions still serve the pre-reorg paths natively and need none.
-const slugRewrittenVersion = 'v1.0.0-alpha1';
-
 // Pages whose path changed when the docs were reorganised into the
 // Get Started / Concepts / Guides / Tutorials / References structure. The
-// snapshot above serves them at their new paths via `slug`, so map the
-// pre-reorganisation URLs forward to keep existing bookmarks and inbound links
-// working. Both the version-pinned and the /docs/latest/ alias are covered.
+// pre-reorganisation URLs are mapped forward to keep existing bookmarks and
+// inbound links working.
 const reorganizedPaths: [string, string][] = [
   ['overview/what-is-amp', 'get-started/what-is-amp'],
   ['getting-started/quick-start', 'get-started/quick-start'],
@@ -101,19 +94,12 @@ const config: Config = {
     [
       '@docusaurus/plugin-client-redirects',
       {
-        // Send both the version-pinned and the /docs/latest/ form of each
-        // pre-reorganisation URL to the canonical page in one hop. The pinned
-        // form stays on its own snapshot; the alias follows whatever is current.
-        redirects: reorganizedPaths.flatMap(([from, to]) => [
-          {
-            from: `/docs/${slugRewrittenVersion}/${from}`,
-            to: `/docs/${slugRewrittenVersion}/${to}`,
-          },
-          {
-            from: `/docs/latest/${from}`,
-            to: `/docs/${latestVersion}/${to}`,
-          },
-        ]),
+        // Send the /docs/latest/ form of each pre-reorganisation URL to the
+        // canonical page in one hop; the alias follows whatever is current.
+        redirects: reorganizedPaths.map(([from, to]) => ({
+          from: `/docs/latest/${from}`,
+          to: `/docs/${latestVersion}/${to}`,
+        })),
         createRedirects(existingPath: string) {
           if (existingPath.includes(`/docs/${latestVersion}/`)) {
             return [existingPath.replace(`/docs/${latestVersion}/`, '/docs/latest/')];
