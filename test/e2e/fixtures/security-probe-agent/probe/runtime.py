@@ -66,6 +66,39 @@ def classify_no_new_privileges(
     return False, "prctl_unavailable_proc_missing"
 
 
+SECCOMP_MODE_FILTER = "2"
+
+
+def classify_syscall_confinement(
+    seccomp_value: str | None,
+    kernel_release: str | None,
+) -> tuple[bool, str]:
+    """Classify the syscall boundary confining this workload, fail-closed.
+
+    Two different mechanisms satisfy the same requirement, and only one of them
+    is legible from inside the container:
+
+    - Under runc, the kubelet installs the RuntimeDefault seccomp filter on the
+      process itself, so procfs reports Seccomp: 2 and that is authoritative.
+    - Under gVisor, the syscall boundary IS the sandbox: the application talks
+      to the Sentry, never the host kernel, and the host-side seccomp filter
+      confines runsc rather than this process. gVisor's own procfs consequently
+      reports Seccomp: 0 (and omits NoNewPrivs), so reading it here says nothing
+      about whether the pod is confined.
+
+    Neither reading is allowed to fail open: an unrecognised kernel with no
+    seccomp filter is an unconfined workload, not an unsupported probe.
+    """
+
+    if seccomp_value == SECCOMP_MODE_FILTER:
+        return True, "seccomp_filter"
+    if kernel_release and "gvisor" in kernel_release.lower():
+        return True, "gvisor_sandbox"
+    if seccomp_value in (None, ""):
+        return False, "unconfined_proc_missing"
+    return False, f"unconfined_seccomp_mode_{seccomp_value}"
+
+
 def runtime_posture() -> dict[str, object]:
     """Return booleans describing the sandbox without exposing its contents."""
 
@@ -94,6 +127,10 @@ def runtime_posture() -> dict[str, object]:
         _read_no_new_privileges(),
         status.get("NoNewPrivs"),
     )
+    syscall_confined, syscall_confinement_evidence = classify_syscall_confinement(
+        seccomp,
+        os.uname().release,
+    )
 
     return {
         "non_root": os.geteuid() != 0,
@@ -106,5 +143,7 @@ def runtime_posture() -> dict[str, object]:
         and int(cap_eff, 16) == 0,
         "no_new_privileges": no_new_privileges,
         "no_new_privileges_evidence": no_new_privileges_evidence,
-        "seccomp_enabled": seccomp == "2",
+        "seccomp_enabled": seccomp == SECCOMP_MODE_FILTER,
+        "syscall_confined": syscall_confined,
+        "syscall_confinement_evidence": syscall_confinement_evidence,
     }
