@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -235,4 +236,63 @@ func TestDelete_ClearsDeletingFlagWhenUndeployFails(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, utils.ErrLLMProviderUndeployFailed)
 	assert.True(t, clearCalled, "Delete must clear the deleting flag when it bails out without deleting the provider")
+}
+
+func TestDelete_CompletesAfterCancellationFollowingSuccessfulUndeploy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	deployed := models.DeploymentStatusDeployed
+	created := createdProvider()
+	gatewayID := uuid.New()
+	deploymentID := uuid.New()
+	deleteCalled := false
+
+	providerRepo := &repomocks.LLMProviderRepositoryMock{
+		GetByUUIDFunc:            func(_, _ string) (*models.LLMProvider, error) { return created, nil },
+		MarkDeletingFunc:         func(_ uuid.UUID) (bool, error) { return true, nil },
+		HasAssociatedProxiesFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil },
+		ClearDeletingFunc:        func(_ uuid.UUID) error { return nil },
+		DeleteCtxFunc: func(got context.Context, _, _ string) error {
+			deleteCalled = true
+			require.NoError(t, got.Err())
+			_, hasDeadline := got.Deadline()
+			assert.True(t, hasDeadline)
+			return nil
+		},
+	}
+	deployment := &models.Deployment{
+		DeploymentID: deploymentID,
+		ArtifactUUID: created.UUID,
+		GatewayUUID:  gatewayID,
+		Status:       &deployed,
+	}
+	deploymentRepo := &repomocks.DeploymentRepositoryMock{
+		GetTrackedGatewaysByProviderCtxFunc: func(context.Context, uuid.UUID, string) ([]string, error) {
+			return []string{gatewayID.String()}, nil
+		},
+		GetDeployedGatewaysByProviderFunc: func(uuid.UUID, string) ([]string, error) {
+			return []string{gatewayID.String()}, nil
+		},
+		GetDeploymentsWithStateFunc: func(string, string, *string, *string, int) ([]*models.Deployment, error) {
+			return []*models.Deployment{deployment}, nil
+		},
+		GetWithStateFunc: func(string, string, string) (*models.Deployment, error) {
+			return deployment, nil
+		},
+		SetCurrentFunc: func(string, string, string, string, models.DeploymentStatus) (time.Time, error) {
+			cancel()
+			return time.Now(), nil
+		},
+	}
+	deploymentSvc := &LLMProviderDeploymentService{
+		providerRepo:         providerRepo,
+		deploymentRepo:       deploymentRepo,
+		gatewayEventsService: NewGatewayEventsService(&stubEventHub{}),
+	}
+	svc := &LLMProviderService{providerRepo: providerRepo}
+
+	err := svc.Delete(ctx, created.UUID.String(), "ou-acme", deploymentSvc)
+
+	require.NoError(t, err)
+	assert.True(t, deleteCalled)
+	assert.Empty(t, providerRepo.ClearDeletingCalls())
 }

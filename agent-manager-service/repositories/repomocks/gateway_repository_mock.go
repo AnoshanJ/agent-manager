@@ -408,7 +408,8 @@ type GatewayRepositoryMock struct {
 			OuID string
 		}
 		// List holds details about calls to the List method.
-		List []struct{}
+		List []struct {
+		}
 		// ListIdentityProvidersByEnvironment holds details about calls to the ListIdentityProvidersByEnvironment method.
 		ListIdentityProvidersByEnvironment []struct {
 			// EnvironmentID is the environmentID argument value.
@@ -1396,7 +1397,8 @@ func (mock *GatewayRepositoryMock) List() ([]*models.Gateway, error) {
 	if mock.ListFunc == nil {
 		panic("GatewayRepositoryMock.ListFunc: method is nil but GatewayRepository.List was just called")
 	}
-	callInfo := struct{}{}
+	callInfo := struct {
+	}{}
 	mock.lockList.Lock()
 	mock.calls.List = append(mock.calls.List, callInfo)
 	mock.lockList.Unlock()
@@ -1407,8 +1409,10 @@ func (mock *GatewayRepositoryMock) List() ([]*models.Gateway, error) {
 // Check the length with:
 //
 //	len(mockedGatewayRepository.ListCalls())
-func (mock *GatewayRepositoryMock) ListCalls() []struct{} {
-	var calls []struct{}
+func (mock *GatewayRepositoryMock) ListCalls() []struct {
+} {
+	var calls []struct {
+	}
 	mock.lockList.RLock()
 	calls = mock.calls.List
 	mock.lockList.RUnlock()

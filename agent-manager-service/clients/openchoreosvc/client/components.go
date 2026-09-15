@@ -1279,25 +1279,37 @@ func (c *openChoreoClient) ListComponents(ctx context.Context, ouID, projectName
 // components with it (the Project carries an openchoreo.dev/project-cleanup finalizer).
 func (c *openChoreoClient) CountProjectComponents(ctx context.Context, ouID, projectName string) (int, error) {
 	namespaceName := c.NamespaceFor(ouID)
-	resp, err := c.ocClient.ListComponentsWithResponse(ctx, namespaceName, &gen.ListComponentsParams{
-		Project: &projectName,
-		Limit:   &defaultListLimit,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to list components: %w", err)
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return 0, handleErrorResponse(resp.StatusCode(), ErrorResponses{
-			JSON401: resp.JSON401,
-			JSON403: resp.JSON403,
-			JSON404: resp.JSON404,
-			JSON500: resp.JSON500,
+	var cursor *gen.CursorParam
+	total := 0
+	for {
+		resp, err := c.ocClient.ListComponentsWithResponse(ctx, namespaceName, &gen.ListComponentsParams{
+			Project: &projectName,
+			Limit:   &defaultListLimit,
+			Cursor:  cursor,
 		})
+		if err != nil {
+			return 0, fmt.Errorf("failed to list components: %w", err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return 0, handleErrorResponse(resp.StatusCode(), ErrorResponses{
+				JSON401: resp.JSON401,
+				JSON403: resp.JSON403,
+				JSON404: resp.JSON404,
+				JSON500: resp.JSON500,
+			})
+		}
+		if resp.JSON200 == nil {
+			return total, nil
+		}
+
+		total += len(resp.JSON200.Items)
+		nextCursor := resp.JSON200.Pagination.NextCursor
+		if nextCursor == nil || *nextCursor == "" {
+			return total, nil
+		}
+		next := gen.CursorParam(*nextCursor)
+		cursor = &next
 	}
-	if resp.JSON200 == nil {
-		return 0, nil
-	}
-	return len(resp.JSON200.Items), nil
 }
 
 // isAgentComponentType reports whether componentTypeName is one of the component

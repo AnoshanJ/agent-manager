@@ -18,9 +18,15 @@
 package client
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 )
 
 // The component types below are the ones observed on real shared projects. Only the two
@@ -56,4 +62,31 @@ func TestIsAgentComponentType(t *testing.T) {
 	for _, componentType := range foreignTypes {
 		assert.False(t, isAgentComponentType(componentType), "expected %q not to be an agent component type", componentType)
 	}
+}
+
+func TestCountProjectComponents_FollowsPagination(t *testing.T) {
+	requests := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		require.Equal(t, "shared-project", r.URL.Query().Get("project"))
+		require.Equal(t, "100", r.URL.Query().Get("limit"))
+
+		page := gen.ComponentList{Items: make([]gen.Component, 37)}
+		if requests == 1 {
+			require.Empty(t, r.URL.Query().Get("cursor"))
+			page.Items = make([]gen.Component, defaultListLimit)
+			next := "page-2"
+			page.Pagination.NextCursor = &next
+		} else {
+			require.Equal(t, "page-2", r.URL.Query().Get("cursor"))
+		}
+
+		require.NoError(t, json.NewEncoder(w).Encode(page))
+	}))
+
+	count, err := c.CountProjectComponents(context.Background(), "ou-acme", "shared-project")
+
+	require.NoError(t, err)
+	assert.Equal(t, 137, count)
+	assert.Equal(t, 2, requests)
 }
