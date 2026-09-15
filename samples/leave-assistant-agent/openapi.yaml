@@ -1,0 +1,112 @@
+openapi: 3.0.1
+info:
+  title: Leave Assistant API
+  description: >-
+    Chat endpoint for the AI leave-request assistant. Send a natural-language
+    message and the agent manages employee leave balances and requests
+    (check a balance, file a request, list requests, cancel, approve, reject)
+    using its tools.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8000
+paths:
+  /chat:
+    post:
+      summary: Send a chat message to the leave assistant
+      operationId: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            examples:
+              checkBalance:
+                summary: Check a leave balance
+                value:
+                  session_id: s1
+                  message: What is my leave balance? My employee id is E-3001
+              requestLeave:
+                summary: Request annual leave
+                value:
+                  session_id: s1
+                  message: I am E-3001, request 2 days annual leave starting tomorrow, family event
+              listRequests:
+                summary: List leave requests
+                value:
+                  session_id: s1
+                  message: List my leave requests, employee id E-3001
+              cancelRequest:
+                summary: Cancel a leave request
+                value:
+                  session_id: s1
+                  message: Cancel the family event leave request for E-3001
+              approveRequest:
+                summary: Approve a pending leave request
+                value:
+                  session_id: s1
+                  message: Approve the pending 5-day leave request for E-3001
+      responses:
+        '200':
+          description: The agent's reply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              example:
+                response: Priya Fernando has 14 days of annual leave and 7 days of sick leave remaining.
+        '400':
+          description: The request body did not match the expected shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayload'
+        '500':
+          description: Internal error while running the agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayload'
+components:
+  schemas:
+    ChatRequest:
+      type: object
+      required:
+        - session_id
+        - message
+      properties:
+        session_id:
+          type: string
+          description: Conversation/session identifier used for memory continuity.
+        message:
+          type: string
+          description: The user's natural-language message to the agent.
+        context:
+          type: object
+          description: Optional context supplied by the platform. Not read by this agent.
+      additionalProperties: true
+    ChatResponse:
+      type: object
+      required:
+        - response
+      properties:
+        response:
+          type: string
+          description: The agent's natural-language reply.
+      additionalProperties: false
+    ErrorPayload:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        status:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        method:
+          type: string
