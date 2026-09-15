@@ -135,11 +135,6 @@ const sidebars: SidebarsConfig = {
           id: 'tutorials/observe-first-agent',
           label: 'Monitoring an Agent',
         },
-        {
-          type: 'doc',
-          id: 'guides/build-a-ballerina-agent',
-          label: 'Deploy the Ballerina Leave Assistant Sample',
-        },
       ],
     },
     {

@@ -70,15 +70,12 @@ If your repository is private, you need to provide a **Git Secret** that contain
 
 Choose a build type:
 
-- **Python**: Provide a **Start Command** (default: `python main.py`) and select the **Language Version** (e.g., `3.11`). Dependencies are auto-installed from `requirements.txt`, `pyproject.toml`, or `package.json`.
-- **Ballerina**: No Start Command or Language Version to set. The platform builds and runs the project directly. See [Deploy the Ballerina Leave Assistant Sample](../guides/build-a-ballerina-agent.mdx) for a ready to deploy example.
-- **Docker**: Use a `Dockerfile` in the repository.
+- **Python** — Provide a **Start Command** (default: `python main.py`) and select the **Language Version** (e.g., `3.11`). Dependencies are auto-installed from `requirements.txt`, `pyproject.toml`, or `package.json`.
+- **Docker** — Use a `Dockerfile` in the repository.
 
-**Enable auto instrumentation** *(checked by default)*
+**Enable auto instrumentation** *(Python only, checked by default)*
 
-For Python agents, this injects OpenTelemetry tracing into your agent with zero code changes, and lets you pin the **AMP Instrumentation Version** used by the init container.
-
-For Ballerina agents, this sets up trace publishing automatically, with no extra configuration needed.
+Automatically injects OpenTelemetry tracing into your agent for observability with zero code changes. You can also pin the **AMP Instrumentation Version** used by the init container.
 
 ### Step 5: Select an Agent Type
 
