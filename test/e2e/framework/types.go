@@ -801,6 +801,8 @@ type SecurityRuntimeProbeResponse struct {
 	NoNewPrivileges            bool   `json:"no_new_privileges"`
 	NoNewPrivilegesEvidence    string `json:"no_new_privileges_evidence"`
 	SeccompEnabled             bool   `json:"seccomp_enabled"`
+	SyscallConfined            bool   `json:"syscall_confined"`
+	SyscallConfinementEvidence string `json:"syscall_confinement_evidence"`
 }
 
 type SecurityNetworkProbeResponse struct {

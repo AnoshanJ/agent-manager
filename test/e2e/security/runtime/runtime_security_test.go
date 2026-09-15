@@ -200,7 +200,14 @@ var _ = Describe("SEC-RUNTIME-001: deployed agent sandbox and AgentID", Label("s
 		Expect(posture.EffectiveCapabilitiesDrop).To(BeTrue(), "agent retained effective Linux capabilities")
 		Expect(posture.NoNewPrivileges).To(BeTrue(),
 			"NoNewPrivs is not active (evidence: %s)", posture.NoNewPrivilegesEvidence)
-		Expect(posture.SeccompEnabled).To(BeTrue(), "RuntimeDefault seccomp is not active")
+		// Not SeccompEnabled directly: that field is only meaningful when the
+		// filter is installed on this process. Under gVisor the sandbox itself
+		// is the syscall boundary and the host-side filter confines runsc, so
+		// the workload's own procfs reports Seccomp: 0 however the pod is
+		// configured. The probe classifies both mechanisms and fails closed
+		// when it can evidence neither.
+		Expect(posture.SyscallConfined).To(BeTrue(),
+			"agent is not confined by a syscall boundary (evidence: %s)", posture.SyscallConfinementEvidence)
 	})
 
 	It("blocks the running agent from reaching the Kubernetes API network path", func(ctx SpecContext) {
