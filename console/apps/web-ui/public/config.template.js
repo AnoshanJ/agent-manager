@@ -57,6 +57,12 @@ window.__RUNTIME_CONFIG__ = {
         clockTolerance: Number('$CLOCK_TOLERANCE') || 300,
       },
     },
+    tokenLifecycle: {
+      refreshToken: {
+        autoRefresh: true,
+      },
+    },
+    rpInitiatedLogout: false,
     storage: 'localStorage',
   },
   disableAuth: '$DISABLE_AUTH' === 'true',
@@ -74,10 +80,10 @@ window.__RUNTIME_CONFIG__ = {
   guardrailsCatalogUrl: '$GUARDRAILS_CATALOG_URL',
   guardrailsDefinitionBaseUrl: '$GUARDRAILS_DEFINITION_BASE_URL',
   guardrailCapabilities: {
-    awsBedrock:         '$GUARDRAIL_CAP_AWS_BEDROCK' === 'true',
+    awsBedrock: '$GUARDRAIL_CAP_AWS_BEDROCK' === 'true',
     azureContentSafety: '$GUARDRAIL_CAP_AZURE_CONTENT_SAFETY' === 'true',
-    graniteGuardian:    '$GUARDRAIL_CAP_GRANITE_GUARDIAN' === 'true',
-    nemoGuard:          '$GUARDRAIL_CAP_NEMO_GUARD' === 'true',
+    graniteGuardian: '$GUARDRAIL_CAP_GRANITE_GUARDIAN' === 'true',
+    nemoGuard: '$GUARDRAIL_CAP_NEMO_GUARD' === 'true',
     semanticGuardrails: '$GUARDRAIL_CAP_SEMANTIC_GUARDRAILS' === 'true',
   },
   featureFlags: {
