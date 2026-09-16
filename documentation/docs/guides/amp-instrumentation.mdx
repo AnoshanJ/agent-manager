@@ -194,7 +194,7 @@ Prompt and completion content is captured by default. To suppress it, set `TRACE
 
 AMP's platform-injected auto-instrumentation covers Python (and Ballerina). A .NET agent joins AMP through the **external-agent path**: register it in the Console, then have it push spans to AMP's OTLP endpoint using the same transport and contract as above (`POST ${AMP_OTEL_ENDPOINT}/v1/traces`, header `x-amp-api-key`, `gen_ai.*` attributes). Nothing on the AMP side is .NET-specific — any process that emits contract-shaped spans to that endpoint renders in the Console and feeds evaluators.
 
-The runnable [`dotnet-agent`](https://github.com/wso2/agent-manager/tree/main/samples/dotnet-agent) sample is the worked example of everything below.
+The runnable [`dotnet-agent`](https://github.com/wso2/agent-manager/tree/main/samples/dotnet-agent) sample is the worked example of everything below. [Sample Agents](../reference/sample-agents.mdx) lists the other six samples and which instrumentation path each one takes.
 
 ### Where the `gen_ai.*` spans come from
 
@@ -277,3 +277,28 @@ The version set a given install actually accepts is assembled at runtime from th
 If you're picking a version in the create-agent form and see something that isn't in the table above, your platform admin added it. The pinned `traceloop-sdk` and supported Python versions for those entries live in the operator's chart values.
 
 Operators: see [Instrumentation Catalog](./instrumentation-catalog.mdx) for how to add a version, mirror images for air-gapped installs, and set the platform default.
+
+## Agent framework compatibility
+
+The zero-code path instruments a fixed set of agent frameworks, shipped inside the Traceloop SDK that each AMP-instrumentation version pins. **The framework set is the same across every AMP-instrumentation version and every supported Python version**, so you do not need to pick a particular version to get a particular framework.
+
+### Verified frameworks
+
+These are covered by the [instrumentation matrix test suite](https://github.com/wso2/agent-manager/tree/main/test/instrumentation-matrix), which runs on changes to the instrumentation packages and nightly, and asserts the exact span kinds listed. Each framework is exercised against all three AMP-instrumentation versions: 0.3.0, 0.4.0, and 0.4.1.
+
+| Framework | Tested version | Spans produced | Known limitations |
+|---|---|---|---|
+| LangChain | 0.3.27 | LLM | — |
+| LangGraph | 0.2.74 | LLM, Tool | Instrumented via the LangChain package |
+| LlamaIndex | 0.12.0 | LLM, Embedding | Embedding spans omit the vendor attribute |
+| CrewAI | 1.1.0 | LLM, Agent, Task | No tool spans are emitted; 1.14.5 fails to install on instrumentation 0.3.0 (see below) |
+| OpenAI (direct SDK) | 2.38.0 | LLM | — |
+| Anthropic (direct SDK) | 0.45.0 | LLM | — |
+
+:::warning CrewAI 1.14.5 does not install on AMP instrumentation 0.3.0
+`crewai 1.14.5` requires `opentelemetry-api >=1.34,<1.35`, while the `traceloop-sdk 0.61.0` that AMP instrumentation 0.3.0 pins requires `>=1.38,<2`. Installing both fails with `ResolutionImpossible` at install time rather than degrading at runtime.
+
+CrewAI 1.14 has not been tested on 0.4.0 or 0.4.1, because the matrix pins CrewAI 1.1.0 for every version. Both resolve an `opentelemetry-api` above CrewAI 1.14.5's ceiling, so the same conflict is likely there, but it is unconfirmed. Stay on 1.1.x unless you have verified the combination yourself.
+:::
+
+The canonical source for the verified-framework list is [`test/instrumentation-matrix/matrix.yaml`](https://github.com/wso2/agent-manager/blob/main/test/instrumentation-matrix/matrix.yaml); known limitations are tracked in [`FINDINGS.md`](https://github.com/wso2/agent-manager/blob/main/test/instrumentation-matrix/FINDINGS.md) alongside it.
