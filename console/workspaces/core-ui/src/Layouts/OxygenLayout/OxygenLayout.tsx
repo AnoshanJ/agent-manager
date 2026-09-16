@@ -33,7 +33,7 @@ import { globalConfig, absoluteRouteMap } from "@agent-management-platform/types
 import { LeftNavigation, combineNavItems, flattenWithChildren } from "./LeftNavigation";
 import { useNavigationItems } from "./navigationItems";
 import { TopNavigation } from "./TopNavigation";
-import { useListOrganizations } from "@agent-management-platform/api-client";
+import { useGetUserProfile, useListOrganizations } from "@agent-management-platform/api-client";
 import { MountPoints } from "../../types";
 
 export function OxygenLayout() {
@@ -42,6 +42,10 @@ export function OxygenLayout() {
   const { userInfo, logout } = useAuthHooks();
   const navigate = useNavigate();
   const { orgId } = useParams();
+  const { data: userProfile } = useGetUserProfile({
+    orgName: orgId || "default",
+    userId: userInfo?.sub || "",
+  });
 
   const externalTopRightComponentModules =
     useExternalComponentModules(MountPoints.TopRightPanel);
@@ -119,7 +123,7 @@ export function OxygenLayout() {
             <Header.Actions>
               <ColorSchemeToggle />
               <UserMenu>
-                <UserMenu.Trigger name={user.primaryLine} />
+                <UserMenu.Trigger name={user.primaryLine} avatar={userProfile?.attributes?.picture} />
                 <UserMenu.Header name={user.primaryLine} email={user.secondaryLine} />
                 <UserMenu.Divider />
                 {orgId && (
