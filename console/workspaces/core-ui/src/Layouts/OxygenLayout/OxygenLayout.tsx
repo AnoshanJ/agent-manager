@@ -124,7 +124,7 @@ export function OxygenLayout() {
               <ColorSchemeToggle />
               <UserMenu>
                 <UserMenu.Trigger name={user.primaryLine} avatar={userProfile?.attributes?.picture} />
-                <UserMenu.Header name={user.primaryLine} email={user.secondaryLine} />
+                <UserMenu.Header name={user.primaryLine} email={user.secondaryLine} avatar={userProfile?.attributes?.picture}  />
                 <UserMenu.Divider />
                 {orgId && (
                   <UserMenu.Item
