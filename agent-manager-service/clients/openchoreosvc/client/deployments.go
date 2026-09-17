@@ -477,8 +477,9 @@ func (c *openChoreoClient) ReplaceReleaseBindingWorkloadOverrides(ctx context.Co
 
 // EnsureReleaseAndBinding cuts a ComponentRelease from the component's current state and binds
 // it to the given environment, carrying the environment's configuration as the binding's
-// workloadOverrides. Creates the binding when the environment has none, and otherwise repins
-// the existing one, so both an agent's first deployment and every redeploy use this one path.
+// workloadOverrides, plus (when non-nil) traitEnvConfigs/componentTypeConfigs. Creates the
+// binding when the environment has none, and otherwise repins the existing one, so both an
+// agent's first deployment and every redeploy use this one path.
 //
 // Why this exists: components are created with autoDeploy off, so OpenChoreo's Component
 // controller neither cuts releases nor owns the binding. Nothing else notices that the
@@ -495,11 +496,19 @@ func (c *openChoreoClient) ReplaceReleaseBindingWorkloadOverrides(ctx context.Co
 // release freezes the component's traits, parameters and workload as they are at this moment,
 // so anything written afterwards waits for the next release.
 //
+// traitEnvConfigs/componentTypeConfigs land in this SAME Get→mutate→Update cycle as the release
+// pin and the workload overrides, not a follow-up call — mirroring the merge
+// UpdateReleaseBindingTraitConfigs below does for the deploy-settings path. A
+// second write to the same binding right after this one races its resourceVersion, and OpenChoreo's
+// controllers can observe (and successfully apply) two different renders for what is logically one
+// deploy, each standing up its own pod. Pass nil for either map to leave that aspect untouched.
+//
 // The binding name follows the same convention the workflow and the promotion path use:
 // <component>-<environment>. Passing nil overrides leaves spec.workloadOverrides unset.
 func (c *openChoreoClient) EnsureReleaseAndBinding(
 	ctx context.Context, ouID, projectName, componentName, environment string,
 	envOverrides []EnvVar, fileOverrides []FileVar,
+	traitEnvConfigs map[string]interface{}, componentTypeConfigs map[string]interface{},
 ) error {
 	namespaceName := c.NamespaceFor(ouID)
 
@@ -537,6 +546,18 @@ func (c *openChoreoClient) EnsureReleaseAndBinding(
 		workloadOverrides = &gen.WorkloadOverrides{Container: container}
 	}
 
+	// Build trait environment configs if provided (same shape PromoteComponent uses).
+	var traitConfigs *map[string]interface{}
+	if len(traitEnvConfigs) > 0 {
+		traitConfigs = &traitEnvConfigs
+	}
+
+	// Build component type environment configs (e.g. runtimeClassName from the env's isolation tier).
+	var ctConfigs *map[string]interface{}
+	if len(componentTypeConfigs) > 0 {
+		ctConfigs = &componentTypeConfigs
+	}
+
 	// Step 2: bind the release to the environment. A binding usually already exists — every
 	// redeploy comes through here, and so does an agent recreated over a previous one — so
 	// update rather than fail on that path; retryReleaseBindingUpdate re-reads per attempt, as
@@ -563,6 +584,27 @@ func (c *openChoreoClient) EnsureReleaseAndBinding(
 			// tore the resources down — with nothing in the response signalling it. Both callers
 			// are explicit deploy intents, so deploying an undeployed agent should redeploy it.
 			rb.Spec.State = &activeState
+			if traitConfigs != nil {
+				merged := mergeAgentAPIKeySecretRef(rb.Spec.TraitEnvironmentConfigs, *traitConfigs, componentName)
+				rb.Spec.TraitEnvironmentConfigs = &merged
+			}
+			if ctConfigs != nil {
+				if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
+					empty := map[string]interface{}{}
+					rb.Spec.ComponentTypeEnvironmentConfigs = &empty
+				}
+				for k, v := range *ctConfigs {
+					(*rb.Spec.ComponentTypeEnvironmentConfigs)[k] = v
+				}
+				// runtimeClassName is derived wholly from the target environment's isolation
+				// tier, so the incoming configs are authoritative: when they omit it (the env
+				// reverted to the default runc tier) the stale value must be cleared.
+				if _, ok := (*ctConfigs)["runtimeClassName"]; !ok {
+					delete(*rb.Spec.ComponentTypeEnvironmentConfigs, "runtimeClassName")
+				}
+			}
+			// Must run after the ComponentTypeEnvironmentConfigs merge above, which would
+			// otherwise leave a stale restartedAt untouched rather than bumping it.
 			bumpRestartedAt(rb)
 		})
 	}
@@ -579,7 +621,9 @@ func (c *openChoreoClient) EnsureReleaseAndBinding(
 			// (+kubebuilder:default=Active), so a create needs no opinion here. The update
 			// paths above do set it, because defaulting cannot help an existing binding
 			// whose state round-trips through the read.
-			WorkloadOverrides: workloadOverrides,
+			WorkloadOverrides:               workloadOverrides,
+			TraitEnvironmentConfigs:         traitConfigs,
+			ComponentTypeEnvironmentConfigs: ctConfigs,
 			Owner: struct {
 				ComponentName string `json:"componentName"`
 				ProjectName   string `json:"projectName"`
@@ -610,6 +654,22 @@ func (c *openChoreoClient) EnsureReleaseAndBinding(
 			// tore the resources down — with nothing in the response signalling it. Both callers
 			// are explicit deploy intents, so deploying an undeployed agent should redeploy it.
 			rb.Spec.State = &activeState
+			if traitConfigs != nil {
+				merged := mergeAgentAPIKeySecretRef(rb.Spec.TraitEnvironmentConfigs, *traitConfigs, componentName)
+				rb.Spec.TraitEnvironmentConfigs = &merged
+			}
+			if ctConfigs != nil {
+				if rb.Spec.ComponentTypeEnvironmentConfigs == nil {
+					empty := map[string]interface{}{}
+					rb.Spec.ComponentTypeEnvironmentConfigs = &empty
+				}
+				for k, v := range *ctConfigs {
+					(*rb.Spec.ComponentTypeEnvironmentConfigs)[k] = v
+				}
+				if _, ok := (*ctConfigs)["runtimeClassName"]; !ok {
+					delete(*rb.Spec.ComponentTypeEnvironmentConfigs, "runtimeClassName")
+				}
+			}
 			bumpRestartedAt(rb)
 		})
 	}

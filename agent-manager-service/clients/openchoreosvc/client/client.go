@@ -109,11 +109,15 @@ type OpenChoreoClient interface {
 	Deploy(ctx context.Context, ouID, projectName, componentName string, req DeployRequest) error
 	CreateInternalAgentFromKindWorkload(ctx context.Context, ouID, projectName, componentName string, req InternalAgentFromKindWorkloadRequest) error
 	// EnsureReleaseAndBinding cuts a ComponentRelease from the component's current state and
-	// binds it to the environment, carrying that environment's configuration as workloadOverrides.
+	// binds it to the environment, carrying that environment's configuration as workloadOverrides,
+	// plus (when non-nil) traitEnvConfigs/componentTypeConfigs in the same Get→mutate→Update cycle.
 	// Components are created with autoDeploy off, so this is the only thing that advances what an
 	// environment runs outside the build workflow: every deploy and every kind-sourced agent
-	// creation goes through it.
-	EnsureReleaseAndBinding(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []EnvVar, fileOverrides []FileVar) error
+	// creation goes through it. Trait/component-type configs must land in this same write, not a
+	// follow-up call: a second write to the same binding races this one's resourceVersion and can
+	// let OpenChoreo's controllers observe (and successfully apply) two different renders for what
+	// is logically one deploy, each standing up its own pod.
+	EnsureReleaseAndBinding(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []EnvVar, fileOverrides []FileVar, traitEnvConfigs map[string]interface{}, componentTypeConfigs map[string]interface{}) error
 	GetDeployments(ctx context.Context, ouID, pipelineName, projectName, componentName string) ([]*models.DeploymentResponse, error)
 	UpdateDeploymentState(ctx context.Context, ouID, projectName, componentName, environment string, state gen.ReleaseBindingSpecState) error
 	IsDeploymentInProgress(ctx context.Context, ouID, componentName, environment string) (bool, error)

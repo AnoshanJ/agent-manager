@@ -1696,7 +1696,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 			// created with autoDeploy off so nothing else deploys them. Deploy goes through
 			// the same call, which is how a later kind-version switch reaches the pod.
 			if err := s.ocClient.EnsureReleaseAndBinding(
-				ctx, ouID, projectName, req.Name, firstEnv, kindEnvVars, kindFileVars,
+				ctx, ouID, projectName, req.Name, firstEnv, kindEnvVars, kindFileVars, nil, nil,
 			); err != nil {
 				s.logger.Error("Failed to create release binding for kind-sourced agent",
 					"agentName", req.Name, "ouID", ouID, "projectName", projectName,
@@ -3302,31 +3302,31 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	}
 	deployAttempt.Complete(ctx, nil)
 
-	// Cut the release this deploy actually runs and pin the environment's binding to it, carrying
-	// this environment's env vars and file mounts as the binding's workloadOverrides so the config
-	// reaches this environment only. The component-wide base is left as agent creation seeded it —
-	// see applyEnvScopedWorkloadConfig for why it is not cleared here.
-	//
-	// The release has to be cut here, after the Component trait writes and the Workload image
-	// write above: components are created with autoDeploy off, so nothing else notices either
-	// change. A binding keeps rendering the frozen workload inside the release it is pinned to,
-	// which is why deploying an image that is not the one the last build pinned — an older build,
-	// or another kind version — used to change the Workload and nothing else.
-	if err := s.applyEnvScopedWorkloadConfig(ctx, ouID, projectName, agentName, lowestEnv, overrideEnvVars, overrideFileVars); err != nil {
-		return "", err
-	}
-
-	// Update trait + component-type environment configs (e.g. runtimeClassName) on the release binding after deploy.
 	// Component-type configs (runtimeClassName) only apply to sandboxed API agents; external agents have no pod,
 	// so gate on isAPIAgent to match PromoteAgent and avoid writing an irrelevant key to their bindings.
 	var deployCTConfigs map[string]interface{}
 	if isAPIAgent {
 		deployCTConfigs = buildComponentTypeEnvConfigs(targetEnv)
 	}
-	if len(deployTraitEnvConfigs) > 0 || len(deployCTConfigs) > 0 {
-		if err := s.ocClient.UpdateReleaseBindingTraitConfigs(ctx, ouID, agentName, lowestEnv, deployTraitEnvConfigs, deployCTConfigs); err != nil {
-			s.logger.Warn("Failed to update trait environment configs on release binding", "agentName", agentName, "environment", lowestEnv, "error", err)
-		}
+
+	// Cut the release this deploy actually runs and pin the environment's binding to it, carrying
+	// this environment's env vars, file mounts, trait configs and component-type configs as the
+	// binding's spec so the config reaches this environment only. The component-wide base is left
+	// as agent creation seeded it — see applyEnvScopedWorkloadConfig for why it is not cleared here.
+	//
+	// The release has to be cut here, after the Component trait writes and the Workload image
+	// write above: components are created with autoDeploy off, so nothing else notices either
+	// change. A binding keeps rendering the frozen workload inside the release it is pinned to,
+	// which is why deploying an image that is not the one the last build pinned — an older build,
+	// or another kind version — used to change the Workload and nothing else.
+	//
+	// Trait/component-type configs are passed into this same call rather than written afterward
+	// with a separate UpdateReleaseBindingTraitConfigs call: a follow-up write to the same binding
+	// raced this one's resourceVersion, and OpenChoreo's controllers could observe (and
+	// successfully apply) two different renders for this one deploy, each standing up its own pod
+	// — the agent's startup logs then appeared to duplicate, when in fact two pods had run.
+	if err := s.applyEnvScopedWorkloadConfig(ctx, ouID, projectName, agentName, lowestEnv, overrideEnvVars, overrideFileVars, deployTraitEnvConfigs, deployCTConfigs); err != nil {
+		return "", err
 	}
 
 	// Persist instrumentation config to database. Passing the pinned
@@ -3369,15 +3369,18 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 }
 
 // applyEnvScopedWorkloadConfig cuts the ComponentRelease this deploy runs and pins the
-// environment's ReleaseBinding to it, writing the environment's full env var and file mount set
-// as that binding's workloadOverrides. Deploy does not write to the component-wide base (the
-// Workload container spec and the Component's build workflow parameters), so config applied here
-// reaches only this environment.
+// environment's ReleaseBinding to it, writing the environment's full env var and file mount set,
+// plus its trait and component-type environment configs, as that binding's spec. Deploy does not
+// write to the component-wide base (the Workload container spec and the Component's build
+// workflow parameters), so config applied here reaches only this environment.
 //
-// Release and config go in one call because they must land in one binding write: the release pin
-// is what makes this deploy's image real, the overrides are what make its config real, and
-// splitting them rolls the pods twice and leaves a window where the environment runs the new
-// image with the old configuration.
+// Everything goes in one call because it must land in one binding write: the release pin is what
+// makes this deploy's image real, the workload overrides are what make its env/file config real,
+// and the trait/component-type configs are what make its policies and runtime class real.
+// Splitting any of these into a follow-up write to the same binding races the first write's
+// resourceVersion — OpenChoreo's controllers can observe, and successfully apply, two different
+// renders for what is logically one deploy, each standing up its own pod — and leaves a window
+// where the environment runs part-old, part-new configuration.
 //
 // It creates the binding when the environment has none rather than waiting for one to appear.
 // It used to poll, because autoDeploy had OpenChoreo's Component controller create the binding a
@@ -3399,15 +3402,18 @@ func (s *agentManagerService) applyEnvScopedWorkloadConfig(
 	ouID, projectName, agentName, environment string,
 	envVars []client.EnvVar,
 	fileVars []client.FileVar,
+	traitEnvConfigs map[string]interface{},
+	componentTypeConfigs map[string]interface{},
 ) error {
-	if err := s.ocClient.EnsureReleaseAndBinding(ctx, ouID, projectName, agentName, environment, envVars, fileVars); err != nil {
+	if err := s.ocClient.EnsureReleaseAndBinding(ctx, ouID, projectName, agentName, environment, envVars, fileVars, traitEnvConfigs, componentTypeConfigs); err != nil {
 		s.logger.Error("Failed to release the deployed image to the environment",
 			"agentName", agentName, "environment", environment, "error", err)
 		return fmt.Errorf("failed to apply environment configuration: %w", err)
 	}
 
 	s.logger.Debug("Released image and applied environment-scoped workload config", "agentName", agentName,
-		"environment", environment, "envVarCount", len(envVars), "fileMountCount", len(fileVars))
+		"environment", environment, "envVarCount", len(envVars), "fileMountCount", len(fileVars),
+		"traitConfigCount", len(traitEnvConfigs), "componentTypeConfigCount", len(componentTypeConfigs))
 	return nil
 }
 
