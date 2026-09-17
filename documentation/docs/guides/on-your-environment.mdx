@@ -109,8 +109,21 @@ Pick a base domain you control (a delegated subdomain like `amp.yourdomain.com` 
 
 Concretely: `console`/`api-amp`/`thunder`/`cp` all point at the control-plane gateway — via a single required `*.<base>` wildcard, not four separate records (per-environment Thunder hostnames are created after install and are only reachable through that wildcard) — `traces` points at the observability-plane gateway, and `*.agents.<base>` plus the `agents.<base>` apex point at the data-plane gateway. [Step 10](#step-10-publish-dns-records) lists the exact records once the LoadBalancer addresses exist.
 
+Download the release bundle first. Every manifest, values file and script this
+guide applies comes from it, so the install needs no further network access to
+GitHub — which also sidesteps the per-IP rate limiting that makes
+`helm --values <url>` fail with HTTP 429 behind shared or corporate NAT.
+
 ```bash
 export VERSION="0.0.0-dev"
+curl -fsSL -O "https://github.com/wso2/agent-manager/releases/download/amp/v${VERSION}/wso2-agent-manager-${VERSION}.tar.gz"
+tar xzf "wso2-agent-manager-${VERSION}.tar.gz"
+export AMP_DIST="$PWD"
+```
+
+Then the rest of the configuration:
+
+```bash
 export HELM_CHART_REGISTRY="ghcr.io/wso2"
 export AMP_NS="wso2-amp"
 export BUILD_CI_NS="openchoreo-workflow-plane"
@@ -396,7 +409,7 @@ helm upgrade --install openbao oci://ghcr.io/openbao/charts/openbao \
   --namespace openbao \
   --create-namespace \
   --version 0.25.6 \
-  --values https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-openbao.yaml \
+  --values "${AMP_DIST}/deployments/single-cluster/values-openbao.yaml" \
   --timeout 180s
 
 kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=openbao -n openbao --timeout=120s
@@ -787,7 +800,7 @@ Install the Control Plane with hostnames, TLS, and Thunder OIDC. The OpenChoreo 
 ```bash
 helm upgrade --install openchoreo-control-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-control-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-control-plane \
   --create-namespace \
   --values - <<EOF
@@ -828,7 +841,7 @@ kubectl wait --for=condition=Available \
 ```
 
 :::note Webhook race condition
-If the install fails with `no endpoints available for service "controller-manager-webhook-service"`, this is a known transient race in OpenChoreo v1.1.1. Wait for the control plane deployments to become ready, then rerun the `helm upgrade --install` command.
+If the install fails with `no endpoints available for service "controller-manager-webhook-service"`, this is a known transient race in the OpenChoreo control-plane install. Wait for the control plane deployments to become ready, then rerun the `helm upgrade --install` command.
 ```bash
 kubectl wait --for=condition=Available deployment --all \
   -n openchoreo-control-plane --timeout=300s
@@ -841,7 +854,7 @@ EKS LoadBalancers return a hostname instead of an IP — resolve it with `dig` w
 
 #### Patch the service-account entitlement claim (required with Thunder ≥ 0.45)
 
-Thunder 0.45+ puts the client name in the `client_id` claim (its `sub` is an opaque UUID), but OpenChoreo 1.1.1 extracts service-account entitlements from `sub`, and the chart does not expose the setting. Without this patch, every service-to-service call is **silently unauthorized** — the API returns `200` with empty lists and `403`s while all pods look healthy, and the gateway bootstrap later fails with `Environment 'default' not found`.
+Thunder 0.45+ puts the client name in the `client_id` claim (its `sub` is an opaque UUID), but OpenChoreo 1.2.0 extracts service-account entitlements from `sub`, and the chart does not expose the setting. Without this patch, every service-to-service call is **silently unauthorized** — the API returns `200` with empty lists and `403`s while all pods look healthy, and the gateway bootstrap later fails with `Environment 'default' not found`.
 
 ```bash
 patched_yaml=$(kubectl get configmap openchoreo-api-config -n openchoreo-control-plane -o yaml   | sed -E "s/claim:[[:space:]]*['\"]?sub['\"]?/claim: client_id/g")
@@ -924,7 +937,7 @@ kubectl wait --for=condition=Ready certificate/dp-gateway-tls \
 
 helm install openchoreo-data-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-data-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-data-plane \
   --create-namespace \
   --set clusterAgent.tls.generateCerts=true \
@@ -933,7 +946,7 @@ helm install openchoreo-data-plane \
   --set "gateway.tls.certificateRefs[0].name=dp-gateway-tls" \
   --set gateway.httpPort=80 \
   --set gateway.httpsPort=443 \
-  --values https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-dp.yaml
+  --values "${AMP_DIST}/deployments/single-cluster/values-dp.yaml"
 
 kubectl wait --for=condition=Available \
   deployment --all -n openchoreo-data-plane --timeout=600s
@@ -1021,10 +1034,14 @@ Install the Workflow Plane:
 ```bash
 helm install openchoreo-workflow-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-workflow-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-workflow-plane \
   --create-namespace \
   --set clusterAgent.tls.generateCerts=true \
+  --set argo-workflows.controller.resources.requests.cpu=50m \
+  --set argo-workflows.controller.resources.requests.memory=64Mi \
+  --set argo-workflows.controller.resources.limits.cpu=200m \
+  --set argo-workflows.controller.resources.limits.memory=128Mi \
   --timeout 600s
 
 kubectl wait --for=condition=Available \
@@ -1145,7 +1162,7 @@ kubectl wait -n openchoreo-observability-plane \
 Apply the custom OpenTelemetry Collector ConfigMap (required for trace ingestion):
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/values/oc-collector-configmap.yaml \
+kubectl apply -f "${AMP_DIST}/deployments/values/oc-collector-configmap.yaml" \
   -n openchoreo-observability-plane
 ```
 
@@ -1177,7 +1194,7 @@ kubectl wait --for=condition=Ready certificate/obs-gateway-tls \
 
 helm install openchoreo-observability-plane \
   oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane \
-  --version 1.1.1 \
+  --version 1.2.0 \
   --namespace openchoreo-observability-plane \
   --create-namespace \
   --set gateway.tls.enabled=true \
@@ -1190,7 +1207,7 @@ helm install openchoreo-observability-plane \
   --set observer.extraEnv.AUTH_SERVER_BASE_URL="${THUNDER_PUBLIC_URL}" \
   --set security.oidc.jwksUrl="${THUNDER_INTERNAL_URL}/oauth2/jwks" \
   --set security.oidc.tokenUrl="${THUNDER_INTERNAL_URL}/oauth2/token" \
-  --values https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/single-cluster/values-op.yaml \
+  --values "${AMP_DIST}/deployments/single-cluster/values-op.yaml" \
   --timeout 25m
 
 kubectl wait --for=condition=Available \
@@ -1218,7 +1235,7 @@ helm upgrade --install observability-logs-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
   --create-namespace \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.5.3 \
   --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
   --set adapter.openSearchSecretName="opensearch-admin-credentials" \
   --set openSearch.persistence.size=100Gi \
@@ -1231,7 +1248,7 @@ helm upgrade --install observability-logs-opensearch \
 helm upgrade observability-logs-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.5.3 \
   --reuse-values \
   --set fluent-bit.enabled=true \
   --timeout 10m
@@ -1249,7 +1266,7 @@ helm upgrade --install observability-traces-opensearch \
   oci://ghcr.io/openchoreo/helm-charts/observability-tracing-opensearch \
   --create-namespace \
   --namespace openchoreo-observability-plane \
-  --version 0.4.1 \
+  --version 0.6.0 \
   --set openSearch.enabled=false \
   --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
   --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config" \
@@ -1407,9 +1424,9 @@ helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
   --set agentManagerService.config.agentsBaseDomain="${AGENTS_DOMAIN}" \
   --set agentManagerService.config.agentsHttpPort=80 \
   --set agentManagerService.config.agentsHttpsPort=443 \
-  --set agentManagerService.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set agentManagerService.config.idpHostBaseDomain="${BASE_DOMAIN}" \
   --set agentManagerService.config.tlsEnabled=true \
-  --set console.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set console.config.idpHostBaseDomain="${BASE_DOMAIN}" \
   --set console.config.tlsEnabled=true
 ```
 
@@ -1437,9 +1454,9 @@ helm upgrade amp oci://${HELM_CHART_REGISTRY}/wso2-agent-manager \
   --set agentManagerService.config.gatewayBaseDomain="otel.${BASE_DOMAIN}" \
   --set agentManagerService.config.gatewayVhostScheme=https \
   --set agentManagerService.config.gatewayVhostPort=443 \
-  --set agentManagerService.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set agentManagerService.config.idpHostBaseDomain="${BASE_DOMAIN}" \
   --set agentManagerService.config.tlsEnabled=true \
-  --set console.config.thunderHostBaseDomain="${BASE_DOMAIN}" \
+  --set console.config.idpHostBaseDomain="${BASE_DOMAIN}" \
   --set console.config.tlsEnabled=true
 ```
 
@@ -1449,11 +1466,6 @@ That needs a `*.otel.${BASE_DOMAIN}` DNS record and gateway certificate coverage
 ### Provision Thunder Identity Provider for the Default Environment
 
 Every Environment needs its own dedicated Thunder ID instance. This is separate from the platform Thunder installed in Phase 1, which only handles console and API login. This instance is what issues each agent its own OAuth2 credential (AgentID) in that Environment. Run this once for the default Environment: agents can still be created without it, but they will never get an AgentID there, since there is no Thunder instance to provision one against, and Agent Manager will keep retrying and failing in the background. Run it after Agent Manager (`amp`) is installed and reachable at `API_PUBLIC_URL`, since this step registers the generated credential with the Agent Manager API.
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/scripts/add-environment-thunder.sh" \
-  -o add-environment-thunder.sh
-```
 
 Pick the tab matching your [Step 3](#step-3-setup-tls-issuer) issuer choice — the CA trust setting below only differs by that choice, nothing else changes.
 
@@ -1481,7 +1493,7 @@ PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
 THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
 TLS_ENABLED=true \
 SKIP_CA_BUNDLE_TRUST=true \
-bash add-environment-thunder.sh
+bash "${AMP_DIST}/deployments/scripts/add-environment-thunder.sh"
 ```
 
   </TabItem>
@@ -1529,7 +1541,7 @@ PLATFORM_THUNDER_JWKS_URL="${THUNDER_PUBLIC_URL}/oauth2/jwks" \
 PLATFORM_THUNDER_CA_PEM="${PLATFORM_THUNDER_CA_PEM}" \
 THUNDER_HOST_BASE_DOMAIN="${BASE_DOMAIN}" \
 TLS_ENABLED=true \
-bash add-environment-thunder.sh
+bash "${AMP_DIST}/deployments/scripts/add-environment-thunder.sh"
 ```
 
   </TabItem>

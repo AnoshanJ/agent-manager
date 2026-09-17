@@ -219,7 +219,7 @@ If you just want a quick IP-based demo with automatic TLS, prefer the **Simple**
 ## Prerequisites {#adv-prerequisites}
 
 - **Docker, k3d, kubectl, Helm, curl, and `lsof`** must already be installed on the VM. The installer **verifies** they are present and exits with install hints if any are missing. It does **not** install them for you.
-- A **Linux VM** with at least **4 vCPUs**, **8 GB RAM**, and **50 GB of disk**, and **outbound** internet access to pull images and charts. Inbound `:443` is needed only for clients to reach the services, **not** for certificate issuance, so a fully private VM works.
+- A **Linux VM** with at least **4 vCPUs**, **8 GB RAM**, and **50 GB of disk**, and **outbound** internet access to pull images and charts. Inbound `:443` is needed only for clients to reach the services, **not** for certificate issuance, so a fully private VM works. Those figures cover the platform plus the **default environment**. Every environment you add runs its own Thunder and API Platform Gateway, and evaluation runs are scheduled as extra pods, so on 4 vCPUs a second environment can consume nearly all allocatable CPU — after which evaluation jobs stay `Pending` (`0/1 nodes are available: 1 Insufficient cpu`) instead of reporting a capacity error. Plan on **8 vCPUs** if you intend to add environments or run evaluations.
 - **A domain you control.** With `TLS_MODE=dns01` it must additionally be hosted on one of the supported DNS providers — **Cloudflare**, **AWS Route 53**, **Google Cloud DNS**, or **Azure DNS** — and you need **a DNS-provider API credential** scoped to edit that zone's records, which cert-manager uses to write the `_acme-challenge` TXT record. You do **not** create TXT records by hand. With `TLS_MODE=byoc` neither the provider nor the credential matters; you need only [a certificate covering the right names](#adv-byoc).
 
 ## Configure {#adv-configure}
@@ -487,6 +487,20 @@ Per-environment Thunder does **not** have this problem: its handles sit directly
 
 Verify the fixed hosts resolve before installing:
 
+:::note A freshly delegated zone reads as broken for a few minutes
+If you have only just pointed the parent zone's `NS` records at your DNS provider, the loop below can return **empty answers for some hosts and addresses for others**, changing from run to run. That is the parent zone's negative cache (typically 300 s, per the zone's SOA), not a misconfiguration — public resolvers are anycast fleets, so each edge expires its cached `NXDOMAIN` at a different moment. Confirm the zone itself is correct by querying its authoritative nameservers directly, which never serve a stale negative:
+
+```bash
+# 1. the delegation itself — this prints your DNS provider's nameservers
+dig +short NS amp.mycompany.com
+
+# 2. ask one of those nameservers directly, substituting a name from step 1
+dig +short console.amp.mycompany.com A @<nameserver-from-step-1>
+```
+
+Certificate issuance does not depend on these A records at all — it turns on the `_acme-challenge` TXT record cert-manager writes, so a service host that has not finished propagating can still be certified. It does depend on the delegation being correct: if the parent zone still points at the wrong nameservers, the CA follows that stale delegation and never sees the TXT record, so confirm the `NS` answer above before suspecting issuance.
+:::
+
 ```bash
 for h in console.amp.mycompany.com thunder.amp.mycompany.com gateway.amp.mycompany.com \
          x-y.agents.amp.mycompany.com x-y.gateway.amp.mycompany.com; do
@@ -571,11 +585,37 @@ TLS still validates normally through the tunnel, because the `Host` header and S
 
 ## Persistence and teardown {#adv-persistence}
 
-Application data (PostgreSQL), the certificate (a Kubernetes Secret), and the k3d cluster persist across restarts. To tear down completely, delete the cluster. Everything the installer created lives inside it, including the certificate and the gateway resources:
+Application data (PostgreSQL), the certificate (a Kubernetes Secret), and the k3d cluster persist across restarts. Nearly everything the installer created — the certificate and the gateway resources included — lives inside the cluster, so deleting it removes the platform:
 
 ```bash
 sudo k3d cluster delete amp-local     # delete the cluster (workloads, app data, cert, gateways)
 ```
+
+Three changes are made to the **host** rather than the cluster, and deleting the cluster does not touch them:
+
+| What | Where | Why it was added |
+|---|---|---|
+| Loopback aliases for the API and Thunder hosts | `/etc/hosts` | so the installer's own API calls reach the gateway during the install |
+| Raised inotify limits | `/etc/sysctl.d/99-amp-inotify.conf` | k3d exhausts the defaults |
+| An allow rule for `443/tcp` | `ufw`, or `firewalld` when ufw is absent | the TLS listener needs it |
+
+Leaving them in place is harmless, and the loopback aliases are what let you `curl` the API from the VM itself. Remove them only if you want the host back exactly as it was:
+
+```bash
+# loopback aliases (substitute your DOMAIN_BASE)
+sudo sed -i "/^127\.0\.0\.1 \(api\|thunder\)\.amp\.mycompany\.com$/d" /etc/hosts
+
+# stop the raised inotify limits applying at the next boot
+sudo rm -f /etc/sysctl.d/99-amp-inotify.conf
+
+# the firewall rule — whichever the installer used (it prefers ufw)
+sudo ufw delete allow 443/tcp
+sudo firewall-cmd --permanent --remove-port=443/tcp && sudo firewall-cmd --reload
+```
+
+Deleting the sysctl file does not lower the **running** limits: `sysctl --system` only re-applies what the remaining files declare, so the raised values stay in effect until you reboot. Set them back explicitly if you need them lowered sooner — the installer raises a key only when it is below its floor and does not record the previous value, so recover the original from your own host baseline rather than assuming a default.
+
+While the loopback aliases remain, a later `--dry-run` (or a re-install) on the same host prints a `[preflight] note` for those two names, because the local resolver answers them from `/etc/hosts`. It is informational — your public records are unaffected. An accepted alias suppresses nothing else: any other host answering on loopback, and any host resolving to a non-loopback address that is not this VM, are both still reported as DNS problems.
 
 To remove only the TLS and routing layer while keeping the platform running (for example to re-issue against a different ACME server after a staging run), delete the resources the installer applies in its third phase:
 
@@ -639,7 +679,11 @@ The control-plane endpoint `https://cp.<DOMAIN_BASE>` is exposed by default. Gen
 - **Config rejected before install.** The installer names the missing/invalid key (e.g. an unsupported `DNS_PROVIDER` or `TLS_MODE`, a missing provider credential, or `byoc` without `TLS_CERT_FILE`). Fix `amp-config.env` and re-run.
 - **Certificate rejected before install (`byoc`).** The pre-flight found that the certificate and key don't match, the certificate has expired, or its SANs don't cover a required name. The message names the specific problem. The most common one is a missing `*.agents` or `*.gateway` wildcard: those tiers sit one label deeper than `*.<DOMAIN_BASE>` reaches, so they each need their own explicit wildcard SAN (see [Bring your own certificate](#adv-byoc)). Reissue with the full SAN list.
 - **Certificate never becomes Ready (`dns01`).** cert-manager could not complete the DNS-01 challenge. Inspect it with `kubectl describe certificate amp-wildcard-tls -n openchoreo-control-plane` and `kubectl get challenge -A`. Common causes: the provider credential can't write the zone, the zone isn't delegated to that provider, or a production rate limit. Re-run with `ACME_SERVER` pointed at Let's Encrypt staging to iterate.
-- **Untrusted-certificate warnings everywhere (`byoc` with a private CA).** Expected on any client that doesn't hold your CA. Import the CA into the client's trust store. If browsers also report the chain as incomplete, `TLS_CERT_FILE` is probably leaf-only — rebuild it as the full chain and rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)).
+- **Untrusted-certificate warnings everywhere (`byoc` with a private CA).** Expected on any client that doesn't hold your CA. Import the CA into the client's trust store. If browsers also report the chain as incomplete, `TLS_CERT_FILE` is probably leaf-only — rebuild it as the full chain and rotate (see [Rotating a `byoc` certificate](#adv-byoc-rotate)). For `amctl` specifically, which fails with `x509: certificate signed by unknown authority`, you can point it at the CA for a single command instead of changing the host's trust store — no root required:
+
+  ```bash
+  SSL_CERT_FILE=/path/to/ca.pem amctl project list --org <org>
+  ```
 - **Login to an agent environment fails while the console works (`byoc` with a private CA).** That environment's Thunder cannot validate the chain when it fetches platform Thunder's JWKS over `https://thunder.<DOMAIN_BASE>`. Environment creation reports success regardless, so this only ever surfaces at login. Check whether the CA is published in the cluster:
 
   ```bash

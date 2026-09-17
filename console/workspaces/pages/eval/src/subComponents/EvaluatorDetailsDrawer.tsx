@@ -66,7 +66,7 @@ interface ConfigParamFieldProps {
   param: EvaluatorConfigParam;
   value: unknown;
   onChange: (value: unknown) => void;
-  error?: boolean;
+  error?: string;
 }
 
 function ConfigParamField({
@@ -77,7 +77,7 @@ function ConfigParamField({
 }: ConfigParamFieldProps) {
   const { description, key, required, type, enumValues, max, min } = param;
   const helperText = error
-    ? `${keyToDisplay(key)} is required`
+    ? error
     : description || "No description provided.";
   const label = keyToDisplay(key);
   const labelWithRequired = required ? `* ${label}` : label;
@@ -90,7 +90,7 @@ function ConfigParamField({
           select
           value={selectValue}
           required={required}
-          error={error}
+          error={!!error}
           helperText={helperText}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -165,13 +165,20 @@ function ConfigParamField({
             },
           }}
           required={required}
-          error={error}
+          error={!!error}
           helperText={helperText}
           onChange={(event) => {
-            const nextValue =
-              event.target.value === ""
-                ? undefined
-                : Number(event.target.value);
+            const raw = event.target.value;
+            if (raw === "") {
+              onChange(undefined);
+              return;
+            }
+            const nextValue = Number(raw);
+            // A schema that forbids negatives should not let one be typed at
+            // all. The confirm-time check still covers paste and stored values.
+            if (min !== undefined && min >= 0 && nextValue < 0) {
+              return;
+            }
             onChange(nextValue);
           }}
         />
@@ -224,13 +231,20 @@ function ConfigParamField({
             },
           }}
           required={required}
-          error={error}
+          error={!!error}
           helperText={helperText}
           onChange={(event) => {
-            const nextValue =
-              event.target.value === ""
-                ? undefined
-                : Number(event.target.value);
+            const raw = event.target.value;
+            if (raw === "") {
+              onChange(undefined);
+              return;
+            }
+            const nextValue = Number(raw);
+            // A schema that forbids negatives should not let one be typed at
+            // all. The confirm-time check still covers paste and stored values.
+            if (min !== undefined && min >= 0 && nextValue < 0) {
+              return;
+            }
             onChange(nextValue);
           }}
         />
@@ -320,7 +334,7 @@ function ConfigParamField({
         <TextField
           value={textValue}
           required={required}
-          error={error}
+          error={!!error}
           helperText={helperText}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -386,9 +400,9 @@ export function EvaluatorDetailsDrawer({
 }: EvaluatorDetailsDrawerProps) {
   const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
   const [savedConfig, setSavedConfig] = useState<Record<string, unknown>>({});
-  const [validationErrors, setValidationErrors] = useState<Set<string>>(
-    new Set(),
-  );
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
   const { addConfirmation } = useConfirmationDialog();
 
   const isLlmJudge = evaluator?.type === "llm_judge";
@@ -397,7 +411,7 @@ export function EvaluatorDetailsDrawer({
     if (!evaluator) {
       setConfigValues({});
       setSavedConfig({});
-      setValidationErrors(new Set());
+      setValidationErrors({});
       return;
     }
     const nextConfig: Record<string, unknown> = {};
@@ -409,7 +423,7 @@ export function EvaluatorDetailsDrawer({
     });
     setConfigValues(nextConfig);
     setSavedConfig(nextConfig);
-    setValidationErrors(new Set());
+    setValidationErrors({});
   }, [open, initialConfig, evaluator]);
 
   const isDirty = useMemo(
@@ -435,34 +449,52 @@ export function EvaluatorDetailsDrawer({
   const handleConfigChange = useCallback((key: string, value: unknown) => {
     setConfigValues((prev) => ({ ...prev, [key]: value }));
     setValidationErrors((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
       return next;
     });
   }, []);
 
   const handleConfirmSelection = useCallback(() => {
-    const missing = (evaluator?.configSchema ?? [])
-      .filter((p) => {
-        const val = configValues[p.key];
-        const isEmpty =
-          val === undefined ||
-          val === null ||
-          (typeof val === "string" && val.trim() === "") ||
-          (Array.isArray(val) &&
-            (val.length === 0 ||
-              val.every(
-                (v: unknown) => typeof v === "string" && v.trim() === "",
-              )));
-        return p.required && isEmpty;
-      })
-      .map((p) => p.key);
-    if (missing.length > 0) {
-      setValidationErrors(new Set(missing));
+    const errors: Record<string, string> = {};
+    (evaluator?.configSchema ?? []).forEach((param) => {
+      const value = configValues[param.key];
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        (typeof value === "string" && value.trim() === "") ||
+        (Array.isArray(value) &&
+          (value.length === 0 ||
+            value.every(
+              (item: unknown) =>
+                typeof item === "string" && item.trim() === "",
+            )));
+      if (param.required && isEmpty) {
+        errors[param.key] = `${keyToDisplay(param.key)} is required`;
+        return;
+      }
+      if (
+        !isEmpty &&
+        (param.type === "integer" || param.type === "float" || param.type === "number")
+      ) {
+        const numberValue = typeof value === "number" ? value : Number(value);
+        if (!Number.isFinite(numberValue)) {
+          errors[param.key] = `${keyToDisplay(param.key)} must be a number`;
+        } else if (param.type === "integer" && !Number.isInteger(numberValue)) {
+          errors[param.key] = `${keyToDisplay(param.key)} must be an integer`;
+        } else if (param.min !== undefined && numberValue < param.min) {
+          errors[param.key] = `${keyToDisplay(param.key)} must be at least ${param.min}`;
+        } else if (param.max !== undefined && numberValue > param.max) {
+          errors[param.key] = `${keyToDisplay(param.key)} must be at most ${param.max}`;
+        }
+      }
+    });
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
       return;
     }
-    setValidationErrors(new Set());
+    setValidationErrors({});
     const filteredConfig = Object.fromEntries(
       Object.entries(configValues).map(([key, value]) => [
         key,
@@ -537,7 +569,7 @@ export function EvaluatorDetailsDrawer({
                           onChange={(nextValue) =>
                             handleConfigChange(param.key, nextValue)
                           }
-                          error={validationErrors.has(param.key)}
+                          error={validationErrors[param.key]}
                         />
                       </Form.Section>
                     ))}

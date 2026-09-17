@@ -30,6 +30,9 @@ import (
 //			DeleteFunc: func(providerID string, orgUUID string) error {
 //				panic("mock out the Delete method")
 //			},
+//			DeleteCtxFunc: func(ctx context.Context, providerID string, orgUUID string) error {
+//				panic("mock out the DeleteCtx method")
+//			},
 //			ExistsFunc: func(providerID string, orgUUID string) (bool, error) {
 //				panic("mock out the Exists method")
 //			},
@@ -51,7 +54,7 @@ import (
 //			MarkDeletingFunc: func(providerUUID uuid.UUID) (bool, error) {
 //				panic("mock out the MarkDeleting method")
 //			},
-//			UpdateFunc: func(p *models.LLMProvider, providerID string, orgUUID string) error {
+//			UpdateFunc: func(ctx context.Context, p *models.LLMProvider, providerID string, orgUUID string) error {
 //				panic("mock out the Update method")
 //			},
 //		}
@@ -72,6 +75,9 @@ type LLMProviderRepositoryMock struct {
 
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(providerID string, orgUUID string) error
+
+	// DeleteCtxFunc mocks the DeleteCtx method.
+	DeleteCtxFunc func(ctx context.Context, providerID string, orgUUID string) error
 
 	// ExistsFunc mocks the Exists method.
 	ExistsFunc func(providerID string, orgUUID string) (bool, error)
@@ -95,7 +101,7 @@ type LLMProviderRepositoryMock struct {
 	MarkDeletingFunc func(providerUUID uuid.UUID) (bool, error)
 
 	// UpdateFunc mocks the Update method.
-	UpdateFunc func(p *models.LLMProvider, providerID string, orgUUID string) error
+	UpdateFunc func(ctx context.Context, p *models.LLMProvider, providerID string, orgUUID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -126,6 +132,15 @@ type LLMProviderRepositoryMock struct {
 		}
 		// Delete holds details about calls to the Delete method.
 		Delete []struct {
+			// ProviderID is the providerID argument value.
+			ProviderID string
+			// OrgUUID is the orgUUID argument value.
+			OrgUUID string
+		}
+		// DeleteCtx holds details about calls to the DeleteCtx method.
+		DeleteCtx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// ProviderID is the providerID argument value.
 			ProviderID string
 			// OrgUUID is the orgUUID argument value.
@@ -184,6 +199,8 @@ type LLMProviderRepositoryMock struct {
 		}
 		// Update holds details about calls to the Update method.
 		Update []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// P is the p argument value.
 			P *models.LLMProvider
 			// ProviderID is the providerID argument value.
@@ -196,6 +213,7 @@ type LLMProviderRepositoryMock struct {
 	lockCount                sync.RWMutex
 	lockCreate               sync.RWMutex
 	lockDelete               sync.RWMutex
+	lockDeleteCtx            sync.RWMutex
 	lockExists               sync.RWMutex
 	lockGetByHandle          sync.RWMutex
 	lockGetByUUID            sync.RWMutex
@@ -355,6 +373,46 @@ func (mock *LLMProviderRepositoryMock) DeleteCalls() []struct {
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
 	mock.lockDelete.RUnlock()
+	return calls
+}
+
+// DeleteCtx calls DeleteCtxFunc.
+func (mock *LLMProviderRepositoryMock) DeleteCtx(ctx context.Context, providerID string, orgUUID string) error {
+	if mock.DeleteCtxFunc == nil {
+		panic("LLMProviderRepositoryMock.DeleteCtxFunc: method is nil but LLMProviderRepository.DeleteCtx was just called")
+	}
+	callInfo := struct {
+		Ctx        context.Context
+		ProviderID string
+		OrgUUID    string
+	}{
+		Ctx:        ctx,
+		ProviderID: providerID,
+		OrgUUID:    orgUUID,
+	}
+	mock.lockDeleteCtx.Lock()
+	mock.calls.DeleteCtx = append(mock.calls.DeleteCtx, callInfo)
+	mock.lockDeleteCtx.Unlock()
+	return mock.DeleteCtxFunc(ctx, providerID, orgUUID)
+}
+
+// DeleteCtxCalls gets all the calls that were made to DeleteCtx.
+// Check the length with:
+//
+//	len(mockedLLMProviderRepository.DeleteCtxCalls())
+func (mock *LLMProviderRepositoryMock) DeleteCtxCalls() []struct {
+	Ctx        context.Context
+	ProviderID string
+	OrgUUID    string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		ProviderID string
+		OrgUUID    string
+	}
+	mock.lockDeleteCtx.RLock()
+	calls = mock.calls.DeleteCtx
+	mock.lockDeleteCtx.RUnlock()
 	return calls
 }
 
@@ -615,15 +673,17 @@ func (mock *LLMProviderRepositoryMock) MarkDeletingCalls() []struct {
 }
 
 // Update calls UpdateFunc.
-func (mock *LLMProviderRepositoryMock) Update(p *models.LLMProvider, providerID string, orgUUID string) error {
+func (mock *LLMProviderRepositoryMock) Update(ctx context.Context, p *models.LLMProvider, providerID string, orgUUID string) error {
 	if mock.UpdateFunc == nil {
 		panic("LLMProviderRepositoryMock.UpdateFunc: method is nil but LLMProviderRepository.Update was just called")
 	}
 	callInfo := struct {
+		Ctx        context.Context
 		P          *models.LLMProvider
 		ProviderID string
 		OrgUUID    string
 	}{
+		Ctx:        ctx,
 		P:          p,
 		ProviderID: providerID,
 		OrgUUID:    orgUUID,
@@ -631,7 +691,7 @@ func (mock *LLMProviderRepositoryMock) Update(p *models.LLMProvider, providerID 
 	mock.lockUpdate.Lock()
 	mock.calls.Update = append(mock.calls.Update, callInfo)
 	mock.lockUpdate.Unlock()
-	return mock.UpdateFunc(p, providerID, orgUUID)
+	return mock.UpdateFunc(ctx, p, providerID, orgUUID)
 }
 
 // UpdateCalls gets all the calls that were made to Update.
@@ -639,11 +699,13 @@ func (mock *LLMProviderRepositoryMock) Update(p *models.LLMProvider, providerID 
 //
 //	len(mockedLLMProviderRepository.UpdateCalls())
 func (mock *LLMProviderRepositoryMock) UpdateCalls() []struct {
+	Ctx        context.Context
 	P          *models.LLMProvider
 	ProviderID string
 	OrgUUID    string
 } {
 	var calls []struct {
+		Ctx        context.Context
 		P          *models.LLMProvider
 		ProviderID string
 		OrgUUID    string

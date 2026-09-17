@@ -239,12 +239,6 @@
               "description": "Accepted token audiences, as a comma-separated list.",
               "title": "audience",
               "type": "string"
-            },
-            "rbacEnabled": {
-              "default": "true",
-              "description": "Enables scope-based authorization on the observer REST data routes. Mirrors agent-manager-service's rbacEnabled. MUST stay a quoted string: Helm's `default` treats boolean false as unset, which would make the kill-switch impossible to turn off.",
-              "title": "rbacEnabled",
-              "type": "string"
             }
           },
           "required": [],
@@ -259,7 +253,7 @@
         },
         "oauth": {
           "additionalProperties": false,
-          "description": "OAuth 2.0 discovery metadata for MCP clients (RFC 9728). Consumed by the /mcp route's protected-resource well-known endpoint; scope/claims enforcement on the REST data routes is governed by auth.rbacEnabled above.",
+          "description": "OAuth 2.0 discovery metadata for MCP clients (RFC 9728). Consumed by the /mcp route's protected-resource well-known endpoint.",
           "properties": {
             "authorizationServers": {
               "default": "",
@@ -281,6 +275,55 @@
       },
       "required": [],
       "title": "amObserver",
+      "type": "object"
+    },
+    "global": {
+      "additionalProperties": false,
+      "description": "Values shared with the other AMP charts",
+      "properties": {
+        "ampImageRegistry": {
+          "default": "",
+          "description": "Registry and organization that replaces the registry portion of the first-party AMP image repository, keeping the image name. Set this to pull the observer image from a private registry (e.g. registry.example.com/my-org). Empty leaves image.repository exactly as configured. Deliberately not named global.imageRegistry, which Bitnami subcharts consume.",
+          "title": "ampImageRegistry",
+          "type": "string"
+        },
+        "imagePullSecrets": {
+          "default": [],
+          "description": "Secrets used to pull images from a private registry",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "imagePullSecrets",
+          "type": "array"
+        }
+      },
+      "required": [],
+      "title": "global",
+      "type": "object"
+    },
+    "networkPolicy": {
+      "additionalProperties": false,
+      "description": "Network restrictions applied to the pods this chart runs.",
+      "properties": {
+        "otelCollector": {
+          "additionalProperties": false,
+          "description": "Traffic the collector is allowed to accept.",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "No-op on clusters whose CNI doesn't enforce NetworkPolicy.",
+              "title": "enabled",
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "title": "otelCollector",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "networkPolicy",
       "type": "object"
     },
     "otelCollector": {
@@ -329,30 +372,6 @@
       },
       "required": [],
       "title": "otelCollector",
-      "type": "object"
-    },
-    "networkPolicy": {
-      "additionalProperties": false,
-      "description": "Network restrictions applied to the pods this chart runs.",
-      "properties": {
-        "otelCollector": {
-          "additionalProperties": false,
-          "description": "Traffic the collector is allowed to accept.",
-          "properties": {
-            "enabled": {
-              "default": true,
-              "description": "No-op on clusters whose CNI doesn't enforce NetworkPolicy.",
-              "title": "enabled",
-              "type": "boolean"
-            }
-          },
-          "required": [],
-          "title": "otelCollector",
-          "type": "object"
-        }
-      },
-      "required": [],
-      "title": "networkPolicy",
       "type": "object"
     }
   }

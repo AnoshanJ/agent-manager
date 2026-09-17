@@ -1,26 +1,24 @@
-import type {ReactNode} from 'react';
+import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import Icon from '@site/src/components/Icon';
-import {versions} from '@site/docs/_constants.md';
+import { versions } from '@site/docs/_constants.md';
 
 import styles from './index.module.css';
 
 function HomepageHeader() {
-  const {siteConfig} = useDocusaurusContext();
+  const { siteConfig } = useDocusaurusContext();
   return (
     <>
       <header className={clsx('hero', styles.heroBanner)}>
         <div className="container">
           <div className="margin-bottom--md">
-            <img 
-              src="/agent-manager/img/WSO2 Agent Manager Logo_white.svg" 
-              alt="WSO2 Agent Manager" 
-              style={{height: '80px', maxWidth: '100%'}}
-            />
+            <p className={styles.mainTitle}>
+              WSO2 Agent Manager
+            </p>
           </div>
           <p className="hero__subtitle">{siteConfig.tagline}</p>
           <div className={styles.buttons}>
@@ -45,9 +43,9 @@ function HomepageHeader() {
                 What is WSO2 Agent Manager?
               </Heading>
               <p className={clsx('text--center', styles.whatIsDescription)}>
-                WSO2 Agent Manager is an open control plane designed for enterprises 
-                to run, govern, observe, evaluate, and secure AI agents at scale. It provides comprehensive lifecycle 
-                management, full-stack observability, and enterprise-grade governance for both internally 
+                WSO2 Agent Manager is an open control plane designed for enterprises
+                to run, govern, observe, evaluate, and secure AI agents at scale. It provides comprehensive lifecycle
+                management, full-stack observability, and enterprise-grade governance for both internally
                 hosted and externally deployed AI agents.
               </p>
             </div>
@@ -141,17 +139,17 @@ function BuiltOnSection() {
               <div className="col col--6">
                 <div className="padding--md">
                   <div className="text--center margin-bottom--md">
-                    <img 
-                      src="https://openchoreo.dev/img/openchoreo-logo-dark.svg" 
-                      alt="OpenChoreo Logo" 
-                      style={{height: '60px', maxWidth: '100%'}}
+                    <img
+                      src="https://openchoreo.dev/img/openchoreo-logo-dark.svg"
+                      alt="OpenChoreo Logo"
+                      style={{ height: '60px', maxWidth: '100%' }}
                     />
                   </div>
                   <Heading as="h3" className="text--center">Powered by OpenChoreo</Heading>
                   <p>
-                    Built on <Link to="https://github.com/openchoreo/openchoreo">OpenChoreo</Link>, 
-                    an open-source Kubernetes-native platform for deploying and managing cloud-native 
-                    applications. This ensures production-ready deployments, auto-scaling, and high 
+                    Built on <Link to="https://github.com/openchoreo/openchoreo">OpenChoreo</Link>,
+                    an open-source Kubernetes-native platform for deploying and managing cloud-native
+                    applications. This ensures production-ready deployments, auto-scaling, and high
                     availability for your AI agents.
                   </p>
                 </div>
@@ -159,16 +157,16 @@ function BuiltOnSection() {
               <div className="col col--6">
                 <div className="padding--md">
                   <div className="text--center margin-bottom--md">
-                    <img 
-                      src="https://opentelemetry.io/img/logos/opentelemetry-horizontal-color.svg" 
-                      alt="OpenTelemetry Logo" 
-                      style={{height: '60px', maxWidth: '100%'}}
+                    <img
+                      src="https://opentelemetry.io/img/logos/opentelemetry-horizontal-color.svg"
+                      alt="OpenTelemetry Logo"
+                      style={{ height: '60px', maxWidth: '100%' }}
                     />
                   </div>
                   <Heading as="h3" className="text--center">OpenTelemetry Compatible</Heading>
                   <p>
-                    Fully compatible with OpenTelemetry standards for instrumentation, enabling 
-                    seamless integration to capture traces, across popular AI frameworks including LangChain, LlamaIndex, 
+                    Fully compatible with OpenTelemetry standards for instrumentation, enabling
+                    seamless integration to capture traces, across popular AI frameworks including LangChain, LlamaIndex,
                     and more.
                   </p>
                 </div>
@@ -196,7 +194,7 @@ function QuickStartSection() {
             <div className={styles.codeBlock}>
               <pre>
                 <code>
-{`docker run --rm -it --name amp-quick-start \\
+                  {`docker run --rm -it --name amp-quick-start \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   --network=host \\
   ghcr.io/wso2/amp-quick-start:${versions.quickStartDockerTag}
@@ -226,7 +224,7 @@ function QuickStartSection() {
 }
 
 export default function Home(): ReactNode {
-  const {siteConfig} = useDocusaurusContext();
+  const { siteConfig } = useDocusaurusContext();
   return (
     <Layout
       title={`Home`}

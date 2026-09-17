@@ -658,6 +658,41 @@ export interface EvaluatorFormValues {
   tags: string[];
 }
 
+/**
+ * Negative bounds are valid when the evaluator schema permits them. This only
+ * rejects malformed numeric constraints, not negative values themselves.
+ */
+export function validateNumericParamConstraints(
+  configSchema: EvaluatorConfigParam[],
+): string | undefined {
+  for (const param of configSchema) {
+    if (param.type !== "integer" && param.type !== "float") continue;
+
+    const label = param.key.trim() || "Configuration parameter";
+    for (const [name, value] of [
+      ["Minimum", param.min],
+      ["Maximum", param.max],
+    ] as const) {
+      if (value === undefined) continue;
+      if (!Number.isFinite(value)) {
+        return `${name} for ${label} must be a finite number`;
+      }
+      if (param.type === "integer" && !Number.isInteger(value)) {
+        return `${name} for ${label} must be an integer`;
+      }
+    }
+    if (
+      param.min !== undefined &&
+      param.max !== undefined &&
+      param.min > param.max
+    ) {
+      return `Minimum for ${label} cannot be greater than its maximum`;
+    }
+  }
+
+  return undefined;
+}
+
 const defaultValues: EvaluatorFormValues = {
   displayName: "",
   description: "",
@@ -979,6 +1014,12 @@ export function EvaluatorForm({
       if (paramError) {
         newErrors.configSchema = paramError;
       }
+    }
+    const numericConstraintError = validateNumericParamConstraints(
+      values.configSchema,
+    );
+    if (numericConstraintError) {
+      newErrors.configSchema = numericConstraintError;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1674,6 +1715,13 @@ export function EvaluatorForm({
                                       : Number(e.target.value),
                                 })
                               }
+                              slotProps={{
+                                input: {
+                                  inputProps: {
+                                    onWheel: (event) => event.currentTarget.blur(),
+                                  },
+                                },
+                              }}
                               sx={{ flex: 1 }}
                             />
                             <TextField
@@ -1689,6 +1737,13 @@ export function EvaluatorForm({
                                       : Number(e.target.value),
                                 })
                               }
+                              slotProps={{
+                                input: {
+                                  inputProps: {
+                                    onWheel: (event) => event.currentTarget.blur(),
+                                  },
+                                },
+                              }}
                               sx={{ flex: 1 }}
                             />
                           </Stack>

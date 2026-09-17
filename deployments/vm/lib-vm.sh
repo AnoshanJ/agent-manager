@@ -18,10 +18,18 @@ vm_host() {
 # amp_helm_args — hostname-driven core. Reads AMP_HOST_API/THUNDER/CONSOLE/OBSERVER/
 # GATEWAY/CP (CP empty => external gateways off). Emits one helm token per line.
 #
-# The service config lives under different top-level keys across chart versions:
-# `agentManager` (<=main) was renamed to `agentManagerService` (>=0.15.0). Emit
-# both; helm silently ignores whichever key the installed chart doesn't define,
-# so the right one always wins regardless of the --version pulled.
+# Only `agentManagerService` is emitted. The service config used to live under
+# `agentManager` too (renamed in 0.15.0) and both keys were emitted on the theory
+# that helm ignores keys the installed chart doesn't define — true until the chart
+# gained a values.schema.json (1.0.0-rc3), which sets additionalProperties:false
+# at the root and rejects the whole install with "additional properties
+# 'agentManager' not allowed".
+#
+# That schema also types agentsHttpPort/agentsHttpsPort/gatewayVhostPort and
+# console.config.tlsEnabled as strings (the templates `| quote` them), and helm's
+# --set coerces 443 to a number and true to a boolean. Those four need
+# --set-string; agentManagerService.config.tlsEnabled is a real boolean and must
+# stay on --set.
 #
 # config.tlsEnabled (env TLS_ENABLED) selects which advertised endpoint variant
 # amp-api hands the console for deployed agents: when true it emits the https URL
@@ -52,24 +60,21 @@ vm_host() {
 # call (users/roles/groups).
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 amp_helm_args() {
-  local k
-  for k in agentManager agentManagerService; do
-    printf '%s\n' \
-      "--set" "${k}.config.serverPublicURL=https://${AMP_HOST_API}" \
-      "--set" "${k}.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/" \
-      "--set" "${k}.config.thunder.baseURL=https://${AMP_HOST_THUNDER}" \
-      "--set" "${k}.config.thunder.resolveToHost=amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090" \
-      "--set" "${k}.config.tlsEnabled=true" \
-      "--set" "${k}.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
-      "--set" "${k}.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
-      "--set" "${k}.config.agentsHttpPort=443" \
-      "--set" "${k}.config.agentsHttpsPort=443" \
-      "--set" "${k}.config.gatewayBaseDomain=${AMP_HOST_GATEWAY}" \
-      "--set" "${k}.config.gatewayVhostScheme=https" \
-      "--set" "${k}.config.gatewayVhostPort=443"
-  done
+  printf '%s\n' \
+    "--set" "agentManagerService.config.serverPublicURL=https://${AMP_HOST_API}" \
+    "--set" "agentManagerService.config.oauthAuthorizationServers=https://${AMP_HOST_THUNDER}" \
+    "--set" "agentManagerService.config.keyManager.issuer=https://${AMP_HOST_THUNDER}" \
+    "--set" "agentManagerService.config.keyManager.audience=urn:wso2:amp\,amp-console-client\,amp-api-client\,amp-publisher-*\,amctl\,am-mcp\,https://${AMP_HOST_API}/mcp" \
+    "--set" "agentManagerService.config.thunder.baseURL=https://${AMP_HOST_THUNDER}" \
+    "--set" "agentManagerService.config.thunder.resolveToHost=amp-thunder-extension-service.amp-thunder.svc.cluster.local:8090" \
+    "--set" "agentManagerService.config.tlsEnabled=true" \
+    "--set" "agentManagerService.config.idpHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+    "--set" "agentManagerService.config.agentsBaseDomain=${AMP_AGENTS_BASE}" \
+    "--set-string" "agentManagerService.config.agentsHttpPort=443" \
+    "--set-string" "agentManagerService.config.agentsHttpsPort=443" \
+    "--set" "agentManagerService.config.gatewayBaseDomain=${AMP_HOST_GATEWAY}" \
+    "--set" "agentManagerService.config.gatewayVhostScheme=https" \
+    "--set-string" "agentManagerService.config.gatewayVhostPort=443"
 
   printf '%s\n' \
     "--set" "console.config.auth.baseUrl=https://${AMP_HOST_THUNDER}" \
@@ -78,12 +83,11 @@ amp_helm_args() {
     "--set" "console.config.apiBaseUrl=https://${AMP_HOST_API}" \
     "--set" "agentManagerService.config.amObserverPublicURL=https://${AMP_HOST_OBSERVER}" \
     "--set" "console.config.instrumentationUrl=https://${AMP_HOST_GATEWAY}/otel" \
-    "--set" "console.config.thunderHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
-    "--set" "console.config.tlsEnabled=true"
+    "--set" "console.config.idpHostBaseDomain=${AMP_HOST_THUNDER#thunder.}" \
+    "--set-string" "console.config.tlsEnabled=true"
 
   # Console and API are ClusterIP behind the OC control-plane kgateway; their
   # HTTPRoutes must match the public hosts Caddy forwards (Host is preserved).
-  # Older charts (agentManager key era) predate ocIngress and ignore these.
   printf '%s\n' \
     "--set" "console.ocIngress.hostname=${AMP_HOST_CONSOLE}" \
     "--set" "agentManagerService.ocIngress.hostname=${AMP_HOST_API}"
@@ -161,8 +165,8 @@ build_gateway_helm_args() {
 #
 # authorizationServers/audience are restated for the version-skew reason noted
 # above amp_helm_args (including the "urn:wso2:amp" identifier value). The last
-# audience entry is the observer MCP token's `aud` (publicUrl plus a trailing
-# slash); the first three cover console/amctl tokens.
+# audience entry is the observer MCP token's `aud` (its public `/mcp`
+# resource); the first three cover console/amctl tokens.
 # shellcheck disable=SC2154  # AMP_HOST_* come from the caller's scope by design.
 observability_helm_args() {
   printf '%s\n' \
@@ -170,7 +174,7 @@ observability_helm_args() {
     "--set" "amObserver.ocIngress.hostname=${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.publicUrl=https://${AMP_HOST_OBSERVER}" \
     "--set" "amObserver.oauth.authorizationServers=https://${AMP_HOST_THUNDER}" \
-    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/"
+    "--set" "amObserver.auth.audience=urn:wso2:amp\,amp-api-client\,am-obs-mcp\,https://${AMP_HOST_OBSERVER}/mcp"
 }
 
 # build_observability_helm_args <ip> — sslip.io-from-IP wrapper.

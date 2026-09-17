@@ -144,6 +144,9 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 		ListComponentsFunc: func(ctx context.Context, namespaceName string, projectName string) ([]*models.AgentResponse, error) {
 			return []*models.AgentResponse{}, nil
 		},
+		CountProjectComponentsFunc: func(ctx context.Context, namespaceName string, projectName string) (int, error) {
+			return 0, nil
+		},
 		DeleteProjectFunc: func(ctx context.Context, namespaceName string, projectName string) error {
 			return nil
 		},
@@ -206,6 +209,9 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 		// Deploy writes this environment's env vars and file mounts here rather
 		// than to the component-wide Workload, so every deploy path reaches it.
 		ReplaceReleaseBindingWorkloadOverridesFunc: func(ctx context.Context, ouID string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+			return nil
+		},
+		EnsureReleaseAndBindingFunc: func(ctx context.Context, ouID string, projectName string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 			return nil
 		},
 		GetComponentConfigurationsFunc: func(ctx context.Context, namespaceName string, projectName string, componentName string, environment string) ([]models.EnvVars, error) {

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# resolve-docs-version.sh — print the documentation version a release points at.
+#
+# The value is consumed as the path segment after /docs/ (see the console's
+# DOCS_URL in the wso2-agent-manager chart), so it must match a directory in
+# documentation/versioned_docs/version-<docs-version> and an entry in
+# documentation/versions.json exactly. Docs versions are cut per release version,
+# so this is just "v" plus the release version.
+#
+# Prints nothing (exit 0) for releases that cut no docs version: release
+# candidates and nightlies follow /docs/latest.
+#
+# update-helm-charts.sh sources this to stamp the charts, and the promotion
+# workflow's validate job runs it to pre-flight the manifest before it cuts
+# anything.
+#
+# Usage: resolve-docs-version.sh <target-version>
+set -euo pipefail
+
+TARGET_VERSION="${1:?usage: resolve-docs-version.sh <target-version>}"
+
+if [[ "$TARGET_VERSION" =~ (-|\.)rc[0-9]+$ ]]; then
+  : # release candidates follow /docs/latest
+elif [[ "$TARGET_VERSION" == *-dev* ]]; then
+  : # nightlies follow /docs/latest
+else
+  echo "v$TARGET_VERSION"
+fi

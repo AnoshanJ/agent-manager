@@ -41,6 +41,30 @@ assert_eq "cert SANs include env-Thunder wild" "yes" "$(grep -qxF '*.amp.mycompa
 AMP_HOST_CP="" sans_nocp="$(AMP_HOST_CP="" cert_dns_names)"
 assert_eq "cert SANs omit cp when unset"       "no"  "$(grep -qxF 'cp.amp.mycompany.com' <<<"$sans_nocp" && echo yes || echo no)"
 
+# --- acme_dns_names: the ACME order must carry NO name a wildcard in it already covers ---
+# Boulder rejects such an order outright ("redundant with a wildcard domain in the same
+# request"), and the Order errors before any Challenge exists — so this is what keeps
+# TLS_MODE=dns01 issuable at all, not a cosmetic trim.
+# The cp assertion above leaks AMP_HOST_CP="" into the shell (two assignments in one
+# command), so restore it — otherwise the cp cases below would pass vacuously.
+AMP_HOST_CP=cp.amp.mycompany.com
+acme="$(acme_dns_names)"
+assert_eq "acme names keep the base wildcard"   "yes" "$(grep -qxF '*.amp.mycompany.com' <<<"$acme" && echo yes || echo no)"
+assert_eq "acme names keep agents wildcard"     "yes" "$(grep -qxF '*.agents.amp.mycompany.com' <<<"$acme" && echo yes || echo no)"
+assert_eq "acme names keep gateway wildcard"    "yes" "$(grep -qxF '*.gateway.amp.mycompany.com' <<<"$acme" && echo yes || echo no)"
+# Each of these is one label under the base domain, so *.amp.mycompany.com covers it.
+for h in console api thunder observer gateway cp; do
+  assert_eq "acme names drop redundant ${h}"    "no"  "$(grep -qxF "${h}.amp.mycompany.com" <<<"$acme" && echo yes || echo no)"
+done
+assert_eq "acme names are exactly the 3 wildcards" "3" "$(grep -c . <<<"$acme")"
+# A host NOT covered by any wildcard in the list must survive the filter: an operator
+# override can put a service outside DOMAIN_BASE, and dropping it would silently issue a
+# cert that does not serve that host.
+acme_off="$(AMP_HOST_CONSOLE=console.elsewhere.example acme_dns_names)"
+assert_eq "acme names keep an off-base host"    "yes" "$(grep -qxF 'console.elsewhere.example' <<<"$acme_off" && echo yes || echo no)"
+# The byoc requirement list is deliberately unfiltered — validate_cert accepts either shape.
+assert_eq "cert_dns_names still lists all 9"    "9"   "$(grep -c . <<<"$(cert_dns_names)")"
+
 # --- validate_dns01_config: provider + credential presence (appends to CONFIG_ERRORS) ---
 run_validate() { CONFIG_ERRORS=(); validate_dns01_config; echo "${#CONFIG_ERRORS[@]}"; }
 
@@ -218,8 +242,21 @@ assert_eq "platform CA cm PEM round-trips" "yes" \
 # Parse the rendered YAML for real when kubectl is available. The manual de-indent above
 # cannot tell a valid block scalar from an invalid header (an explicit indentation
 # indicator, say), so on its own it would pass on YAML that no parser accepts.
+# Having the binary is not the same as being able to use it: a CI runner can ship
+# kubectl with no usable configuration, and then every parse below returns empty
+# and these assertions fail for a reason the swallowed stderr never shows. Probe
+# the capability once with a trivial manifest, and if it does not come back, skip
+# visibly and print why rather than reporting four confusing failures.
+kubectl_probe_err="$(mktemp)"
+kubectl_can_parse=no
 if command -v kubectl >/dev/null 2>&1; then
-  ca_parsed="$(printf '%s\n' "$ca_cm" | kubectl create --dry-run=client -o jsonpath='{.data.ca\.crt}' -f - 2>/dev/null || true)"
+  probe_out="$(printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: probe\ndata:\n  k: v\n' \
+    | kubectl create --validate=false --dry-run=client -o jsonpath='{.data.k}' -f - 2>"$kubectl_probe_err" || true)"
+  [ "$probe_out" = "v" ] && kubectl_can_parse=yes
+fi
+
+if [ "$kubectl_can_parse" = "yes" ]; then
+  ca_parsed="$(printf '%s\n' "$ca_cm" | kubectl create --validate=false --dry-run=client -o jsonpath='{.data.ca\.crt}' -f - 2>/dev/null || true)"
   assert_eq "platform CA cm is valid YAML" "yes" \
     "$(printf '%s' "$ca_parsed" | grep -q 'BEGIN CERTIFICATE' && echo yes || echo no)"
   assert_eq "platform CA cm PEM is not indented" "no" \
@@ -228,16 +265,20 @@ if command -v kubectl >/dev/null 2>&1; then
   # the inferred block indentation.
   tmp_messy="$(mktemp)"
   { printf '\n  Certificate:\n    Data:\n'; cat "$tmp_cert"; } > "$tmp_messy"
-  messy_parsed="$(render_platform_ca_configmap "$tmp_messy" | kubectl create --dry-run=client -o jsonpath='{.data.ca\.crt}' -f - 2>/dev/null || true)"
+  messy_parsed="$(render_platform_ca_configmap "$tmp_messy" | kubectl create --validate=false --dry-run=client -o jsonpath='{.data.ca\.crt}' -f - 2>/dev/null || true)"
   assert_eq "indented-preamble CA still renders valid YAML" "yes" \
     "$(printf '%s' "$messy_parsed" | openssl x509 -noout -subject >/dev/null 2>&1 && echo yes || echo no)"
   rm -f "$tmp_messy"
   # The byoc Secret must parse too.
-  sec_type="$(render_byoc_tls_secret amp-wildcard-tls "$tmp_cert" "$tmp_key" | kubectl create --dry-run=client -o jsonpath='{.type}' -f - 2>/dev/null || true)"
+  sec_type="$(render_byoc_tls_secret amp-wildcard-tls "$tmp_cert" "$tmp_key" | kubectl create --validate=false --dry-run=client -o jsonpath='{.type}' -f - 2>/dev/null || true)"
   assert_eq "byoc secret is valid YAML" "kubernetes.io/tls" "$sec_type"
+elif command -v kubectl >/dev/null 2>&1; then
+  printf 'ok   - rendered YAML parses (skipped: kubectl cannot client-dry-run here: %s)\n' \
+    "$(head -1 "$kubectl_probe_err" 2>/dev/null || echo 'no error reported')"
 else
   printf 'ok   - rendered YAML parses (skipped: kubectl not installed)\n'
 fi
+rm -f "$kubectl_probe_err"
 
 rm -f "$tmp_cert" "$tmp_key" "$tmp_c2" "$tmp_k2" "$tmp_c3" "$tmp_k3"
 
@@ -247,6 +288,44 @@ validate_dns 203.0.113.10; rc=$?
 assert_eq "validate_dns advisory rc=0"       "0"  "$rc"
 assert_eq "validate_dns records the mismatch" "yes" "$([[ ${#DNS_ERRORS[@]} -gt 0 ]] && echo yes || echo no)"
 unset -f _resolve_host
+
+# --- validate_dns and loopback answers ---
+# ensure_loopback_alias writes 127.0.0.1 entries for the API and Thunder hosts and never
+# removes them, so on a re-install the local resolver answers from /etc/hosts. Reporting
+# that as "not this VM" points the operator at DNS that is actually correct. Acceptance is
+# deliberately narrow: only those two hosts, and only when the alias is really in
+# /etc/hosts — every other loopback answer is a real problem and must still be reported.
+_aliased_hosts() { printf '127.0.0.1 %s\n127.0.0.1 %s\n' "$AMP_HOST_API" "$AMP_HOST_THUNDER"; }
+
+# Aliased host, alias present: a note, not an error.
+_resolve_host() { [[ "$1" == "$AMP_HOST_API" ]] && echo "127.0.0.1" || echo "203.0.113.10"; }
+_hosts_file() { _aliased_hosts; }
+validate_dns 203.0.113.10; rc=$?
+assert_eq "installer alias: rc=0"               "0"   "$rc"
+assert_eq "installer alias: no DNS error"       "0"   "${#DNS_ERRORS[@]}"
+assert_eq "installer alias: recorded as a note" "yes" "$([[ ${#DNS_NOTES[@]} -gt 0 ]] && echo yes || echo no)"
+
+# Same host and same answer, but no alias in /etc/hosts — not ours, so still an error.
+_hosts_file() { printf '127.0.0.1 localhost\n'; }
+validate_dns 203.0.113.10 >/dev/null 2>&1
+assert_eq "loopback without the alias: error"   "yes" "$([[ ${#DNS_ERRORS[@]} -gt 0 ]] && echo yes || echo no)"
+assert_eq "loopback without the alias: no note" "0"   "${#DNS_NOTES[@]}"
+
+# A host the installer never aliases must be reported even if /etc/hosts maps it to
+# loopback: no client off this VM could reach it.
+_resolve_host() { [[ "$1" == "$AMP_HOST_CONSOLE" ]] && echo "127.0.0.1" || echo "203.0.113.10"; }
+_hosts_file() { printf '127.0.0.1 %s\n' "$AMP_HOST_CONSOLE"; }
+validate_dns 203.0.113.10 >/dev/null 2>&1
+assert_eq "loopback on a non-aliased host: error" "yes" "$([[ ${#DNS_ERRORS[@]} -gt 0 ]] && echo yes || echo no)"
+assert_eq "loopback on a non-aliased host: no note" "0" "${#DNS_NOTES[@]}"
+
+# A genuine third-party address is still an error alongside a legitimate loopback note.
+_resolve_host() { [[ "$1" == "$AMP_HOST_API" ]] && printf '127.0.0.1\n198.51.100.5\n' || echo "203.0.113.10"; }
+_hosts_file() { _aliased_hosts; }
+validate_dns 203.0.113.10 >/dev/null 2>&1
+assert_eq "alias plus stranger: error kept" "yes" "$([[ ${#DNS_ERRORS[@]} -gt 0 ]] && echo yes || echo no)"
+assert_eq "alias plus stranger: note kept"  "yes" "$([[ ${#DNS_NOTES[@]} -gt 0 ]] && echo yes || echo no)"
+unset -f _resolve_host _hosts_file _aliased_hosts
 
 if [[ -s "$FAILLOG" ]]; then echo "PREFLIGHT TESTS FAILED"; exit 1; fi
 echo "ALL PREFLIGHT TESTS PASSED"

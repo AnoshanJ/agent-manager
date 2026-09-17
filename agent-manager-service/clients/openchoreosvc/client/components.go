@@ -31,6 +31,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/instrumentation"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -123,7 +124,14 @@ func buildInternalAgentFromKindComponentRequestBody(namespaceName, projectName s
 		return gen.CreateComponentJSONRequestBody{}, fmt.Errorf("failed to convert parameters to map: %w", err)
 	}
 
-	autoDeploy := true
+	// Kind-sourced agents have no build workflow, so nothing runs amp-generate-workload
+	// to cut the ComponentRelease and bind it to the first environment. The backend does
+	// that itself instead (EnsureReleaseAndBinding), for the same reason the
+	// workflow does it for source-built agents: configuration must land on the
+	// per-environment ReleaseBinding rather than the shared Workload, and autoDeploy's
+	// controller-created binding carries no overrides. Both agent kinds therefore set
+	// this to false and own the release/binding themselves.
+	autoDeploy := false
 	return gen.CreateComponentJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:        req.Name,
@@ -166,6 +174,10 @@ func buildExternalAgentComponentRequestBody(namespaceName, projectName string, r
 		return gen.CreateComponentJSONRequestBody{}, err
 	}
 
+	// An external agent has no Workload and never deploys, so autoDeploy has nothing to act on.
+	// Stated rather than left to the field's default, so all three component builders answer the
+	// question in the same place.
+	autoDeploy := false
 	return gen.CreateComponentJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:        req.Name,
@@ -186,6 +198,7 @@ func buildExternalAgentComponentRequestBody(namespaceName, projectName string, r
 			}{
 				ProjectName: projectName,
 			},
+			AutoDeploy: &autoDeploy,
 		},
 	}, nil
 }
@@ -249,7 +262,13 @@ func buildInternalAgentFromSourceComponentRequestBody(namespaceName, projectName
 		return gen.CreateComponentJSONRequestBody{}, fmt.Errorf("error building workflow parameters: %w", err)
 	}
 
-	autoDeploy := true
+	// The build workflow's generate-workload step cuts the ComponentRelease and binds
+	// it to the first environment itself, and every deploy afterwards does the same via
+	// EnsureReleaseAndBinding. That is what lets each environment's configuration live on
+	// its own ReleaseBinding instead of on the shared Workload. autoDeploy would have
+	// OpenChoreo's Component controller create and own that same binding, so the two would
+	// fight over spec.releaseName.
+	autoDeploy := false
 	return gen.CreateComponentJSONRequestBody{
 		Metadata: gen.ObjectMeta{
 			Name:        req.Name,
@@ -1235,14 +1254,75 @@ func (c *openChoreoClient) ListComponents(ctx context.Context, ouID, projectName
 
 	components := make([]*models.AgentResponse, 0, len(resp.JSON200.Items))
 	for i := range resp.JSON200.Items {
-		comp, err := convertComponentFromTyped(&resp.JSON200.Items[i])
+		item := &resp.JSON200.Items[i]
+		if item.Spec == nil || !isAgentComponentType(item.Spec.ComponentType.Name) {
+			// Projects are shared across WSO2 Cloud products, so a project can contain
+			// components other products created (e.g. a plain "deployment/service").
+			// Agent Manager should only ever list components it itself provisions.
+			continue
+		}
+		comp, err := convertComponentFromTyped(item)
 		if err != nil {
-			slog.Error("failed to convert component", "component", resp.JSON200.Items[i].Metadata.Name, "error", err)
+			slog.Error("failed to convert component", "component", item.Metadata.Name, "error", err)
 			continue
 		}
 		components = append(components, comp)
 	}
 	return components, nil
+}
+
+// CountProjectComponents counts every component in the project, whichever product created it.
+//
+// ListComponents answers "which agents does this project have"; this answers "is this project
+// empty". The two differ because projects are shared: a project holding only another product's
+// components has no agents but is not empty, and deleting it would take that product's
+// components with it (the Project carries an openchoreo.dev/project-cleanup finalizer).
+func (c *openChoreoClient) CountProjectComponents(ctx context.Context, ouID, projectName string) (int, error) {
+	namespaceName := c.NamespaceFor(ouID)
+	var cursor *gen.CursorParam
+	total := 0
+	for {
+		resp, err := c.ocClient.ListComponentsWithResponse(ctx, namespaceName, &gen.ListComponentsParams{
+			Project: &projectName,
+			Limit:   &defaultListLimit,
+			Cursor:  cursor,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("failed to list components: %w", err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return 0, handleErrorResponse(resp.StatusCode(), ErrorResponses{
+				JSON401: resp.JSON401,
+				JSON403: resp.JSON403,
+				JSON404: resp.JSON404,
+				JSON500: resp.JSON500,
+			})
+		}
+		if resp.JSON200 == nil {
+			return total, nil
+		}
+
+		total += len(resp.JSON200.Items)
+		nextCursor := resp.JSON200.Pagination.NextCursor
+		if nextCursor == nil || *nextCursor == "" {
+			return total, nil
+		}
+		next := gen.CursorParam(*nextCursor)
+		cursor = &next
+	}
+}
+
+// isAgentComponentType reports whether componentTypeName is one of the component
+// types agent-manager itself creates (see getOpenChoreoComponentType and
+// buildInternalAgentFromKindComponentRequestBody). Used to filter out components
+// created by other products sharing the same project.
+func isAgentComponentType(componentTypeName string) bool {
+	switch ComponentType(componentTypeName) {
+	case ComponentTypeInternalAgentAPI, ComponentTypeExternalAgentAPI:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *openChoreoClient) ListComponentsByKind(ctx context.Context, ouID, projectName, kindName string) ([]*models.AgentResponse, error) {
@@ -2591,6 +2671,10 @@ func BuildInstrumentationImage(languageVersion, instrumentationVersion string) (
 // getInstrumentationImage builds the pre-built init-container image reference for
 // the given AMP instrumentation version and the agent's Python runtime version,
 // e.g. ghcr.io/wso2/amp-python-instrumentation-provider:0.3.0-python3.11.
+//
+// The repository comes from the instrumentation catalog so an operator-supplied
+// catalogExtension entry can redirect a version at an internal mirror; a version
+// the catalog does not know falls back to the public default.
 func getInstrumentationImage(languageVersion, instrumentationVersion string) (string, error) {
 	// Trim before splitting so the built tag matches the trimmed major.minor the
 	// service validates against the catalog (normalizePythonMinor also trims);
@@ -2601,7 +2685,8 @@ func getInstrumentationImage(languageVersion, instrumentationVersion string) (st
 		return "", fmt.Errorf("invalid languageVersion format: expected 'major.minor' but got '%s'", languageVersion)
 	}
 	pythonMajorMinor := strings.TrimSpace(parts[0]) + "." + strings.TrimSpace(parts[1])
-	return fmt.Sprintf("%s/%s:%s-python%s", InstrumentationImageRegistry, InstrumentationImageName, instrumentationVersion, pythonMajorMinor), nil
+	repository := instrumentation.ImageRepositoryFor(instrumentationVersion, DefaultInstrumentationImageRepository)
+	return fmt.Sprintf("%s:%s-python%s", repository, instrumentationVersion, pythonMajorMinor), nil
 }
 
 func (c *openChoreoClient) GetComponentEndpoints(ctx context.Context, ouID, projectName, componentName, environment string) (map[string]models.EndpointsResponse, error) {
