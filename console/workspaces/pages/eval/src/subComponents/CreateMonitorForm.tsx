@@ -234,9 +234,13 @@ export function CreateMonitorForm({
                 type="number"
                 placeholder="60"
                 value={formData.intervalMinutes ?? ""}
+                slotProps={{
+                  input: { inputProps: { min: 5, step: 1 } },
+                }}
                 onChange={(event) =>
                   onFieldChange("intervalMinutes", event.target.value)
                 }
+                onWheel={(event) => event.currentTarget.blur()}
                 error={!!errors.intervalMinutes}
                 helperText={
                   errors.intervalMinutes ??
