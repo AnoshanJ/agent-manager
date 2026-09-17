@@ -117,8 +117,16 @@ type publisherCredentialProvisioner struct {
 	// orgOCClients caches per-org OpenChoreoClients so that the underlying http.Client
 	// connection pool and the wrapped AuthProvider's token cache are reused across
 	// scheduler cycles. Singleflight serializes builders; the lock guards map access only.
+	//
+	// orgOCGen counts credential replacements per org. The two paths use different
+	// singleflight keys ("provision:" vs "ocClient:") and so do not exclude each other:
+	// a builder can read a credential, have it replaced and the cache evicted underneath
+	// it, and then insert a client built from the superseded secret — reintroducing
+	// exactly the staleness the eviction exists to prevent. Comparing the counter across
+	// the read closes that window.
 	orgOCMu      sync.RWMutex
 	orgOCClients map[string]client.OpenChoreoClient
+	orgOCGen     map[string]uint64
 }
 
 // NewPublisherCredentialProvisioner creates a provisioner.
@@ -177,6 +185,7 @@ func NewPublisherCredentialProvisioner(
 		idpTokenURL:       cfg.IDP.TokenURL,
 		ocBaseURL:         cfg.OpenChoreo.BaseURL,
 		orgOCClients:      make(map[string]client.OpenChoreoClient),
+		orgOCGen:          make(map[string]uint64),
 	}, nil
 }
 
@@ -450,11 +459,19 @@ func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx conte
 }
 
 // evictOrgOCClient drops any cached OpenChoreo client for the org, so the next
-// GetOCClientForOrg rebuilds one from the current stored credential.
+// GetOCClientForOrg rebuilds one from the current stored credential, and bumps the
+// generation so a builder already in flight cannot cache a client it built from the
+// credential just replaced.
 func (p *publisherCredentialProvisioner) evictOrgOCClient(ouID string) {
 	p.orgOCMu.Lock()
 	defer p.orgOCMu.Unlock()
 	delete(p.orgOCClients, ouID)
+	// Lazily allocated: reading a nil map is fine, writing to one panics, and this is
+	// the only write — so a provisioner built without it stays usable.
+	if p.orgOCGen == nil {
+		p.orgOCGen = make(map[string]uint64)
+	}
+	p.orgOCGen[ouID]++
 }
 
 // GetOCClientForOrg returns a cached OC client authenticated with the publisher app's
@@ -479,6 +496,12 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 			p.orgOCMu.RUnlock()
 			return c, nil
 		}
+		p.orgOCMu.RUnlock()
+
+		// Snapshot the generation before reading the credential, so a replacement that
+		// lands while this builder runs is detected before the result is cached.
+		p.orgOCMu.RLock()
+		gen := p.orgOCGen[ouID]
 		p.orgOCMu.RUnlock()
 
 		// DB I/O and decrypt run with no lock held; singleflight already serializes
@@ -546,7 +569,14 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 		}
 
 		p.orgOCMu.Lock()
-		p.orgOCClients[ouID] = ocCl
+		if p.orgOCGen[ouID] == gen {
+			p.orgOCClients[ouID] = ocCl
+		} else {
+			// Superseded mid-build. Hand this client back for the call in flight — the
+			// caller fails and retries on its own if the secret is already invalid — but
+			// do not cache it, so the next call rebuilds from the current credential.
+			p.logger.Info("Credentials changed while building org OC client, not caching it", "ouID", ouID)
+		}
 		p.orgOCMu.Unlock()
 
 		p.logger.Debug("Created org OC client", "ouID", ouID, "clientID", cred.ClientID)

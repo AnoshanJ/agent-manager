@@ -93,11 +93,10 @@ spec:
             memory: "512Mi"
   ttlStrategy:
     secondsAfterCompletion: 3600
-    # Without these a failed or errored workflow is kept for the full completion TTL,
-    # and the ExternalSecrets created alongside it keep hitting the provider at their
+    # Without this a failed workflow is kept for the full completion TTL, and the
+    # ExternalSecrets created alongside it keep hitting the secret provider at their
     # refresh interval for just as long.
     secondsAfterFailure: {{ .Values.ampEvaluation.ttlSecondsAfterFailure }}
-    secondsAfterError: {{ .Values.ampEvaluation.ttlSecondsAfterFailure }}
   # Release pod slots as soon as a run is done rather than at workflow GC time.
   podGC:
     strategy: OnWorkflowCompletion

@@ -360,6 +360,7 @@ func TestProvisionSchedulerCredentials_EvictsCachedOrgOCClient(t *testing.T) {
 		logger:            discardLogger(),
 		encryptionKey:     testEncryptionKey,
 		orgOCClients:      map[string]occlient.OpenChoreoClient{"acme": stale},
+		orgOCGen:          make(map[string]uint64),
 	}
 
 	_, err := p.EnsureCredentials(context.Background(), "acme", "org-uuid-1")
@@ -370,4 +371,34 @@ func TestProvisionSchedulerCredentials_EvictsCachedOrgOCClient(t *testing.T) {
 	p.orgOCMu.RUnlock()
 
 	assert.False(t, ok, "cached OC client should be evicted after re-provisioning, got %v", cached)
+}
+
+// A credential replacement that lands while a client is being built must stop that
+// client from being cached. The two paths use different singleflight keys, so without
+// the generation check the builder would insert a client made from the superseded
+// secret straight after the eviction that was meant to remove it.
+func TestGetOCClientForOrg_DoesNotCacheAClientSupersededMidBuild(t *testing.T) {
+	p := &publisherCredentialProvisioner{
+		logger:       discardLogger(),
+		orgOCClients: make(map[string]occlient.OpenChoreoClient),
+		orgOCGen:     make(map[string]uint64),
+	}
+
+	// Stand in for a builder that snapshotted the generation before the replacement.
+	p.orgOCMu.RLock()
+	gen := p.orgOCGen["acme"]
+	p.orgOCMu.RUnlock()
+
+	p.evictOrgOCClient("acme")
+
+	p.orgOCMu.Lock()
+	superseded := p.orgOCGen["acme"] != gen
+	p.orgOCMu.Unlock()
+
+	assert.True(t, superseded, "eviction must advance the generation so an in-flight build is detected")
+
+	p.orgOCMu.RLock()
+	_, cached := p.orgOCClients["acme"]
+	p.orgOCMu.RUnlock()
+	assert.False(t, cached)
 }

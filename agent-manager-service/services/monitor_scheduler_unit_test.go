@@ -39,6 +39,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // -----------------------------------------------------------------------------
@@ -669,10 +671,10 @@ func TestMonitorScheduler_syncSingleRunStatus(t *testing.T) {
 		require.NoError(t, s.syncSingleRunStatus(context.Background(), run))
 	})
 
-	t.Run("fails a stale run whose WorkflowRun can no longer be read", func(t *testing.T) {
+	t.Run("fails a stale run whose WorkflowRun is confirmed gone", func(t *testing.T) {
 		oc := &clientmocks.OpenChoreoClientMock{
 			GetWorkflowRunFunc: func(_ context.Context, _, _ string) (*client.WorkflowRunResponse, error) {
-				return nil, errors.New("workflow run not found")
+				return nil, fmt.Errorf("get workflow run: %w", utils.ErrNotFound)
 			},
 		}
 		var updates map[string]interface{}
@@ -689,6 +691,41 @@ func TestMonitorScheduler_syncSingleRunStatus(t *testing.T) {
 		require.NoError(t, s.syncSingleRunStatus(context.Background(), run))
 
 		assert.Equal(t, models.RunStatusFailed, updates["status"])
+	})
+
+	t.Run("leaves a stale run alone when the lookup failed for any other reason", func(t *testing.T) {
+		boom := errors.New("connection refused")
+		oc := &clientmocks.OpenChoreoClientMock{
+			GetWorkflowRunFunc: func(_ context.Context, _, _ string) (*client.WorkflowRunResponse, error) {
+				return nil, boom
+			},
+		}
+		repo := repoWithMonitor() // UpdateMonitorRunFunc nil => must not be called
+		run := baseRun()
+		startedAt := time.Now().Add(-runStuckTimeout - time.Minute)
+		run.StartedAt = &startedAt
+		s := newScheduler(oc, nonThunder(), &fakeMonitorExecutor{}, repo)
+
+		// An OpenChoreo outage says nothing about the workflow; marking every
+		// long-pending run failed would discard runs that later succeed.
+		assert.ErrorIs(t, s.syncSingleRunStatus(context.Background(), run), boom)
+	})
+
+	t.Run("propagates a failure to persist the stale-run update", func(t *testing.T) {
+		boom := errors.New("update boom")
+		oc := &clientmocks.OpenChoreoClientMock{
+			GetWorkflowRunFunc: func(_ context.Context, _, _ string) (*client.WorkflowRunResponse, error) {
+				return &client.WorkflowRunResponse{Status: "Pending"}, nil
+			},
+		}
+		repo := repoWithMonitor()
+		repo.UpdateMonitorRunFunc = func(_ *models.MonitorRun, _ map[string]interface{}) error { return boom }
+		run := baseRun()
+		startedAt := time.Now().Add(-runStuckTimeout - time.Minute)
+		run.StartedAt = &startedAt
+		s := newScheduler(oc, nonThunder(), &fakeMonitorExecutor{}, repo)
+
+		assert.ErrorIs(t, s.syncSingleRunStatus(context.Background(), run), boom)
 	})
 
 	t.Run("wraps the UpdateMonitorRun persistence error", func(t *testing.T) {

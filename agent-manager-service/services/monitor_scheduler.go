@@ -18,6 +18,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/db"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 const (
@@ -302,12 +304,19 @@ func (s *monitorSchedulerService) syncSingleRunStatus(ctx context.Context, run *
 
 	workflowRun, err := ocClient.GetWorkflowRun(ctx, monitor.OUID, run.Name)
 	if err != nil {
-		s.logger.Warn("WorkflowRun not found", "workflowRunName", run.Name)
-		// A run whose WorkflowRun can no longer be read is never going to reach a
-		// terminal status on its own, so time it out rather than re-reading it every
-		// tick for the lifetime of the deployment.
-		if s.failStaleRun(run, "workflow run is unreadable and has exceeded the run timeout") {
-			return nil
+		// Only a confirmed absence means the run will never reach a terminal status on
+		// its own. Transport, authorization and server errors say nothing about the
+		// workflow, and treating them the same would mark every long-pending run failed
+		// for the duration of an OpenChoreo outage — including ones that then succeed.
+		if errors.Is(err, utils.ErrNotFound) {
+			s.logger.Warn("WorkflowRun not found", "workflowRunName", run.Name)
+			failed, failErr := s.failStaleRun(run, "workflow run no longer exists and has exceeded the run timeout")
+			if failErr != nil {
+				return failErr
+			}
+			if failed {
+				return nil
+			}
 		}
 		return fmt.Errorf("failed to get workflow run: %w", err)
 	}
@@ -330,7 +339,11 @@ func (s *monitorSchedulerService) syncSingleRunStatus(ctx context.Context, run *
 		updates["error_message"] = "workflow completed with failure"
 
 	case "Running":
-		if s.failStaleRun(run, "workflow exceeded the run timeout while running") {
+		failed, failErr := s.failStaleRun(run, "workflow exceeded the run timeout while running")
+		if failErr != nil {
+			return failErr
+		}
+		if failed {
 			return nil
 		}
 		if run.Status != models.RunStatusRunning {
@@ -341,13 +354,13 @@ func (s *monitorSchedulerService) syncSingleRunStatus(ctx context.Context, run *
 		// A workflow whose pod cannot start — most often a secret it mounts that never
 		// syncs — sits here indefinitely, and enough of them fill the capped pending
 		// query and starve real runs out of status sync.
-		s.failStaleRun(run, "workflow never left Pending within the run timeout")
-		return nil
+		_, failErr := s.failStaleRun(run, "workflow never left Pending within the run timeout")
+		return failErr
 
 	default:
 		s.logger.Warn("Unknown workflow status", "status", workflowRun.Status, "workflowRunName", run.Name)
-		s.failStaleRun(run, "workflow reported no terminal status within the run timeout")
-		return nil
+		_, failErr := s.failStaleRun(run, "workflow reported no terminal status within the run timeout")
+		return failErr
 	}
 
 	if len(updates) > 0 {
@@ -362,12 +375,12 @@ func (s *monitorSchedulerService) syncSingleRunStatus(ctx context.Context, run *
 
 // failStaleRun marks a run failed when it has been un-terminal for longer than
 // runStuckTimeout, and reports whether it did. Runs with no StartedAt have no age to
-// judge and are left alone. A failed update is logged rather than returned: the caller
-// is deciding what to do with a run it could not resolve either way, and the next cycle
-// re-evaluates the same condition.
-func (s *monitorSchedulerService) failStaleRun(run *models.MonitorRun, reason string) bool {
+// judge and are left alone, reported as (false, nil). A persistence failure is returned
+// rather than folded into false, so callers can tell "this run was fine" apart from
+// "the write did not land".
+func (s *monitorSchedulerService) failStaleRun(run *models.MonitorRun, reason string) (bool, error) {
 	if run.StartedAt == nil || time.Since(*run.StartedAt) <= runStuckTimeout {
-		return false
+		return false, nil
 	}
 
 	updates := map[string]interface{}{
@@ -376,14 +389,12 @@ func (s *monitorSchedulerService) failStaleRun(run *models.MonitorRun, reason st
 		"error_message": reason,
 	}
 	if err := s.monitorRepo.UpdateMonitorRun(run, updates); err != nil {
-		s.logger.Error("Failed to mark stale run as failed",
-			"runID", run.ID, "runName", run.Name, "error", err)
-		return false
+		return false, fmt.Errorf("failed to mark stale run %s as failed: %w", run.Name, err)
 	}
 
 	s.logger.Warn("Marked stale monitor run as failed",
 		"runID", run.ID, "runName", run.Name, "startedAt", run.StartedAt, "reason", reason)
-	return true
+	return true, nil
 }
 
 // orgOCClient returns a per-org OC client in Thunder mode, or the system client in non-Thunder mode.

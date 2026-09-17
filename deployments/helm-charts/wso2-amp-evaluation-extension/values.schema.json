@@ -101,7 +101,7 @@
         },
         "ttlSecondsAfterFailure": {
           "default": 600,
-          "description": "How long a failed or errored workflow is kept before Argo deletes it, in seconds. Shorter than the success TTL because a failure's ExternalSecrets keep polling the secret provider at their refresh interval for as long as the workflow survives.",
+          "description": "How long a failed workflow is kept before Argo deletes it, in seconds. Shorter than the success TTL because a failure's ExternalSecrets keep polling the secret provider at their refresh interval for as long as the workflow survives.",
           "title": "ttlSecondsAfterFailure",
           "type": "integer"
         },
