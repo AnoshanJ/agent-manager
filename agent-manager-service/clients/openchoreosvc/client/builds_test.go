@@ -20,6 +20,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -121,13 +122,18 @@ func TestListBuilds_FollowsPaginationCursor(t *testing.T) {
 		[]string{builds[0].Name, builds[1].Name, builds[2].Name})
 }
 
-// A server that keeps handing back a cursor must not spin forever.
+// A server that keeps handing back a fresh cursor must not spin forever. Each
+// page advances the cursor, so this exercises the page cap rather than the
+// non-advancing-cursor guard below.
 func TestListBuilds_StopsAtMaxPages(t *testing.T) {
 	calls := 0
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
-		_, err := w.Write([]byte(`{"items":[{"metadata":{"name":"agent-1"}}],"pagination":{"nextCursor":"more"}}`))
+		body := fmt.Sprintf(
+			`{"items":[{"metadata":{"name":"agent-%d"}}],"pagination":{"nextCursor":"page-%d"}}`,
+			calls, calls)
+		_, err := w.Write([]byte(body))
 		require.NoError(t, err)
 	}))
 
@@ -135,4 +141,27 @@ func TestListBuilds_StopsAtMaxPages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, maxListPages, calls)
 	assert.Len(t, builds, maxListPages)
+}
+
+// A cursor pointing back at the page just fetched means the server's pagination
+// is broken. Following it would re-append the same builds until the page cap,
+// handing the caller duplicates and an inflated count — so it must be an error,
+// not a quietly wrong list.
+func TestListBuilds_RejectsNonAdvancingCursor(t *testing.T) {
+	calls := 0
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(
+			`{"items":[{"metadata":{"name":"agent-1"}}],"pagination":{"nextCursor":"stuck"}}`))
+		require.NoError(t, err)
+	}))
+
+	builds, err := client.ListBuilds(context.Background(), "acme", "proj", "agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not advance")
+	assert.Nil(t, builds)
+	// Page 1 returns "stuck"; page 2 is requested with it and returns it again,
+	// which is where the guard trips.
+	assert.Equal(t, 2, calls)
 }

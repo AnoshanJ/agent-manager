@@ -31,6 +31,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
 	"github.com/wso2/agent-manager/agent-manager-service/config"
+	"github.com/wso2/agent-manager/agent-manager-service/middleware/logger"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -192,11 +193,18 @@ func (c *openChoreoClient) ListBuilds(ctx context.Context, ouID, projectName, co
 			cursor = nil
 			break
 		}
+		// A cursor that points back at the page just fetched is a broken pagination
+		// response: continuing would append the same builds again until the page cap,
+		// returning duplicates and a wrong count. Fail loudly instead — a silently
+		// wrong build list is the bug this pagination exists to fix.
+		if cursor != nil && *nextCursor == *cursor {
+			return nil, fmt.Errorf("failed to list builds: pagination cursor did not advance past %q", *cursor)
+		}
 		cursor = nextCursor
 	}
 	if cursor != nil {
-		slog.Warn("build list truncated after reaching the maximum number of pages",
-			"componentName", componentName, "projectName", projectName, "maxPages", maxListPages)
+		logger.GetLogger(ctx).Warn("build list truncated after reaching the maximum number of pages",
+			"ouID", ouID, "componentName", componentName, "projectName", projectName, "maxPages", maxListPages)
 	}
 
 	buildResponses := make([]*models.BuildResponse, 0, len(workflowRuns))
