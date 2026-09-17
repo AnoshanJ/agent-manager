@@ -34,7 +34,7 @@ import { mcpEntryHasAPIKeyVar } from "./mcpEnvVarNames";
 import { SampleAgentDefinition } from "../data/sampleAgents";
 
 export interface CatalogEnvSeed {
-  env: { key: string; value: string; isSensitive: boolean }[];
+  env: { key: string; value: string; isSensitive: boolean; isInherited: boolean }[];
   lockedEnvKeys: Set<string>;
   /**
    * Keys that are both kind-declared secrets AND have a real default set — only
@@ -49,11 +49,19 @@ export interface CatalogEnvSeed {
 
 export function deriveCatalogEnvSeed(schema: AgentKindConfigSchemaItem[]): CatalogEnvSeed {
   return {
-    env: schema.map((item) => ({
-      key: item.name,
-      value: item.isSecret ? "" : (item.defaultValue ?? ""),
-      isSensitive: item.isSecret,
-    })),
+    env: schema.map((item) => {
+      // A kind-declared secret with a real default is intentionally seeded
+      // empty — the default itself is never sent to the client — and left
+      // blank it falls back to that default server-side, so it must stay
+      // exempt from the "value required" rule the empty env schema enforces.
+      const isInherited = item.isSecret && !!item.defaultValue;
+      return {
+        key: item.name,
+        value: item.isSecret ? "" : (item.defaultValue ?? ""),
+        isSensitive: item.isSecret,
+        isInherited,
+      };
+    }),
     lockedEnvKeys: new Set(schema.map((item) => item.name)),
     kindSecretKeysWithDefault: new Set(
       schema.filter((item) => item.isSecret && !!item.defaultValue).map((item) => item.name),
