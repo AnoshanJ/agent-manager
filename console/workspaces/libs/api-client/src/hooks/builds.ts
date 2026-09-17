@@ -17,7 +17,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { buildAgent, getAgentBuilds, getBuild, getBuildLogs } from "../apis";
+import { buildAgent, getAgentBuilds, getAllAgentBuilds, getBuild, getBuildLogs } from "../apis";
 import { useAuthHooks } from "@agent-management-platform/auth";
 import { useRef } from "react";
 import type {
@@ -88,6 +88,43 @@ export function useGetAgentBuilds(
       }
 
       // Update the ref with current value
+      prevHasInProgressBuildRef.current = hasInProgressBuild;
+
+      return hasInProgressBuild ? POLL_INTERVAL : false;
+    },
+  });
+}
+
+// Build history needs every build, not just the newest page the service returns
+// by default. Use this instead of useGetAgentBuilds wherever the UI paginates the
+// list itself, otherwise its pager can only ever walk the first page.
+export function useGetAllAgentBuilds(
+  params: GetAgentBuildsPathParams,
+  options?: { enabled?: boolean }
+) {
+  const { getToken } = useAuthHooks();
+  const queryClient = useQueryClient();
+  const prevHasInProgressBuildRef = useRef<boolean>(false);
+
+  return useApiQuery<BuildsListResponse>({
+    queryKey: ["agent-builds", "all", params],
+    queryFn: () => getAllAgentBuilds(params, getToken),
+    enabled:
+      (options?.enabled ?? true) &&
+      !!params.orgName &&
+      !!params.projName &&
+      !!params.agentName,
+    refetchInterval: (queryState) => {
+      const hasInProgressBuild =
+        queryState?.state?.data?.builds?.some(
+          (build: BuildDetailsResponse) =>
+            build.status === "Pending" || build.status === "Running"
+        ) ?? false;
+
+      if (prevHasInProgressBuildRef.current && !hasInProgressBuild) {
+        queryClient.invalidateQueries({ queryKey: ["agent-deployments"] });
+        queryClient.invalidateQueries({ queryKey: ["agent-configurations"] });
+      }
       prevHasInProgressBuildRef.current = hasInProgressBuild;
 
       return hasInProgressBuild ? POLL_INTERVAL : false;

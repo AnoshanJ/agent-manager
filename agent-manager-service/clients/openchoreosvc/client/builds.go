@@ -155,27 +155,50 @@ func (c *openChoreoClient) ListBuilds(ctx context.Context, ouID, projectName, co
 	namespaceName := c.NamespaceFor(ouID)
 	// Use label selector to filter workflow runs by component
 	labelSelector := fmt.Sprintf("%s=%s,%s=%s", LabelKeyComponentName, componentName, LabelKeyProjectName, projectName)
-	resp, err := c.ocClient.ListWorkflowRunsWithResponse(ctx, namespaceName, &gen.ListWorkflowRunsParams{
-		LabelSelector: &labelSelector,
-		Limit:         &defaultListLimit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list builds: %w", err)
-	}
 
-	if resp.StatusCode() != http.StatusOK {
-		return nil, handleErrorResponse(resp.StatusCode(), ErrorResponses{
-			JSON401: resp.JSON401,
-			JSON403: resp.JSON403,
-			JSON500: resp.JSON500,
+	// The OpenChoreo list API caps each response at a single page, and Kubernetes returns
+	// items in name-ascending (i.e. chronologically ascending) order. Fetching only the
+	// first page would therefore return the OLDEST builds and hide every recent one once a
+	// component accumulates more builds than the page size. Page through with the cursor so
+	// callers always see the complete set.
+	var workflowRuns []gen.WorkflowRun
+	var cursor *string
+	for page := 0; page < maxListPages; page++ {
+		resp, err := c.ocClient.ListWorkflowRunsWithResponse(ctx, namespaceName, &gen.ListWorkflowRunsParams{
+			LabelSelector: &labelSelector,
+			Limit:         &defaultListLimit,
+			Cursor:        cursor,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list builds: %w", err)
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			return nil, handleErrorResponse(resp.StatusCode(), ErrorResponses{
+				JSON401: resp.JSON401,
+				JSON403: resp.JSON403,
+				JSON500: resp.JSON500,
+			})
+		}
+
+		if resp.JSON200 == nil {
+			break
+		}
+
+		workflowRuns = append(workflowRuns, resp.JSON200.Items...)
+
+		nextCursor := resp.JSON200.Pagination.NextCursor
+		if nextCursor == nil || *nextCursor == "" {
+			cursor = nil
+			break
+		}
+		cursor = nextCursor
+	}
+	if cursor != nil {
+		slog.Warn("build list truncated after reaching the maximum number of pages",
+			"componentName", componentName, "projectName", projectName, "maxPages", maxListPages)
 	}
 
-	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
-		return []*models.BuildResponse{}, nil
-	}
-
-	workflowRuns := resp.JSON200.Items
 	buildResponses := make([]*models.BuildResponse, 0, len(workflowRuns))
 	for _, workflowRun := range workflowRuns {
 		build, err := toWorkflowRunBuild(&workflowRun, componentName, projectName)
@@ -185,7 +208,7 @@ func (c *openChoreoClient) ListBuilds(ctx context.Context, ouID, projectName, co
 		}
 		buildResponses = append(buildResponses, build)
 	}
-	// Sort by creation timestamp to ensure consistent ordering for pagination
+	// Sort newest first so that callers paginating this slice see recent builds at the top.
 	sort.Slice(buildResponses, func(i, j int) bool {
 		return buildResponses[i].StartedAt.After(buildResponses[j].StartedAt)
 	})
