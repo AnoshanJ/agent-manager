@@ -221,7 +221,14 @@ export const createAgentSchema = z.object({
         isSensitive: z.boolean().default(false),
       })
     )
-    .max(50, 'A maximum of 50 environment variables is allowed'),
+    .max(50, 'A maximum of 50 environment variables is allowed')
+    // A row with a name but no value would otherwise be silently dropped when
+    // the payload is built, deploying without a variable the user thought
+    // they'd set — surface it instead of dropping it.
+    .refine(
+      (rows) => rows.every((row) => !row.key?.trim() || !!row.value?.trim()),
+      { message: 'Every environment variable with a name must also have a value' },
+    ),
   files: z
     .array(
       z.object({

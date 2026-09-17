@@ -44,6 +44,12 @@ interface EnvironmentVariableProps {
   resetKey?: string;
   /** Hide the Add button (e.g. in catalog flow where env vars are fully pre-defined) */
   hideAdd?: boolean;
+  /**
+   * Highlight rows that have a key but no value. Gated on a submit attempt
+   * (mirrors the schema's own refine) rather than shown live while a row is
+   * still mid-edit.
+   */
+  showMissingValueError?: boolean;
 }
 
 export const EnvironmentVariable = ({
@@ -54,6 +60,7 @@ export const EnvironmentVariable = ({
   kindSecretKeys = new Set(),
   resetKey = "",
   hideAdd = false,
+  showMissingValueError = false,
 }: EnvironmentVariableProps) => {
   const envVariables = formData.env || [];
   const isOneEmpty = envVariables.some((e) => !e?.key || !e?.value);
@@ -117,6 +124,9 @@ export const EnvironmentVariable = ({
               : item.key && siblingKeys.has(item.key)
                 ? "Duplicate key"
                 : undefined;
+            const valueError = showMissingValueError && item.key && !item.value?.trim()
+              ? "Value is required"
+              : undefined;
             return (
               <EnvVariableEditor
                 key={`env-${resetKey}-${index}`}
@@ -133,6 +143,7 @@ export const EnvironmentVariable = ({
                 onRemove={isLocked ? () => {} : () => handleRemove(index)}
                 keyDisabled={isLocked}
                 keyError={keyError}
+                valueError={valueError}
               />
             );
           })}
