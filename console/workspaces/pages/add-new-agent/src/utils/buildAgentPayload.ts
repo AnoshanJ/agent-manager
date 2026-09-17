@@ -31,6 +31,7 @@ import {
   MCPProxyFormEntry,
 } from "../form/schema";
 import { mcpEntryHasAPIKeyVar } from "./mcpEnvVarNames";
+import { SampleAgentDefinition } from "../data/sampleAgents";
 
 export interface CatalogEnvSeed {
   env: { key: string; value: string; isSensitive: boolean }[];
@@ -57,6 +58,29 @@ export function deriveCatalogEnvSeed(schema: AgentKindConfigSchemaItem[]): Catal
     kindSecretKeysWithDefault: new Set(
       schema.filter((item) => item.isSecret && !!item.defaultValue).map((item) => item.name),
     ),
+  };
+}
+
+// Seeds a Platform-Hosted Agent form from a picked "Start Quickly with a
+// Sample" entry — the create-from-source counterpart to deriveCatalogEnvSeed
+// above, which seeds env vars from an agent kind's config schema instead.
+export function deriveSampleAgentSeed(
+  sample: SampleAgentDefinition,
+): Partial<CreateAgentFormValues> {
+  return {
+    displayName: sample.title,
+    description: sample.description,
+    repositoryUrl: sample.repositoryUrl,
+    branch: sample.branch,
+    appPath: sample.appPath,
+    runCommand: sample.runCommand,
+    language: sample.language,
+    languageVersion: sample.languageVersion,
+    env: sample.envVars.map((envVar) => ({
+      key: envVar.key,
+      value: envVar.value ?? "",
+      isSensitive: !!envVar.isSensitive,
+    })),
   };
 }
 

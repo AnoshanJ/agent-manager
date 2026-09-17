@@ -26,19 +26,20 @@ import { NewAgentTypeCard } from "./NewAgentTypeCard";
 import { NewAgentSampleCard } from "./NewAgentSampleCard";
 
 interface NewAgentOptionsProps {
-    onSelect: (option: 'new' | 'existing' | 'catalog') => void;
+    onSelect: (option: 'new' | 'existing') => void;
+    onSelectSample: (sampleId: string) => void;
 }
 
-export const NewAgentOptions = ({ onSelect }: NewAgentOptionsProps) => {
+export const NewAgentOptions = ({ onSelect, onSelectSample }: NewAgentOptionsProps) => {
     const { orgId, projectId } = useParams<{ orgId: string; projectId: string }>();
-    
+
     const { data: agents } = useListAgents({
         orgName: orgId ?? "default",
         projName: projectId ?? "default",
     });
 
     const handleSelect = (type: string) => {
-        onSelect(type as 'new' | 'existing' | 'catalog');
+        onSelect(type as 'new' | 'existing');
     };
 
     const hasAgents = Boolean(agents?.agents?.length && agents?.agents?.length > 0);
@@ -61,25 +62,25 @@ export const NewAgentOptions = ({ onSelect }: NewAgentOptionsProps) => {
             backHref={backHref}
             backLabel="Back to Projects Home"
         >
-            <Box display="flex" flexDirection="row" gap={3} width={1} alignItems="stretch">
+            <Box display="flex" flexDirection={{ xs: "column", md: "row" }} gap={3} width={1} alignItems="stretch">
                 <Box display="flex" flexDirection="column" gap={3} flex={1}>
                     <NewAgentTypeCard
                         type="existing"
                         title="Externally-Hosted Agent"
                         subheader="Connect an existing agent running outside the platform and enable observability and governance."
-                        icon={<ExternalAgentIcon width={96}  />}
+                        icon={<ExternalAgentIcon width={96} height={120} />}
                         onClick={handleSelect}
                     />
                     <NewAgentTypeCard
                         type="new"
                         title="Platform-Hosted Agent"
                         subheader="Deploy and manage agents with full lifecycle support, including built-in CI/CD, scaling, observability, and governance."
-                        icon={<InternalAgentIcon width={96} />}
+                        icon={<InternalAgentIcon width={80} height={96} />}
                         onClick={handleSelect}
                     />
                 </Box>
                 <Box flex={1}>
-                    <NewAgentSampleCard onClick={() => handleSelect("catalog")} />
+                    <NewAgentSampleCard onSelectSample={onSelectSample} />
                 </Box>
             </Box>
         </PageLayout>

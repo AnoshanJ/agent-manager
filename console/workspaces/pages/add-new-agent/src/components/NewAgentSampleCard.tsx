@@ -17,46 +17,61 @@
  */
 
 import { Box, Typography, Form } from "@wso2/oxygen-ui";
-import { Sparkles } from "@wso2/oxygen-ui-icons-react";
+import { sampleAgents } from "../data/sampleAgents";
 
 interface NewAgentSampleCardProps {
-  onClick: () => void;
+  onSelectSample: (sampleId: string) => void;
 }
 
-export const NewAgentSampleCard = ({ onClick }: NewAgentSampleCardProps) => {
+export const NewAgentSampleCard = ({ onSelectSample }: NewAgentSampleCardProps) => {
   return (
-    <Form.CardButton
-      onClick={onClick}
-      selected
-      sx={{
-        width: "100%",
-        height: "100%",
-        px: 4,
-        py: 4,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 2,
-        textAlign: "center",
-      }}
-    >
-      <Box
-        sx={{
-          height: 112,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Sparkles size={64} strokeWidth={1.5} />
-      </Box>
-      <Typography variant="h3" textAlign="center">
-        Start quickly with a Sample
+    <Form.Section>
+      <Typography variant="h3">Start Quickly with a Sample</Typography>
+      <Typography variant="body2" color="text.secondary">
+        Choose a sample agent to configure and deploy as a Platform-Hosted Agent.
       </Typography>
-      <Typography variant="body1" textAlign="center" sx={{ maxWidth: 320 }}>
-        Launch a ready-made agent from the catalog and customize it from there.
-      </Typography>
-    </Form.CardButton>
+      <Form.Stack spacing={1.5}>
+        {sampleAgents.map((sample) => (
+          <Form.CardButton
+            key={sample.id}
+            onClick={() => onSelectSample(sample.id)}
+            sx={{
+              px: 2,
+              py: 1.5,
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              gap: 2,
+              textAlign: "left",
+            }}
+          >
+            <Box
+              sx={{
+                height: 40,
+                width: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <sample.icon size={24} strokeWidth={1.5} />
+            </Box>
+            <Box display="flex" flexDirection="column" alignItems="flex-start">
+              <Typography variant="body1" fontWeight={600} textAlign="left">
+                {sample.title}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" textAlign="left">
+                {sample.description}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" textAlign="left">
+                Requires {sample.requirements.join(" • ")}
+              </Typography>
+            </Box>
+          </Form.CardButton>
+        ))}
+      </Form.Stack>
+    </Form.Section>
   );
 };
