@@ -168,10 +168,17 @@ function ConfigParamField({
           error={!!error}
           helperText={helperText}
           onChange={(event) => {
-            const nextValue =
-              event.target.value === ""
-                ? undefined
-                : Number(event.target.value);
+            const raw = event.target.value;
+            if (raw === "") {
+              onChange(undefined);
+              return;
+            }
+            const nextValue = Number(raw);
+            // A schema that forbids negatives should not let one be typed at
+            // all. The confirm-time check still covers paste and stored values.
+            if (min !== undefined && min >= 0 && nextValue < 0) {
+              return;
+            }
             onChange(nextValue);
           }}
         />
@@ -227,10 +234,17 @@ function ConfigParamField({
           error={!!error}
           helperText={helperText}
           onChange={(event) => {
-            const nextValue =
-              event.target.value === ""
-                ? undefined
-                : Number(event.target.value);
+            const raw = event.target.value;
+            if (raw === "") {
+              onChange(undefined);
+              return;
+            }
+            const nextValue = Number(raw);
+            // A schema that forbids negatives should not let one be typed at
+            // all. The confirm-time check still covers paste and stored values.
+            if (min !== undefined && min >= 0 && nextValue < 0) {
+              return;
+            }
             onChange(nextValue);
           }}
         />

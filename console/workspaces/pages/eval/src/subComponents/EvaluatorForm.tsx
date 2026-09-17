@@ -1715,7 +1715,13 @@ export function EvaluatorForm({
                                       : Number(e.target.value),
                                 })
                               }
-                              onWheel={(event) => event.currentTarget.blur()}
+                              slotProps={{
+                                input: {
+                                  inputProps: {
+                                    onWheel: (event) => event.currentTarget.blur(),
+                                  },
+                                },
+                              }}
                               sx={{ flex: 1 }}
                             />
                             <TextField
@@ -1731,7 +1737,13 @@ export function EvaluatorForm({
                                       : Number(e.target.value),
                                 })
                               }
-                              onWheel={(event) => event.currentTarget.blur()}
+                              slotProps={{
+                                input: {
+                                  inputProps: {
+                                    onWheel: (event) => event.currentTarget.blur(),
+                                  },
+                                },
+                              }}
                               sx={{ flex: 1 }}
                             />
                           </Stack>
