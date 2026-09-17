@@ -553,8 +553,11 @@ func (c *openChoreoClient) EnsureReleaseAndBinding(
 	}
 
 	// Build component type environment configs (e.g. runtimeClassName from the env's isolation tier).
+	// Checked for nil, not emptiness: buildComponentTypeEnvConfigs returns a non-nil empty map for
+	// the default runc tier specifically so the merge below clears a stale runtimeClassName — an
+	// emptiness check would treat that as "nothing to write" and leave the stale value in place.
 	var ctConfigs *map[string]interface{}
-	if len(componentTypeConfigs) > 0 {
+	if componentTypeConfigs != nil {
 		ctConfigs = &componentTypeConfigs
 	}
 
