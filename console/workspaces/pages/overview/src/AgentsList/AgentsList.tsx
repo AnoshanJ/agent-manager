@@ -22,8 +22,6 @@ import {
   Stack,
   Typography,
   Button,
-  Menu,
-  MenuItem,
   Alert,
   Tooltip,
   Skeleton,
@@ -119,9 +117,6 @@ export const AgentsList: React.FC = () => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [editProjectDrawerOpen, setEditProjectDrawerOpen] = useState(false);
-  const [addAgentAnchorEl, setAddAgentAnchorEl] = useState<null | HTMLElement>(
-    null,
-  );
 
   // Detect touch device for alternative interaction pattern
   const isTouchDevice =
@@ -174,38 +169,14 @@ export const AgentsList: React.FC = () => {
     setHoveredAgentId(null);
   }, []);
 
-  const handleOpenAddAgentMenu = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      setAddAgentAnchorEl(event.currentTarget);
-    },
-    [],
-  );
-
-  const handleCloseAddAgentMenu = useCallback(() => {
-    setAddAgentAnchorEl(null);
-  }, []);
-
-  const handleAddExternalAgent = useCallback(() => {
-    handleCloseAddAgentMenu();
+  const handleAddAgent = useCallback(() => {
     navigate(
       generatePath(
-        absoluteRouteMap.children.org.children.projects.children.newAgent
-          .children.connect.path,
+        absoluteRouteMap.children.org.children.projects.children.newAgent.path,
         { orgId: orgId ?? "", projectId: projectId ?? "" },
       ),
     );
-  }, [handleCloseAddAgentMenu, navigate, orgId, projectId]);
-
-  const handleAddPlatformHostedAgent = useCallback(() => {
-    handleCloseAddAgentMenu();
-    navigate(
-      generatePath(
-        absoluteRouteMap.children.org.children.projects.children.newAgent
-          .children.create.path,
-        { orgId: orgId ?? "", projectId: projectId ?? "" },
-      ),
-    );
-  }, [handleCloseAddAgentMenu, navigate, orgId, projectId]);
+  }, [navigate, orgId, projectId]);
 
   const getRelativeTime = useCallback(
     (date?: string) => formatRelativeTime(date, { fallback: "—" }),
@@ -362,30 +333,10 @@ export const AgentsList: React.FC = () => {
                       color="primary"
                       size="small"
                       startIcon={<Add size={16} />}
-                      onClick={handleOpenAddAgentMenu}
-                      aria-controls={
-                        addAgentAnchorEl ? "add-agent-menu" : undefined
-                      }
-                      aria-haspopup="true"
-                      aria-expanded={Boolean(addAgentAnchorEl)}
+                      onClick={handleAddAgent}
                     >
                       Add Agent
                     </Button>
-                    <Menu
-                      id="add-agent-menu"
-                      anchorEl={addAgentAnchorEl}
-                      open={Boolean(addAgentAnchorEl)}
-                      onClose={handleCloseAddAgentMenu}
-                      anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                      transformOrigin={{ vertical: "top", horizontal: "right" }}
-                    >
-                      <MenuItem onClick={handleAddExternalAgent}>
-                        External Agent
-                      </MenuItem>
-                      <MenuItem onClick={handleAddPlatformHostedAgent}>
-                        Platform-Hosted Agent
-                      </MenuItem>
-                    </Menu>
                   </Stack>
                 }
                 isLoading={isRefetching && !data?.agents?.length}
@@ -415,12 +366,7 @@ export const AgentsList: React.FC = () => {
                       variant="contained"
                       color="primary"
                       startIcon={<Add />}
-                      onClick={handleOpenAddAgentMenu}
-                      aria-controls={
-                        addAgentAnchorEl ? "add-agent-menu" : undefined
-                      }
-                      aria-haspopup="true"
-                      aria-expanded={Boolean(addAgentAnchorEl)}
+                      onClick={handleAddAgent}
                     >
                       Add New Agent
                     </Button>

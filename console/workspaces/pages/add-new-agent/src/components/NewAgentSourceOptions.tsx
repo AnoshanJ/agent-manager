@@ -33,10 +33,10 @@ export const NewAgentSourceOptions = ({ onSelect }: NewAgentSourceOptionsProps) 
         onSelect(type as "source" | "catalog");
     };
 
-    const backHref = generatePath(absoluteRouteMap.children.org.children.projects.path, {
-        orgId: orgId ?? "",
-        projectId: projectId ?? "default",
-    });
+    const backHref = generatePath(
+        absoluteRouteMap.children.org.children.projects.children.newAgent.path,
+        { orgId: orgId ?? "", projectId: projectId ?? "default" },
+    );
 
     const sourceOptions = [
         {
@@ -59,7 +59,7 @@ export const NewAgentSourceOptions = ({ onSelect }: NewAgentSourceOptionsProps) 
             description="Pick a source type for the agent"
             disableIcon
             backHref={backHref}
-            backLabel="Back to Agents"
+            backLabel="Back to Add New Agent"
         >
             <Box display="flex" flexDirection="row" gap={3} flexWrap="wrap">
                 {sourceOptions.map((option) => (

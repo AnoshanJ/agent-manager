@@ -75,7 +75,7 @@ export const NewAgentOptions = ({ onSelect, onSelectSample }: NewAgentOptionsPro
                         type="new"
                         title="Platform-Hosted Agent"
                         subheader="Deploy and manage agents with full lifecycle support, including built-in CI/CD, scaling, observability, and governance."
-                        icon={<InternalAgentIcon width={80} height={96} />}
+                        icon={<InternalAgentIcon width={96} height={96} />}
                         onClick={handleSelect}
                     />
                 </Box>
