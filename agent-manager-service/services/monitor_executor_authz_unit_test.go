@@ -184,6 +184,7 @@ func TestExecuteMonitorRunStaysWithinSchedulerGrantedActions(t *testing.T) {
 		monitorRepo,
 		&repomocks.CustomEvaluatorRepositoryMock{},
 		credRepo,
+		NewStaticPublisherCredentialProvisioner(),
 		llmMappingRepo,
 		&repomocks.GatewayRepositoryMock{},
 		&repomocks.LLMProviderRepositoryMock{},
