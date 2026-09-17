@@ -53,14 +53,23 @@ export const AddNewAgent: React.FC = () => {
   const CREATE_PATTERN = NEW_AGENT_ROUTES.children.create.path;
   const CONNECT_PATTERN = NEW_AGENT_ROUTES.children.connect.path;
 
-  const handleSelect = useCallback((option: 'new' | 'existing') => {
+  const handleSelect = useCallback((option: 'new' | 'existing' | 'catalog') => {
+    const stepMap: Record<'new' | 'existing' | 'catalog', string> = {
+      new: "build-new",
+      existing: "connect-existing",
+      catalog: "catalog",
+    };
     track(ConsoleAction.WizardStepViewed, {
       wizard: "create-agent",
-      step: option === 'new' ? "build-new" : "connect-existing",
+      step: stepMap[option],
       step_index: 1,
     });
-    const target = option === 'new' ? CREATE_PATTERN : CONNECT_PATTERN;
-    navigate(generatePath(target, {
+    const targetMap: Record<'new' | 'existing' | 'catalog', string> = {
+      new: CREATE_PATTERN,
+      existing: CONNECT_PATTERN,
+      catalog: `${CREATE_PATTERN}/catalog`,
+    };
+    navigate(generatePath(targetMap[option], {
       orgId: orgId ?? '',
       projectId: projectId ?? 'default',
     }));

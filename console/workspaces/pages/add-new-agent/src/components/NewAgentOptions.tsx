@@ -23,9 +23,10 @@ import { PageLayout, ExternalAgentIcon, InternalAgentIcon } from "@agent-managem
 import { absoluteRouteMap } from "@agent-management-platform/types";
 import { useListAgents } from "@agent-management-platform/api-client";
 import { NewAgentTypeCard } from "./NewAgentTypeCard";
+import { NewAgentSampleCard } from "./NewAgentSampleCard";
 
 interface NewAgentOptionsProps {
-    onSelect: (option: 'new' | 'existing') => void;
+    onSelect: (option: 'new' | 'existing' | 'catalog') => void;
 }
 
 export const NewAgentOptions = ({ onSelect }: NewAgentOptionsProps) => {
@@ -37,7 +38,7 @@ export const NewAgentOptions = ({ onSelect }: NewAgentOptionsProps) => {
     });
 
     const handleSelect = (type: string) => {
-        onSelect(type as 'new' | 'existing');
+        onSelect(type as 'new' | 'existing' | 'catalog');
     };
 
     const hasAgents = Boolean(agents?.agents?.length && agents?.agents?.length > 0);
@@ -60,21 +61,26 @@ export const NewAgentOptions = ({ onSelect }: NewAgentOptionsProps) => {
             backHref={backHref}
             backLabel="Back to Projects Home"
         >
-            <Box display="flex" flexDirection="row" gap={3} width={1}>
-                <NewAgentTypeCard
-                    type="existing"
-                    title="Externally-Hosted Agent"
-                    subheader="Connect an existing agent running outside the platform and enable observability and governance."
-                    icon={<ExternalAgentIcon width={150} />}
-                    onClick={handleSelect}
-                />
-                <NewAgentTypeCard
-                    type="new"
-                    title="Platform-Hosted Agent"
-                    subheader="Deploy and manage agents with full lifecycle support, including built-in CI/CD, scaling, observability, and governance."
-                    icon={<InternalAgentIcon width={150} />}
-                    onClick={handleSelect}
-                />
+            <Box display="flex" flexDirection="row" gap={3} width={1} alignItems="stretch">
+                <Box display="flex" flexDirection="column" gap={3} flex={1}>
+                    <NewAgentTypeCard
+                        type="existing"
+                        title="Externally-Hosted Agent"
+                        subheader="Connect an existing agent running outside the platform and enable observability and governance."
+                        icon={<ExternalAgentIcon width={96}  />}
+                        onClick={handleSelect}
+                    />
+                    <NewAgentTypeCard
+                        type="new"
+                        title="Platform-Hosted Agent"
+                        subheader="Deploy and manage agents with full lifecycle support, including built-in CI/CD, scaling, observability, and governance."
+                        icon={<InternalAgentIcon width={96} />}
+                        onClick={handleSelect}
+                    />
+                </Box>
+                <Box flex={1}>
+                    <NewAgentSampleCard onClick={() => handleSelect("catalog")} />
+                </Box>
             </Box>
         </PageLayout>
     );

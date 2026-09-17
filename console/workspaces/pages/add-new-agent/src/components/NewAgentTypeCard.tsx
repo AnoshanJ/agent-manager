@@ -40,27 +40,37 @@ export const NewAgentTypeCard = (props: NewAgentTypeCardProps) => {
     <Form.CardButton
       onClick={handleClick}
       sx={{
-        width: 450,
+        width: "100%",
+        minHeight: 152,
+        px: 3,
         py: 2,
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        gap: 3,
+        textAlign: "left",
       }}
     >
-      <Typography width="100%" variant="h4" textAlign="center">
-        {title}
-      </Typography>
-      <Form.CardContent>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "flex-end",
-            height: 250,
-            mb: 10,
-          }}
-        >
-          {icon}
-        </Box>
-        <Typography variant="body2" textAlign="center">{subheader}</Typography>
-      </Form.CardContent>
+      <Box
+        sx={{
+          height: 112,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </Box>
+      <Box display="flex" flexDirection="column" gap={1} alignItems="flex-start">
+        <Typography variant="h3" textAlign="left">
+          {title}
+        </Typography>
+        <Typography variant="body1" textAlign="left">
+          {subheader}
+        </Typography>
+      </Box>
     </Form.CardButton>
   );
 };
