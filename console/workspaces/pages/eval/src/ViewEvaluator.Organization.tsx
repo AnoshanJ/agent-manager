@@ -63,6 +63,7 @@ import {
 import {
   generateCodeHeader,
   extractCodeBody,
+  validateNumericParamConstraints,
 } from "./subComponents/EvaluatorForm";
 import { SectionErrorBoundary } from "./subComponents/SectionErrorBoundary";
 
@@ -539,6 +540,13 @@ function EditableConfigParams({
                             : Number(e.target.value),
                       })
                     }
+                    slotProps={{
+                      input: {
+                        inputProps: {
+                          onWheel: (event) => event.currentTarget.blur(),
+                        },
+                      },
+                    }}
                     sx={{ flex: 1 }}
                   />
                   <TextField
@@ -554,6 +562,13 @@ function EditableConfigParams({
                             : Number(e.target.value),
                       })
                     }
+                    slotProps={{
+                      input: {
+                        inputProps: {
+                          onWheel: (event) => event.currentTarget.blur(),
+                        },
+                      },
+                    }}
                     sx={{ flex: 1 }}
                   />
                 </Stack>
@@ -628,6 +643,7 @@ export const ViewEvaluatorOrganization: React.FC = () => {
   });
 
   const [isEditing, setIsEditing] = useState(false);
+  const [configSchemaError, setConfigSchemaError] = useState<string>();
   const [editValues, setEditValues] = useState<EditValues>({
     displayName: "",
     description: "",
@@ -768,6 +784,14 @@ export const ViewEvaluatorOrganization: React.FC = () => {
 
   const handleSave = useCallback(() => {
     if (!editValues.displayName.trim()) return;
+    const numericConstraintError = validateNumericParamConstraints(
+      editValues.configSchema,
+    );
+    if (numericConstraintError) {
+      setConfigSchemaError(numericConstraintError);
+      return;
+    }
+    setConfigSchemaError(undefined);
     const body: UpdateCustomEvaluatorRequest = {
       displayName: editValues.displayName,
       description: editValues.description,
@@ -1139,13 +1163,21 @@ export const ViewEvaluatorOrganization: React.FC = () => {
         {/* Config schema */}
         <SectionErrorBoundary fallbackMessage="Config parameters section failed to render. Click Retry to try again.">
           {isEditing ? (
-            <EditableConfigParams
-              configSchema={editValues.configSchema}
-              onChange={(params) =>
-                setEditValues((prev) => ({ ...prev, configSchema: params }))
-              }
-              evaluatorType={evaluator.type ?? "code"}
-            />
+            <>
+              <EditableConfigParams
+                configSchema={editValues.configSchema}
+                onChange={(params) => {
+                  setEditValues((prev) => ({ ...prev, configSchema: params }));
+                  setConfigSchemaError(undefined);
+                }}
+                evaluatorType={evaluator.type ?? "code"}
+              />
+              {configSchemaError && (
+                <Typography variant="caption" color="error">
+                  {configSchemaError}
+                </Typography>
+              )}
+            </>
           ) : (
             <ConfigSchemaTable configSchema={evaluator.configSchema} />
           )}
