@@ -50,6 +50,17 @@ ampEvaluation:
   # When false, uses repository:tag directly (for k3d imported images or external registries)
   useLocalRegistry: false
 
+  # -- Wall-clock budget for a single evaluation workflow, in seconds. Bounds a run
+  # whose pod can never start (for example a secret it mounts that never syncs), which
+  # would otherwise hold a pod slot indefinitely because neither ttlStrategy nor the
+  # Workflow's ttlAfterCompletion collects a workflow that never completes.
+  activeDeadlineSeconds: 1800
+
+  # -- How long a failed or errored workflow is kept before Argo deletes it, in seconds.
+  # Shorter than the success TTL because a failure's ExternalSecrets keep polling the
+  # secret provider at their refresh interval for as long as the workflow survives.
+  ttlSecondsAfterFailure: 600
+
   # -- In-cluster URL for the observer API
   tracesApiEndpoint: "http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098"
 
