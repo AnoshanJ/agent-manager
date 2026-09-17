@@ -190,11 +190,17 @@ func publisherSecretLocation(ouID string) secretmanagersvc.SecretLocation {
 	}
 }
 
+// schedulerAppName is the Thunder application name for an org's scheduler credential.
+// Thunder resolves applications by name, so every caller must derive it here rather
+// than passing something that merely identifies the same app (a client ID will not
+// match, and the lookup fails silently as "app not found").
+func schedulerAppName(ouID string) string { return "amp-scheduler-" + ouID }
+
 // schedulerSecretLocation builds the SecretLocation for scheduler-only credentials.
 func schedulerSecretLocation(ouID string) secretmanagersvc.SecretLocation {
 	return secretmanagersvc.SecretLocation{
 		OrgName:    ouID,
-		EntityName: "amp-scheduler-" + ouID,
+		EntityName: schedulerAppName(ouID),
 	}
 }
 
@@ -362,7 +368,7 @@ func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx conte
 
 	p.logger.Info("No existing scheduler credentials, provisioning via Thunder", "ouID", ouID)
 
-	appName := "amp-scheduler-" + ouID
+	appName := schedulerAppName(ouID)
 	clientID, clientSecret, created, err := p.thunderClient.EnsureApp(ctx, appName, orgUUID)
 	if err != nil {
 		return fmt.Errorf("failed to provision Thunder scheduler app for org %s: %w", ouID, err)
@@ -430,10 +436,25 @@ func (p *publisherCredentialProvisioner) provisionSchedulerCredentials(ctx conte
 		return fmt.Errorf("failed to persist scheduler credentials for org %s: %w", ouID, dbErr)
 	}
 
+	// A cached client for this org was built from the credential this one replaces, and
+	// nothing else ever evicts it. Its access token keeps working until it expires, so
+	// leaving it in place makes re-provisioning look like it worked and then fail an hour
+	// later, when the wrapped AuthProvider tries to refresh against a Thunder app that no
+	// longer exists. Drop it so the next caller rebuilds from what was just persisted.
+	p.evictOrgOCClient(ouID)
+
 	p.logger.Info("Provisioned new scheduler credentials",
 		"ouID", ouID, "clientID", clientID, "kvPath", resolvedKVPath, "secretKey", resolvedKey)
 
 	return nil
+}
+
+// evictOrgOCClient drops any cached OpenChoreo client for the org, so the next
+// GetOCClientForOrg rebuilds one from the current stored credential.
+func (p *publisherCredentialProvisioner) evictOrgOCClient(ouID string) {
+	p.orgOCMu.Lock()
+	defer p.orgOCMu.Unlock()
+	delete(p.orgOCClients, ouID)
 }
 
 // GetOCClientForOrg returns a cached OC client authenticated with the publisher app's
@@ -485,7 +506,7 @@ func (p *publisherCredentialProvisioner) GetOCClientForOrg(ctx context.Context, 
 			// push it to the secret store, and persist the encrypted copy to DB.
 			p.logger.Info("No encrypted secret for org, regenerating Thunder client secret",
 				"ouID", ouID, "clientID", cred.ClientID)
-			newSecret, backfillErr := p.thunderClient.RegenerateAppClientSecret(ctx, cred.ClientID)
+			newSecret, backfillErr := p.thunderClient.RegenerateAppClientSecret(ctx, schedulerAppName(ouID))
 			if backfillErr != nil {
 				return nil, fmt.Errorf("failed to regenerate client secret for org %s: %w", ouID, backfillErr)
 			}

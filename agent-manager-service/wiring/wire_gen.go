@@ -108,16 +108,16 @@ func InitializeAppParams(cfg *config.Config, db *gorm.DB, authProvider client.Au
 	monitorRepository := ProvideMonitorRepository(db)
 	customEvaluatorRepository := ProvideCustomEvaluatorRepository(db)
 	orgPublisherCredentialRepository := ProvideOrgPublisherCredentialRepository(db)
-	monitorLLMMappingRepository := repositories.NewMonitorLLMMappingRepository(db)
-	monitorExecutor := services.NewMonitorExecutor(openChoreoClient, logger, monitorRepository, customEvaluatorRepository, orgPublisherCredentialRepository, monitorLLMMappingRepository, gatewayRepository, llmProviderRepository, deploymentRepository)
-	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
-	scoreRepository := ProvideScoreRepository(db)
-	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
 	orgSchedulerCredentialRepository := ProvideOrgSchedulerCredentialRepository(db)
 	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository, orgSchedulerCredentialRepository)
 	if err != nil {
 		return nil, err
 	}
+	monitorLLMMappingRepository := repositories.NewMonitorLLMMappingRepository(db)
+	monitorExecutor := services.NewMonitorExecutor(openChoreoClient, logger, monitorRepository, customEvaluatorRepository, orgPublisherCredentialRepository, publisherCredentialProvisioner, monitorLLMMappingRepository, gatewayRepository, llmProviderRepository, deploymentRepository)
+	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
+	scoreRepository := ProvideScoreRepository(db)
+	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
 	monitorManagerService := services.NewMonitorManagerService(logger, db, openChoreoClient, observerSvcClient, monitorExecutor, evaluatorManagerService, monitorRepository, scoreRepository, llmProxyProvisioner, monitorLLMMappingRepository, publisherCredentialProvisioner)
 	agentManagerService := services.NewAgentManagerService(db, openChoreoClient, secretManagementClient, repositoryService, agentTokenManagerService, agentConfigRepository, agentConfigurationService, agentKindService, artifactRepository, aiApplicationService, gatewayRepository, agentThunderProvisioning, monitorManagerService, agentIdentityInjectionService, identityClient, logger)
 	agentController := controllers.NewAgentController(agentManagerService, agentKindService)
@@ -288,16 +288,16 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	monitorRepository := ProvideMonitorRepository(db)
 	customEvaluatorRepository := ProvideCustomEvaluatorRepository(db)
 	orgPublisherCredentialRepository := ProvideOrgPublisherCredentialRepository(db)
-	monitorLLMMappingRepository := repositories.NewMonitorLLMMappingRepository(db)
-	monitorExecutor := services.NewMonitorExecutor(openChoreoClient, logger, monitorRepository, customEvaluatorRepository, orgPublisherCredentialRepository, monitorLLMMappingRepository, gatewayRepository, llmProviderRepository, deploymentRepository)
-	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
-	scoreRepository := ProvideScoreRepository(db)
-	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
 	orgSchedulerCredentialRepository := ProvideOrgSchedulerCredentialRepository(db)
 	publisherCredentialProvisioner, err := ProvidePublisherProvisioner(configConfig, v, logger, secretManagementClient, openChoreoClient, orgPublisherCredentialRepository, orgSchedulerCredentialRepository)
 	if err != nil {
 		return nil, err
 	}
+	monitorLLMMappingRepository := repositories.NewMonitorLLMMappingRepository(db)
+	monitorExecutor := services.NewMonitorExecutor(openChoreoClient, logger, monitorRepository, customEvaluatorRepository, orgPublisherCredentialRepository, publisherCredentialProvisioner, monitorLLMMappingRepository, gatewayRepository, llmProviderRepository, deploymentRepository)
+	evaluatorManagerService := services.NewEvaluatorManagerService(logger, customEvaluatorRepository, monitorRepository)
+	scoreRepository := ProvideScoreRepository(db)
+	llmProxyProvisioner := services.NewLLMProxyProvisioner(logger, llmProviderRepository, gatewayRepository, llmProxyService, llmProxyDeploymentService, llmProxyAPIKeyService, llmProviderAPIKeyService, secretManagementClient, v)
 	monitorManagerService := services.NewMonitorManagerService(logger, db, openChoreoClient, observerSvcClient, monitorExecutor, evaluatorManagerService, monitorRepository, scoreRepository, llmProxyProvisioner, monitorLLMMappingRepository, publisherCredentialProvisioner)
 	agentManagerService := services.NewAgentManagerService(db, openChoreoClient, secretManagementClient, repositoryService, agentTokenManagerService, agentConfigRepository, agentConfigurationService, agentKindService, artifactRepository, aiApplicationService, gatewayRepository, agentThunderProvisioningService, monitorManagerService, agentIdentityInjectionService, identityClient, logger)
 	agentController := controllers.NewAgentController(agentManagerService, agentKindService)
