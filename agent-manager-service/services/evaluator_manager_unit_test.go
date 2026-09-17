@@ -626,3 +626,43 @@ func TestEvaluatorManagerService_ResolveCustomEvaluators(t *testing.T) {
 		assert.ErrorIs(t, err, boom)
 	})
 }
+
+func TestValidateEvaluatorConfigSchema(t *testing.T) {
+	t.Run("allows negative bounds for numeric parameters", func(t *testing.T) {
+		min, max := -10.0, -1.0
+
+		err := validateEvaluatorConfigSchema([]models.EvaluatorConfigParam{{
+			Key:  "score_offset",
+			Type: "integer",
+			Min:  &min,
+			Max:  &max,
+		}})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects a minimum greater than the maximum", func(t *testing.T) {
+		min, max := 10.0, 1.0
+
+		err := validateEvaluatorConfigSchema([]models.EvaluatorConfigParam{{
+			Key:  "threshold",
+			Type: "float",
+			Min:  &min,
+			Max:  &max,
+		}})
+
+		assert.ErrorIs(t, err, utils.ErrInvalidInput)
+	})
+
+	t.Run("rejects fractional bounds for integer parameters", func(t *testing.T) {
+		min := 1.5
+
+		err := validateEvaluatorConfigSchema([]models.EvaluatorConfigParam{{
+			Key:  "max_retries",
+			Type: "integer",
+			Min:  &min,
+		}})
+
+		assert.ErrorIs(t, err, utils.ErrInvalidInput)
+	})
+}

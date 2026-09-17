@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"regexp"
 	"strings"
 
@@ -182,6 +183,9 @@ func (s *evaluatorManagerService) CreateCustomEvaluator(ctx context.Context, ouI
 	if catalog.Get(identifier) != nil {
 		return nil, utils.ErrCustomEvaluatorIdentifierTaken
 	}
+	if err := validateEvaluatorConfigSchema(req.ConfigSchema); err != nil {
+		return nil, err
+	}
 
 	evaluator := &models.CustomEvaluator{
 		OUID:         ouID,
@@ -251,6 +255,9 @@ func (s *evaluatorManagerService) UpdateCustomEvaluator(ctx context.Context, ouI
 		evaluator.Source = *req.Source
 	}
 	if req.ConfigSchema != nil {
+		if err := validateEvaluatorConfigSchema(*req.ConfigSchema); err != nil {
+			return nil, err
+		}
 		evaluator.ConfigSchema = *req.ConfigSchema
 	}
 	if req.Tags != nil {
@@ -263,6 +270,37 @@ func (s *evaluatorManagerService) UpdateCustomEvaluator(ctx context.Context, ouI
 
 	s.logger.Info("Updated custom evaluator", "identifier", identifier)
 	return evaluator.ToEvaluatorResponse(), nil
+}
+
+// validateEvaluatorConfigSchema rejects malformed numeric bounds while allowing
+// negative values when an evaluator legitimately requires them.
+func validateEvaluatorConfigSchema(schema []models.EvaluatorConfigParam) error {
+	for _, param := range schema {
+		if param.Type != "integer" && param.Type != "float" {
+			continue
+		}
+		if param.Min != nil {
+			if math.IsNaN(*param.Min) || math.IsInf(*param.Min, 0) {
+				return fmt.Errorf("config schema parameter %q has an invalid minimum: %w", param.Key, utils.ErrInvalidInput)
+			}
+			if param.Type == "integer" && math.Trunc(*param.Min) != *param.Min {
+				return fmt.Errorf("config schema parameter %q must have an integer minimum: %w", param.Key, utils.ErrInvalidInput)
+			}
+		}
+		if param.Max != nil {
+			if math.IsNaN(*param.Max) || math.IsInf(*param.Max, 0) {
+				return fmt.Errorf("config schema parameter %q has an invalid maximum: %w", param.Key, utils.ErrInvalidInput)
+			}
+			if param.Type == "integer" && math.Trunc(*param.Max) != *param.Max {
+				return fmt.Errorf("config schema parameter %q must have an integer maximum: %w", param.Key, utils.ErrInvalidInput)
+			}
+		}
+		if param.Min != nil && param.Max != nil && *param.Min > *param.Max {
+			return fmt.Errorf("config schema parameter %q has a minimum greater than its maximum: %w", param.Key, utils.ErrInvalidInput)
+		}
+	}
+
+	return nil
 }
 
 // DeleteCustomEvaluator soft-deletes a custom evaluator
