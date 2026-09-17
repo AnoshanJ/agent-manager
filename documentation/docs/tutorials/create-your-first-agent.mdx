@@ -21,9 +21,9 @@ problem the previous one leaves behind, so they're meant to be read in order.
 |---|---|---|
 | 1 | **Create Your First Agent** *(you are here)* | Nothing is running yet. Get the agent deployed, talk to it, and read its first trace. |
 | 2 | [Add guardrails to your agent](./govern-the-model.mdx) | It answers anything which get asked. Put a gateway in front of the model. |
-| 3 | [Connect your agent to real tools](./give-the-agent-real-tools.mdx) | It only knows mock data. Connect a real MCP server and contorl the tools|
+| 3 | [Connect your agent to real tools](./give-the-agent-real-tools.mdx) | It only knows mock data. Connect a real MCP server and control the tools. |
 | 4 | [Monitor Your Agent](./observe-first-agent.mdx) | You've only checked the agent by hand. Score its behaviour automatically and continuously. |
-| 5 | [Ship the agent to Production](./roll-out-agent-version.mdx) | It works in development. Promote it safely, and know how to undo it. |
+| 5 | [Ship the agent to Production](./promote-your-agent.mdx) | It works in development. Promote it safely, and know how to stop it if something goes wrong. |
 
 
 ### What you'll achieve in this chapter
@@ -45,7 +45,7 @@ policy search, and escalation to L2.
 ### Choose How You'll Run It
 
 Every chapter in this series offers two paths, and the choice is fixed at
-creation time — see [Internal and External Agent](../concepts/internal-and-external-agent.mdx).
+creation time. See [Internal and External Agent](../concepts/internal-and-external-agent.mdx).
 
 | | **Platform-Hosted** | **Externally-Hosted** |
 |---|---|---|
@@ -53,13 +53,42 @@ creation time — see [Internal and External Agent](../concepts/internal-and-ext
 | Tracing | Automatic, no code changes | Requires the `amp-instrumentation` package |
 
 If you're new here, pick **Platform-Hosted**. Most of the series works either
-way, but building, deploying, promoting, rolling back, and endpoint security are
+way, but building, deploying, promoting, and endpoint security are
 things the platform can only do for a workload it runs. Those steps are marked
 where they appear.
 
 
 ## Step 1: Create the Agent
-Log in to the Agent Manager console  using `admin` for both the username and password, then select the agent type you want to deploy from the initial landing page
+
+Log in to the Agent Manager console using `admin` for both the username and password.
+
+Where you land next depends on whether your organization already has a project.
+On a brand-new install with no projects yet, you'll land on the **Projects**
+view. That's the organization-wide screen listing every project across the org.
+If a project already exists (for example a `default` one created during setup),
+you're dropped straight into it instead.
+
+Either way, get to the right project before creating anything:
+
+- **Using an existing project**: open it from the project list, then skip
+  ahead to creating the agent below.
+- **Starting a new one**: from the **Projects** view (click the organization
+  icon next to the Agent Manager logo if you're not already there), click **Add
+  Project** and fill in:
+
+  | Field | Value |
+  |---|---|
+  | **Name** | `it-support` |
+  | **Description** *(optional)* | `AcmeCorp IT helpdesk agents` |
+  | **Deployment Pipeline** | The pipeline that defines which environments (development, staging, production) this project's agents can be promoted through. See [Deployment Pipeline](../concepts/deployment-pipeline.mdx) if you don't have one yet. |
+
+  You'll come back to this project in [Chapter 5](./promote-your-agent.mdx)
+  to promote the agent through that pipeline, so use `it-support` as the name
+  now.
+
+Once you're inside the project, click **Add Agent** and choose the agent type
+you want to deploy:
+
 <Tabs groupId="agent-hosting">
 <TabItem value="platform" label="Platform-Hosted Agent" default>
 
@@ -86,8 +115,8 @@ mechanism is in [Observability](../concepts/observability.mdx).
 
 ### Agent Type
 
-Choose **Chat Agent**. That contract is `POST /chat` on port `8000`, taking
-`{message, session_id, context}` and returning `{response}` — which is exactly
+Choose **Chat Agent**. That contract is `POST /chat` on port `8000`. It takes
+`{message, session_id, context}` and returns `{response}`, which is exactly
 what the sample's `app.py` serves. Picking **Custom API Agent** here would make
 the console expect an OpenAPI spec instead.
 
@@ -105,7 +134,7 @@ Two optional ones are worth setting now, because later chapters use them:
 | Key | Value | Why |
 |---|---|---|
 | `COMPANY_NAME` | `AcmeCorp` | Appears in the agent's system prompt |
-| `AGENT_VERSION` | `1.0.0` | Echoed in every response — this is how [Chapter 5](./roll-out-agent-version.mdx) makes a promotion visible |
+| `AGENT_VERSION` | `1.0.0` | Echoed in every response. This is how [Chapter 5](./promote-your-agent.mdx) makes a promotion visible |
 
 Everything else has a default. 
 
@@ -115,7 +144,7 @@ Click **Deploy**.
 <TabItem value="external" label="Externally-Hosted Agent">
 
 Choose **Externally-Hosted Agent**. Registration is deliberately thin, because
-the platform isn't going to build or run anything — it only needs a record to
+the platform isn't going to build or run anything. It only needs a record to
 hang governance and observability on.
 
 | Field | Value |
@@ -144,8 +173,8 @@ export AGENT_VERSION=1.0.0
 ### Connect It for Tracing
 
 There's no init container to inject instrumentation, so you add it yourself. In
-the Setup Agent panel, choose a **Token Duration** and click **Generate**, then
-copy the key immediately — it isn't shown again.
+the Setup Agent panel, choose a **Token Duration** and click **Generate**. Copy
+the key immediately, since it isn't shown again.
 
 ```bash
 export AMP_OTEL_ENDPOINT="<INSTRUMENTATION_URL>"
@@ -154,14 +183,14 @@ export AMP_AGENT_API_KEY="<your-generated-api-key>"
 amp-instrument python main.py
 ```
 
-The `amp-instrument` prefix is the whole integration — no code changes. Full
-detail, including the Ballerina path and a manual `init_otel()` alternative, is in
+The `amp-instrument` prefix is the whole integration. No code changes needed.
+Full detail, including the Ballerina path and a manual `init_otel()` alternative, is in
 [AMP Instrumentation](../guides/amp-instrumentation.mdx).
 
 :::note AgentID arrives immediately
 Because there's no deploy step to wait for, [AgentID](../concepts/agentid.mdx)
 credentials are provisioned for every environment in the organization as soon as
-you register — not on first deployment.
+you register. They aren't tied to a first deployment.
 :::
 
 </TabItem>
@@ -171,8 +200,8 @@ you register — not on first deployment.
 
 :::info Platform-hosted only
 Building is something Agent Manager does to source it fetched itself. If you
-registered an externally-hosted agent, your process is already running — skip to
-Step 4.
+registered an externally-hosted agent, your process is already running.
+Skip to Step 4.
 :::
 After clicking Deploy, you will be redirected to the build page, where the build process will start and display a status of `Running`.
  
@@ -182,9 +211,9 @@ produces an image. The deploy places that image in your development environment.
 First builds take a few minutes. If it fails, open the build logs from the details button in same
 panel, a missing dependency or a bad start command shows up there.
 
-Once complete, the agent's build status will change to Active. Since you also chose to deploy the agent automatically, navigate to the Deploy tab to view the deployment status for the default environment.
+Once complete, the agent's build status will change to **Completed**. Since you also chose to deploy the agent automatically, navigate to the Deploy tab to view the deployment status for the default environment.
 
-In the deployment page you can do other deployment configurations to your agetn as well
+On the deployment page you can also configure other deployment settings for your agent.
 
 ## Step 3: Talk to Your agent
 
@@ -204,17 +233,16 @@ Give it a real test employee:
 My email is alice.chen@acmecorp.com and my employee ID is E-1001.
 ```
 
+The **Try It** console keeps one `session_id` for as long as the page stays
+open, which is why the agent remembers Alice's email if you keep chatting. To
+test a different employee cleanly, refresh the page first. That's the reset.
+There's no separate "new conversation" button. Then try an admin account:
 
-Now try an admin account in a new conversation — `david.kim@acmecorp.com`,
-`E-1004`. The agent should refuse the reset and escalate to L2 instead.
+```text
+My email is david.kim@acmecorp.com and my employee ID is E-1004.
+```
 
-
-
-:::tip
-The **Try It** console keeps one `session_id` per conversation, which is why the
-agent remembers your email on the second turn. Start a new conversation to reset
-that memory.
-:::
+The agent should refuse the reset and escalate to L2 instead.
 
 ### Calling It from Outside the Console
 
@@ -223,11 +251,11 @@ call. It isn't open, though: **API key security is enabled by default** for
 platform-hosted API agents, so an external caller needs a key and sends it in the
 `X-API-Key` header.
 
-Creating, rotating, and revoking those keys — and turning the protection off or
-swapping it for JWT — is covered in
-[Secure Agent Endpoints with API Keys](../guides/secure-agent-endpoints-with-api-keys.mdx).
-You'll need a key for [Chapter 4](./observe-first-agent.mdx), where the traffic
-seeding script calls this endpoint with `--api-key`.
+[Secure Agent Endpoints with API Keys](../guides/secure-agent-endpoints-with-api-keys.mdx)
+covers creating, rotating, and revoking those keys, plus turning the
+protection off or swapping it for JWT. You'll need a key for
+[Chapter 4](./observe-first-agent.mdx), where the traffic seeding script calls
+this endpoint with `--api-key`.
 
 :::note Why Try It needed no key
 The console issues its own short-lived key per environment for the Test page and
@@ -256,7 +284,7 @@ curl -s localhost:8000/chat -H 'Content-Type: application/json' -d '{
 The agent should ask for verification on the first call rather than resetting
 anything, then act on the second.
 
-Now try an admin account on a fresh `session_id` — `david.kim@acmecorp.com`,
+Now try an admin account on a fresh `session_id`: `david.kim@acmecorp.com`,
 `E-1004`. The agent should refuse the reset and escalate to L2 instead.
 
 That refusal isn't a hardcoded branch. It's the system prompt plus the
@@ -270,34 +298,36 @@ agent actually obeys it every time.
 ## Step 4: Read the First Trace
 
 In the left sidebar under **Observability**, click **Traces**, and open the trace
-for your password-reset conversation. You can find the trace by observing the trace output. 
+for your password-reset conversation. It should be the most recent one in the list.
 
 
 Read it top to bottom:
 
-- The **root span** is the whole request which provides the details about end to end latency and the success/failiure of the request.
-- **LLM spans** show the model, the token counts, and how long the call took. you can identiy LLM spans by the LLM chip
+- The **root span** is the whole request which provides the details about end to end latency and the success/failure of the request.
+- **LLM spans** show the model, the token counts, and how long the call took. You can identify LLM spans by the LLM chip.
 - **Tool spans** show which tool ran, with its input and output.
 
 You should see `verify_identity` tool fire before any password
 tool does. That ordering *is* the identity-first rule being followed, and it's
 the exact thing Chapter 4 turns into an automated check.
 
-Traces look the same whichever path you took (platform hosted or external) — what differs is only how the
-instrumentation got there. Platform-hosted agents got it from the init container
-you left enabled in Step 2; externally-hosted agents got it from the
-`amp-instrument` prefix. Neither required editing the agent's code.
+Traces look the same whichever path you took (platform hosted or external).
+What differs is only how the instrumentation got there. Platform-hosted agents
+got it from the init container you left enabled in Step 2; externally-hosted
+agents got it from the `amp-instrument` prefix. Neither required editing the
+agent's code.
 
 ## What You've Built
 
 An agent registered in a project, holding a multi-turn conversation, and fully
 traced.
 
-If you went platform-hosted, note what you did *not* have to do do: no Dockerfile, no CI
-pipeline, no registry, no Kubernetes manifests, no OpenTelemetry setup, the whole agent deployment process was taken care by the Agent Manager Platform. If you
-went externally-hosted, you kept your own runtime and still got the traces.
+If you went platform-hosted, note what you did *not* have to do: no Dockerfile, no CI
+pipeline, no registry, no Kubernetes manifests, no OpenTelemetry setup. The
+whole agent deployment process was taken care of by the Agent Manager
+Platform. If you went externally-hosted, you kept your own runtime and still
+got the traces.
 
 ## What's Next
 
-Right now, the agent communicates directly with OpenAI using the key you provided, without any limits or content policies. This gives you less control over how the agent responds
-
+Right now, the agent communicates directly with OpenAI using the key you provided, without any limits or content policies. This gives you less control over how the agent responds.

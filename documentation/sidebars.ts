@@ -133,7 +133,7 @@ const sidebars: SidebarsConfig = {
         'tutorials/govern-the-model',
         'tutorials/give-the-agent-real-tools',
         'tutorials/observe-first-agent',
-        'tutorials/roll-out-agent-version',
+        'tutorials/promote-your-agent',
       ],
     },
     {

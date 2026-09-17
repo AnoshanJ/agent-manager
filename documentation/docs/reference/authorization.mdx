@@ -207,7 +207,6 @@ The tables below list every scope the platform defines, grouped by resource. The
 | `amp:agent:build` | Trigger an agent build |
 | `amp:agent:env-non-production` | Reach non-production environments. Required by deploy, promote and deployment-state changes, and never sufficient by itself for the last of those |
 | `amp:agent:env-production` | Reach environments flagged `isProduction`, held **in addition to** the non-production scope. Grants nothing on its own |
-| `amp:agent:rollback` | Roll back an agent deployment |
 | `amp:agent:suspend` | Suspend an agent deployment |
 | `amp:agent:token-manage` | Manage agent identity tokens |
 | `amp:agent:api-key-manage` | Manage agent API keys |
@@ -339,7 +338,7 @@ Rather than grant scopes one at a time, AMP ships four predefined roles. Each bu
 | LLM proxies | Full | Full | — | — |
 | Agent kinds | Full | Full | View | View |
 | Evaluators | Full | View | Full | View |
-| Agents (lifecycle) | Full | Create, read, update, delete, build, act on non-production environments, suspend, manage tokens & API keys | Read, build, act on non-production environments, suspend, manage API keys | Read, build, act on all environments, rollback, suspend, manage API keys |
+| Agents (lifecycle) | Full | Create, read, update, delete, build, act on non-production environments, suspend, manage tokens & API keys | Read, build, act on non-production environments, suspend, manage API keys | Read, build, act on all environments, suspend, manage API keys |
 | Monitors | Full | Create, read, update, delete, run, read scores | Create, read, update, delete, run, read scores | Create, read, update, delete, run, read scores |
 | Observability | All reads | All reads | Traces, metrics | All reads |
 | Roles & groups | Full | — | — | — |
