@@ -134,6 +134,7 @@ const sidebars: SidebarsConfig = {
         'tutorials/give-the-agent-real-tools',
         'tutorials/observe-first-agent',
         'tutorials/promote-your-agent',
+        'tutorials/build-a-ballerina-agent',
       ],
     },
     {

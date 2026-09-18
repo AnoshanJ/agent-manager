@@ -113,6 +113,14 @@ Leave **Enable auto instrumentation** checked. Agent Manager injects an OpenTele
 emits traces without a single line of tracing code in the sample. The full
 mechanism is in [Observability](../concepts/observability.mdx).
 
+:::note Building a Ballerina agent instead
+Ballerina is also a build option here. Choose it and there's no Start Command
+or Language Version to set: the platform reads the project's Ballerina
+version and builds it directly. See
+[Deploy the Ballerina Leave Assistant Sample](./build-a-ballerina-agent.mdx)
+for a full walkthrough with a ready-to-deploy sample.
+:::
+
 ### Agent Type
 
 Choose **Chat Agent**. That contract is `POST /chat` on port `8000`. It takes
