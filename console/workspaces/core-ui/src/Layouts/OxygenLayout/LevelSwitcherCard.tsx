@@ -8,7 +8,7 @@ import {
   type Theme,
 } from "@wso2/oxygen-ui";
 import { ChevronDown, ChevronRight, X } from "@wso2/oxygen-ui-icons-react";
-import { type ElementType, type MouseEvent, type ReactNode } from "react";
+import { useRef, type ElementType, type MouseEvent, type ReactNode } from "react";
 import { Link, type LinkProps } from "react-router-dom";
 
 /**
@@ -49,8 +49,13 @@ interface LevelSwitcherCardProps {
     goToLabel: string;
     /** The value row rendered below the label, e.g. the display name (+ badge). */
     content: ReactNode;
-    closeLabel: string;
-    onClose: () => void;
+    /**
+     * Close action that steps back up to the parent level. Omit for the
+     * top-most level (e.g. Organizations), which has no parent to step back
+     * to — the close button is then hidden.
+     */
+    closeLabel?: string;
+    onClose?: () => void;
   };
   /** aria-label for the control that opens the switcher menu. */
   chevronLabel: string;
@@ -79,6 +84,7 @@ export function LevelSwitcherCard({
   children,
 }: LevelSwitcherCardProps) {
   const theme = useTheme();
+  const boxRef = useRef<HTMLDivElement>(null);
   const menuOpen = Boolean(anchorEl);
 
   if (!selected) {
@@ -111,6 +117,7 @@ export function LevelSwitcherCard({
 
   return (
     <Box
+      ref={boxRef}
       position="relative"
       sx={{
         minWidth: 180,
@@ -136,19 +143,21 @@ export function LevelSwitcherCard({
         </Typography>
         {selected.content}
       </ButtonBase>
-      <IconButton
-        size="small"
-        aria-label={selected.closeLabel}
-        sx={{
-          position: "absolute",
-          top: 2,
-          right: 2,
-          color: theme.vars?.palette.text.disabled,
-        }}
-        onClick={selected.onClose}
-      >
-        <X size={14} />
-      </IconButton>
+      {selected.onClose && (
+        <IconButton
+          size="small"
+          aria-label={selected.closeLabel}
+          sx={{
+            position: "absolute",
+            top: 2,
+            right: 2,
+            color: theme.vars?.palette.text.disabled,
+          }}
+          onClick={selected.onClose}
+        >
+          <X size={14} />
+        </IconButton>
+      )}
       <IconButton
         size="small"
         aria-label={chevronLabel}
@@ -164,7 +173,16 @@ export function LevelSwitcherCard({
       >
         <ChevronDown size={18} />
       </IconButton>
-      <Menu anchorEl={anchorEl} open={menuOpen} onClose={onCloseMenu}>
+      <Menu
+        anchorEl={boxRef.current}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        open={menuOpen}
+        onClose={onCloseMenu}
+        slotProps={{
+          paper: { sx: { minWidth: boxRef.current?.offsetWidth } },
+        }}
+      >
         {children}
       </Menu>
     </Box>
