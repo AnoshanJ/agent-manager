@@ -64,6 +64,7 @@ interface LevelSwitcherCardProps {
   onCloseMenu: () => void;
   /** Menu items rendered inside the switcher dropdown. */
   children: ReactNode;
+  canSwitch?: boolean;
 }
 
 /**
@@ -82,12 +83,16 @@ export function LevelSwitcherCard({
   onOpenMenu,
   onCloseMenu,
   children,
+  canSwitch = true,
 }: LevelSwitcherCardProps) {
   const theme = useTheme();
   const boxRef = useRef<HTMLDivElement>(null);
   const menuOpen = Boolean(anchorEl);
 
   if (!selected) {
+    if (!canSwitch) {
+      return null;
+    }
     return (
       <>
         <IconButton
@@ -115,6 +120,8 @@ export function LevelSwitcherCard({
     );
   }
 
+  const hasRightControls = Boolean(selected.onClose) || canSwitch;
+
   return (
     <Box
       ref={boxRef}
@@ -135,7 +142,7 @@ export function LevelSwitcherCard({
           width: "100%",
           textAlign: "left",
           borderRadius: theme.spacing(1),
-          p: theme.spacing(0.75, 4.5, 0.75, 1.5),
+          p: theme.spacing(0.75, hasRightControls ? 4.5 : 1.5, 0.75, 1.5),
         }}
       >
         <Typography variant="caption" color="text.secondary">
@@ -158,33 +165,37 @@ export function LevelSwitcherCard({
           <X size={14} />
         </IconButton>
       )}
-      <IconButton
-        size="small"
-        aria-label={chevronLabel}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        onClick={onOpenMenu}
-        sx={{
-          position: "absolute",
-          bottom: 2,
-          right: 2,
-          color: theme.vars?.palette.text.secondary,
-        }}
-      >
-        <ChevronDown size={18} />
-      </IconButton>
-      <Menu
-        anchorEl={boxRef.current}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-        open={menuOpen}
-        onClose={onCloseMenu}
-        slotProps={{
-          paper: { sx: { minWidth: boxRef.current?.offsetWidth } },
-        }}
-      >
-        {children}
-      </Menu>
+      {canSwitch && (
+        <>
+          <IconButton
+            size="small"
+            aria-label={chevronLabel}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={onOpenMenu}
+            sx={{
+              position: "absolute",
+              bottom: 2,
+              right: 2,
+              color: theme.vars?.palette.text.secondary,
+            }}
+          >
+            <ChevronDown size={18} />
+          </IconButton>
+          <Menu
+            anchorEl={boxRef.current}
+            anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+            transformOrigin={{ vertical: "top", horizontal: "left" }}
+            open={menuOpen}
+            onClose={onCloseMenu}
+            slotProps={{
+              paper: { sx: { minWidth: boxRef.current?.offsetWidth } },
+            }}
+          >
+            {children}
+          </Menu>
+        </>
+      )}
     </Box>
   );
 }
