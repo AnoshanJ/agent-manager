@@ -41,16 +41,16 @@
   "description": "A page component for Eval",
   "dependencies": {
     "clsx": "2.1.1",
-    "react-dom": "19.1.1",
+    "react-dom": "19.2.3",
     "react-router-dom": "6.28.0",
     "date-fns": "4.1.0",
     "@mui/material": "7.0.0",
     "@mui/icons-material": "7.0.0",
     "@emotion/react": "11.13.5",
     "@emotion/styled": "11.13.5",
-    "@wso2/oxygen-ui": "0.11.0",
-    "@wso2/oxygen-ui-charts-react": "0.11.0",
-    "@wso2/oxygen-ui-icons-react": "0.11.0",
+    "@wso2/oxygen-ui": "0.13.1",
+    "@wso2/oxygen-ui-charts-react": "0.13.1",
+    "@wso2/oxygen-ui-icons-react": "0.13.1",
     "@tanstack/react-query": "5.90.5",
     "@agent-management-platform/views": "workspace:*",
     "@agent-management-platform/api-client": "workspace:*",
@@ -87,7 +87,7 @@
     "postcss": "8.5.3",
     "postcss-simple-vars": "7.0.1",
     "prettier": "3.5.3",
-    "react": "19.1.1",
+    "react": "19.2.3",
     "storybook": "8.6.13",
     "typescript": "5.9.3",
     "vite": "6.3.5",
@@ -106,7 +106,7 @@
     "@types/lodash": "4.17.13"
   },
   "peerDependencies": {
-    "react": "19.1.1",
+    "react": "19.2.3",
     "@babel/runtime-corejs3": "7.11.2"
   }
 }

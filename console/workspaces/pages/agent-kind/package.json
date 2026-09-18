@@ -39,14 +39,14 @@
   "license": "Apache-2.0",
   "description": "Agent Kind pages for organization and agent levels",
   "dependencies": {
-    "react-dom": "19.1.1",
+    "react-dom": "19.2.3",
     "react-router-dom": "6.28.0",
     "@mui/material": "7.0.0",
     "@mui/icons-material": "7.0.0",
     "@emotion/react": "11.13.5",
     "@emotion/styled": "11.13.5",
-    "@wso2/oxygen-ui": "0.11.0",
-    "@wso2/oxygen-ui-icons-react": "0.11.0",
+    "@wso2/oxygen-ui": "0.13.1",
+    "@wso2/oxygen-ui-icons-react": "0.13.1",
     "@monaco-editor/react": "4.7.0",
     "@agent-management-platform/views": "workspace:*",
     "@agent-management-platform/types": "workspace:*",
@@ -70,6 +70,6 @@
     "@eslint/eslintrc": "3.3.1"
   },
   "peerDependencies": {
-    "react": "19.1.1"
+    "react": "19.2.3"
   }
 }

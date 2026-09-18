@@ -41,7 +41,7 @@
   "dependencies": {
     "clsx": "2.1.1",
     "@fontsource/roboto": "5.2.5",
-    "react-dom": "19.1.1",
+    "react-dom": "19.2.3",
     "react-router-dom": "6.28.0",
     "react-markdown": "10.1.0",
     "react-intl": "7.1.11",
@@ -51,8 +51,8 @@
     "@mui/icons-material": "7.0.0",
     "@emotion/react": "11.13.5",
     "@emotion/styled": "11.13.5",
-    "@wso2/oxygen-ui": "0.11.0",
-    "@wso2/oxygen-ui-icons-react": "0.11.0",
+    "@wso2/oxygen-ui": "0.13.1",
+    "@wso2/oxygen-ui-icons-react": "0.13.1",
     "@mui/x-charts": "8.14.0",
     "@mui/x-data-grid": "8.16.0",
     "@mui/x-date-pickers": "8.16.0",
@@ -86,7 +86,7 @@
     "postcss": "8.5.3",
     "postcss-simple-vars": "7.0.1",
     "prettier": "3.5.3",
-    "react": "19.1.1",
+    "react": "19.2.3",
     "storybook": "8.6.13",
     "typescript": "5.9.3",
     "vite": "6.3.5",
@@ -116,7 +116,7 @@
     "@agent-management-platform/types": "workspace:*"
   },
   "peerDependencies": {
-    "react": "19.1.1",
+    "react": "19.2.3",
     "@types/lodash": "4.17.17",
     "lodash": "4.17.21",
     "@babel/runtime-corejs3": "7.11.2"
