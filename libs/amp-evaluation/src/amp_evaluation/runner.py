@@ -312,7 +312,10 @@ class BaseRunner(ABC):
             try:
                 logger.debug("Running evaluator '%s' on trace %s", evaluator.name, trace.trace_id)
                 # run() returns List[EvaluatorScore] already enriched with span identity
-                evaluator_scores = evaluator(trace, task)
+                if self.eval_mode == EvalMode.MONITOR:
+                    evaluator_scores = evaluator.run(trace, task, skip_initialization=True)
+                else:
+                    evaluator_scores = evaluator(trace, task)
 
                 # Set experiment-specific fields (not available to run())
                 if task_id:
@@ -764,6 +767,30 @@ class Monitor(BaseRunner):
     def eval_mode(self) -> EvalMode:
         return EvalMode.MONITOR
 
+    def evaluate_trace(
+        self, trace: Trace, task: Optional[Task] = None, trial_id: Optional[str] = None
+    ) -> Dict[str, List[EvaluatorScore]]:
+        # Also recognize manually constructed parsed traces without parser metadata.
+        from .trace.models import AgentSpan, LLMSpan, ToolSpan, RetrieverSpan
+
+        initialization_only = trace.initialization_only or (
+            any(isinstance(span, AgentSpan) and span.operation_name == "create_agent" for span in trace.spans)
+            and not any(
+                isinstance(span, (LLMSpan, ToolSpan, RetrieverSpan))
+                or (isinstance(span, AgentSpan) and span.operation_name != "create_agent")
+                for span in trace.spans
+            )
+        )
+        reason = "Request failed" if trace.request_failed else "Agent initialization" if initialization_only else None
+        if reason:
+            return {
+                evaluator.name: [
+                    EvaluatorScore(trace_id=trace.trace_id, trace_start_time=trace.timestamp, skip_reason=reason)
+                ]
+                for evaluator in self._evaluators
+            }
+        return super().evaluate_trace(trace, task, trial_id)
+
     def run(
         self,
         start_time: Optional[str] = None,
@@ -819,7 +846,7 @@ class Monitor(BaseRunner):
             else:
                 logger.info("Trace selection%s: %d trace(s) selected for evaluation", sampling_note, selected)
 
-        eval_traces: Iterable[Trace] = traces if traces else _iter_parsed_traces()
+        eval_traces: Iterable[Trace] = traces if traces is not None else _iter_parsed_traces()
 
         run_result = self._evaluate_traces(
             traces=eval_traces,

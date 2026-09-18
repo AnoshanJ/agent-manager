@@ -199,6 +199,46 @@ def _validate_trace_structure(spans: List[OTELSpan]) -> None:
 # ============================================================================
 
 
+def _operation_name(span: OTELSpan) -> Optional[str]:
+    """Prefer explicit semantics; use only the standard operation token as fallback."""
+    operation = span.attributes.get("gen_ai.operation.name")
+    if operation is not None:
+        return operation if isinstance(operation, str) else None
+    token = span.name.split(maxsplit=1)
+    return token[0] if token and token[0] in {"create_agent", "invoke_agent"} else None
+
+
+def _request_failed(trace: OTELTrace) -> bool:
+    """Use the original request root, never an aggregate of recovered child errors."""
+    root = next((span for span in trace.spans if span.spanId == trace.rootSpanId), None)
+    if root is None:
+        return False
+    if root.status == "ERROR" or root.ampAttributes.status.error:
+        return True
+    for key in ("http.response.status_code", "http.status_code"):
+        value = root.attributes.get(key)
+        if isinstance(value, bool):
+            continue
+        try:
+            if value is not None and int(value) >= 400:
+                return True
+        except (ValueError, TypeError, OverflowError):
+            continue
+    return False
+
+
+def _initialization_only(trace: OTELTrace) -> bool:
+    has_creation = any(_operation_name(span) == "create_agent" for span in trace.spans)
+    has_execution = any(
+        _operation_name(span) != "create_agent"
+        and (
+            _operation_name(span) == "invoke_agent" or span.ampAttributes.kind in {"agent", "llm", "tool", "retriever"}
+        )
+        for span in trace.spans
+    )
+    return has_creation and not has_execution
+
+
 def parse_trace_for_evaluation(trace: OTELTrace, filter_infrastructure: bool = True) -> Trace:
     """
     Parse an OTEL/AMP Trace model into Trace format for evaluation.
@@ -305,7 +345,14 @@ def parse_trace_for_evaluation(trace: OTELTrace, filter_infrastructure: bool = T
 
     # Create Trace
     return Trace(
-        trace_id=trace_id, input=trace_input, output=trace_output, spans=steps, metrics=metrics, timestamp=timestamp
+        trace_id=trace_id,
+        input=trace_input,
+        output=trace_output,
+        spans=steps,
+        metrics=metrics,
+        timestamp=timestamp,
+        initialization_only=_initialization_only(trace),
+        request_failed=_request_failed(trace),
     )
 
 
@@ -532,6 +579,7 @@ def _parse_agent_span(otel_span: OTELSpan) -> AgentSpan:
         parent_span_id=otel_span.parentSpanId,
         start_time=_parse_timestamp(otel_span.startTime),
         name=data.name or otel_span.name or "",
+        operation_name=_operation_name(otel_span),
         framework=data.framework,
         model=data.model,
         system_prompt=data.system_prompt,
