@@ -17,7 +17,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from "react";
-import { Alert, Form } from "@wso2/oxygen-ui";
+import { Alert, Form, Link } from "@wso2/oxygen-ui";
 import { PageLayout, useFormValidation } from "@agent-management-platform/views";
 import { useUnsavedChangesGuard } from "@agent-management-platform/shared-component";
 import { generatePath, useNavigate, useParams } from "react-router-dom";
@@ -43,9 +43,9 @@ import {
   hasUnresolvedMCPSecurity,
   mcpEntryVarNames,
 } from "../utils/mcpEnvVarNames";
-import { getSampleAgentById } from "../data/sampleAgents";
+import { getSampleAgentById, getSampleReadmeUrl, type SampleAgentDefinition } from "../data/sampleAgents";
 
-const buildInitialFormValues = (sampleId: string | null): CreateAgentFormValues => {
+const buildInitialFormValues = (sample: SampleAgentDefinition | undefined): CreateAgentFormValues => {
   const defaults: CreateAgentFormValues = {
     deploymentType: "new" as const,
     enableAutoInstrumentation: true,
@@ -70,7 +70,6 @@ const buildInitialFormValues = (sampleId: string | null): CreateAgentFormValues 
     files: [],
   };
 
-  const sample = getSampleAgentById(sampleId);
   return sample ? { ...defaults, ...deriveSampleAgentSeed(sample) } : defaults;
 };
 
@@ -81,9 +80,12 @@ export const InternalAgentFlow: React.FC = () => {
     projectId?: string;
   }>();
 
-  // Seeded once on mount from the sample picked on the previous screen, if any.
+  // Resolved once on mount from the sample picked on the previous screen, if any.
+  const [selectedSample] = useState(() =>
+    getSampleAgentById(new URLSearchParams(window.location.search).get("sample"))
+  );
   const [initialFormData] = useState<CreateAgentFormValues>(() =>
-    buildInitialFormValues(new URLSearchParams(window.location.search).get("sample"))
+    buildInitialFormValues(selectedSample)
   );
   const [formData, setFormData] = useState<CreateAgentFormValues>(initialFormData);
 
@@ -237,6 +239,15 @@ export const InternalAgentFlow: React.FC = () => {
       backLabel="Back to Source Type Selection"
     >
       <Form.Stack spacing={3}>
+        {selectedSample && (
+          <Alert severity="info">
+            Fields are pre-filled from the <strong>{selectedSample.title}</strong> sample. See the{" "}
+            <Link href={getSampleReadmeUrl(selectedSample)} target="_blank" rel="noopener noreferrer">
+              README
+            </Link>{" "}
+            for setup and testing details.
+          </Alert>
+        )}
         <InternalAgentForm
           formData={formData}
           setFormData={setFormData}

@@ -40,10 +40,10 @@ export interface SampleAgentDefinition {
   title: string;
   description: string;
   icon: LucideIcon;
-  // Short, human-readable labels for what this sample needs before it can run
-  // (API keys, a database, an external service) — shown to the user up front
-  // so they know what to have ready, distinct from the raw env var keys below.
-  requirements: string[];
+  // Short display names of the third-party services/APIs this sample talks to
+  // (e.g. "Tavily", not "TAVILY_API_KEY") — shown to the user up front as tags,
+  // distinct from the raw env var keys below.
+  thirdPartyServices: string[];
   repositoryUrl: string;
   branch: string;
   appPath: string;
@@ -72,7 +72,7 @@ export const sampleAgents: SampleAgentDefinition[] = [
     title: "Support Agent",
     description: "AI-powered customer support agent for travel services",
     icon: Plane,
-    requirements: ["OpenAI API key", "Tavily API key", "PostgreSQL database"],
+    thirdPartyServices: ["OpenAI", "Tavily", "PostgreSQL"],
     appPath: "/samples/customer-support-agent",
     envVars: [
       { key: "OPENAI_API_KEY", isSensitive: true },
@@ -86,7 +86,7 @@ export const sampleAgents: SampleAgentDefinition[] = [
     title: "Hotel Booking Agent",
     description: "AI-powered hotel booking assistant",
     icon: Hotel,
-    requirements: ["OpenAI API key", "Pinecone API key", "Hotel API service"],
+    thirdPartyServices: ["OpenAI", "Pinecone"],
     appPath: "/samples/hotel-booking-agent/agent",
     runCommand: "python -m uvicorn app:app --host 0.0.0.0 --port 8000",
     envVars: [
@@ -103,7 +103,7 @@ export const sampleAgents: SampleAgentDefinition[] = [
     title: "IT Helpdesk Agent",
     description: "AI-powered IT helpdesk agent for employee technical support",
     icon: Headset,
-    requirements: ["OpenAI API key"],
+    thirdPartyServices: ["OpenAI"],
     appPath: "/samples/it-helpdesk-agent",
     envVars: [
       { key: "OPENAI_API_KEY", isSensitive: true },
@@ -115,7 +115,7 @@ export const sampleAgents: SampleAgentDefinition[] = [
     title: "Insurance Support Agent",
     description: "Customer support agent for policies and claims",
     icon: ShieldCheck,
-    requirements: ["OpenAI API key"],
+    thirdPartyServices: ["OpenAI"],
     appPath: "/samples/insurance-support-agent/agent",
     envVars: [
       { key: "OPENAI_API_KEY", isSensitive: true },
@@ -126,3 +126,9 @@ export const sampleAgents: SampleAgentDefinition[] = [
 
 export const getSampleAgentById = (id: string | null): SampleAgentDefinition | undefined =>
   sampleAgents.find((sample) => sample.id === id);
+
+// Every sample's README lives at this same path relative to the repo root
+// (samples/<id>/README.md), regardless of where its appPath points within
+// the sample's own folder — see samples/*/README.md in this repo.
+export const getSampleReadmeUrl = (sample: SampleAgentDefinition): string =>
+  `${AGENT_MANAGER_REPO}/blob/main/samples/${sample.id}/README.md`;

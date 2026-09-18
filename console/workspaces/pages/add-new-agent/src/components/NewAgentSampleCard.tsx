@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { Box, Typography, Form } from "@wso2/oxygen-ui";
+import { Box, Chip, Divider, Stack, Typography, Form } from "@wso2/oxygen-ui";
 import { sampleAgents } from "../data/sampleAgents";
 
 interface NewAgentSampleCardProps {
@@ -25,53 +25,68 @@ interface NewAgentSampleCardProps {
 
 export const NewAgentSampleCard = ({ onSelectSample }: NewAgentSampleCardProps) => {
   return (
-    <Form.Section>
-      <Typography variant="h3">Start Quickly with a Sample</Typography>
-      <Typography variant="body2" color="text.secondary">
-        Choose a sample agent to configure and deploy as a Platform-Hosted Agent.
-      </Typography>
-      <Form.Stack spacing={1.5}>
+    <Box>
+      <Divider sx={{ mb: 3 }} />
+      <Box display="flex" flexDirection="column" gap={1} mb={2}>
+        <Typography variant="h3">Start Quickly with a Sample</Typography>
+        <Typography variant="body2" color="text.primary">
+          Choose a sample agent to configure and deploy as a Platform-Hosted Agent.
+        </Typography>
+      </Box>
+      <Box display="flex" flexWrap="wrap" gap={2}>
         {sampleAgents.map((sample) => (
           <Form.CardButton
             key={sample.id}
             onClick={() => onSelectSample(sample.id)}
             sx={{
+              flex: "1 1 220px",
+              minWidth: 200,
               px: 2,
               py: 1.5,
               display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "flex-start",
-              gap: 2,
+              flexDirection: "column",
+              alignItems: "flex-start",
+              // Form.CardButton's ButtonBase root defaults to justify-content:
+              // center, which vertically centers each card's content — visible
+              // once the row's align-items:stretch equalizes card heights (e.g.
+              // a sibling with a longer, wrapped description). Anchor to the
+              // top instead so titles line up regardless of content length.
+              justifyContent: "space-between",
+              gap: 0.5,
               textAlign: "left",
             }}
           >
-            <Box
-              sx={{
-                height: 40,
-                width: 40,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <sample.icon size={24} strokeWidth={1.5} />
-            </Box>
-            <Box display="flex" flexDirection="column" alignItems="flex-start">
-              <Typography variant="body1" fontWeight={600} textAlign="left">
-                {sample.title}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" textAlign="left">
+            <Box display="flex" flexDirection="column" gap={1}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <sample.icon size={20} strokeWidth={1.5} />
+                <Typography variant="body1" fontWeight={600}>
+                  {sample.title}
+                </Typography>
+              </Box>
+              <Typography
+                variant="body2"
+                color="text.disabled"
+                sx={{
+                  width: "100%",
+                  overflow: "hidden",
+                }}
+              >
                 {sample.description}
               </Typography>
-              <Typography variant="caption" color="text.secondary" textAlign="left">
-                Requires {sample.requirements.join(" • ")}
-              </Typography>
             </Box>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap mt={1}>
+              {sample.thirdPartyServices.map((service) => (
+                <Chip
+                  key={service}
+                  label={service}
+                  size="small"
+                  sx={{ bgcolor: "action.selected", color: "text.primary" }}
+                />
+              ))}
+            </Stack>
           </Form.CardButton>
         ))}
-      </Form.Stack>
-    </Form.Section>
+      </Box>
+    </Box>
   );
 };

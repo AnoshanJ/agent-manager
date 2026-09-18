@@ -62,26 +62,26 @@ export const NewAgentOptions = ({ onSelect, onSelectSample }: NewAgentOptionsPro
             backHref={backHref}
             backLabel="Back to Projects Home"
         >
-            <Box display="flex" flexDirection={{ xs: "column", md: "row" }} gap={3} width={1} alignItems="stretch">
-                <Box display="flex" flexDirection="column" gap={3} flex={1}>
+            <Box display="flex" flexDirection="column" gap={3} width={1}>
+                <Box display="flex" flexDirection={{ xs: "column", sm: "row" }} gap={3}>
                     <NewAgentTypeCard
                         type="existing"
                         title="Externally-Hosted Agent"
                         subheader="Connect an existing agent running outside the platform and enable observability and governance."
-                        icon={<ExternalAgentIcon width={96} height={120} />}
+                        icon={<ExternalAgentIcon width={150} height={160} />}
+                        ctaLabel="Register an agent"
                         onClick={handleSelect}
                     />
                     <NewAgentTypeCard
                         type="new"
                         title="Platform-Hosted Agent"
                         subheader="Deploy and manage agents with full lifecycle support, including built-in CI/CD, scaling, observability, and governance."
-                        icon={<InternalAgentIcon width={96} height={96} />}
+                        icon={<InternalAgentIcon width={150} height={160} />}
+                        ctaLabel="Deploy a new agent"
                         onClick={handleSelect}
                     />
                 </Box>
-                <Box flex={1}>
-                    <NewAgentSampleCard onSelectSample={onSelectSample} />
-                </Box>
+                <NewAgentSampleCard onSelectSample={onSelectSample} />
             </Box>
         </PageLayout>
     );
