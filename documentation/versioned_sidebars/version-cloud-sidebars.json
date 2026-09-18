@@ -33,7 +33,6 @@
       "label": "Guides",
       "collapsed": false,
       "items": [
-        "guides/cli-installation",
         {
           "type": "category",
           "label": "Evaluation & Observability",
