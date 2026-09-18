@@ -845,3 +845,17 @@ pytest
 ## License
 
 Apache License 2.0
+
+### Monitor evaluation eligibility
+
+Monitors record agent initialization-only traces and failed requests as skipped,
+with a reason and no numeric score. Skipped results do not contribute to averages.
+In mixed traces, `create_agent` agent spans are skipped individually; real agent
+and LLM execution remains eligible, and the complete trace stays available as context.
+
+Initialization is identified by `gen_ai.operation.name=create_agent`, or the exact
+`create_agent` operation token in the span name when that attribute is absent.
+Generic OpenLLMetry agent/workflow spans are not assumed to be initialization.
+Failures are determined from the original root span's OTel/AMP error status or
+HTTP status (including 446), not from recovered child errors. Missing status
+metadata does not imply failure. Experiment evaluation is unchanged.

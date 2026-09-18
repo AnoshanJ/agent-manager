@@ -397,6 +397,11 @@ class AgentSpan:
     # Metrics (separated)
     metrics: AgentMetrics = field(default_factory=AgentMetrics, metadata={"description": "Agent performance metrics"})
 
+    # Original instrumentation operation; absent for legacy instrumentation.
+    operation_name: Optional[str] = field(
+        default=None, metadata={"description": "Instrumentation operation name", "internal": True}
+    )
+
     def __str__(self) -> str:
         parts = [f"Agent '{self.name}'"] if self.name else ["Agent"]
         details = []
@@ -671,6 +676,13 @@ class Trace:
 
     # Metadata
     timestamp: Optional[datetime] = field(default=None, metadata={"description": "Trace timestamp", "internal": True})
+
+    initialization_only: bool = field(
+        default=False, metadata={"description": "Trace contains initialization without execution", "internal": True}
+    )
+    request_failed: bool = field(
+        default=False, metadata={"description": "Original request root indicates failure", "internal": True}
+    )
 
     # ========================================================================
     # INTERNAL: Reconstructed conversation steps (used by SDK framework)

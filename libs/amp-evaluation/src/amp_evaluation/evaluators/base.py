@@ -372,7 +372,9 @@ class BaseEvaluator(ABC):
         """
         ...
 
-    def run(self, trace: Trace, task: Optional[Task] = None) -> List[EvaluatorScore]:
+    def run(
+        self, trace: Trace, task: Optional[Task] = None, *, skip_initialization: bool = False
+    ) -> List[EvaluatorScore]:
         """
         Dispatch method called by the runner. Handles iteration and enrichment.
 
@@ -383,6 +385,9 @@ class BaseEvaluator(ABC):
         - trace level: evaluate(trace) called once
         - agent level: evaluate(agent_trace) called N times (once per agent)
         - llm level:   evaluate(llm_span) called N times (once per LLM call)
+
+        skip_initialization is used by Monitor to retain initialization context
+        without scoring it as an agent invocation.
 
         NOT overridden by evaluator authors.
         """
@@ -437,6 +442,18 @@ class BaseEvaluator(ABC):
                 )
             else:
                 for agent_span in agent_spans:
+                    if skip_initialization and agent_span.operation_name == "create_agent":
+                        scores.append(
+                            EvaluatorScore.from_eval_result(
+                                EvalResult.skip("Agent initialization"),
+                                trace_id=trace.trace_id,
+                                trace_start_time=trace.timestamp,
+                                span_context=SpanContext(
+                                    span_id=agent_span.span_id, agent_name=agent_span.name or None
+                                ),
+                            )
+                        )
+                        continue
                     agent_trace = trace._create_agent_trace(agent_span.span_id)
                     result = _call_evaluate(agent_trace, task)
                     scores.append(

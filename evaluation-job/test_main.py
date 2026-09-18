@@ -627,6 +627,39 @@ class TestPublishScores:
         agg = payload["aggregatedScores"]
         assert agg[0]["skippedCount"] == 1
 
+    @pytest.mark.parametrize("include_success", [False, True])
+    @patch("main.requests.post")
+    def test_monitor_eligibility_skips_are_published(self, mock_post, include_success):
+        mock_post.return_value = MagicMock(status_code=200)
+        scores = [
+            _make_evaluator_score("init", None, error="Agent initialization"),
+            _make_evaluator_score("failed", None, error="Request failed"),
+        ]
+        if include_success:
+            scores.append(_make_evaluator_score("success", 0.25))
+        summary = _make_evaluator_summary(
+            "Quality",
+            "trace",
+            scores=scores,
+            aggregated_scores={"mean": 0.25} if include_success else {},
+        )
+        assert publish_scores(
+            self.MONITOR_ID,
+            self.RUN_ID,
+            {"Quality": summary},
+            {"Quality": "quality"},
+            self.API_ENDPOINT,
+            self._make_token_manager(),
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        individual = payload["individualScores"]
+        assert [item["skipReason"] for item in individual[:2]] == ["Agent initialization", "Request failed"]
+        assert all("score" not in item for item in individual[:2])
+        aggregate = payload["aggregatedScores"][0]
+        assert aggregate["skippedCount"] == 2
+        assert aggregate["count"] == 2 + int(include_success)
+        assert aggregate["aggregations"] == ({"mean": 0.25} if include_success else {})
+
     @patch("main.requests.post")
     def test_timestamp_serialized_as_iso8601(self, mock_post):
         """traceTimestamp must be ISO 8601 string for Go time.Time parsing."""
