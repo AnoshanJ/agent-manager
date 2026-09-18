@@ -309,3 +309,96 @@ func TestGetOCClientForOrg_RealDBErrorOnRecheck_NotMisreportedAsNotFound(t *test
 		"a real DB error must not be reported as the not-found sentinel")
 	assert.ErrorIs(t, err, dbTimeout)
 }
+
+// Re-provisioning must drop the cached per-org OpenChoreo client. The cached client wraps
+// an AuthProvider holding the *previous* client ID and secret, and its access token stays
+// valid for about an hour after the Thunder app behind it is gone — so keeping it makes a
+// credential wipe look repaired while the scheduler is silently one token-refresh away from
+// being unable to create any WorkflowRun until the process restarts.
+func TestProvisionSchedulerCredentials_EvictsCachedOrgOCClient(t *testing.T) {
+	thunderMock := &clientmocks.ThunderClientMock{
+		EnsurePublisherAppFunc: func(_ context.Context, orgName, _ string) (string, string, bool, error) {
+			return "amp-publisher-" + orgName, "publisher-secret", true, nil
+		},
+		EnsureAppFunc: func(_ context.Context, appName, _ string) (string, string, bool, error) {
+			return appName, "scheduler-secret", true, nil
+		},
+	}
+
+	ocMock := &clientmocks.OpenChoreoClientMock{
+		EnsureClusterRoleBindingFunc: func(_ context.Context, _ string, _ string) error { return nil },
+		GetSecretReferenceFunc: func(_ context.Context, _ string, secretRefName string) (*occlient.SecretReferenceInfo, error) {
+			return newTestSecretRef("kv/"+secretRefName, "client-secret"), nil
+		},
+	}
+
+	credRepo := &repomocks.OrgPublisherCredentialRepositoryMock{
+		GetByOrgNameFunc: func(_ string) (*models.OrgPublisherCredential, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		UpsertFunc: func(_ *models.OrgPublisherCredential) error { return nil },
+	}
+	schedulerCredRepo := &repomocks.OrgSchedulerCredentialRepositoryMock{
+		GetByOrgNameFunc: func(_ string) (*models.OrgSchedulerCredential, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		UpsertFunc: func(_ *models.OrgSchedulerCredential) error { return nil },
+	}
+	secretClient := &clientmocks.SecretManagementClientMock{
+		CreateSecretFunc: func(_ context.Context, location secretmanagersvc.SecretLocation, _ map[string]string) (string, error) {
+			return "ref-" + location.EntityName, nil
+		},
+	}
+
+	stale := &clientmocks.OpenChoreoClientMock{}
+	p := &publisherCredentialProvisioner{
+		thunderClient:     thunderMock,
+		secretClient:      secretClient,
+		ocClient:          ocMock,
+		credRepo:          credRepo,
+		schedulerCredRepo: schedulerCredRepo,
+		logger:            discardLogger(),
+		encryptionKey:     testEncryptionKey,
+		orgOCClients:      map[string]occlient.OpenChoreoClient{"acme": stale},
+		orgOCGen:          make(map[string]uint64),
+	}
+
+	_, err := p.EnsureCredentials(context.Background(), "acme", "org-uuid-1")
+	require.NoError(t, err)
+
+	p.orgOCMu.RLock()
+	cached, ok := p.orgOCClients["acme"]
+	p.orgOCMu.RUnlock()
+
+	assert.False(t, ok, "cached OC client should be evicted after re-provisioning, got %v", cached)
+}
+
+// A credential replacement that lands while a client is being built must stop that
+// client from being cached. The two paths use different singleflight keys, so without
+// the generation check the builder would insert a client made from the superseded
+// secret straight after the eviction that was meant to remove it.
+func TestGetOCClientForOrg_DoesNotCacheAClientSupersededMidBuild(t *testing.T) {
+	p := &publisherCredentialProvisioner{
+		logger:       discardLogger(),
+		orgOCClients: make(map[string]occlient.OpenChoreoClient),
+		orgOCGen:     make(map[string]uint64),
+	}
+
+	// Stand in for a builder that snapshotted the generation before the replacement.
+	p.orgOCMu.RLock()
+	gen := p.orgOCGen["acme"]
+	p.orgOCMu.RUnlock()
+
+	p.evictOrgOCClient("acme")
+
+	p.orgOCMu.Lock()
+	superseded := p.orgOCGen["acme"] != gen
+	p.orgOCMu.Unlock()
+
+	assert.True(t, superseded, "eviction must advance the generation so an in-flight build is detected")
+
+	p.orgOCMu.RLock()
+	_, cached := p.orgOCClients["acme"]
+	p.orgOCMu.RUnlock()
+	assert.False(t, cached)
+}

@@ -188,12 +188,19 @@ func TestTriggerMonitor_ExecutorError(t *testing.T) {
 		NextRunTime:     timePtr(time.Now()),
 	}
 
+	before := time.Now()
 	err := s.triggerMonitor(context.Background(), monitor)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workflow creation failed")
 
-	// UpdateNextRunTime should NOT be called when execution fails
-	assert.Empty(t, executor.updateCalls)
+	// next_run_time is pushed forward on failure: left in the past, the monitor would be
+	// re-attempted on every scheduler tick for a reason a minute will not fix. The delay is
+	// the monitor's own interval, capped by triggerFailureBackoffCap.
+	require.Len(t, executor.updateCalls, 1)
+	assert.False(t, executor.updateCalls[0].NextRunTime.Before(before),
+		"expected the retry to be deferred, got %s", executor.updateCalls[0].NextRunTime)
+	assert.False(t, executor.updateCalls[0].NextRunTime.After(before.Add(triggerFailureBackoffCap+time.Minute)),
+		"expected the backoff to be capped at %s, got %s", triggerFailureBackoffCap, executor.updateCalls[0].NextRunTime)
 }
 
 func TestTriggerMonitor_UpdateNextRunTimeError(t *testing.T) {

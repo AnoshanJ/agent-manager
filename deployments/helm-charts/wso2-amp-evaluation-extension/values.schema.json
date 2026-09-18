@@ -93,6 +93,18 @@
           "title": "useLocalRegistry",
           "type": "boolean"
         },
+        "activeDeadlineSeconds": {
+          "default": 1800,
+          "description": "Wall-clock budget for a single evaluation workflow, in seconds. Bounds a run whose pod can never start (for example a secret it mounts that never syncs), which would otherwise hold a pod slot indefinitely because neither ttlStrategy nor the Workflow's ttlAfterCompletion collects a workflow that never completes.",
+          "title": "activeDeadlineSeconds",
+          "type": "integer"
+        },
+        "ttlSecondsAfterFailure": {
+          "default": 600,
+          "description": "How long a failed workflow is kept before Argo deletes it, in seconds. Shorter than the success TTL because a failure's ExternalSecrets keep polling the secret provider at their refresh interval for as long as the workflow survives.",
+          "title": "ttlSecondsAfterFailure",
+          "type": "integer"
+        },
         "tracesApiEndpoint": {
           "default": "http://amp-observer.openchoreo-observability-plane.svc.cluster.local:9098",
           "description": "In-cluster URL for the observer API",

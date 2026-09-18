@@ -9,6 +9,11 @@ metadata:
 {{- include "amp-evaluation-extension.labels" . | nindent 4 }}
 spec:
   entrypoint: run-monitor
+  # A pod that can never start — most often a secret it mounts that never syncs —
+  # otherwise holds its slot and IP on a node indefinitely, and neither ttlStrategy
+  # nor the Workflow's ttlAfterCompletion collects a workflow that never completes.
+  # This is the only thing that bounds that, so it applies to every run.
+  activeDeadlineSeconds: {{ .Values.ampEvaluation.activeDeadlineSeconds }}
   {{- if .Values.global.imagePullSecrets }}
   {{- include "amp-evaluation-extension.imagePullSecrets" . | trim | nindent 2 }}
   {{- end }}
@@ -88,3 +93,10 @@ spec:
             memory: "512Mi"
   ttlStrategy:
     secondsAfterCompletion: 3600
+    # Without this a failed workflow is kept for the full completion TTL, and the
+    # ExternalSecrets created alongside it keep hitting the secret provider at their
+    # refresh interval for just as long.
+    secondsAfterFailure: {{ .Values.ampEvaluation.ttlSecondsAfterFailure }}
+  # Release pod slots as soon as a run is done rather than at workflow GC time.
+  podGC:
+    strategy: OnWorkflowCompletion

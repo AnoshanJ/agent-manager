@@ -83,6 +83,7 @@ type monitorExecutor struct {
 	monitorRepo           repositories.MonitorRepository
 	custEvalRepo          repositories.CustomEvaluatorRepository
 	credRepo              repositories.OrgPublisherCredentialRepository
+	provisioner           PublisherCredentialProvisioner
 	monitorLLMMappingRepo repositories.MonitorLLMMappingRepository
 	gatewayRepo           repositories.GatewayRepository
 	llmProviderRepo       repositories.LLMProviderRepository
@@ -96,6 +97,7 @@ func NewMonitorExecutor(
 	monitorRepo repositories.MonitorRepository,
 	custEvalRepo repositories.CustomEvaluatorRepository,
 	credRepo repositories.OrgPublisherCredentialRepository,
+	provisioner PublisherCredentialProvisioner,
 	monitorLLMMappingRepo repositories.MonitorLLMMappingRepository,
 	gatewayRepo repositories.GatewayRepository,
 	llmProviderRepo repositories.LLMProviderRepository,
@@ -107,6 +109,7 @@ func NewMonitorExecutor(
 		monitorRepo:           monitorRepo,
 		custEvalRepo:          custEvalRepo,
 		credRepo:              credRepo,
+		provisioner:           provisioner,
 		monitorLLMMappingRepo: monitorLLMMappingRepo,
 		gatewayRepo:           gatewayRepo,
 		llmProviderRepo:       llmProviderRepo,
@@ -144,6 +147,7 @@ func (e *monitorExecutor) ExecuteMonitorRun(ctx context.Context, params ExecuteM
 
 	// Build WorkflowRun request (this also resolves custom evaluator types from DB).
 	workflowRunReq, err := e.buildWorkflowRunRequest(
+		ctx,
 		params.Monitor,
 		runID,
 		params.StartTime,
@@ -274,6 +278,7 @@ func (e *monitorExecutor) resolveInternalProxyURL(ctx context.Context, ouID, env
 
 // buildWorkflowRunRequest constructs the workflow run request for a monitor.
 func (e *monitorExecutor) buildWorkflowRunRequest(
+	ctx context.Context,
 	monitor *models.Monitor,
 	runID uuid.UUID,
 	startTime, endTime time.Time,
@@ -298,7 +303,7 @@ func (e *monitorExecutor) buildWorkflowRunRequest(
 	// Generate DNS-1123 compliant WorkflowRun name: <sanitized-monitor-name>-<short-run-id>
 	workflowRunName := buildWorkflowRunName(monitor.Name, runID)
 
-	publishingParams, err := e.buildPublishingParams(monitor, runID)
+	publishingParams, err := e.buildPublishingParams(ctx, monitor, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -335,28 +340,47 @@ func (e *monitorExecutor) buildWorkflowRunRequest(
 }
 
 // buildPublishingParams constructs the publishing parameters for a workflow run.
-// Looks up per-org publisher credentials from the DB; falls back to defaults if not found.
-func (e *monitorExecutor) buildPublishingParams(monitor *models.Monitor, runID uuid.UUID) (map[string]interface{}, error) {
+//
+// The credentials these name are consumed as a non-optional secretKeyRef by the eval
+// job pod, so naming a credential that does not exist does not fail the run — it
+// produces an ExternalSecret that can never sync and a pod that waits on it forever,
+// neither of which any later scheduler cycle cleans up. Guessing is therefore worse
+// than failing, and this provisions on demand rather than substituting a default.
+func (e *monitorExecutor) buildPublishingParams(ctx context.Context, monitor *models.Monitor, runID uuid.UUID) (map[string]interface{}, error) {
 	params := map[string]interface{}{
 		"monitorId": monitor.ID.String(),
 		"runId":     runID.String(),
 	}
 
 	cred, err := e.credRepo.GetByOrgName(monitor.OUID)
-	if err == nil && cred != nil {
+	switch {
+	case err == nil && cred != nil:
 		params["clientId"] = cred.ClientID
 		params["secretKVPath"] = cred.SecretKVPath
 		params["secretKey"] = cred.SecretKey
-	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		// Fallback to static defaults (on-prem single-tenant)
-		e.logger.Debug("No per-org publisher credentials found, using defaults", "ouID", monitor.OUID)
-		params["clientId"] = "amp-publisher-client"
-		params["secretKVPath"] = "amp-publisher-client-secret"
-		params["secretKey"] = "value"
-	} else {
+		return params, nil
+	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return nil, fmt.Errorf("failed to look up publisher credentials for org %s: %w", monitor.OUID, err)
 	}
 
+	// No stored credentials. Reachable for a scheduled, rerun or updated monitor whose
+	// org was provisioned before this row existed, or whose row was removed out of band
+	// by a migration — CreateMonitor is the only path that provisions up front.
+	// EnsureCredentials is the single source of the right answer for either mode: the
+	// static provisioner returns the fixed on-prem app without any remote calls, and the
+	// Thunder provisioner creates the per-org app. ouID is the Thunder OU ID, so it is
+	// also the orgUUID (see GetOCClientForOrg, which resolves it the same way).
+	e.logger.Info("No publisher credentials stored for org, provisioning on demand",
+		"ouID", monitor.OUID, "monitor", monitor.Name)
+
+	provisioned, err := e.provisioner.EnsureCredentials(ctx, monitor.OUID, monitor.OUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision publisher credentials for org %s: %w", monitor.OUID, err)
+	}
+
+	params["clientId"] = provisioned.ClientID
+	params["secretKVPath"] = provisioned.SecretKVPath
+	params["secretKey"] = provisioned.SecretKey
 	return params, nil
 }
 
