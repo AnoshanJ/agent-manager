@@ -614,7 +614,7 @@ func TestUpdateAgentConfigurations_IdentityInjectionError_AbortsUpdate(t *testin
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
-		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar, map[string]interface{}, map[string]interface{}) error {
 			overridesReplaced = true
 			return nil
 		},
@@ -660,7 +660,7 @@ func TestUpdateAgentConfigurations_RejectsUnownedSecretRef(t *testing.T) {
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
-		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar, map[string]interface{}, map[string]interface{}) error {
 			overridesReplaced = true
 			return nil
 		},
@@ -1900,7 +1900,7 @@ func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerServi
 		// ReleaseBinding, leaving the component-wide base alone. ReplaceComponentEnvVars and
 		// ReplaceComponentFileMounts are left unstubbed on purpose: a regression that writes the
 		// shared base again panics here instead of silently leaking config into every environment.
-		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar) error {
+		EnsureReleaseAndBindingFunc: func(context.Context, string, string, string, string, []client.EnvVar, []client.FileVar, map[string]interface{}, map[string]interface{}) error {
 			return nil
 		},
 		UpdateComponentDeploymentConfigFunc: func(_ context.Context, _, _, _ string, req client.ComponentDeploymentConfigRequest) error {

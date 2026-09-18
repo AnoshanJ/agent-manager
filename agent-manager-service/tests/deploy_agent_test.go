@@ -124,7 +124,7 @@ func TestDeployAgent(t *testing.T) {
 			callOrder = append(callOrder, "deploy:"+req.ImageID)
 			return nil
 		}
-		openChoreoClient.EnsureReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
+		openChoreoClient.EnsureReleaseAndBindingFunc = func(ctx context.Context, ouID, projectName, componentName, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar, traitEnvConfigs, componentTypeConfigs map[string]interface{}) error {
 			callOrder = append(callOrder, "release:"+environment)
 			return nil
 		}
