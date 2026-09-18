@@ -73,7 +73,7 @@ export default defineConfig({
         '@wso2/oxygen-ui-icons-react',
         '@wso2/oxygen-ui-charts-react',
         '@tanstack/react-query',
-        '@asgardeo/react',
+        '@thunderid/react',
       ],
     },
   },

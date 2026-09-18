@@ -25,13 +25,44 @@ window.__RUNTIME_CONFIG__ = {
     afterSignInUrl: '$SIGN_IN_REDIRECT_URL',
     afterSignOutUrl: '$SIGN_OUT_REDIRECT_URL',
     scopes: ('$AUTH_SCOPES'.trim() || 'openid profile email').split(/\s+/).filter(Boolean),
-    platform: 'AsgardeoV2',
+    // RFC 8707 resource indicator. Names the resource server a permission-bearing
+    // token binds to ("urn:wso2:amp"). Left empty the sign-in request is
+    // byte-identical to before and the token audience stays the client_id.
+    //
+    // It has to reach /oauth2/authorize, not just /oauth2/token: the sign-in
+    // flow's AuthorizationExecutor reads it to decide which resource server to
+    // evaluate the requested permission scopes against, and drops every
+    // permission scope it cannot resolve there. A token-time resource only
+    // narrows what the authorization code already carries, so it arrives too
+    // late. signInOptions is forwarded verbatim as custom authorize params,
+    // which is exactly what is needed here.
+    //
+    // Deliberately NOT also set on tokenRequest: the authorize-time resource is
+    // persisted onto the authorization code and the token endpoint falls back to
+    // it, so a token-side copy is redundant and actively unsafe — the SDK
+    // replays those params with no empty-value guard, and a blank one reaches
+    // the token endpoint as `resource=`, which Thunder rejects with
+    // invalid_target "must be an absolute URI".
+    //
+    // Only set this alongside the matching amp: scopes in AUTH_SCOPES, and only
+    // once the agent-manager-service audience allowlist (KEY_MANAGER_AUDIENCE)
+    // accepts the value — the token's aud becomes the resource server identifier
+    // instead of the client_id.
+    ...('$AUTH_RESOURCE'.trim() && {
+      signInOptions: { resource: '$AUTH_RESOURCE'.trim() },
+    }),
     tokenValidation: {
       idToken: {
         validate: '$VALIDATE_ID_TOKEN' === 'true',
         clockTolerance: Number('$CLOCK_TOLERANCE') || 300,
       },
     },
+    tokenLifecycle: {
+      refreshToken: {
+        autoRefresh: true,
+      },
+    },
+    rpInitiatedLogout: false,
     storage: 'localStorage',
   },
   disableAuth: '$DISABLE_AUTH' === 'true',
@@ -49,10 +80,10 @@ window.__RUNTIME_CONFIG__ = {
   guardrailsCatalogUrl: '$GUARDRAILS_CATALOG_URL',
   guardrailsDefinitionBaseUrl: '$GUARDRAILS_DEFINITION_BASE_URL',
   guardrailCapabilities: {
-    awsBedrock:         '$GUARDRAIL_CAP_AWS_BEDROCK' === 'true',
+    awsBedrock: '$GUARDRAIL_CAP_AWS_BEDROCK' === 'true',
     azureContentSafety: '$GUARDRAIL_CAP_AZURE_CONTENT_SAFETY' === 'true',
-    graniteGuardian:    '$GUARDRAIL_CAP_GRANITE_GUARDIAN' === 'true',
-    nemoGuard:          '$GUARDRAIL_CAP_NEMO_GUARD' === 'true',
+    graniteGuardian: '$GUARDRAIL_CAP_GRANITE_GUARDIAN' === 'true',
+    nemoGuard: '$GUARDRAIL_CAP_NEMO_GUARD' === 'true',
     semanticGuardrails: '$GUARDRAIL_CAP_SEMANTIC_GUARDRAILS' === 'true',
   },
   featureFlags: {

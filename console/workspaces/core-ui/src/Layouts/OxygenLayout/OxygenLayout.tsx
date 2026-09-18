@@ -33,7 +33,7 @@ import { globalConfig, absoluteRouteMap } from "@agent-management-platform/types
 import { LeftNavigation, combineNavItems, flattenWithChildren } from "./LeftNavigation";
 import { useNavigationItems } from "./navigationItems";
 import { TopNavigation } from "./TopNavigation";
-import { useListOrganizations } from "@agent-management-platform/api-client";
+import { useGetUserProfile, useListOrganizations } from "@agent-management-platform/api-client";
 import { MountPoints } from "../../types";
 
 export function OxygenLayout() {
@@ -42,6 +42,10 @@ export function OxygenLayout() {
   const { userInfo, logout } = useAuthHooks();
   const navigate = useNavigate();
   const { orgId } = useParams();
+  const { data: userProfile } = useGetUserProfile({
+    orgName: orgId || "default",
+    userId: userInfo?.sub || "",
+  });
 
   const externalTopRightComponentModules =
     useExternalComponentModules(MountPoints.TopRightPanel);
@@ -90,12 +94,15 @@ export function OxygenLayout() {
             />
             <Header.Brand onClick={() => navigate(homePath)}>
               <Header.BrandLogo>
-                <Logo width={192} />
-                {externalLogoComponentModules?.map((module) => (
-                  <div key={module.moduleName}>
-                    <module.component />
+                {externalLogoComponentModules && externalLogoComponentModules.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {externalLogoComponentModules.map((module) => (
+                      <module.component key={module.moduleName} />
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <Logo width={192} />
+                )}
               </Header.BrandLogo>
             </Header.Brand>
             <TopNavigation />
@@ -116,8 +123,15 @@ export function OxygenLayout() {
             <Header.Actions>
               <ColorSchemeToggle />
               <UserMenu>
-                <UserMenu.Trigger name={user.primaryLine} />
-                <UserMenu.Header name={user.primaryLine} email={user.secondaryLine} />
+                <UserMenu.Trigger
+                  name={user.primaryLine}
+                  avatar={userProfile?.attributes?.picture}
+                />
+                <UserMenu.Header
+                  name={user.primaryLine}
+                  email={user.secondaryLine}
+                  avatar={userProfile?.attributes?.picture}
+                />
                 <UserMenu.Divider />
                 {orgId && (
                   <UserMenu.Item
