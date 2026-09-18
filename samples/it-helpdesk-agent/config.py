@@ -1,10 +1,3 @@
-"""Instance-level configuration, read from env at startup.
-
-Set ``USE_LLM_PROVIDER=true`` to route through the AM LLM provider
-(with guardrails) using ``LLM_PROVIDER_URL`` and ``LLM_PROVIDER_KEY``.
-By default (``false``), calls OpenAI directly using ``OPENAI_API_KEY``.
-"""
-
 from __future__ import annotations
 
 import os
@@ -24,9 +17,14 @@ class Config:
     tone: str
     max_tickets_per_query: int
     additional_guidance: str
+    agent_version: str
     use_llm_provider: bool
     llm_provider_url: str
     llm_provider_key: str
+    use_mcp: bool
+    mcp_url: str
+    mcp_api_key: str
+    issue_tracker_repo: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -52,12 +50,46 @@ class Config:
                     "USE_LLM_PROVIDER is true but LLM_PROVIDER_KEY is not set"
                 )
 
+        # AM injects <PROXY>_URL and <PROXY>_API_KEY when an MCP proxy named
+        # "GitHub" is attached to the agent. Same shape as the LLM provider pair
+        # above: system-managed, per environment, read-only in the console.
+        use_mcp = _env("USE_MCP", "false").lower() == "true"
+        mcp_url = _env("GITHUB_URL", "")
+        mcp_api_key = _env("GITHUB_API_KEY", "")
+
+        # Which repository holds the IT team's known-issue tracker. Without this the
+        # agent would search issues across the whole of GitHub, which is both slow
+        # and wrong — a match in someone else's project is not a known issue here.
+        issue_tracker_repo = _env("ISSUE_TRACKER_REPO", "")
+
+        if use_mcp:
+            if not mcp_url:
+                raise RuntimeError("USE_MCP is true but GITHUB_URL is not set")
+            if not mcp_api_key:
+                raise RuntimeError("USE_MCP is true but GITHUB_API_KEY is not set")
+            if not issue_tracker_repo:
+                raise RuntimeError(
+                    "USE_MCP is true but ISSUE_TRACKER_REPO is not set "
+                    "(expected owner/repo, e.g. acme/it-tooling)"
+                )
+            if "/" not in issue_tracker_repo:
+                raise RuntimeError(
+                    f"ISSUE_TRACKER_REPO must be owner/repo, got: {issue_tracker_repo!r}"
+                )
+
         return cls(
             company_name=_env("COMPANY_NAME", "AcmeCorp"),
             tone=_env("TONE", "professional and helpful"),
             max_tickets_per_query=max_tickets,
             additional_guidance=_env("ADDITIONAL_GUIDANCE", ""),
+            # Echoed in /health and every chat response so a promotion or a
+            # rollback is visible from the outside without reading the console.
+            agent_version=_env("AGENT_VERSION", "dev"),
             use_llm_provider=use_llm_provider,
             llm_provider_url=llm_provider_url,
             llm_provider_key=llm_provider_key,
+            use_mcp=use_mcp,
+            mcp_url=mcp_url,
+            mcp_api_key=mcp_api_key,
+            issue_tracker_repo=issue_tracker_repo,
         )

@@ -1,8 +1,12 @@
 """LangGraph IT helpdesk agent construction.
 
-Builds a ReAct-style agent bound to the instance config. When
-``LLM_PROVIDER=agent-manager``, requests are routed through the AM LLM
+Builds a ReAct-style agent bound to the instance config.
+
+When ``USE_LLM_PROVIDER=true``, requests are routed through the AM LLM
 provider (which applies guardrails). Otherwise calls OpenAI directly.
+
+When ``USE_MCP=true``, tools discovered from an AM MCP proxy are merged with
+the in-process tools. When it is off, the agent is exactly the v1 agent.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from config import Config
@@ -27,7 +32,9 @@ SYSTEM_PROMPT_TEMPLATE = (
     "- Request software access based on department eligibility\n"
     "- Check system status for outages and maintenance\n"
     "- Search IT policies\n"
-    "- Escalate complex issues to L2 support\n\n"
+    "- Escalate complex issues to L2 support\n"
+    "{mcp_capabilities}"
+    "\n"
     "RULES YOU MUST FOLLOW:\n"
     "1. IDENTITY FIRST: Before any write action (password reset, software access, "
     "ticket creation), verify the employee's identity using verify_identity. "
@@ -41,12 +48,66 @@ SYSTEM_PROMPT_TEMPLATE = (
     "5. PRIVACY: Never disclose another employee's tickets, access, or personal info. "
     "Only show data belonging to the verified requester.\n"
     "6. ESCALATE WHEN UNSURE: If you cannot resolve an issue safely, escalate to L2 "
-    "rather than guessing.\n\n"
+    "rather than guessing.\n"
+    "{mcp_rules}"
+    "\n"
     "Tone: {tone}. {additional_guidance}"
 )
 
+# Appended to the prompt only when MCP tools are loaded, so the base agent's
+# behaviour — and the evaluators written against it — stay unchanged when the
+# toggle is off.
+MCP_CAPABILITIES = (
+    "- Search the IT team's issue tracker for known problems that match what an "
+    "employee is reporting\n"
+)
 
-def build_agent(cfg: Config) -> Any:
+# {issue_tracker_repo} is substituted at build time. Naming the repository in the
+# prompt is what keeps searches scoped: without it the agent would search issues
+# across all of GitHub, and a match in an unrelated project is not a known issue
+# at AcmeCorp.
+MCP_RULES = (
+    "7. CHECK KNOWN ISSUES FIRST: When an employee reports something broken, "
+    "search the IT team's issue tracker before creating a ticket, in addition to "
+    "checking system_status and their open tickets (rule 2). The tracker is the "
+    "repository {issue_tracker_repo} — always scope issue searches to it, for "
+    "example by including 'repo:{issue_tracker_repo}' in the search query. Never "
+    "report an issue from any other repository as a known issue. If a matching "
+    "known issue exists, tell the employee its number and any workaround it "
+    "documents instead of opening a duplicate ticket.\n"
+    "8. THE ISSUE TRACKER IS READ-ONLY: You may search and read issues. Never "
+    "create, comment on, edit, close, or reopen one — that is the engineering "
+    "team's call, not L1's. If an issue needs changing, escalate to L2.\n"
+)
+
+
+async def load_mcp_tools(cfg: Config) -> list[Any]:
+    """Discover tools from the AM MCP proxy.
+
+    The proxy is reached with the platform-issued key in an ``X-API-Key`` header —
+    the default for MCP proxies, and *not* the ``API-Key`` the LLM provider uses.
+    Each proxy's header name is a Security setting, so check yours if the gateway
+    answers 401. The agent never holds the upstream GitHub credential; the gateway
+    attaches it on the way out.
+    """
+    if not cfg.use_mcp:
+        return []
+
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    client = MultiServerMCPClient(
+        {
+            "github": {
+                "url": cfg.mcp_url,
+                "transport": "streamable_http",
+                "headers": {"X-API-Key": cfg.mcp_api_key},
+            }
+        }
+    )
+    return list(await client.get_tools())
+
+
+def build_agent(cfg: Config, mcp_tools: list[Any] | None = None) -> Any:
     if cfg.use_llm_provider:
         llm = ChatOpenAI(
             model=MODEL,
@@ -60,10 +121,26 @@ def build_agent(cfg: Config) -> Any:
         )
     else:
         llm = ChatOpenAI(model=MODEL, temperature=0)
-    tools = build_tools(cfg)
+
+    tools = build_tools(cfg) + list(mcp_tools or [])
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         company_name=cfg.company_name,
         tone=cfg.tone,
         additional_guidance=cfg.additional_guidance,
+        mcp_capabilities=MCP_CAPABILITIES if mcp_tools else "",
+        mcp_rules=(
+            MCP_RULES.format(issue_tracker_repo=cfg.issue_tracker_repo)
+            if mcp_tools
+            else ""
+        ),
     )
-    return create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+    # Conversation state keyed on thread_id (the chat session_id). Without this
+    # every turn arrives as a fresh message list, so "verify me, then reset my
+    # password" cannot work across two turns.
+    return create_react_agent(
+        model=llm,
+        tools=tools,
+        prompt=system_prompt,
+        checkpointer=InMemorySaver(),
+    )

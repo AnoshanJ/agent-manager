@@ -31,7 +31,7 @@ Agents do not embed the proxy — they **reference** it. Each agent resolves the
 ## Prerequisites
 
 - Admin access to the WSO2 Agent Manager Console
-- An active AI Gateway for the environments you want to configure. On Agent Manager Cloud these are provisioned for you.
+- An active [AI Gateway](../concepts/gateway.mdx) for the environments you want to configure. On Agent Manager Cloud these are provisioned for you.
 - A reachable upstream MCP server endpoint for each environment (e.g., `https://api.example.com/mcp`)
 - Any credential the upstream MCP server requires (e.g., an API key passed in an HTTP header)
 
@@ -39,7 +39,7 @@ Agents do not embed the proxy — they **reference** it. Each agent resolves the
 
 ## Step 1: Navigate to MCP Proxies
 
-1. Log in to the WSO2 Agent Manager Console (`http://console.amp.localhost:8080`).
+1. Log in to the WSO2 Agent Manager Console at [console.agent-manager.cloud.wso2.com](https://console.agent-manager.cloud.wso2.com/).
 2. Go to the Organization level by closing the projects section from the top navigation.
 3. In the left sidebar, click **MCP Proxies** under the **Resources** section.
 
@@ -102,7 +102,7 @@ Configuration lives on the endpoints, so the detail page has two controls above 
 - **Environment** selector — choose an environment to view and edit the configuration of the endpoint that serves it. Only environments that have an endpoint appear here; if none are configured, the page shows *"This MCP proxy has no environments configured."* Because one endpoint can serve several environments, a change you make with one environment selected applies to every environment sharing that endpoint.
 - **Manage Endpoints** — opens the **Manage Endpoints** dialog to add, edit, or remove endpoints after creation. Editing an endpoint updates the upstream URL, authentication, and capabilities for every environment it serves; environments left without an endpoint become unconfigured.
 
-Configuration is organized into the tabs below. When you change a setting, an **unsaved changes** banner appears — click **Save** to persist or **Cancel**/**Discard** to revert. Every tab except **Overview** and **Capabilities** edits the endpoint serving the selected environment.
+Configuration is organized into the tabs below. When you change a setting, an **unsaved changes** banner appears — click **Save** to persist or **Cancel**/**Discard** to revert. Every tab except **Overview** edits the endpoint serving the selected environment — **Manage Tools** additionally shows the endpoint's discovered capabilities alongside its editable access-control settings.
 
 ### Overview Tab
 
@@ -112,16 +112,10 @@ Displays a read-only summary of the proxy for the selected environment:
 |---|---|
 | **Context** | The context path used to build the proxy's endpoints |
 | **Upstream URL** | The backend MCP server endpoint for this environment |
-| **Auth Type** | The inbound authentication clients must present — `API Key` or `None` (configured on the **Security** tab) |
+| **Auth Type** | The inbound authentication clients must present — `API Key`, `OAuth`, or `None` (configured on the **Security** tab) |
 | **Access Control** | `Allow all` (default) or `Configured` |
 | **Deployment** | `Deployed` or `Undeployed` — whether this environment's gateway artifact is currently deployed |
 | **In Catalog** | Whether the proxy is published to the catalog |
-
----
-
-### Capabilities Tab
-
-Lists everything the selected environment's endpoint exposes, grouped into three sections — **Tools**, **Resources**, and **Prompts** — each with a total count. Expand a section to browse individual items and their descriptions. Capabilities are captured when you fetch server info for the endpoint.
 
 ---
 
@@ -141,14 +135,15 @@ Click **Save** to persist changes, or **Discard** to revert.
 
 ---
 
-### Access Control Tab
+### Manage Tools Tab
 
-Control which capabilities are reachable through the proxy in the selected environment:
+Shows everything the selected environment's endpoint exposes, and controls which of it agents can actually reach:
 
+- **Discovered capabilities** — grouped into **Tools**, **Resources**, and **Prompts**, each with a total count. Expand a section to browse individual items and their descriptions. These are captured when you fetch server info for the endpoint.
 - **Mode**: Choose `Allow all` (default – every tool, resource, and prompt is permitted) or `Deny all` (block everything except listed exceptions).
 - **Exceptions**: Tools, resources, and prompts to exclude from the selected mode. In `Allow all` mode these are denied; in `Deny all` mode these are the only items allowed. Items are grouped and color-coded by kind (Tools, Resources, Prompts).
 
-Click **Save** to apply. This is backed by the managed `mcp-acl-list` policy.
+Click **Save** to apply the access-control mode. This is backed by the managed `mcp-acl-list` policy.
 
 > If the environment's endpoint has no capabilities, access control is unavailable. If the environment's active gateway does not report the `mcp-acl-list` policy as available, saving is disabled.
 
@@ -160,11 +155,23 @@ Configure how clients (agents) authenticate to the proxy through the gateway, fo
 
 | Field | Description | Example |
 |---|---|---|
-| **Authentication Method** | `apiKey` (default) or `None` | `apiKey` |
-| **Key Location** | *(when `apiKey` is selected)* Where the key is passed — `header` or `query` | `header` |
-| **Header Key** / **Query Param Key** | *(when `apiKey` is selected)* The header or query parameter carrying the API key | `X-API-Key` |
+| **Method** | `None`, `API Key` (default), or `OAuth` | `API Key` |
+| **Key Location** | *(when `API Key` is selected)* Where the key is passed — `header` or `query` | `header` |
+| **Header Key** / **Query Param Key** | *(when `API Key` is selected)* The header or query parameter carrying the API key | `X-API-Key` |
+
+Switching methods on a proxy already in use prompts a confirmation before saving, since it can break any agent still configured for the old method until its tool configuration is updated to match.
 
 Click **Save** to persist.
+
+#### OAuth: Scoping Access Per Tool
+
+Selecting **OAuth** reveals an **Authorization** section beneath the method picker, for restricting individual tools to callers whose token carries the right scope:
+
+- **Scopes** sub-tab — the catalog of scopes defined for this proxy. Click **Create Scope** to add one (a name and description); each is deletable from this list. Scopes are defined once for the whole proxy, not per endpoint or environment.
+- **Tools** sub-tab — one row per discovered tool, with a multi-select to assign it zero or more scopes from that catalog. A caller needs every scope a tool requires in order to invoke it. A tool already blocked on the **Manage Tools** tab shows a warning icon here, since scoping it is redundant while it's blocked outright.
+
+Full detail on defining scopes and binding them to agent identity roles is in
+[Authorize Agent Access to MCP Tools](./authorize-agent-access-to-mcp-tools.mdx).
 
 ---
 
@@ -197,7 +204,7 @@ Attach additional gateway policies for the selected environment, beyond the mana
 
 ## Verifying the Proxy
 
-The registered proxy appears in the **MCP Proxies** list with its name, description, and version. Open the detail page and, for each configured environment, confirm on the **Overview** tab that **Deployment** shows `Deployed` and check the **Capabilities** tab for the expected tools, resources, and prompts. The endpoint agents actually use is exposed to them when they attach the proxy — see [Configure MCP Proxies for an Agent](./configure-agent-mcp-proxies.mdx).
+The registered proxy appears in the **MCP Proxies** list with its name, description, and version. Open the detail page and, for each configured environment, confirm on the **Overview** tab that **Deployment** shows `Deployed` and check the **Manage Tools** tab for the expected tools, resources, and prompts. The endpoint agents actually use is exposed to them when they attach the proxy — see [Configure MCP Proxies for an Agent](./configure-agent-mcp-proxies.mdx).
 
 ---
 

@@ -1,32 +1,31 @@
-"""FastAPI entrypoint for the IT helpdesk agent.
-
-Implements the AM chat-agent contract: ``POST /chat`` on port 8000 accepting
-``{session_id, message, context}`` and returning ``{response, session_id}``.
-``GET /health`` is provided for local checks (AM does not require it).
-"""
-
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
-from agent import build_agent
+from agent import build_agent, load_mcp_tools
 from config import Config
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("it-helpdesk")
 
 CONFIG = Config.from_env()
-AGENT = build_agent(CONFIG)
+
+MCP_TOOLS = asyncio.run(load_mcp_tools(CONFIG))
+
+AGENT = build_agent(CONFIG, MCP_TOOLS)
 log.info(
-    "IT helpdesk agent ready (company=%s, tone=%s, llm_provider=%s)",
+    "IT helpdesk agent ready (company=%s, version=%s, llm_provider=%s, mcp_tools=%d)",
     CONFIG.company_name,
-    CONFIG.tone,
+    CONFIG.agent_version,
     "agent-manager" if CONFIG.use_llm_provider else "openai-direct",
+    len(MCP_TOOLS),
 )
 
 
@@ -39,20 +38,36 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: str | None = None
+    agent_version: str | None = None
 
 
-app = FastAPI(title="IT Helpdesk Agent", version="0.1.0")
+app = FastAPI(title="IT Helpdesk Agent", version="0.2.0")
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "company": CONFIG.company_name}
+    return {
+        "status": "ok",
+        "company": CONFIG.company_name,
+        "agent_version": CONFIG.agent_version,
+        "mcp_enabled": CONFIG.use_mcp,
+        "mcp_tool_count": len(MCP_TOOLS),
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest) -> ChatResponse:
+    # The checkpointer keys conversation state on thread_id. A caller that omits
+    # session_id gets a fresh one, so each such request is its own conversation.
+    session_id = req.session_id or str(uuid.uuid4())
+
     try:
-        result = AGENT.invoke({"messages": [HumanMessage(content=req.message)]})
+        # ainvoke, not invoke: MCP tools are async-only, and LangGraph runs the
+        # in-process sync tools in a threadpool either way.
+        result = await AGENT.ainvoke(
+            {"messages": [HumanMessage(content=req.message)]},
+            config={"configurable": {"thread_id": session_id}},
+        )
     except Exception as exc:  # noqa: BLE001
         log.exception("agent invocation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -68,4 +83,8 @@ def chat(req: ChatRequest) -> ChatResponse:
         final = "\n".join(
             part.get("text", "") if isinstance(part, dict) else str(part) for part in final
         )
-    return ChatResponse(response=str(final), session_id=req.session_id)
+    return ChatResponse(
+        response=str(final),
+        session_id=session_id,
+        agent_version=CONFIG.agent_version,
+    )

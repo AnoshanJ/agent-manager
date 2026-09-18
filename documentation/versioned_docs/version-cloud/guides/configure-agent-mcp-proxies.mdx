@@ -166,6 +166,26 @@ Use the **Search by name or description...** box to filter. Multiple configurati
 
 ---
 
+## Troubleshooting
+
+### Promotion is blocked with "has no MCP server in..."
+
+If promoting a platform-hosted agent fails with an error like:
+
+> Promotion blocked: `<configuration name>` has no MCP server in `"<environment>"`
+
+the agent's tool configuration has no working connection to the proxy in the target environment yet. Promoting anyway would deploy the agent with an empty MCP URL and API key, so the platform blocks it upfront instead of letting the agent fail on its first tool call.
+
+To resolve it, open the MCP proxy that the tool configuration references and confirm it is actually deployed to the target environment (see [Register an MCP Proxy](./register-mcp-proxy.mdx)). Saving the proxy's configuration, even without changing anything, makes the platform recheck every agent bound to it and complete any binding that has now become possible. Retry the promotion afterward.
+
+### The connection stays stuck even after the proxy is deployed there
+
+Saving the proxy's configuration, as described above, resolves this in most cases. It does not cover one specific situation: if the target environment only just became usable because its first gateway was assigned to it, rather than because the proxy itself was updated, the platform does not automatically recheck existing agent bindings for it.
+
+If you have confirmed the proxy is deployed to the environment and the connection is still unresolved, remove the tool configuration from the agent and add it again (see [Managing Tool Configurations](#managing-tool-configurations)). Re-adding it builds the binding fresh, which resolves the stuck state.
+
+---
+
 ## Notes
 
 - MCP proxy credentials are **never exposed** to agent code directly — only the injected environment variables (platform agents) or the gateway endpoint + API key (external agents) are available at runtime.
