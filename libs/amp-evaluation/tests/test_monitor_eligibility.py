@@ -21,7 +21,7 @@ import pytest
 from amp_evaluation import evaluator, EvalResult
 from amp_evaluation.runner import Monitor, Experiment
 from amp_evaluation.trace import Trace, parse_trace_for_evaluation
-from amp_evaluation.trace.models import AgentSpan, AgentTrace, LLMSpan
+from amp_evaluation.trace.models import AgentSpan, AgentTrace, LLMSpan, ToolDefinition
 from amp_evaluation.trace.fetcher import OTELTrace, OTELSpan, OTELTraceStatus, AmpAttributes, AmpSpanStatus
 
 
@@ -331,22 +331,37 @@ def test_execution_nested_under_creation_is_preserved():
     assert result.scores["check"].skipped_count == 0
 
 
-def test_execution_nested_under_creation_still_scored_at_agent_level():
-    calls = []
+def test_execution_nested_under_creation_keeps_agent_context():
+    seen = []
 
     @evaluator("check")
     def check(agent_trace: AgentTrace) -> EvalResult:
-        calls.append(agent_trace.agent_id)
+        seen.append(
+            (
+                agent_trace.agent_id,
+                agent_trace.agent_name,
+                agent_trace.model,
+                [tool.name for tool in agent_trace.available_tools],
+                agent_trace.system_prompt,
+            )
+        )
         return EvalResult(score=0.5)
 
     trace = Trace(
         trace_id="t",
         spans=[
-            AgentSpan(span_id="init", operation_name="create_agent"),
+            AgentSpan(
+                span_id="init",
+                operation_name="create_agent",
+                name="WeatherAgent",
+                model="gpt-4o-mini",
+                system_prompt="You are helpful",
+                available_tools=[ToolDefinition(name="get_weather")],
+            ),
             LLMSpan(span_id="llm", parent_span_id="init"),
         ],
     )
     scores = check.run(trace)
     assert [s.skip_reason for s in scores] == [None]
     assert scores[0].score == 0.5
-    assert calls == ["init"]
+    assert seen == [("init", "WeatherAgent", "gpt-4o-mini", ["get_weather"], "You are helpful")]

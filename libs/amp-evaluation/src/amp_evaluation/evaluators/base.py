@@ -445,13 +445,16 @@ class BaseEvaluator(ABC):
 
         elif eval_level == EvaluationLevel.AGENT:
             agent_spans = trace.get_agents()
-            # Creation-only agent spans wrapping real execution would otherwise yield
-            # nothing but a skip, dropping that execution.
-            evaluable_spans = [
-                span for span in agent_spans if not (skip_initialization and span.operation_name == "create_agent")
-            ]
+            creation_spans = [span for span in agent_spans if span.operation_name == "create_agent"]
+            # Skip creation spans only when another agent span carries the execution;
+            # otherwise the creation span is the only container holding it.
+            skipped_span_ids = (
+                {span.span_id for span in creation_spans}
+                if skip_initialization and len(creation_spans) < len(agent_spans)
+                else set()
+            )
 
-            if not evaluable_spans:
+            if not agent_spans:
                 # No explicit agents — wrap the full trace as a single AgentTrace.
                 # Use the root span's span_id (not trace_id) so scores map to a real span.
                 root_span = trace._get_root_span()
@@ -477,7 +480,7 @@ class BaseEvaluator(ABC):
                 )
             else:
                 for agent_span in agent_spans:
-                    if skip_initialization and agent_span.operation_name == "create_agent":
+                    if agent_span.span_id in skipped_span_ids:
                         scores.append(
                             EvaluatorScore.from_eval_result(
                                 EvalResult.skip("Agent initialization"),
