@@ -49,7 +49,7 @@ else
     # so it can never be allocated the server's address while the server is stopped.
     echo ""
     echo "📌 Pinning loadbalancer container IP..."
-    pin_serverlb_ip
+    pin_serverlb_ip || exit 1
 fi
 
 # Apply CoreDNS custom configuration for *.openchoreo.localhost and *.amp.localhost resolution

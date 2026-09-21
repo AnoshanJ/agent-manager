@@ -661,7 +661,7 @@ else
         log_success "k3d cluster created successfully"
         # `subnet:` in k3d-config.yaml pins only the server node; pin the
         # loadbalancer too so it can never take the server's address.
-        pin_serverlb_ip
+        pin_serverlb_ip || exit 1
     else
         log_error "Failed to create k3d cluster"
         exit 1

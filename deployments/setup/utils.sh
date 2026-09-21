@@ -623,11 +623,21 @@ pin_serverlb_ip() {
     docker stop "$lb" >/dev/null 2>&1 || true
     docker network disconnect "$network" "$lb" >/dev/null 2>&1 || true
     if ! docker network connect --ip "$current" "$network" "$lb" >/dev/null 2>&1; then
+        # Pinning is hardening, not correctness: an unpinned but running cluster is
+        # fine, so restore the dynamic attachment rather than failing the install.
         docker network connect "$network" "$lb" >/dev/null 2>&1 || true
-        docker start "$lb" >/dev/null 2>&1 || true
+        if ! docker start "$lb" >/dev/null 2>&1; then
+            echo "❌ Could not restart ${lb}; the cluster API will be unreachable"
+            return 1
+        fi
         echo "⚠️  Could not pin the loadbalancer to ${current}; left it dynamic"
         return 0
     fi
-    docker start "$lb" >/dev/null 2>&1 || true
+    # This function stopped a running container. Failing to bring it back leaves the
+    # cluster API unreachable, so report that instead of claiming success.
+    if ! docker start "$lb" >/dev/null 2>&1; then
+        echo "❌ Could not restart ${lb} after pinning to ${current}; the cluster API will be unreachable"
+        return 1
+    fi
     echo "✅ Loadbalancer pinned to ${current}"
 }
