@@ -373,7 +373,7 @@ class BaseEvaluator(ABC):
         ...
 
     def run(
-        self, trace: Trace, task: Optional[Task] = None, *, skip_initialization: bool = False
+        self, trace: Trace, task: Optional[Task] = None, *, skip_initialization: bool = True
     ) -> List[EvaluatorScore]:
         """
         Dispatch method called by the runner. Handles iteration and enrichment.
@@ -386,12 +386,31 @@ class BaseEvaluator(ABC):
         - agent level: evaluate(agent_trace) called N times (once per agent)
         - llm level:   evaluate(llm_span) called N times (once per LLM call)
 
-        skip_initialization is used by Monitor to retain initialization context
-        without scoring it as an agent invocation.
+        Initialization is skipped by default in every mode. Mixed traces retain
+        initialization context without scoring creation as an agent invocation.
+        Pass skip_initialization=False to explicitly evaluate initialization.
 
         NOT overridden by evaluator authors.
         """
         from ..trace.models import AgentTrace as _AgentTrace
+
+        # Also recognize manually constructed parsed traces without parser metadata.
+        from ..trace.models import AgentSpan, LLMSpan, ToolSpan, RetrieverSpan
+
+        initialization_only = trace.initialization_only or (
+            any(isinstance(span, AgentSpan) and span.operation_name == "create_agent" for span in trace.spans)
+            and not any(
+                isinstance(span, (LLMSpan, ToolSpan, RetrieverSpan))
+                or (isinstance(span, AgentSpan) and span.operation_name != "create_agent")
+                for span in trace.spans
+            )
+        )
+        if skip_initialization and initialization_only:
+            return [
+                EvaluatorScore.from_eval_result(
+                    EvalResult.skip("Agent initialization"), trace_id=trace.trace_id, trace_start_time=trace.timestamp
+                )
+            ]
 
         scores: List[EvaluatorScore] = []
         eval_level = self.level

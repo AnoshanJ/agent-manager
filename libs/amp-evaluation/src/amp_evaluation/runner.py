@@ -312,10 +312,7 @@ class BaseRunner(ABC):
             try:
                 logger.debug("Running evaluator '%s' on trace %s", evaluator.name, trace.trace_id)
                 # run() returns List[EvaluatorScore] already enriched with span identity
-                if self.eval_mode == EvalMode.MONITOR:
-                    evaluator_scores = evaluator.run(trace, task, skip_initialization=True)
-                else:
-                    evaluator_scores = evaluator(trace, task)
+                evaluator_scores = evaluator(trace, task)
 
                 # Set experiment-specific fields (not available to run())
                 if task_id:
@@ -770,22 +767,12 @@ class Monitor(BaseRunner):
     def evaluate_trace(
         self, trace: Trace, task: Optional[Task] = None, trial_id: Optional[str] = None
     ) -> Dict[str, List[EvaluatorScore]]:
-        # Also recognize manually constructed parsed traces without parser metadata.
-        from .trace.models import AgentSpan, LLMSpan, ToolSpan, RetrieverSpan
-
-        initialization_only = trace.initialization_only or (
-            any(isinstance(span, AgentSpan) and span.operation_name == "create_agent" for span in trace.spans)
-            and not any(
-                isinstance(span, (LLMSpan, ToolSpan, RetrieverSpan))
-                or (isinstance(span, AgentSpan) and span.operation_name != "create_agent")
-                for span in trace.spans
-            )
-        )
-        reason = "Request failed" if trace.request_failed else "Agent initialization" if initialization_only else None
-        if reason:
+        if trace.request_failed:
             return {
                 evaluator.name: [
-                    EvaluatorScore(trace_id=trace.trace_id, trace_start_time=trace.timestamp, skip_reason=reason)
+                    EvaluatorScore(
+                        trace_id=trace.trace_id, trace_start_time=trace.timestamp, skip_reason="Request failed"
+                    )
                 ]
                 for evaluator in self._evaluators
             }

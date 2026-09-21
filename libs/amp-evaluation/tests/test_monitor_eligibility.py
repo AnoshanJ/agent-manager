@@ -185,20 +185,65 @@ def test_stream_continues_after_skips_and_preserves_recovered_errors():
     assert summary.aggregated_scores["mean"] == 0.25
 
 
-def test_experiment_and_direct_evaluator_keep_existing_behavior():
+@pytest.mark.parametrize("level", [Trace, AgentTrace, LLMSpan])
+def test_initialization_skipped_in_experiment_and_direct_calls(level):
+    def evaluate(value):
+        pytest.fail("Initialization reached evaluator")
+
+    evaluate.__annotations__ = {"value": level, "return": EvalResult}
+    check = evaluator("check")(evaluate)
+    trace = Trace(trace_id="t", spans=[AgentSpan(span_id="init", operation_name="create_agent")])
+    assert check(trace)[0].skip_reason == "Agent initialization"
+    assert check.run(trace)[0].skip_reason == "Agent initialization"
+    result = Experiment(evaluators=[check], invoker=None).run(traces=[trace])
+    summary = result.scores["check"]
+    assert summary.skipped_count == 1
+    assert summary.aggregated_scores == {}
+
+
+def test_mixed_initialization_skipped_in_experiment_and_direct_calls():
+    calls = []
+
+    @evaluator("check")
+    def check(trace: AgentTrace) -> EvalResult:
+        calls.append(trace.agent_id)
+        return EvalResult(score=0.5)
+
+    trace = Trace(
+        trace_id="t",
+        spans=[
+            AgentSpan(span_id="init", operation_name="create_agent"),
+            AgentSpan(span_id="run", operation_name="invoke_agent"),
+        ],
+    )
+    assert check(trace)[0].is_skipped
+    result = Experiment(evaluators=[check], invoker=None).run(traces=[trace])
+    assert calls == ["run", "run"]
+    assert result.scores["check"].skipped_count == 1
+    assert result.scores["check"].aggregated_scores["mean"] == 0.5
+
+
+def test_explicit_initialization_opt_out():
     @evaluator("check")
     def check(trace: AgentTrace) -> EvalResult:
         return EvalResult(score=0.5)
 
     trace = Trace(
-        trace_id="t",
-        initialization_only=True,
-        request_failed=True,
-        spans=[AgentSpan(span_id="init", operation_name="create_agent")],
+        trace_id="t", initialization_only=True, spans=[AgentSpan(span_id="init", operation_name="create_agent")]
     )
+    assert check.run(trace, skip_initialization=False)[0].score == 0.5
+
+
+def test_failed_request_policy_remains_monitor_specific():
+    @evaluator("check")
+    def check(trace: Trace) -> EvalResult:
+        return EvalResult(score=0.5)
+
+    trace = Trace(trace_id="t", request_failed=True)
     assert check(trace)[0].score == 0.5
     result = Experiment(evaluators=[check], invoker=None).run(traces=[trace])
-    assert result.scores["check"].count == 1
+    assert result.scores["check"].skipped_count == 0
+    assert Monitor(evaluators=[check]).run(traces=[trace]).scores["check"].skipped_count == 1
 
 
 def test_fetched_traces_use_same_policy():
