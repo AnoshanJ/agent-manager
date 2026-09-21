@@ -710,11 +710,15 @@ else:
 
 ## Evaluation eligibility
 
-Every evaluator call — Monitor, Experiment and direct invocation alike — skips
-failed requests and agent initialization by default, recording a reason and no
-numeric score. Skipped results do not contribute to averages. Opt out per call
-with `evaluator.run(trace, skip_initialization=False)` or
+Dispatch through `run()` — which is what Monitor, Experiment and calling the
+evaluator itself (`my_evaluator(trace)`) all use — skips failed requests and
+agent initialization by default, recording a reason and no numeric score.
+Skipped results do not contribute to averages. Opt out per call with
+`evaluator.run(trace, skip_initialization=False)` or
 `evaluator.run(trace, skip_failed_requests=False)`.
+
+Calling `evaluate()` yourself bypasses dispatch, so no eligibility rule applies
+and you get whatever the evaluator computes for that input.
 
 Neither case is a judgement about quality: a failed request produced no answer to
 judge, and agent creation is not an invocation at all. Scoring either would mix
