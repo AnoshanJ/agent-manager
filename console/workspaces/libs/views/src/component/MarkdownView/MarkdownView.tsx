@@ -19,6 +19,17 @@
 import { memo } from "react";
 import { Box } from "@wso2/oxygen-ui";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...new Set([...(defaultSchema.attributes?.img ?? []), "src", "alt", "title", "width", "height"])],
+  },
+};
 
 interface MarkdownViewProps {
   content: string;
@@ -49,8 +60,8 @@ function MarkdownViewComponent({ content }: MarkdownViewProps) {
             marginTop: 0,
           },
         },
-        "& h1": { fontSize: "0.875rem" },
-        "& h2": { fontSize: "0.8125rem" },
+        "& h1": { fontSize: "1rem" },
+        "& h2": { fontSize: "0.875rem" },
         "& h3": { fontSize: "0.8125rem" },
         "& h4, & h5, & h6": { fontSize: "0.75rem" },
         "& strong, & b": {
@@ -133,9 +144,20 @@ function MarkdownViewComponent({ content }: MarkdownViewProps) {
           fontWeight: 500,
           backgroundColor: "action.hover",
         },
+        "& img": {
+          maxWidth: "100%",
+          height: "auto",
+          display: "block",
+          marginBottom: "0.5rem",
+          "&:last-child": {
+            marginBottom: 0,
+          },
+        },
       }}
     >
-      <Markdown>{content}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}>
+        {content}
+      </Markdown>
     </Box>
   );
 }
