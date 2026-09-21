@@ -183,6 +183,10 @@ func (c *openChoreoClient) ListBuilds(ctx context.Context, ouID, projectName, co
 		}
 
 		if resp.JSON200 == nil {
+			// Nothing more to read, so this is a clean end of the list rather than
+			// a truncation. Clear the cursor or the check below reports the build
+			// list as truncated on the strength of the PREVIOUS page's cursor.
+			cursor = nil
 			break
 		}
 
