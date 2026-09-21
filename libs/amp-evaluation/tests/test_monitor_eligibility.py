@@ -329,3 +329,24 @@ def test_execution_nested_under_creation_is_preserved():
     result = Monitor(evaluators=[check]).run(traces=[trace])
     assert result.scores["check"].count == 1
     assert result.scores["check"].skipped_count == 0
+
+
+def test_execution_nested_under_creation_still_scored_at_agent_level():
+    calls = []
+
+    @evaluator("check")
+    def check(agent_trace: AgentTrace) -> EvalResult:
+        calls.append(agent_trace.agent_id)
+        return EvalResult(score=0.5)
+
+    trace = Trace(
+        trace_id="t",
+        spans=[
+            AgentSpan(span_id="init", operation_name="create_agent"),
+            LLMSpan(span_id="llm", parent_span_id="init"),
+        ],
+    )
+    scores = check.run(trace)
+    assert [s.skip_reason for s in scores] == [None]
+    assert scores[0].score == 0.5
+    assert calls == ["init"]
