@@ -72,9 +72,14 @@ type thunderRole struct {
 	OuID        string `json:"ouId"`
 	Name        string `json:"name"`
 	Permissions []struct {
-		Permissions []string `json:"permissions"`
+		ResourceServerID string   `json:"resourceServerId"`
+		Permissions      []string `json:"permissions"`
 	} `json:"permissions"`
 }
+
+// ampResourceServerID is the main resource server every role's primary
+// permission group belongs to (see 60-amp-resource-server.yaml).
+const ampResourceServerID = "amp-resource-server"
 
 // NewPersonaProvisioner authenticates the configured Thunder system client.
 func NewPersonaProvisioner(ctx context.Context, cfg *Config) (*PersonaProvisioner, error) {
@@ -122,6 +127,10 @@ func (p *PersonaProvisioner) CreateRolePersona(ctx context.Context, roleName str
 		clientSecret: clientSecret,
 	}
 	for _, group := range role.Permissions {
+		// Skip MCP resource-server groups, they restate a subset of the same scopes.
+		if group.ResourceServerID != ampResourceServerID {
+			continue
+		}
 		persona.RolePermissions = append(persona.RolePermissions, group.Permissions...)
 	}
 
