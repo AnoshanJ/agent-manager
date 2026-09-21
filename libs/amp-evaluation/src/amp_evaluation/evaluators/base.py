@@ -373,7 +373,12 @@ class BaseEvaluator(ABC):
         ...
 
     def run(
-        self, trace: Trace, task: Optional[Task] = None, *, skip_initialization: bool = True
+        self,
+        trace: Trace,
+        task: Optional[Task] = None,
+        *,
+        skip_initialization: bool = True,
+        skip_failed_requests: bool = True,
     ) -> List[EvaluatorScore]:
         """
         Dispatch method called by the runner. Handles iteration and enrichment.
@@ -386,9 +391,10 @@ class BaseEvaluator(ABC):
         - agent level: evaluate(agent_trace) called N times (once per agent)
         - llm level:   evaluate(llm_span) called N times (once per LLM call)
 
-        Initialization is skipped by default in every mode. Mixed traces retain
-        initialization context without scoring creation as an agent invocation.
-        Pass skip_initialization=False to explicitly evaluate initialization.
+        Failed requests and agent initialization are skipped by default in every
+        mode. Mixed traces retain initialization context without scoring creation
+        as an agent invocation. Pass skip_failed_requests=False or
+        skip_initialization=False to evaluate them anyway.
 
         NOT overridden by evaluator authors.
         """
@@ -405,10 +411,15 @@ class BaseEvaluator(ABC):
                 for span in trace.spans
             )
         )
-        if skip_initialization and initialization_only:
+        whole_trace_skip = None
+        if skip_failed_requests and trace.request_failed:
+            whole_trace_skip = "Request failed"
+        elif skip_initialization and initialization_only:
+            whole_trace_skip = "Agent initialization"
+        if whole_trace_skip:
             return [
                 EvaluatorScore.from_eval_result(
-                    EvalResult.skip("Agent initialization"), trace_id=trace.trace_id, trace_start_time=trace.timestamp
+                    EvalResult.skip(whole_trace_skip), trace_id=trace.trace_id, trace_start_time=trace.timestamp
                 )
             ]
 

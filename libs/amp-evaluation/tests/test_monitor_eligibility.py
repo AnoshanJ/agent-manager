@@ -234,16 +234,43 @@ def test_explicit_initialization_opt_out():
     assert check.run(trace, skip_initialization=False)[0].score == 0.5
 
 
-def test_failed_request_policy_remains_monitor_specific():
+def test_failed_request_skipped_in_every_mode():
+    def evaluate(value):
+        pytest.fail("Failed request reached evaluator")
+
+    evaluate.__annotations__ = {"value": Trace, "return": EvalResult}
+    check = evaluator("check")(evaluate)
+
+    trace = Trace(trace_id="t", request_failed=True)
+    assert check(trace)[0].skip_reason == "Request failed"
+    assert check.run(trace)[0].skip_reason == "Request failed"
+    assert Monitor(evaluators=[check]).run(traces=[trace]).scores["check"].skipped_count == 1
+    experiment = Experiment(evaluators=[check], invoker=None).run(traces=[trace])
+    assert experiment.scores["check"].skipped_count == 1
+    assert experiment.scores["check"].aggregated_scores == {}
+
+
+def test_explicit_failed_request_opt_out():
     @evaluator("check")
     def check(trace: Trace) -> EvalResult:
         return EvalResult(score=0.5)
 
     trace = Trace(trace_id="t", request_failed=True)
-    assert check(trace)[0].score == 0.5
-    result = Experiment(evaluators=[check], invoker=None).run(traces=[trace])
-    assert result.scores["check"].skipped_count == 0
-    assert Monitor(evaluators=[check]).run(traces=[trace]).scores["check"].skipped_count == 1
+    assert check.run(trace, skip_failed_requests=False)[0].score == 0.5
+
+
+def test_failed_request_takes_precedence_over_initialization():
+    @evaluator("check")
+    def check(trace: Trace) -> EvalResult:
+        return EvalResult(score=0.5)
+
+    trace = Trace(
+        trace_id="t",
+        request_failed=True,
+        initialization_only=True,
+        spans=[AgentSpan(span_id="init", operation_name="create_agent")],
+    )
+    assert check.run(trace)[0].skip_reason == "Request failed"
 
 
 def test_fetched_traces_use_same_policy():
