@@ -764,20 +764,6 @@ class Monitor(BaseRunner):
     def eval_mode(self) -> EvalMode:
         return EvalMode.MONITOR
 
-    def evaluate_trace(
-        self, trace: Trace, task: Optional[Task] = None, trial_id: Optional[str] = None
-    ) -> Dict[str, List[EvaluatorScore]]:
-        if trace.request_failed:
-            return {
-                evaluator.name: [
-                    EvaluatorScore(
-                        trace_id=trace.trace_id, trace_start_time=trace.timestamp, skip_reason="Request failed"
-                    )
-                ]
-                for evaluator in self._evaluators
-            }
-        return super().evaluate_trace(trace, task, trial_id)
-
     def run(
         self,
         start_time: Optional[str] = None,
