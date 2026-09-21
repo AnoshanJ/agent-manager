@@ -1,0 +1,254 @@
+/*
+ * Restyles swagger-ui-react on top of swagger-ui.css/SwaggerDark.css so it reads as
+ * part of Agent Manager rather than a generic Swagger explorer. Values are pulled
+ * from the active Oxygen UI theme's CSS custom properties (falls back to the
+ * AcrylicOrangeTheme dark palette) so this tracks theme/color-scheme changes instead
+ * of freezing a hex snapshot.
+ */
+
+.swagger-ui {
+  font-family: "Inter Variable", sans-serif;
+}
+
+/* swagger-ui grows the copy/deep-link icon in from width:0 on hover via a
+   0.5s transition; that flourish doesn't belong here, so drop straight to
+   the hover state instead of morphing into it. */
+.swagger-ui .view-line-link,
+.swagger-ui .opblock .opblock-summary .view-line-link,
+.swagger-ui .copy-to-clipboard {
+  transition: none !important;
+  animation: none !important;
+}
+
+.swagger-ui .opblock-tag,
+.swagger-ui section.models h4 {
+  font-family: inherit;
+}
+
+/* Operation cards: quiet surface instead of a heavily tinted, hard-bordered block */
+.swagger-ui .opblock {
+  background: rgba(var(--oxygen-palette-text-primaryChannel, 239 239 239) / 0.03);
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  /* border-radius: 12px; */
+  box-shadow: none;
+  margin: 0 0 12px;
+}
+
+/* swagger-ui's toggle controls fall back to the browser's default blue
+   outline:auto on :focus, which used to be hidden under the old heavy
+   borders/shadow. Show a themed ring, and only for keyboard focus so a
+   mouse click doesn't leave a highlight sitting around the card. */
+.swagger-ui .opblock-summary-control:focus,
+.swagger-ui .models-control:focus,
+.swagger-ui .model-box-control:focus {
+  outline: none;
+}
+.swagger-ui .opblock-summary-control:focus-visible,
+.swagger-ui .models-control:focus-visible,
+.swagger-ui .model-box-control:focus-visible {
+  outline: 2px solid var(--oxygen-palette-primary-main, #f87643);
+  outline-offset: -2px;
+}
+
+.swagger-ui .opblock .opblock-summary {
+  border: none;
+  padding: 8px 12px;
+}
+
+.swagger-ui .opblock.is-open .opblock-summary {
+  border-bottom: 1px solid var(--oxygen-palette-divider, #ffffff16);
+}
+
+.swagger-ui .opblock .opblock-section-header {
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 1px solid var(--oxygen-palette-divider, #ffffff16);
+}
+
+.swagger-ui .opblock .opblock-summary-method {
+  min-width: 68px;
+  padding: 4px 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock .opblock-summary-path__deprecated,
+.swagger-ui .opblock .opblock-summary-operation-id {
+  font-family: Consolas, monaco, monospace;
+  font-weight: 500;
+  color: var(--oxygen-palette-text-primary, #efefef);
+}
+
+.swagger-ui .opblock .opblock-summary-description {
+  color: var(--oxygen-palette-text-secondary, #d0d3e2);
+}
+
+/* Method accents mirror the Chip colors already used for method badges
+   elsewhere in the product (see ExpandableResourceRow: GET=info, POST=success,
+   DELETE=error) so a GET badge looks the same wherever it shows up. */
+.swagger-ui .opblock.opblock-get,
+.swagger-ui .opblock.opblock-head,
+.swagger-ui .opblock.opblock-options {
+  background: rgba(var(--oxygen-palette-info-mainChannel, 2 136 209) / 0.05);
+  border-color: rgba(var(--oxygen-palette-info-mainChannel, 2 136 209) / 0.25);
+}
+.swagger-ui .opblock.opblock-get .opblock-summary,
+.swagger-ui .opblock.opblock-head .opblock-summary,
+.swagger-ui .opblock.opblock-options .opblock-summary {
+  border-color: rgba(var(--oxygen-palette-info-mainChannel, 2 136 209) / 0.25);
+}
+.swagger-ui .opblock.opblock-get .opblock-summary-method,
+.swagger-ui .opblock.opblock-head .opblock-summary-method,
+.swagger-ui .opblock.opblock-options .opblock-summary-method {
+  border: 1px solid var(--oxygen-palette-info-main, #0288d1);
+  color: var(--oxygen-palette-info-main, #0288d1);
+}
+
+.swagger-ui .opblock.opblock-post {
+  background: rgba(var(--oxygen-palette-success-mainChannel, 46 125 50) / 0.05);
+  border-color: rgba(var(--oxygen-palette-success-mainChannel, 46 125 50) / 0.25);
+}
+.swagger-ui .opblock.opblock-post .opblock-summary {
+  border-color: rgba(var(--oxygen-palette-success-mainChannel, 46 125 50) / 0.25);
+}
+.swagger-ui .opblock.opblock-post .opblock-summary-method {
+  border: 1px solid var(--oxygen-palette-success-main, #2e7d32);
+  color: var(--oxygen-palette-success-main, #2e7d32);
+}
+
+.swagger-ui .opblock.opblock-put,
+.swagger-ui .opblock.opblock-patch {
+  background: rgba(var(--oxygen-palette-warning-mainChannel, 237 108 2) / 0.05);
+  border-color: rgba(var(--oxygen-palette-warning-mainChannel, 237 108 2) / 0.25);
+}
+.swagger-ui .opblock.opblock-put .opblock-summary,
+.swagger-ui .opblock.opblock-patch .opblock-summary {
+  border-color: rgba(var(--oxygen-palette-warning-mainChannel, 237 108 2) / 0.25);
+}
+.swagger-ui .opblock.opblock-put .opblock-summary-method,
+.swagger-ui .opblock.opblock-patch .opblock-summary-method {
+  border: 1px solid var(--oxygen-palette-warning-main, #ed6c02);
+  color: var(--oxygen-palette-warning-main, #ed6c02);
+}
+
+.swagger-ui .opblock.opblock-delete {
+  background: rgba(var(--oxygen-palette-error-mainChannel, 211 47 47) / 0.05);
+  border-color: rgba(var(--oxygen-palette-error-mainChannel, 211 47 47) / 0.25);
+}
+.swagger-ui .opblock.opblock-delete .opblock-summary {
+  border-color: rgba(var(--oxygen-palette-error-mainChannel, 211 47 47) / 0.25);
+}
+.swagger-ui .opblock.opblock-delete .opblock-summary-method {
+  border: 1px solid var(--oxygen-palette-error-main, #d32f2f);
+  color: var(--oxygen-palette-error-main, #d32f2f);
+}
+
+/* Buttons: rounded pill shape and transparent-by-default, matching MuiButton */
+.swagger-ui .btn {
+  border-radius: 20px;
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  background: transparent;
+  color: var(--oxygen-palette-text-primary, #efefef);
+  box-shadow: none;
+  font-weight: 500;
+  text-transform: none;
+}
+.swagger-ui .btn:hover {
+  background: rgba(var(--oxygen-palette-text-primaryChannel, 239 239 239) / 0.06);
+  box-shadow: none;
+}
+.swagger-ui .btn.execute {
+  background: var(--oxygen-palette-primary-main, #f87643);
+  border-color: var(--oxygen-palette-primary-main, #f87643);
+  color: #ffffff;
+}
+.swagger-ui .btn.execute:hover {
+  background: var(--oxygen-palette-primary-dark, #d9622f);
+  border-color: var(--oxygen-palette-primary-dark, #d9622f);
+}
+.swagger-ui .btn.cancel {
+  border-color: var(--oxygen-palette-error-main, #d32f2f);
+  color: var(--oxygen-palette-error-main, #d32f2f);
+  background: transparent;
+}
+.swagger-ui .btn.authorize {
+  border-color: var(--oxygen-palette-success-main, #2e7d32);
+  color: var(--oxygen-palette-success-main, #2e7d32);
+}
+.swagger-ui .btn.authorize svg {
+  fill: var(--oxygen-palette-success-main, #2e7d32);
+}
+
+/* Inputs */
+.swagger-ui input[type="text"],
+.swagger-ui input[type="password"],
+.swagger-ui input[type="search"],
+.swagger-ui input[type="email"],
+.swagger-ui textarea,
+.swagger-ui select {
+  background: rgba(var(--oxygen-palette-text-primaryChannel, 239 239 239) / 0.04);
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  border-radius: 8px;
+  color: var(--oxygen-palette-text-primary, #efefef);
+}
+.swagger-ui textarea:focus,
+.swagger-ui input:focus {
+  border-color: var(--oxygen-palette-primary-main, #f87643);
+  outline: none;
+}
+.swagger-ui .filter .operation-filter-input {
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  border-radius: 8px;
+}
+
+/* Response panel wrapper: matches the app's own markdown code-block treatment */
+.swagger-ui .responses-inner,
+.swagger-ui .highlight-code {
+  background: rgba(var(--oxygen-palette-text-primaryChannel, 239 239 239) / 0.04) !important;
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  border-radius: 12px;
+  color: var(--oxygen-palette-text-primary, #efefef) !important;
+}
+
+/* swagger-ui-react renders these via react-syntax-highlighter's "agate" hljs
+   theme, which colors each token with an inline style fixed for a dark
+   backdrop (e.g. white strings, green keywords) that our CSS can't override.
+   Keeping the backdrop dark in both color schemes — rather than letting it
+   track the Oxygen palette light in light mode — is what keeps that syntax
+   highlighting legible instead of washing out to near-white-on-white. */
+.swagger-ui .microlight,
+.swagger-ui .body-param__example,
+.swagger-ui .opblock-body pre.microlight,
+.swagger-ui textarea.curl {
+  background: #1c1c21 !important;
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  border-radius: 12px;
+  color: #efefef !important;
+}
+
+.swagger-ui table thead tr td,
+.swagger-ui table thead tr th {
+  border-bottom: 1px solid var(--oxygen-palette-divider, #ffffff16);
+}
+
+/* Models/Schemas section, shown only where hide-models isn't set */
+.swagger-ui section.models {
+  border: 1px solid var(--oxygen-palette-divider, #ffffff16);
+  border-radius: 12px;
+  background: transparent;
+}
+.swagger-ui section.models .model-container {
+  background: rgba(var(--oxygen-palette-text-primaryChannel, 239 239 239) / 0.03);
+  border-radius: 8px;
+}
+
+.swagger-ui .scheme-container {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
