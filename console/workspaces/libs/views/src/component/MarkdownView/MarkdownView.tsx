@@ -155,7 +155,10 @@ function MarkdownViewComponent({ content }: MarkdownViewProps) {
         },
       }}
     >
-      <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}>
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+      >
         {content}
       </Markdown>
     </Box>
