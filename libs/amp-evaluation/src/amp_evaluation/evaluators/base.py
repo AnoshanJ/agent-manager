@@ -445,8 +445,13 @@ class BaseEvaluator(ABC):
 
         elif eval_level == EvaluationLevel.AGENT:
             agent_spans = trace.get_agents()
+            # Creation-only agent spans wrapping real execution would otherwise yield
+            # nothing but a skip, dropping that execution.
+            evaluable_spans = [
+                span for span in agent_spans if not (skip_initialization and span.operation_name == "create_agent")
+            ]
 
-            if not agent_spans:
+            if not evaluable_spans:
                 # No explicit agents — wrap the full trace as a single AgentTrace.
                 # Use the root span's span_id (not trace_id) so scores map to a real span.
                 root_span = trace._get_root_span()
