@@ -372,7 +372,14 @@ class BaseEvaluator(ABC):
         """
         ...
 
-    def run(self, trace: Trace, task: Optional[Task] = None) -> List[EvaluatorScore]:
+    def run(
+        self,
+        trace: Trace,
+        task: Optional[Task] = None,
+        *,
+        skip_initialization: bool = True,
+        skip_failed_requests: bool = True,
+    ) -> List[EvaluatorScore]:
         """
         Dispatch method called by the runner. Handles iteration and enrichment.
 
@@ -384,9 +391,37 @@ class BaseEvaluator(ABC):
         - agent level: evaluate(agent_trace) called N times (once per agent)
         - llm level:   evaluate(llm_span) called N times (once per LLM call)
 
+        Failed requests and agent initialization are skipped by default in every
+        mode. Mixed traces retain initialization context without scoring creation
+        as an agent invocation. Pass skip_failed_requests=False or
+        skip_initialization=False to evaluate them anyway.
+
         NOT overridden by evaluator authors.
         """
         from ..trace.models import AgentTrace as _AgentTrace
+
+        # Also recognize manually constructed parsed traces without parser metadata.
+        from ..trace.models import AgentSpan, LLMSpan, ToolSpan, RetrieverSpan
+
+        initialization_only = trace.initialization_only or (
+            any(isinstance(span, AgentSpan) and span.operation_name == "create_agent" for span in trace.spans)
+            and not any(
+                isinstance(span, (LLMSpan, ToolSpan, RetrieverSpan))
+                or (isinstance(span, AgentSpan) and span.operation_name != "create_agent")
+                for span in trace.spans
+            )
+        )
+        whole_trace_skip = None
+        if skip_failed_requests and trace.request_failed:
+            whole_trace_skip = "Request failed"
+        elif skip_initialization and initialization_only:
+            whole_trace_skip = "Agent initialization"
+        if whole_trace_skip:
+            return [
+                EvaluatorScore.from_eval_result(
+                    EvalResult.skip(whole_trace_skip), trace_id=trace.trace_id, trace_start_time=trace.timestamp
+                )
+            ]
 
         scores: List[EvaluatorScore] = []
         eval_level = self.level
@@ -410,8 +445,13 @@ class BaseEvaluator(ABC):
 
         elif eval_level == EvaluationLevel.AGENT:
             agent_spans = trace.get_agents()
+            # Creation-only agent spans wrapping real execution would otherwise yield
+            # nothing but a skip, dropping that execution.
+            evaluable_spans = [
+                span for span in agent_spans if not (skip_initialization and span.operation_name == "create_agent")
+            ]
 
-            if not agent_spans:
+            if not evaluable_spans:
                 # No explicit agents — wrap the full trace as a single AgentTrace.
                 # Use the root span's span_id (not trace_id) so scores map to a real span.
                 root_span = trace._get_root_span()
@@ -437,6 +477,18 @@ class BaseEvaluator(ABC):
                 )
             else:
                 for agent_span in agent_spans:
+                    if skip_initialization and agent_span.operation_name == "create_agent":
+                        scores.append(
+                            EvaluatorScore.from_eval_result(
+                                EvalResult.skip("Agent initialization"),
+                                trace_id=trace.trace_id,
+                                trace_start_time=trace.timestamp,
+                                span_context=SpanContext(
+                                    span_id=agent_span.span_id, agent_name=agent_span.name or None
+                                ),
+                            )
+                        )
+                        continue
                     agent_trace = trace._create_agent_trace(agent_span.span_id)
                     result = _call_evaluate(agent_trace, task)
                     scores.append(

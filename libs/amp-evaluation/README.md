@@ -708,6 +708,33 @@ else:
 
 ---
 
+## Evaluation eligibility
+
+Every evaluator call — Monitor, Experiment and direct invocation alike — skips
+failed requests and agent initialization by default, recording a reason and no
+numeric score. Skipped results do not contribute to averages. Opt out per call
+with `evaluator.run(trace, skip_initialization=False)` or
+`evaluator.run(trace, skip_failed_requests=False)`.
+
+Neither case is a judgement about quality: a failed request produced no answer to
+judge, and agent creation is not an invocation at all. Scoring either would mix
+noise into the metric rather than measure the agent.
+
+In mixed traces, `create_agent` agent spans are skipped individually; real agent
+and LLM execution remains eligible, and the complete trace stays available as
+context. Initialization spans are never deleted or reparented — they carry the
+agent's configured tools and system prompt, which trace-level evaluators may
+legitimately use.
+
+Initialization is identified by `gen_ai.operation.name=create_agent`, or the exact
+`create_agent` operation token in the span name when that attribute is absent.
+Generic OpenLLMetry agent/workflow spans are not assumed to be initialization.
+
+Failures are determined from the original root span's OTel/AMP error status or
+HTTP status (including 446), not from recovered child errors. Missing status
+metadata does not imply failure. When a trace is both failed and
+initialization-only, `Request failed` is the reported reason.
+
 ## Discovery and Module Scanning
 
 ### `discover_evaluators()`
