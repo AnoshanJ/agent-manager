@@ -19,6 +19,10 @@
   display: none !important;
 }
 
+.swagger-spec-viewer.hide-models .swagger-ui .models {
+  display: none !important;
+}
+
 .swagger-spec-viewer .swagger-ui .opblock-tag {
   display: none !important;
 }

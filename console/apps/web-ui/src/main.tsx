@@ -7,6 +7,7 @@ import '@fontsource/roboto/700.css'
 import 'swagger-ui-react/swagger-ui.css'
 import './SwaggerSpecViewer.css'
 import './SwaggerDark.css'
+import './SwaggerProductTheme.css'
 import './index.css'
 import App from './App.tsx'
 

@@ -1,4 +1,13 @@
-html[data-color-scheme="dark"] {
+/* :where(...) keeps this file's selectors matching the same dark-mode scope
+   without adding to their specificity, so SwaggerProductTheme.css's plain
+   `.swagger-ui ...` rules (imported after this file) can win the cascade on
+   any property both files set, instead of losing to these rules just because
+   they're wrapped in an attribute-selector prefix. Without this, dark mode
+   keeps this file's generic colors (e.g. the blue Execute button, blue/green/
+   tan/red method badges) instead of the Oxygen-branded ones, while light mode
+   — where this file doesn't apply at all — shows the intended branding, so
+   the two modes visibly disagree on the product's palette. */
+:where(html[data-color-scheme="dark"]) {
 
     .swagger-ui, .swagger-ui section h3 { color: #b5bac9; }
 

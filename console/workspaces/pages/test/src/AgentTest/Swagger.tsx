@@ -317,7 +317,11 @@ export function Swagger() {
           Test key refreshed. Execute the request again.
         </Alert>
       )}
-      <Box sx={{ "& .swagger-ui .wrapper": { padding: 0 } }}>
+      {/* The page's own title already covers what the spec's info block would
+          repeat, so this view hides it (and the single, uninformative default
+          tag header) via the shared swagger-spec-viewer classes instead of
+          rendering swagger-ui's out-of-the-box chrome. */}
+      <Box className="swagger-spec-viewer hide-info-section hide-servers hide-models">
         <SwaggerUI
           spec={specContent}
           layout="BaseLayout"
