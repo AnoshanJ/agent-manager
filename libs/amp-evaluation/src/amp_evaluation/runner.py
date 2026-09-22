@@ -819,7 +819,7 @@ class Monitor(BaseRunner):
             else:
                 logger.info("Trace selection%s: %d trace(s) selected for evaluation", sampling_note, selected)
 
-        eval_traces: Iterable[Trace] = traces if traces else _iter_parsed_traces()
+        eval_traces: Iterable[Trace] = traces if traces is not None else _iter_parsed_traces()
 
         run_result = self._evaluate_traces(
             traces=eval_traces,
