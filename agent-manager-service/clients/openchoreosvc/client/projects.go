@@ -198,9 +198,13 @@ func (c *openChoreoClient) ListProjects(ctx context.Context, ouID string) ([]*mo
 	}
 
 	items := resp.JSON200.Items
-	projects := make([]*models.ProjectResponse, len(items))
+	projects := make([]*models.ProjectResponse, 0, len(items))
 	for i := range items {
-		projects[i] = convertProjectToResponse(&items[i])
+		if isTerminating(items[i].Metadata) {
+			// Deleted, still held by its project-cleanup finalizer — see isTerminating.
+			continue
+		}
+		projects = append(projects, convertProjectToResponse(&items[i]))
 	}
 	return projects, nil
 }

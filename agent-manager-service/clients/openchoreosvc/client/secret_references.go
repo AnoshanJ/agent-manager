@@ -148,6 +148,10 @@ func (c *openChoreoClient) ListSecretReferences(ctx context.Context, ouID string
 
 	refs := make([]*SecretReferenceInfo, 0)
 	for i := range resp.JSON200.Items {
+		if isTerminating(resp.JSON200.Items[i].Metadata) {
+			// Deleted but not yet finalized — see isTerminating.
+			continue
+		}
 		// If componentName filter is provided, only include matching refs
 		if componentName != "" {
 			labels := resp.JSON200.Items[i].Metadata.Labels

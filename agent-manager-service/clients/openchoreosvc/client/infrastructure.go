@@ -320,9 +320,13 @@ func (c *openChoreoClient) ListEnvironments(ctx context.Context, ouID string) ([
 		return []*models.EnvironmentResponse{}, nil
 	}
 
-	envs := make([]*models.EnvironmentResponse, len(resp.JSON200.Items))
+	envs := make([]*models.EnvironmentResponse, 0, len(resp.JSON200.Items))
 	for i := range resp.JSON200.Items {
-		envs[i] = convertEnvironmentToResponse(&resp.JSON200.Items[i])
+		if isTerminating(resp.JSON200.Items[i].Metadata) {
+			// Deleted but not yet finalized — see isTerminating.
+			continue
+		}
+		envs = append(envs, convertEnvironmentToResponse(&resp.JSON200.Items[i]))
 	}
 	return envs, nil
 }
@@ -596,9 +600,13 @@ func (c *openChoreoClient) ListDeploymentPipelines(ctx context.Context, ouID str
 		return []*models.DeploymentPipelineResponse{}, nil
 	}
 
-	pipelines := make([]*models.DeploymentPipelineResponse, len(resp.JSON200.Items))
-	for i, p := range resp.JSON200.Items {
-		pipelines[i] = convertDeploymentPipeline(&p, namespaceName)
+	pipelines := make([]*models.DeploymentPipelineResponse, 0, len(resp.JSON200.Items))
+	for i := range resp.JSON200.Items {
+		if isTerminating(resp.JSON200.Items[i].Metadata) {
+			// Deleted but not yet finalized — see isTerminating.
+			continue
+		}
+		pipelines = append(pipelines, convertDeploymentPipeline(&resp.JSON200.Items[i], namespaceName))
 	}
 	return pipelines, nil
 }

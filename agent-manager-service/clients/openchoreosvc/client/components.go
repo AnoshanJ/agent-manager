@@ -1255,6 +1255,10 @@ func (c *openChoreoClient) ListComponents(ctx context.Context, ouID, projectName
 	components := make([]*models.AgentResponse, 0, len(resp.JSON200.Items))
 	for i := range resp.JSON200.Items {
 		item := &resp.JSON200.Items[i]
+		if isTerminating(item.Metadata) {
+			// Already deleted and waiting on its cleanup finalizer — see isTerminating.
+			continue
+		}
 		if item.Spec == nil || !isAgentComponentType(item.Spec.ComponentType.Name) {
 			// Projects are shared across WSO2 Cloud products, so a project can contain
 			// components other products created (e.g. a plain "deployment/service").
@@ -1302,7 +1306,13 @@ func (c *openChoreoClient) CountProjectComponents(ctx context.Context, ouID, pro
 			return total, nil
 		}
 
-		total += len(resp.JSON200.Items)
+		for i := range resp.JSON200.Items {
+			// A component that is already terminating does not make the project non-empty;
+			// counting it would refuse a project delete that follows an agent delete.
+			if !isTerminating(resp.JSON200.Items[i].Metadata) {
+				total++
+			}
+		}
 		nextCursor := resp.JSON200.Pagination.NextCursor
 		if nextCursor == nil || *nextCursor == "" {
 			return total, nil
@@ -1350,6 +1360,10 @@ func (c *openChoreoClient) ListComponentsByKind(ctx context.Context, ouID, proje
 
 	components := make([]*models.AgentResponse, 0, len(resp.JSON200.Items))
 	for i := range resp.JSON200.Items {
+		if isTerminating(resp.JSON200.Items[i].Metadata) {
+			// Terminating instances must not block DeleteKind — see isTerminating.
+			continue
+		}
 		comp, err := convertComponentFromTyped(&resp.JSON200.Items[i])
 		if err != nil {
 			slog.Error("failed to convert component", "component", resp.JSON200.Items[i].Metadata.Name, "error", err)
