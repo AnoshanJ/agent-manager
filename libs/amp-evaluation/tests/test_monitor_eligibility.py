@@ -365,3 +365,46 @@ def test_execution_nested_under_creation_keeps_agent_context():
     assert [s.skip_reason for s in scores] == [None]
     assert scores[0].score == 0.5
     assert seen == [("init", "WeatherAgent", "gpt-4o-mini", ["get_weather"], "You are helpful")]
+
+
+def test_creation_span_with_unclaimed_execution_scored_alongside_other_agents():
+    seen = []
+
+    @evaluator("check")
+    def check(agent_trace: AgentTrace) -> EvalResult:
+        seen.append(agent_trace.agent_id)
+        return EvalResult(score=0.5)
+
+    trace = Trace(
+        trace_id="t",
+        spans=[
+            AgentSpan(span_id="initA", operation_name="create_agent", name="A"),
+            LLMSpan(span_id="llmA", parent_span_id="initA"),
+            AgentSpan(span_id="runB", operation_name="invoke_agent", name="B"),
+            LLMSpan(span_id="llmB", parent_span_id="runB"),
+        ],
+    )
+    scores = check.run(trace)
+    assert [s.skip_reason for s in scores] == [None, None]
+    assert seen == ["initA", "runB"]
+
+
+def test_creation_span_is_skipped_when_a_nested_agent_owns_the_execution():
+    seen = []
+
+    @evaluator("check")
+    def check(agent_trace: AgentTrace) -> EvalResult:
+        seen.append(agent_trace.agent_id)
+        return EvalResult(score=0.5)
+
+    trace = Trace(
+        trace_id="t",
+        spans=[
+            AgentSpan(span_id="init", operation_name="create_agent", name="A"),
+            AgentSpan(span_id="run", operation_name="invoke_agent", parent_span_id="init", name="A"),
+            LLMSpan(span_id="llm", parent_span_id="run"),
+        ],
+    )
+    scores = check.run(trace)
+    assert [s.skip_reason for s in scores] == ["Agent initialization", None]
+    assert seen == ["run"]

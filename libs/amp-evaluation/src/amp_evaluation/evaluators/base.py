@@ -445,12 +445,21 @@ class BaseEvaluator(ABC):
 
         elif eval_level == EvaluationLevel.AGENT:
             agent_spans = trace.get_agents()
-            creation_spans = [span for span in agent_spans if span.operation_name == "create_agent"]
-            # Skip creation spans only when another agent span carries the execution;
-            # otherwise the creation span is the only container holding it.
+
+            def _owns_unclaimed_execution(creation_span) -> bool:
+                """Whether this creation span holds execution no other agent span accounts for."""
+                descendants = trace._get_descendant_spans(creation_span.span_id)
+                if any(isinstance(span, AgentSpan) and span.operation_name != "create_agent" for span in descendants):
+                    return False
+                return any(isinstance(span, (LLMSpan, ToolSpan, RetrieverSpan)) for span in descendants)
+
             skipped_span_ids = (
-                {span.span_id for span in creation_spans}
-                if skip_initialization and len(creation_spans) < len(agent_spans)
+                {
+                    span.span_id
+                    for span in agent_spans
+                    if span.operation_name == "create_agent" and not _owns_unclaimed_execution(span)
+                }
+                if skip_initialization
                 else set()
             )
 
