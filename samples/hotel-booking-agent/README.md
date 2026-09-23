@@ -121,6 +121,9 @@ Deploy the hotel API as a separate service, then set:
 HOTEL_API_BASE_URL=<deployed-hotel-api-base-url>
 ```
 
+### Smoke Test
+`scripts/smoke_test.sh` installs both services, starts them without API keys, and checks they respond. CI runs it on pull requests that touch this sample.
+
 ### Policy Search
 The agent answers policy questions through the Hotel API (`GET /hotels/{hotel_id}/policies/search`). The Hotel API loads the policy PDFs in `services/hotel_api/resources/policy_pdfs/` on startup into one of two stores:
 
