@@ -579,8 +579,15 @@ func TestMCPProxyScopeCreate_EnsureListFailureDoesNotFailSave(t *testing.T) {
 			return nil, errors.New("db unavailable")
 		},
 	}
+	proxy := &models.MCPProxy{
+		UUID:     uuid.New(),
+		Artifact: &models.Artifact{Handle: "gh-proxy"},
+		Endpoints: []models.MCPProxyEndpoint{
+			identityEnabledEndpoint("a", uuid.New(), uuid.New(), true),
+		},
+	}
 	redeployer := &recordingRedeployer{}
-	svc := newScopeSvcForTestWithRedeployer(scopeRepo, scopeTestProxy("gh-proxy", "list_repos"), redeployer)
+	svc := newScopeSvcForTestWithRedeployer(scopeRepo, proxy, redeployer)
 
 	res, err := svc.Create(context.Background(), "org-uuid", "org", "gh-proxy",
 		models.MCPProxyScopeInput{Action: "read"})
