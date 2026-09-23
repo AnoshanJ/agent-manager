@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -27,6 +28,14 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
+
+// ensureResourceServerPerEnvTimeout bounds one environment's ensure attempt
+// inside EnsureResourceServersForProxy's fan-out. Thunder's HTTP client
+// already times out a single request at 30s (see thundersvc.httpClientTimeout),
+// but EnsureResourceServer can make several such calls per environment, so
+// without its own bound one slow environment could stall the whole fan-out
+// far past that.
+const ensureResourceServerPerEnvTimeout = 15 * time.Second
 
 // ErrMCPProxyNotDeployedToEnvironment means the proxy has no deployed
 // (endpoint, environment) binding to anchor a resource identifier on.
@@ -149,7 +158,10 @@ func (s *MCPProxyService) EnsureResourceServersForProxy(ctx context.Context, ouI
 				s.logger.Warn("ensure resource server: env-thunder unavailable", "proxy", handle, "env", name, "error", err)
 				continue
 			}
-			if _, err := s.EnsureResourceServer(ctx, ouID, ee.EnvironmentUUID, client, proxy, actions); err != nil {
+			envCtx, cancel := context.WithTimeout(ctx, ensureResourceServerPerEnvTimeout)
+			_, err = s.EnsureResourceServer(envCtx, ouID, ee.EnvironmentUUID, client, proxy, actions)
+			cancel()
+			if err != nil {
 				s.logger.Warn("ensure resource server: ensure failed", "proxy", handle, "env", name, "error", err)
 				continue
 			}

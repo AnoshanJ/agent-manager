@@ -242,7 +242,7 @@ func (s *MCPProxyService) Create(ctx context.Context, orgUUID, createdBy string,
 		}
 		s.logger.Warn("Failed to deploy one or more MCP proxy endpoint artifacts", "proxyID", created.UUID, "error", err)
 	}
-	s.ensureResourceServersForCurrentScopes(ctx, orgUUID, created)
+	go s.ensureResourceServersForCurrentScopes(context.WithoutCancel(ctx), orgUUID, created)
 	return convertModelMCPProxyToSpec(created), nil
 }
 
@@ -562,7 +562,7 @@ func (s *MCPProxyService) Update(ctx context.Context, orgUUID, proxyID string, r
 	go s.refreshAgentsBoundToProxy(context.WithoutCancel(ctx), updated, orgUUID)
 
 	// Re-ensure resource servers now that bindings are live.
-	s.ensureResourceServersForCurrentScopes(ctx, orgUUID, updated)
+	go s.ensureResourceServersForCurrentScopes(context.WithoutCancel(ctx), orgUUID, updated)
 
 	// Now evaluate the deployment error after cleanup has run.
 	if deployErr != nil {

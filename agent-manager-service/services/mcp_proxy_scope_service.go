@@ -198,7 +198,7 @@ func (s *mcpProxyScopeService) Create(ctx context.Context, ouID, orgName, proxyH
 		return nil, fmt.Errorf("failed to create mcp proxy scope: %w", err)
 	}
 
-	s.ensureResourceServerEverywhere(ctx, ouID, proxy)
+	go s.ensureResourceServerEverywhere(context.WithoutCancel(ctx), ouID, proxy)
 
 	if err := s.proxySvc.RedeployMCPProxy(ctx, proxy, ouID); err != nil {
 		return nil, fmt.Errorf("scope created but gateway re-emission failed (retry by redeploying the proxy): %w", err)
@@ -245,7 +245,7 @@ func (s *mcpProxyScopeService) Update(ctx context.Context, ouID, orgName, proxyH
 		return nil, fmt.Errorf("failed to update mcp proxy scope: %w", err)
 	}
 
-	s.ensureResourceServerEverywhere(ctx, ouID, proxy)
+	go s.ensureResourceServerEverywhere(context.WithoutCancel(ctx), ouID, proxy)
 
 	if err := s.proxySvc.RedeployMCPProxy(ctx, proxy, ouID); err != nil {
 		return nil, fmt.Errorf("scope updated but gateway re-emission failed (retry by redeploying the proxy): %w", err)

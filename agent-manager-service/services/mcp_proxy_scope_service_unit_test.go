@@ -21,10 +21,13 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
@@ -129,9 +132,14 @@ type ensureRSCall struct {
 
 // recordingRedeployer records every RedeployMCPProxy/EnsureResourceServersForProxy
 // call so tests can assert re-emission and resource-server-ensure happened.
+// The service now launches EnsureResourceServersForProxy from a detached
+// goroutine, so ensureCalls is mutex-guarded; read it via ensureCallsSnapshot
+// (polled with require.Eventually), never directly.
 type recordingRedeployer struct {
-	calls       []redeployCall
-	err         error
+	calls []redeployCall
+	err   error
+
+	mu          sync.Mutex
 	ensureCalls []ensureRSCall
 }
 
@@ -141,7 +149,16 @@ func (r *recordingRedeployer) RedeployMCPProxy(_ context.Context, proxy *models.
 }
 
 func (r *recordingRedeployer) EnsureResourceServersForProxy(_ context.Context, ouID string, proxy *models.MCPProxy, actions []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.ensureCalls = append(r.ensureCalls, ensureRSCall{ouID: ouID, proxy: proxy, actions: actions})
+}
+
+// ensureCallsSnapshot safely copies the calls recorded so far.
+func (r *recordingRedeployer) ensureCallsSnapshot() []ensureRSCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]ensureRSCall(nil), r.ensureCalls...)
 }
 
 func TestMCPProxyScopeCreate_ValidatesAction(t *testing.T) {
@@ -537,13 +554,15 @@ func TestMCPProxyScopeCreate_DelegatesResourceServerEnsureWithFullActionSet(t *t
 		models.MCPProxyScopeInput{Action: "read"})
 
 	assert.NoError(t, err)
-	if assert.Len(t, redeployer.ensureCalls, 1) {
-		call := redeployer.ensureCalls[0]
-		assert.Equal(t, "org-uuid", call.ouID)
-		assert.Same(t, proxy, call.proxy)
-		assert.ElementsMatch(t, []string{"list_repos", "read"}, call.actions,
-			"must pass the proxy's full current action set, not just the one just saved")
-	}
+	// The ensure call runs on a detached goroutine (see mcpProxyScopeService.Create),
+	// so wait for it rather than asserting on ensureCalls the instant Create returns.
+	require.Eventually(t, func() bool { return len(redeployer.ensureCallsSnapshot()) == 1 },
+		time.Second, 10*time.Millisecond, "expected exactly one ensure call")
+	call := redeployer.ensureCallsSnapshot()[0]
+	assert.Equal(t, "org-uuid", call.ouID)
+	assert.Same(t, proxy, call.proxy)
+	assert.ElementsMatch(t, []string{"list_repos", "read"}, call.actions,
+		"must pass the proxy's full current action set, not just the one just saved")
 }
 
 // TestMCPProxyScopeCreate_EnsureListFailureDoesNotFailSave guards the
@@ -568,7 +587,7 @@ func TestMCPProxyScopeCreate_EnsureListFailureDoesNotFailSave(t *testing.T) {
 
 	assert.NoError(t, err, "a scope-list failure for the ensure call must not fail the scope save")
 	assert.Equal(t, "read", res.Scope.Action)
-	assert.Empty(t, redeployer.ensureCalls)
+	assert.Empty(t, redeployer.ensureCallsSnapshot())
 	assert.Len(t, redeployer.calls, 1, "the save must still re-emit gateway policy despite the ensure failure")
 }
 
@@ -602,8 +621,9 @@ func TestMCPProxyScopeUpdate_DelegatesResourceServerEnsure(t *testing.T) {
 		models.MCPProxyScopeUpdateInput{Description: &desc})
 
 	assert.NoError(t, err)
-	if assert.Len(t, redeployer.ensureCalls, 1) {
-		assert.Same(t, proxy, redeployer.ensureCalls[0].proxy)
-		assert.Equal(t, []string{"read"}, redeployer.ensureCalls[0].actions)
-	}
+	require.Eventually(t, func() bool { return len(redeployer.ensureCallsSnapshot()) == 1 },
+		time.Second, 10*time.Millisecond, "expected exactly one ensure call")
+	calls := redeployer.ensureCallsSnapshot()
+	assert.Same(t, proxy, calls[0].proxy)
+	assert.Equal(t, []string{"read"}, calls[0].actions)
 }
