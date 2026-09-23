@@ -82,9 +82,9 @@ class BookingListRequest(BaseModel):
 
 
 def _policy_vectorstore() -> PineconeVectorStore:
-    pc = Pinecone(api_key=settings.pinecone_api_key, host=settings.pinecone_service_url)
-    # Use the data-plane host directly to avoid control-plane describe_index calls.
-    index = pc.Index(host=settings.pinecone_service_url)
+    pc = Pinecone(api_key=settings.pinecone_api_key)
+    # The host is looked up from the index name unless PINECONE_SERVICE_URL is set.
+    index = pc.Index(name=settings.pinecone_index_name, host=settings.pinecone_service_url or "")
     return PineconeVectorStore(
         index=index,
         embedding=_embedder(),
@@ -172,13 +172,13 @@ def query_hotel_policy_tool(
         resolved_id = clean_id
     else:
         resolved_id = _resolve_hotel_id(hotel_name or hotel_id)
-    if resolved_id and not (settings.pinecone_api_key and settings.pinecone_service_url):
+    if resolved_id and not settings.pinecone_api_key:
         return {
             "found": False,
             "source": "pinecone",
             "hotel_id": resolved_id,
             "text": "",
-            "note": "Policy search is not configured (PINECONE_API_KEY / PINECONE_SERVICE_URL not set).",
+            "note": "Policy search is not configured (PINECONE_API_KEY not set).",
         }
     if resolved_id:
         try:
