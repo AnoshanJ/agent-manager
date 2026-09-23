@@ -4,6 +4,7 @@ from pathlib import Path
 
 import logging
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_core.vectorstores import VectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
@@ -18,23 +19,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_POLICIES_DIR = Path(__file__).resolve().parent / "resources" / "policy_pdfs"
 
 
+def build_embeddings(settings: Settings) -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(
+        model=settings.openai_embedding_model,
+        api_key=settings.openai_api_key,
+    )
+
+
 class PolicyIngestion:
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+    def __init__(self, vectorstore: VectorStore) -> None:
+        self._vectorstore = vectorstore
         self._pdf_loader_cls = PyPDFLoader
         self._splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
-        )
-        embeddings = OpenAIEmbeddings(
-            model=self._settings.openai_embedding_model,
-            api_key=self._settings.openai_api_key,
-        )
-        self._vectorstore = PineconeVectorStore(
-            index_name=self._settings.pinecone_index_name,
-            embedding=embeddings,
-            pinecone_api_key=self._settings.pinecone_api_key,
-            host=self._settings.pinecone_service_url,
         )
 
     def ingest_all_policies(self, policies_dir: Path) -> None:
@@ -83,7 +81,7 @@ class PolicyIngestion:
         logger.info("ingested %s", folder.name)
 
 
-def ensure_policy_index() -> None:
+def ensure_policy_index() -> PineconeVectorStore | None:
     try:
         settings = get_settings()
     except ValidationError as exc:
@@ -91,11 +89,11 @@ def ensure_policy_index() -> None:
             "policy ingest skipped; invalid Pinecone settings: %s",
             exc,
         )
-        return
+        return None
 
     if not settings.pinecone_api_key:
         logger.info("policy ingest skipped; PINECONE_API_KEY not set.")
-        return
+        return None
 
     index_name = settings.pinecone_index_name
     logger.info(
@@ -105,54 +103,44 @@ def ensure_policy_index() -> None:
     )
     try:
         pc = Pinecone(api_key=settings.pinecone_api_key)
-        index_names = pc.list_indexes().names()
-        logger.info("Pinecone indexes in this project: %s", list(index_names) or "none")
-        if index_name not in index_names and settings.pinecone_service_url:
-            logger.error(
-                "policy ingest skipped; Pinecone index '%s' does not exist",
-                index_name,
-            )
-            return
-        if index_name not in index_names:
-            dimension = len(
-                OpenAIEmbeddings(
-                    model=settings.openai_embedding_model,
-                    api_key=settings.openai_api_key,
-                ).embed_query("dimension probe")
-            )
-            logger.info("creating Pinecone index '%s' (dimension %s)", index_name, dimension)
-            pc.create_index(
-                name=index_name,
-                dimension=dimension,
-                metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-            )
-            logger.info("created Pinecone index '%s'", index_name)
-        stats = pc.Index(index_name).describe_index_stats()
-        total_vectors = getattr(stats, "total_vector_count", 0)
-        if total_vectors > 0:
-            logger.info(
-                "policy index '%s' already has %s vectors; skipping ingest",
-                index_name,
-                total_vectors,
-            )
-            return
-        logger.info(
-            "policy index '%s' exists but is empty; proceeding with ingest",
-            index_name,
-        )
+        if settings.pinecone_service_url:
+            index = pc.Index(host=settings.pinecone_service_url)
+        else:
+            index_names = pc.list_indexes().names()
+            logger.info("Pinecone indexes in this project: %s", list(index_names) or "none")
+            if index_name not in index_names:
+                dimension = len(build_embeddings(settings).embed_query("dimension probe"))
+                logger.info("creating Pinecone index '%s' (dimension %s)", index_name, dimension)
+                pc.create_index(
+                    name=index_name,
+                    dimension=dimension,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+                logger.info("created Pinecone index '%s'", index_name)
+            index = pc.Index(index_name)
+        vectorstore = PineconeVectorStore(index=index, embedding=build_embeddings(settings))
+        total_vectors = getattr(index.describe_index_stats(), "total_vector_count", 0)
     except Exception:
-        logger.exception("failed to check Pinecone index; skipping policy ingest")
-        return
+        logger.exception("failed to prepare Pinecone index; policy search disabled")
+        return None
+
+    if total_vectors > 0:
+        logger.info(
+            "policy index '%s' already has %s vectors; skipping ingest",
+            index_name,
+            total_vectors,
+        )
+        return vectorstore
 
     policies_dir = Path(settings.policies_dirs) if settings.policies_dirs else DEFAULT_POLICIES_DIR
-    logger.info("ingesting policies from %s", policies_dir)
+    logger.info("policy index '%s' is empty; ingesting policies from %s", index_name, policies_dir)
     try:
-        ingestion = PolicyIngestion(settings)
-        ingestion.ingest_all_policies(policies_dir=policies_dir)
+        PolicyIngestion(vectorstore).ingest_all_policies(policies_dir=policies_dir)
         logger.info("policy ingest completed")
     except Exception:
         logger.exception("policy ingest failed")
+    return vectorstore
 
 
 if __name__ == "__main__":
