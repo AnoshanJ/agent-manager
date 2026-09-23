@@ -7,7 +7,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 
 from pydantic import ValidationError
 
@@ -100,12 +100,26 @@ def ensure_policy_index() -> None:
     try:
         pc = Pinecone(api_key=settings.pinecone_api_key)
         index_names = pc.list_indexes().names()
-        if index_name not in index_names:
+        if index_name not in index_names and settings.pinecone_service_url:
             logger.error(
                 "policy ingest skipped; Pinecone index '%s' does not exist",
                 index_name,
             )
             return
+        if index_name not in index_names:
+            dimension = len(
+                OpenAIEmbeddings(
+                    model=settings.openai_embedding_model,
+                    api_key=settings.openai_api_key,
+                ).embed_query("dimension probe")
+            )
+            logger.info("creating Pinecone index '%s' (dimension %s)", index_name, dimension)
+            pc.create_index(
+                name=index_name,
+                dimension=dimension,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            )
         stats = pc.Index(index_name).describe_index_stats()
         total_vectors = getattr(stats, "total_vector_count", 0)
         if total_vectors > 0:
