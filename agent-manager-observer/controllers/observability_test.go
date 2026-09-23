@@ -399,3 +399,56 @@ func TestGetMetrics_MapsAllSixSeriesAndNilBecomesEmpty(t *testing.T) {
 		t.Errorf("Metric = %q, want resource", fake.lastMetricsReq.Metric)
 	}
 }
+
+// (e) GetMetrics picks a step that keeps each console time range within
+// maxMetricsPoints points.
+func TestMetricsStep_ScalesWithWindow(t *testing.T) {
+	cases := []struct {
+		window time.Duration
+		want   time.Duration
+	}{
+		{10 * time.Minute, 30 * time.Second},
+		{time.Hour, 30 * time.Second},
+		{6 * time.Hour, 2 * time.Minute},
+		{12 * time.Hour, 5 * time.Minute},
+		{24 * time.Hour, 10 * time.Minute},
+		{7 * 24 * time.Hour, time.Hour},
+		{365 * 24 * time.Hour, 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		if got := metricsStep(tc.window); got != tc.want {
+			t.Errorf("metricsStep(%v) = %v, want %v", tc.window, got, tc.want)
+		}
+	}
+}
+
+// (f) Two refreshes of the same range a few seconds apart query the same
+// step-aligned window, so the returned points land on the same timestamps.
+func TestGetMetrics_AlignsWindowToStep(t *testing.T) {
+	first := time.Date(2026, 9, 23, 5, 59, 39, 908_000_000, time.UTC)
+	refreshes := []time.Time{first, first.Add(15 * time.Second)}
+
+	var got []observer.MetricsQueryRequest
+	for _, end := range refreshes {
+		fake := &fakeObservabilityClient{}
+		c := NewObservabilityController(fake)
+		if _, err := c.GetMetrics(context.Background(), MetricsQueryParams{
+			StartTime: end.Add(-12 * time.Hour),
+			EndTime:   end,
+		}); err != nil {
+			t.Fatalf("GetMetrics returned error: %v", err)
+		}
+		got = append(got, fake.lastMetricsReq)
+	}
+
+	wantStart := time.Date(2026, 9, 22, 17, 55, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 9, 23, 5, 55, 0, 0, time.UTC)
+	for i, req := range got {
+		if !req.StartTime.Equal(wantStart) || !req.EndTime.Equal(wantEnd) {
+			t.Errorf("refresh %d window = [%v, %v], want [%v, %v]", i, req.StartTime, req.EndTime, wantStart, wantEnd)
+		}
+		if req.Step != "5m0s" {
+			t.Errorf("refresh %d Step = %q, want 5m0s", i, req.Step)
+		}
+	}
+}
