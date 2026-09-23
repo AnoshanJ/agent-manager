@@ -11,9 +11,7 @@ Before deploying this agent, ensure you have:
 ### Required API Keys
 
 - **OpenAI API Key**: for model inference
-- **Pinecone API Key**: for policy retrieval
-- **Pinecone Service URL**: for Pinecone host
-- **Pinecone Index Name**: name of your Pinecone index
+- **Pinecone API Key** (optional): for policy questions. Without it, the agent still runs but can't answer policy questions.
 
 ### Supporting Service
 
@@ -54,14 +52,14 @@ Add the following environment variables in the create form:
 ```env
 OPENAI_API_KEY=<your-openai-api-key>
 PINECONE_API_KEY=<your-pinecone-api-key>
-PINECONE_SERVICE_URL=<your-pinecone-service-url>
-PINECONE_INDEX_NAME=<your-pinecone-index-name>
 HOTEL_API_BASE_URL=<your-hotel-api-base-url>
 ```
 
 Optional (with defaults):
 
 ```env
+PINECONE_INDEX_NAME=hotel-policies
+PINECONE_SERVICE_URL=
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 WEATHER_API_KEY=
@@ -127,25 +125,23 @@ HOTEL_API_BASE_URL=<deployed-hotel-api-base-url>
 ```
 
 ### Pinecone Policy Ingestion (Optional)
-- Create your own Pinecone index using your API key.
-- Provide `PINECONE_API_KEY`, `PINECONE_SERVICE_URL`, and `PINECONE_INDEX_NAME` to the Hotel API deployment.
-- If Pinecone settings are missing, ingestion is skipped and the Hotel API still runs.
+- Provide `PINECONE_API_KEY` and `OPENAI_API_KEY` to the Hotel API deployment.
+- If `PINECONE_API_KEY` is missing, ingestion is skipped and the Hotel API still runs.
+- The index name defaults to `hotel-policies`; set `PINECONE_INDEX_NAME` to use another one.
 - If the index exists and is empty, ingestion runs; if it already has vectors, ingestion is skipped.
 - Policy PDFs live in `samples/hotel-booking-agent/services/hotel_api/resources/policy_pdfs/`.
 
 #### How It Works
 - The Hotel API attempts ingestion on startup.
-- If `PINECONE_API_KEY`, `PINECONE_SERVICE_URL`, or `PINECONE_INDEX_NAME` is missing, ingestion is skipped and the service still starts.
-- If the Pinecone index exists and has no vectors, policies are embedded and upserted.
+- If `PINECONE_API_KEY` is missing, ingestion is skipped and the service still starts.
+- If the index doesn't exist, it is created as a serverless index on AWS `us-east-1`.
+- If the index has no vectors, policies are embedded and upserted.
 - If the index already has vectors, ingestion is skipped to avoid duplicates.
 
 #### Quick Setup
-1. Create a Pinecone index.
-2. Add these to your Hotel API `.env`:
+1. Add these to your Hotel API `.env`:
 ```env
 PINECONE_API_KEY=...
-PINECONE_SERVICE_URL=...
-PINECONE_INDEX_NAME=...
 OPENAI_API_KEY=...
 ```
-3. Start the service; ingestion will run automatically if the index is empty.
+2. Start the service; the index is created and filled automatically.
