@@ -32,7 +32,17 @@ const (
 	buildLogsLimit = 1000
 	// buildLogsSortOrder is the fixed sort order GetBuildLogs requests (oldest first).
 	buildLogsSortOrder = "asc"
+	// maxMetricsPoints caps how many points a metrics series may have; the
+	// step is the smallest entry of metricsSteps that stays within it.
+	maxMetricsPoints = 200
 )
+
+// metricsSteps are the query resolutions GetMetrics chooses between.
+var metricsSteps = []time.Duration{
+	30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute,
+	10 * time.Minute, 15 * time.Minute, 30 * time.Minute, time.Hour,
+	2 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
+}
 
 // ObservabilityController provides log and metrics functionality via the observer service.
 type ObservabilityController struct {
@@ -155,11 +165,15 @@ func (c *ObservabilityController) GetBuildLogs(ctx context.Context, organization
 }
 
 // GetMetrics fetches a resource metrics time series matching the given params.
+// The window is snapped to multiples of the step so repeated queries over a
+// moving window evaluate at the same timestamps and past points stay put.
 func (c *ObservabilityController) GetMetrics(ctx context.Context, params MetricsQueryParams) (*MetricsResponse, error) {
+	step := metricsStep(params.EndTime.Sub(params.StartTime))
 	req := observer.MetricsQueryRequest{
-		StartTime: params.StartTime,
-		EndTime:   params.EndTime,
+		StartTime: params.StartTime.Truncate(step),
+		EndTime:   params.EndTime.Truncate(step),
 		Metric:    "resource",
+		Step:      step.String(),
 		SearchScope: observer.ComponentSearchScope{
 			Namespace:   c.observerClient.NamespaceFor(params.Organization),
 			Project:     &params.Project,
@@ -181,6 +195,17 @@ func (c *ObservabilityController) GetMetrics(ctx context.Context, params Metrics
 		MemoryRequests: convertTimeSeries(resp.MemoryRequests),
 		MemoryLimits:   convertTimeSeries(resp.MemoryLimits),
 	}, nil
+}
+
+// metricsStep returns the smallest step that keeps a window within
+// maxMetricsPoints points, or the largest step for longer windows.
+func metricsStep(window time.Duration) time.Duration {
+	for _, step := range metricsSteps {
+		if window/step <= maxMetricsPoints {
+			return step
+		}
+	}
+	return metricsSteps[len(metricsSteps)-1]
 }
 
 // convertLogsQueryResponse converts an upstream LogsQueryResponse into the

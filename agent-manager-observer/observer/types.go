@@ -184,6 +184,7 @@ type MetricsQueryRequest struct {
 	StartTime   time.Time            `json:"startTime"`
 	EndTime     time.Time            `json:"endTime"`
 	Metric      string               `json:"metric"` // always "resource"
+	Step        string               `json:"step,omitempty"`
 	SearchScope ComponentSearchScope `json:"searchScope"`
 }
 
