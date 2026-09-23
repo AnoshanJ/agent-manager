@@ -50,6 +50,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/orgctx"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -282,6 +283,29 @@ func TestMonitorScheduler_triggerMonitor(t *testing.T) {
 		assert.ErrorIs(t, err, boom)
 		assert.False(t, retryAt.Before(before.Add(interval*time.Minute)),
 			"expected the retry to be deferred by the monitor's interval, got %s", retryAt)
+	})
+
+	t.Run("hands the executor a context carrying the monitor's org", func(t *testing.T) {
+		m := futureMonitor(org, 10, time.Now())
+		prov := &fakeProvisioner{IsThunderModeFunc: func() bool { return false }}
+
+		var gotOrg orgctx.ResolvedOrg
+		var hadOrg bool
+		exec := &fakeMonitorExecutor{
+			ExecuteMonitorRunFunc: func(ctx context.Context, _ ExecuteMonitorRunParams) (*ExecuteMonitorRunResult, error) {
+				gotOrg, hadOrg = orgctx.GetResolvedOrg(ctx)
+				return &ExecuteMonitorRunResult{Name: "run-1"}, nil
+			},
+			UpdateNextRunTimeFunc: func(context.Context, uuid.UUID, time.Time) error { return nil },
+		}
+		s := newScheduler(&clientmocks.OpenChoreoClientMock{}, prov, exec, &repomocks.MonitorRepositoryMock{})
+
+		require.NoError(t, s.triggerMonitor(context.Background(), &m))
+
+		// Without this the OpenChoreo client sends no impersonation header and
+		// endpoints that resolve the org from the caller reject the request.
+		require.True(t, hadOrg, "scheduler must stamp the org onto the context it passes down")
+		assert.Equal(t, org, gotOrg.OUID)
 	})
 
 	t.Run("caps the backoff so a long-interval monitor is not stalled by one failure", func(t *testing.T) {
@@ -669,6 +693,23 @@ func TestMonitorScheduler_syncSingleRunStatus(t *testing.T) {
 		s := newScheduler(oc, nonThunder(), &fakeMonitorExecutor{}, repo)
 
 		require.NoError(t, s.syncSingleRunStatus(context.Background(), run))
+	})
+
+	t.Run("stamps the run's org onto the context used for the OpenChoreo lookup", func(t *testing.T) {
+		var gotOrg orgctx.ResolvedOrg
+		var hadOrg bool
+		oc := &clientmocks.OpenChoreoClientMock{
+			GetWorkflowRunFunc: func(ctx context.Context, _, _ string) (*client.WorkflowRunResponse, error) {
+				gotOrg, hadOrg = orgctx.GetResolvedOrg(ctx)
+				return &client.WorkflowRunResponse{Status: "Pending"}, nil
+			},
+		}
+		s := newScheduler(oc, nonThunder(), &fakeMonitorExecutor{}, repoWithMonitor())
+
+		require.NoError(t, s.syncSingleRunStatus(context.Background(), baseRun()))
+
+		require.True(t, hadOrg, "status sync must stamp the org onto the context it passes down")
+		assert.Equal(t, org, gotOrg.OUID)
 	})
 
 	t.Run("fails a stale run whose WorkflowRun is confirmed gone", func(t *testing.T) {
