@@ -28,6 +28,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/db"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/orgctx"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
@@ -196,6 +197,13 @@ func (s *monitorSchedulerService) triggerMonitor(ctx context.Context, monitor *m
 	endTime := time.Now().Add(-safetyDelta)
 	nextRunTime := endTime.Add(interval)
 
+	// Carry the org the way a request would. The OpenChoreo client reads the resolved
+	// org from the context to stamp its impersonation header, and only the HTTP
+	// middleware ever sets it — so a scheduled run reaches OpenChoreo with no org at
+	// all and endpoints that resolve one from the caller reject the request. The
+	// scheduler knows which org it is acting for, so it says so.
+	ctx = orgctx.WithResolvedOrg(ctx, orgctx.ResolvedOrg{OUID: monitor.OUID})
+
 	// Get an org-bound OC client in Thunder mode; nil in non-Thunder mode (executor falls back).
 	orgOCClient, err := s.orgOCClient(ctx, monitor.OUID)
 	if err != nil {
@@ -296,6 +304,10 @@ func (s *monitorSchedulerService) syncSingleRunStatus(ctx context.Context, run *
 		s.logger.Warn("Monitor not found for run, skipping status sync", "monitorID", run.MonitorID)
 		return nil
 	}
+
+	// Same reason as triggerMonitor: the OpenChoreo call below needs the org this run
+	// belongs to, and a background context has none unless we put it there.
+	ctx = orgctx.WithResolvedOrg(ctx, orgctx.ResolvedOrg{OUID: monitor.OUID})
 
 	ocClient, err := s.orgOCClient(ctx, monitor.OUID)
 	if err != nil {
