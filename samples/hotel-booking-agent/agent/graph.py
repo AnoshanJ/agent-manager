@@ -34,6 +34,14 @@ class AgentState(TypedDict):
 
 
 def build_graph():
+    if settings.pinecone_api_key:
+        logger.info(
+            "Pinecone policy search enabled: index=%s host=%s",
+            settings.pinecone_index_name,
+            settings.pinecone_service_url or "(looked up by index name)",
+        )
+    else:
+        logger.warning("Pinecone policy search disabled: PINECONE_API_KEY not set")
     tools = TOOLS
     llm = ChatOpenAI(
         model=settings.openai_model,

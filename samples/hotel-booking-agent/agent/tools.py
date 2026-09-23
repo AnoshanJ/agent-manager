@@ -85,6 +85,7 @@ def _policy_vectorstore() -> PineconeVectorStore:
     pc = Pinecone(api_key=settings.pinecone_api_key)
     # The host is looked up from the index name unless PINECONE_SERVICE_URL is set.
     index = pc.Index(name=settings.pinecone_index_name, host=settings.pinecone_service_url or "")
+    logger.info("Pinecone index '%s' at host %s", settings.pinecone_index_name, index.config.host)
     return PineconeVectorStore(
         index=index,
         embedding=_embedder(),
@@ -200,7 +201,7 @@ def query_hotel_policy_tool(
                 }
             )
             docs = retriever.invoke(question)
-            logger.info("policy search returned %s documents", len(docs))
+            logger.info("policy search returned %s documents for hotel_id=%s", len(docs), resolved_id)
         except Exception:
             logger.exception("policy search failed for hotel_id=%s", resolved_id)
             docs = []

@@ -78,8 +78,9 @@ class PolicyIngestion:
                 "checksum": checksum,
             }
             ids.append(stable_id)
+        logger.info("ingesting %s: %s pages -> %s chunks", folder.name, len(docs), len(chunks))
         self._vectorstore.add_documents(chunks, ids=ids)
-        logger.info("Ingested %s", folder.name)
+        logger.info("ingested %s", folder.name)
 
 
 def ensure_policy_index() -> None:
@@ -97,9 +98,15 @@ def ensure_policy_index() -> None:
         return
 
     index_name = settings.pinecone_index_name
+    logger.info(
+        "Pinecone config: index=%s host=%s",
+        index_name,
+        settings.pinecone_service_url or "(looked up by index name)",
+    )
     try:
         pc = Pinecone(api_key=settings.pinecone_api_key)
         index_names = pc.list_indexes().names()
+        logger.info("Pinecone indexes in this project: %s", list(index_names) or "none")
         if index_name not in index_names and settings.pinecone_service_url:
             logger.error(
                 "policy ingest skipped; Pinecone index '%s' does not exist",
@@ -120,6 +127,7 @@ def ensure_policy_index() -> None:
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
+            logger.info("created Pinecone index '%s'", index_name)
         stats = pc.Index(index_name).describe_index_stats()
         total_vectors = getattr(stats, "total_vector_count", 0)
         if total_vectors > 0:
@@ -138,6 +146,7 @@ def ensure_policy_index() -> None:
         return
 
     policies_dir = Path(settings.policies_dirs) if settings.policies_dirs else DEFAULT_POLICIES_DIR
+    logger.info("ingesting policies from %s", policies_dir)
     try:
         ingestion = PolicyIngestion(settings)
         ingestion.ingest_all_policies(policies_dir=policies_dir)
