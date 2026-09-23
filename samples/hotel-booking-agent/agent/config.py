@@ -14,8 +14,8 @@ class Settings(BaseSettings):
         default=3,
         description="Maximum retry attempts for OpenAI API calls.",
     )
-    pinecone_api_key: str
-    pinecone_service_url: str
+    pinecone_api_key: str | None = None
+    pinecone_service_url: str | None = None
     pinecone_index_name: str = "hotel-policies"
     weather_api_key: str | None = None
     weather_api_base_url: str = "http://api.weatherapi.com/v1"

@@ -172,6 +172,14 @@ def query_hotel_policy_tool(
         resolved_id = clean_id
     else:
         resolved_id = _resolve_hotel_id(hotel_name or hotel_id)
+    if resolved_id and not (settings.pinecone_api_key and settings.pinecone_service_url):
+        return {
+            "found": False,
+            "source": "pinecone",
+            "hotel_id": resolved_id,
+            "text": "",
+            "note": "Policy search is not configured (PINECONE_API_KEY / PINECONE_SERVICE_URL not set).",
+        }
     if resolved_id:
         try:
             vectorstore = _policy_vectorstore()
