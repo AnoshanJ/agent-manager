@@ -355,7 +355,7 @@ components:
           type: string
         source:
           type: string
-          enum: [pinecone]
+          enum: [pinecone, in-memory]
         results:
           type: array
           items:
