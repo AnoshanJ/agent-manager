@@ -11,7 +11,8 @@ Before deploying this agent, ensure you have:
 ### Required API Keys
 
 - **OpenAI API Key**: for model inference
-- **Pinecone API Key** (optional): for policy questions. Without it, the agent still runs but can't answer policy questions.
+
+Pinecone is optional and only configured on the Hotel API (see below).
 
 ### Supporting Service
 
@@ -51,17 +52,13 @@ Add the following environment variables in the create form:
 
 ```env
 OPENAI_API_KEY=<your-openai-api-key>
-PINECONE_API_KEY=<your-pinecone-api-key>
 HOTEL_API_BASE_URL=<your-hotel-api-base-url>
 ```
 
 Optional (with defaults):
 
 ```env
-PINECONE_INDEX_NAME=hotel-policies
-PINECONE_SERVICE_URL=
 OPENAI_MODEL=gpt-4o-mini
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 WEATHER_API_KEY=
 WEATHER_API_BASE_URL=http://api.weatherapi.com/v1
 ```
@@ -124,24 +121,13 @@ Deploy the hotel API as a separate service, then set:
 HOTEL_API_BASE_URL=<deployed-hotel-api-base-url>
 ```
 
-### Pinecone Policy Ingestion (Optional)
-- Provide `PINECONE_API_KEY` and `OPENAI_API_KEY` to the Hotel API deployment.
-- If `PINECONE_API_KEY` is missing, ingestion is skipped and the Hotel API still runs.
-- The index name defaults to `hotel-policies`; set `PINECONE_INDEX_NAME` to use another one.
-- If the index exists and is empty, ingestion runs; if it already has vectors, ingestion is skipped.
-- Policy PDFs live in `samples/hotel-booking-agent/services/hotel_api/resources/policy_pdfs/`.
+### Policy Search
+The agent answers policy questions through the Hotel API (`GET /hotels/{hotel_id}/policies/search`). The Hotel API loads the policy PDFs in `services/hotel_api/resources/policy_pdfs/` on startup into one of two stores:
 
-#### How It Works
-- The Hotel API attempts ingestion on startup.
-- If `PINECONE_API_KEY` is missing, ingestion is skipped and the service still starts.
-- If the index doesn't exist, it is created as a serverless index on AWS `us-east-1`.
-- If the index has no vectors, policies are embedded and upserted.
-- If the index already has vectors, ingestion is skipped to avoid duplicates.
+| Hotel API env | Store | Notes |
+|---|---|---|
+| `OPENAI_API_KEY` only | In-memory | Default. Rebuilt on every start; nothing else to set up. |
+| `OPENAI_API_KEY` + `PINECONE_API_KEY` | Pinecone | Index `hotel-policies` is created (serverless, AWS `us-east-1`) and filled if missing or empty. |
+| No `OPENAI_API_KEY` | None | Policy search returns 503; the rest of the API works. |
 
-#### Quick Setup
-1. Add these to your Hotel API `.env`:
-```env
-PINECONE_API_KEY=...
-OPENAI_API_KEY=...
-```
-2. Start the service; the index is created and filled automatically.
+Optional Pinecone settings: `PINECONE_INDEX_NAME` (default `hotel-policies`) and `PINECONE_SERVICE_URL` (use an existing index host directly). `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small`.
