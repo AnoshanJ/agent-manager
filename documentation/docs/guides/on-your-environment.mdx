@@ -1264,7 +1264,7 @@ helm upgrade --install observability-metrics-prometheus \
   --create-namespace \
   --namespace openchoreo-observability-plane \
   --version 0.6.1 \
-  --values https://raw.githubusercontent.com/wso2/agent-manager/amp/v${VERSION}/deployments/values/observability-metrics-prometheus.yaml \
+  --values "${AMP_DIST}/deployments/values/observability-metrics-prometheus.yaml" \
   --timeout 10m
 
 # Tracing module (uses the custom OTel Collector ConfigMap)
