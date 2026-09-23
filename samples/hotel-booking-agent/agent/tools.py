@@ -4,10 +4,7 @@ import logging
 from typing import Any, Optional
 import requests
 from datetime import date, datetime, timedelta, timezone
-from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone
 from langchain_core.tools import tool
-from langchain_openai import OpenAIEmbeddings
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -78,25 +75,6 @@ class BookingListRequest(BaseModel):
     status: Optional[str] = Field(
         None,
         description="Optional booking status filter: CONFIRMED, CANCELLED, or ALL.",
-    )
-
-
-def _policy_vectorstore() -> PineconeVectorStore:
-    pc = Pinecone(api_key=settings.pinecone_api_key)
-    # The host is looked up from the index name unless PINECONE_SERVICE_URL is set.
-    index = pc.Index(name=settings.pinecone_index_name, host=settings.pinecone_service_url or "")
-    logger.info("Pinecone index '%s' at host %s", settings.pinecone_index_name, index.config.host)
-    return PineconeVectorStore(
-        index=index,
-        embedding=_embedder(),
-        text_key="text",
-    )
-
-
-def _embedder() -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(
-        model=settings.openai_embedding_model,
-        api_key=settings.openai_api_key,
     )
 
 
@@ -173,62 +151,30 @@ def query_hotel_policy_tool(
         resolved_id = clean_id
     else:
         resolved_id = _resolve_hotel_id(hotel_name or hotel_id)
-    if resolved_id and not settings.pinecone_api_key:
+    if not resolved_id:
+        note = "Hotel not found." if (hotel_name or hotel_id) else "Hotel name or ID required."
+        return {"found": False, "hotel_id": None, "text": "", "note": note}
+
+    payload = _call_hotel_api(
+        "GET",
+        f"/hotels/{resolved_id}/policies/search",
+        params={"q": question},
+    )
+    if payload.get("error"):
         return {
             "found": False,
-            "source": "pinecone",
             "hotel_id": resolved_id,
             "text": "",
-            "note": "Policy search is not configured (PINECONE_API_KEY not set).",
+            "note": "Policy search is unavailable.",
         }
-    if resolved_id:
-        try:
-            vectorstore = _policy_vectorstore()
-        except Exception:
-            logger.exception("policy vectorstore init failed for hotel_id=%s", resolved_id)
-            return {
-                "found": False,
-                "source": "pinecone",
-                "hotel_id": resolved_id,
-                "text": "",
-                "note": "Policy vector store initialization failed.",
-            }
-        try:
-            retriever = vectorstore.as_retriever(
-                search_kwargs={
-                    "k": 5,
-                    "filter": {"hotel_id": {"$eq": resolved_id}},
-                }
-            )
-            docs = retriever.invoke(question)
-            logger.info("policy search returned %s documents for hotel_id=%s", len(docs), resolved_id)
-        except Exception:
-            logger.exception("policy search failed for hotel_id=%s", resolved_id)
-            docs = []
-        context_chunks = [getattr(d, "page_content", "") for d in docs]
-        context = "\n\n".join([c for c in context_chunks if c])
-        if context:
-            return {
-                "found": True,
-                "source": "pinecone",
-                "hotel_id": resolved_id,
-                "text": context,
-            }
-
-    if not hotel_name and not resolved_id:
-        return {
-            "found": False,
-            "source": "pinecone",
-            "hotel_id": resolved_id,
-            "text": "",
-            "note": "Hotel name or ID required.",
-        }
-
+    results = payload.get("results") or []
+    logger.info("policy search returned %s results for hotel_id=%s", len(results), resolved_id)
+    text = "\n\n".join(r.get("text", "") for r in results if r.get("text"))
     return {
-        "found": False,
-        "source": "pinecone",
+        "found": bool(text),
+        "source": payload.get("source"),
         "hotel_id": resolved_id,
-        "text": "",
+        "text": text,
     }
 
 
