@@ -199,7 +199,7 @@ def query_hotel_policy_tool(
                     "filter": {"hotel_id": {"$eq": resolved_id}},
                 }
             )
-            docs = retriever.get_relevant_documents(question)
+            docs = retriever.invoke(question)
             logger.info("policy search returned %s documents", len(docs))
         except Exception:
             logger.exception("policy search failed for hotel_id=%s", resolved_id)
