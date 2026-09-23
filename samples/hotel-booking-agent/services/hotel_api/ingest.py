@@ -92,8 +92,8 @@ def ensure_policy_index() -> None:
         )
         return
 
-    if not settings.pinecone_api_key or not settings.pinecone_service_url or not settings.pinecone_index_name:
-        logger.info("policy ingest skipped; missing Pinecone settings.")
+    if not settings.pinecone_api_key:
+        logger.info("policy ingest skipped; PINECONE_API_KEY not set.")
         return
 
     index_name = settings.pinecone_index_name
