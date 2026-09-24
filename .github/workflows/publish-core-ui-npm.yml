@@ -105,11 +105,8 @@ jobs:
           derived=false
           if [ -n "$version" ]; then
             case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
-          elif [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
-            echo "Error: target_version is required when publishing to npmjs." >&2
-            exit 1
           else
-            # Go-style pseudo-version, so a caller publishing on every change never picks one.
+            # Go-style pseudo-version: the commit is the pin, so no version is chosen by hand.
             ts=$(TZ=UTC git log -1 --date=format-local:%Y%m%d%H%M%S --format=%cd)
             version="0.0.0-${ts}-$(git rev-parse --short=12 HEAD)"
             # Its own tag: these are cut per commit and must not move `next`.
