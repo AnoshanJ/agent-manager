@@ -9,8 +9,9 @@ on:
         default: "main"
         type: string
       target_version:
-        description: "Version to publish (e.g., 0.0.1, 0.0.1-rc.1)"
-        required: true
+        description: "Version to publish (e.g., 0.0.1, 0.0.1-rc.1). Blank derives one from the commit."
+        required: false
+        default: ""
         type: string
       npm_scope:
         description: "NPM scope for publishing (e.g., @wso2)"
@@ -34,7 +35,8 @@ on:
         default: "main"
         type: string
       target_version:
-        required: true
+        required: false
+        default: ""
         type: string
       npm_scope:
         required: false
@@ -52,7 +54,7 @@ on:
       NPM_TOKEN_WSO2:
         required: false
 
-run-name: Publish core-ui ${{ inputs.target_version }}
+run-name: Publish core-ui ${{ inputs.target_version || inputs.source_ref }}
 
 jobs:
   publish-core-ui-npm:
@@ -66,16 +68,6 @@ jobs:
       run:
         working-directory: console
     steps:
-      - name: Validate target version
-        run: |
-          if [[ ! "$TARGET_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-            echo "Error: Invalid target_version format. Expected: X.Y.Z or X.Y.Z-suffix"
-            exit 1
-          fi
-        env:
-          TARGET_RELEASE: ${{ inputs.target_version }}
-        working-directory: .
-
       - name: Check the scope matches the registry
         if: contains(inputs.registry, 'npm.pkg.github.com')
         env:
@@ -95,6 +87,35 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_ref }}
+
+      - name: Resolve target version
+        id: version
+        working-directory: .
+        env:
+          TARGET_RELEASE: ${{ inputs.target_version }}
+          REGISTRY: ${{ inputs.registry }}
+        run: |
+          set -euo pipefail
+          version="$TARGET_RELEASE"
+          if [ -n "$version" ]; then
+            case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
+          elif [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
+            echo "Error: target_version is required when publishing to npmjs." >&2
+            exit 1
+          else
+            # Go-style pseudo-version, so a caller publishing on every change never picks one.
+            ts=$(TZ=UTC git log -1 --date=format-local:%Y%m%d%H%M%S --format=%cd)
+            version="0.0.0-${ts}-$(git rev-parse --short=12 HEAD)"
+            # Its own tag: these are cut per commit and must not move `next`.
+            tag=dev
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Error: Invalid target_version format. Expected: X.Y.Z or X.Y.Z-suffix"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Publishing core-ui ${version} to ${REGISTRY} under ${tag}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-console-node
@@ -131,7 +152,7 @@ jobs:
           cd workspaces/core-ui
           npm version "$TARGET_RELEASE" --no-git-tag-version --allow-same-version
         env:
-          TARGET_RELEASE: ${{ inputs.target_version }}
+          TARGET_RELEASE: ${{ steps.version.outputs.version }}
 
       - name: Link the package to this repository
         if: contains(inputs.registry, 'npm.pkg.github.com')
@@ -167,9 +188,10 @@ jobs:
       - name: Publish core-ui package
         run: |
           cd workspaces/core-ui
-          DIST_TAG="latest"
-          if [[ "$TARGET_RELEASE" == *"-"* ]]; then
-            DIST_TAG="next"
+          name=$(node -p "require('./package.json').name")
+          if npm view "${name}@${TARGET_RELEASE}" version >/dev/null 2>&1; then
+            echo "${name}@${TARGET_RELEASE} is already published; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           ACCESS="restricted"
           if [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
@@ -177,6 +199,7 @@ jobs:
           fi
           npm publish --access "$ACCESS" --tag "$DIST_TAG"
         env:
-          TARGET_RELEASE: ${{ inputs.target_version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+          TARGET_RELEASE: ${{ steps.version.outputs.version }}
           REGISTRY: ${{ inputs.registry }}
           NODE_AUTH_TOKEN: ${{ contains(inputs.registry, 'npm.pkg.github.com') && secrets.GITHUB_TOKEN || secrets.NPM_TOKEN_WSO2 }}
