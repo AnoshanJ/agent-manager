@@ -136,6 +136,11 @@ jobs:
       - name: Ensure package scope matches target
         run: |
           cd workspaces/core-ui
+          # Match what setup-node wrote to .npmrc: lowercase, leading '@'.
+          NPM_SCOPE=$(echo "$NPM_SCOPE" | tr '[:upper:]' '[:lower:]')
+          if [ "${NPM_SCOPE#@}" = "$NPM_SCOPE" ]; then
+            NPM_SCOPE="@${NPM_SCOPE}"
+          fi
           CURRENT_SCOPE=$(node -p "require('./package.json').name.split('/')[0]")
           if [[ "$CURRENT_SCOPE" != "$NPM_SCOPE" ]]; then
             PACKAGE_BASENAME=$(node -p "require('./package.json').name.split('/')[1]")
