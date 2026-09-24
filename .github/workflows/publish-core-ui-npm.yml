@@ -96,6 +96,10 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
         run: |
           set -euo pipefail
+          if [ -z "$REGISTRY" ]; then
+            echo "Error: registry must not be empty." >&2
+            exit 1
+          fi
           version="$TARGET_RELEASE"
           derived=false
           if [ -n "$version" ]; then
