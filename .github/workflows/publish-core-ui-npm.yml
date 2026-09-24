@@ -62,7 +62,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
-      # Unused on the npmjs path, and intersected with the caller's grant when reused.
+      # A reusable workflow cannot exceed its caller, so callers must grant this too.
       packages: write
     defaults:
       run:
