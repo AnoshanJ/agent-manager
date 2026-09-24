@@ -77,7 +77,8 @@ jobs:
         run: |
           # GitHub Packages only accepts the owning org as the scope, lowercased.
           expected="@$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
-          if [ "$(echo "$NPM_SCOPE" | tr '[:upper:]' '[:lower:]')" != "$expected" ]; then
+          actual="@$(echo "${NPM_SCOPE#@}" | tr '[:upper:]' '[:lower:]')"
+          if [ "$actual" != "$expected" ]; then
             echo "Error: GitHub Packages needs npm_scope '${expected}', got '${NPM_SCOPE}'." >&2
             exit 1
           fi
