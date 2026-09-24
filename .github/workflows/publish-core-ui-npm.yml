@@ -97,10 +97,10 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
         run: |
           set -euo pipefail
-          if [ -z "$REGISTRY" ]; then
-            echo "Error: registry must not be empty." >&2
-            exit 1
-          fi
+          case "${REGISTRY%/}" in
+            https://registry.npmjs.org|https://npm.pkg.github.com) ;;
+            *) echo "Error: unsupported registry '${REGISTRY}'." >&2; exit 1 ;;
+          esac
           version="$TARGET_RELEASE"
           derived=false
           if [ -n "$version" ]; then
@@ -135,7 +135,7 @@ jobs:
 
       # Only now, so dependency resolution above is unaffected by the publish target.
       - name: Configure the publish registry
-        uses: ./.github/actions/setup-console-node
+        uses: actions/setup-node@v6
         with:
           registry-url: ${{ inputs.registry }}
           scope: ${{ inputs.npm_scope }}
