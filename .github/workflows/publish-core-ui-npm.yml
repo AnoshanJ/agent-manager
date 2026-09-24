@@ -22,6 +22,26 @@ on:
         required: false
         default: "ubuntu-latest"
         type: string
+  workflow_call:
+    inputs:
+      source_ref:
+        required: false
+        default: "main"
+        type: string
+      target_version:
+        required: true
+        type: string
+      npm_scope:
+        required: false
+        default: "@wso2"
+        type: string
+      runner:
+        required: false
+        default: "ubuntu-latest"
+        type: string
+    secrets:
+      NPM_TOKEN_WSO2:
+        required: false
 
 run-name: Publish core-ui ${{ inputs.target_version }}
 
@@ -45,6 +65,7 @@ jobs:
           TARGET_RELEASE: ${{ inputs.target_version }}
         working-directory: .
 
+      # Reuse this from the same repository only: the checkout below takes the caller's.
       - name: Checkout code
         uses: actions/checkout@v6
         with:
