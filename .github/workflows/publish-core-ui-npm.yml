@@ -14,14 +14,14 @@ on:
         default: ""
         type: string
       npm_scope:
-        description: "NPM scope for publishing (e.g., @wso2)"
+        description: "NPM scope. Blank uses the owner of this repository."
         required: false
-        default: "@wso2"
+        default: ""
         type: string
       registry:
-        description: "Registry to publish to"
+        description: "Registry. Blank uses npmjs for wso2, GitHub Packages elsewhere."
         required: false
-        default: "https://registry.npmjs.org"
+        default: ""
         type: string
       runner:
         description: "Runner label (use ubuntu-latest for fork testing)"
@@ -40,11 +40,11 @@ on:
         type: string
       npm_scope:
         required: false
-        default: "@wso2"
+        default: ""
         type: string
       registry:
         required: false
-        default: "https://registry.npmjs.org"
+        default: ""
         type: string
       runner:
         required: false
@@ -68,20 +68,49 @@ jobs:
       run:
         working-directory: console
     steps:
-      - name: Check the scope matches the registry
-        if: contains(inputs.registry, 'npm.pkg.github.com')
+      - name: Resolve the publish target
+        id: target
         env:
-          NPM_SCOPE: ${{ inputs.npm_scope }}
+          NPM_SCOPE: ${{ inputs.npm_scope || vars.CORE_UI_NPM_SCOPE }}
+          REGISTRY: ${{ inputs.registry || vars.CORE_UI_REGISTRY }}
           OWNER: ${{ github.repository_owner }}
         working-directory: .
         run: |
-          # GitHub Packages only accepts the owning org as the scope, lowercased.
-          expected="@$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
-          actual="@$(echo "${NPM_SCOPE#@}" | tr '[:upper:]' '[:lower:]')"
-          if [ "$actual" != "$expected" ]; then
-            echo "Error: GitHub Packages needs npm_scope '${expected}', got '${NPM_SCOPE}'." >&2
+          set -euo pipefail
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          scope=$(echo "${NPM_SCOPE:-$owner}" | tr '[:upper:]' '[:lower:]')
+          scope="@${scope#@}"
+
+          registry="${REGISTRY%/}"
+          if [ -z "$registry" ]; then
+            # Only wso2 owns this package on npmjs; anywhere else, its own scope on GitHub Packages.
+            if [ "$owner" = wso2 ]; then
+              registry=https://registry.npmjs.org
+            else
+              registry=https://npm.pkg.github.com
+            fi
+          fi
+          case "$registry" in
+            https://registry.npmjs.org|https://npm.pkg.github.com) ;;
+            *) echo "Error: unsupported registry '${registry}'." >&2; exit 1 ;;
+          esac
+
+          # A fork publishing to public npm would disclose code that is not released yet.
+          if [ "$registry" = https://registry.npmjs.org ] && [ "$owner" != wso2 ]; then
+            echo "Error: '${owner}' must not publish to npmjs; it is not the public repository." >&2
             exit 1
           fi
+          # GitHub Packages only accepts the owning org as the scope.
+          if [ "$registry" = https://npm.pkg.github.com ] && [ "$scope" != "@${owner}" ]; then
+            echo "Error: GitHub Packages needs scope '@${owner}', got '${scope}'." >&2
+            exit 1
+          fi
+
+          {
+            echo "scope=${scope}"
+            echo "registry=${registry}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing ${scope}/am-core-ui to ${registry}" >> "$GITHUB_STEP_SUMMARY"
 
       # Reuse this from the same repository only: the checkout below takes the caller's.
       - name: Checkout code
@@ -94,13 +123,9 @@ jobs:
         working-directory: .
         env:
           TARGET_RELEASE: ${{ inputs.target_version }}
-          REGISTRY: ${{ inputs.registry }}
+          REGISTRY: ${{ steps.target.outputs.registry }}
         run: |
           set -euo pipefail
-          case "${REGISTRY%/}" in
-            https://registry.npmjs.org|https://npm.pkg.github.com) ;;
-            *) echo "Error: unsupported registry '${REGISTRY}'." >&2; exit 1 ;;
-          esac
           version="$TARGET_RELEASE"
           derived=false
           if [ -n "$version" ]; then
@@ -137,8 +162,8 @@ jobs:
       - name: Configure the publish registry
         uses: actions/setup-node@v6
         with:
-          registry-url: ${{ inputs.registry }}
-          scope: ${{ inputs.npm_scope }}
+          registry-url: ${{ steps.target.outputs.registry }}
+          scope: ${{ steps.target.outputs.scope }}
 
       - name: Ensure package scope matches target
         run: |
@@ -157,7 +182,7 @@ jobs:
             echo "Scope already correct: ${NPM_SCOPE}"
           fi
         env:
-          NPM_SCOPE: ${{ inputs.npm_scope }}
+          NPM_SCOPE: ${{ steps.target.outputs.scope }}
 
       - name: Set core-ui package version from release
         run: |
@@ -167,7 +192,7 @@ jobs:
           TARGET_RELEASE: ${{ steps.version.outputs.version }}
 
       - name: Link the package to this repository
-        if: contains(inputs.registry, 'npm.pkg.github.com')
+        if: steps.target.outputs.registry == 'https://npm.pkg.github.com'
         run: |
           cd workspaces/core-ui
           npm pkg set repository.type=git
@@ -221,5 +246,5 @@ jobs:
           DIST_TAG: ${{ steps.version.outputs.dist_tag }}
           DERIVED: ${{ steps.version.outputs.derived }}
           TARGET_RELEASE: ${{ steps.version.outputs.version }}
-          REGISTRY: ${{ inputs.registry }}
-          NODE_AUTH_TOKEN: ${{ contains(inputs.registry, 'npm.pkg.github.com') && secrets.GITHUB_TOKEN || secrets.NPM_TOKEN_WSO2 }}
+          REGISTRY: ${{ steps.target.outputs.registry }}
+          NODE_AUTH_TOKEN: ${{ steps.target.outputs.registry == 'https://npm.pkg.github.com' && secrets.GITHUB_TOKEN || secrets.NPM_TOKEN_WSO2 }}
