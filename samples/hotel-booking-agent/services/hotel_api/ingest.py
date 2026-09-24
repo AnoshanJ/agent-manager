@@ -125,16 +125,14 @@ def ensure_policy_index() -> PineconeVectorStore | None:
         logger.exception("failed to prepare Pinecone index; policy search disabled")
         return None
 
-    if total_vectors > 0:
-        logger.info(
-            "policy index '%s' already has %s vectors; skipping ingest",
-            index_name,
-            total_vectors,
-        )
-        return vectorstore
-
     policies_dir = Path(settings.policies_dirs) if settings.policies_dirs else DEFAULT_POLICIES_DIR
-    logger.info("policy index '%s' is empty; ingesting policies from %s", index_name, policies_dir)
+    # Chunk IDs are stable, so re-ingesting on every start upserts without duplicates.
+    logger.info(
+        "policy index '%s' has %s vectors; upserting policies from %s",
+        index_name,
+        total_vectors,
+        policies_dir,
+    )
     try:
         PolicyIngestion(vectorstore).ingest_all_policies(policies_dir=policies_dir)
         logger.info("policy ingest completed")

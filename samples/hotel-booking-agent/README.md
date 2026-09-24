@@ -165,7 +165,7 @@ How the Hotel API picks its policy store:
 
 | Hotel API env | Policy store |
 |---|---|
-| `OPENAI_API_KEY` + `PINECONE_API_KEY` | Pinecone. The index is created (serverless, AWS `us-east-1`) and filled if missing or empty. |
+| `OPENAI_API_KEY` + `PINECONE_API_KEY` | Pinecone. The index is created (serverless, AWS `us-east-1`) if missing, and the policies are upserted on every start. |
 | `OPENAI_API_KEY` only | In-memory. Rebuilt on every start. |
 | No `OPENAI_API_KEY` | None. `GET /hotels/{hotel_id}/policies/search` returns 503 and the agent says policy search is unavailable. Everything else works. |
 
