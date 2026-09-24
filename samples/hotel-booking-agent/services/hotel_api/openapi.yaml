@@ -337,6 +337,8 @@ paths:
           schema:
             type: integer
             default: 5
+            minimum: 1
+            maximum: 20
       responses:
         "200":
           description: Matching policy text chunks

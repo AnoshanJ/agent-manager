@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
 from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
 
@@ -43,7 +43,7 @@ def init_policy_store() -> None:
 
 
 @router.get("/hotels/{hotel_id}/policies/search")
-def search_policies_route(hotel_id: str, q: str, k: int = 5):
+def search_policies_route(hotel_id: str, q: str, k: int = Query(5, ge=1, le=20)):
     if _store is None:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
