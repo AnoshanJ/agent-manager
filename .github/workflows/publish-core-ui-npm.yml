@@ -17,6 +17,11 @@ on:
         required: false
         default: "@wso2"
         type: string
+      registry:
+        description: "Registry to publish to"
+        required: false
+        default: "https://registry.npmjs.org"
+        type: string
       runner:
         description: "Runner label (use ubuntu-latest for fork testing)"
         required: false
@@ -35,6 +40,10 @@ on:
         required: false
         default: "@wso2"
         type: string
+      registry:
+        required: false
+        default: "https://registry.npmjs.org"
+        type: string
       runner:
         required: false
         default: "ubuntu-latest"
@@ -51,6 +60,8 @@ jobs:
     runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
+      # Unused on the npmjs path, and intersected with the caller's grant when reused.
+      packages: write
     defaults:
       run:
         working-directory: console
@@ -65,23 +76,41 @@ jobs:
           TARGET_RELEASE: ${{ inputs.target_version }}
         working-directory: .
 
+      - name: Check the scope matches the registry
+        if: contains(inputs.registry, 'npm.pkg.github.com')
+        env:
+          NPM_SCOPE: ${{ inputs.npm_scope }}
+          OWNER: ${{ github.repository_owner }}
+        working-directory: .
+        run: |
+          # GitHub Packages only accepts the owning org as the scope, lowercased.
+          expected="@$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [ "$(echo "$NPM_SCOPE" | tr '[:upper:]' '[:lower:]')" != "$expected" ]; then
+            echo "Error: GitHub Packages needs npm_scope '${expected}', got '${NPM_SCOPE}'." >&2
+            exit 1
+          fi
+
       # Reuse this from the same repository only: the checkout below takes the caller's.
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_ref }}
 
-      - name: Setup Node.js and pnpm for npm registry
+      - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-console-node
-        with:
-          registry-url: https://registry.npmjs.org
-          scope: ${{ inputs.npm_scope }}
 
       - name: Install monorepo dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build core-ui package
         run: pnpm build:core-ui
+
+      # Only now, so dependency resolution above is unaffected by the publish target.
+      - name: Configure the publish registry
+        uses: ./.github/actions/setup-console-node
+        with:
+          registry-url: ${{ inputs.registry }}
+          scope: ${{ inputs.npm_scope }}
 
       - name: Ensure package scope matches target
         run: |
@@ -103,6 +132,16 @@ jobs:
           npm version "$TARGET_RELEASE" --no-git-tag-version --allow-same-version
         env:
           TARGET_RELEASE: ${{ inputs.target_version }}
+
+      - name: Link the package to this repository
+        if: contains(inputs.registry, 'npm.pkg.github.com')
+        run: |
+          cd workspaces/core-ui
+          npm pkg set repository.type=git
+          npm pkg set repository.url="git+${SERVER_URL}/${REPOSITORY}.git"
+        env:
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
 
       - name: Strip bundled dependencies for publish
         run: |
@@ -132,7 +171,12 @@ jobs:
           if [[ "$TARGET_RELEASE" == *"-"* ]]; then
             DIST_TAG="next"
           fi
-          npm publish --access public --tag "$DIST_TAG"
+          ACCESS="restricted"
+          if [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
+            ACCESS="public"
+          fi
+          npm publish --access "$ACCESS" --tag "$DIST_TAG"
         env:
           TARGET_RELEASE: ${{ inputs.target_version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_WSO2 }}
+          REGISTRY: ${{ inputs.registry }}
+          NODE_AUTH_TOKEN: ${{ contains(inputs.registry, 'npm.pkg.github.com') && secrets.GITHUB_TOKEN || secrets.NPM_TOKEN_WSO2 }}
