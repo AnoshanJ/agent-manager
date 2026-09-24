@@ -97,6 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$TARGET_RELEASE"
+          derived=false
           if [ -n "$version" ]; then
             case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
           elif [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
@@ -108,13 +109,17 @@ jobs:
             version="0.0.0-${ts}-$(git rev-parse --short=12 HEAD)"
             # Its own tag: these are cut per commit and must not move `next`.
             tag=dev
+            derived=true
           fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Error: Invalid target_version format. Expected: X.Y.Z or X.Y.Z-suffix"
             exit 1
           fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "dist_tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${version}"
+            echo "dist_tag=${tag}"
+            echo "derived=${derived}"
+          } >> "$GITHUB_OUTPUT"
           echo "Publishing core-ui ${version} to ${REGISTRY} under ${tag}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js and pnpm
@@ -194,7 +199,7 @@ jobs:
         run: |
           cd workspaces/core-ui
           name=$(node -p "require('./package.json').name")
-          if npm view "${name}@${TARGET_RELEASE}" version >/dev/null 2>&1; then
+          if [ "$DERIVED" = true ] && npm view "${name}@${TARGET_RELEASE}" version >/dev/null 2>&1; then
             echo "${name}@${TARGET_RELEASE} is already published; nothing to do." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -205,6 +210,7 @@ jobs:
           npm publish --access "$ACCESS" --tag "$DIST_TAG"
         env:
           DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+          DERIVED: ${{ steps.version.outputs.derived }}
           TARGET_RELEASE: ${{ steps.version.outputs.version }}
           REGISTRY: ${{ inputs.registry }}
           NODE_AUTH_TOKEN: ${{ contains(inputs.registry, 'npm.pkg.github.com') && secrets.GITHUB_TOKEN || secrets.NPM_TOKEN_WSO2 }}
