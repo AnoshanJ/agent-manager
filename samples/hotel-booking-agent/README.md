@@ -5,8 +5,8 @@ A LangGraph hotel assistant that searches hotels, checks availability, answers h
 > **This is a multi-service sample.** The agent calls external APIs, and for the full experience you need to run a second service:
 >
 > - **Hotel API** (`services/hotel_api`): the agent's tools call this FastAPI service over HTTP for hotels, availability, bookings, and policy search. Deploy or run it first, somewhere the agent can reach it.
-> - **Pinecone API key**: the Hotel API uses Pinecone to store and search the hotel policy documents. Without a key it falls back to an in-memory store, which is fine for a quick try but is rebuilt on every restart.
-> - **External APIs**: OpenAI for the model and embeddings, Pinecone for policy search, and optionally WeatherAPI for forecasts.
+> - **Pinecone API key (optional, recommended)**: the Hotel API can store and search the hotel policy documents in Pinecone. Without a key it uses an in-memory store, which works for trying the sample but is rebuilt on every restart.
+> - **External APIs**: OpenAI for the model and embeddings, and optionally Pinecone for policy search and WeatherAPI for forecasts.
 
 ## What this demonstrates
 
@@ -34,7 +34,7 @@ user ──POST /chat──▶ Agent (agent/) ──HTTP──▶ Hotel API (ser
 
 - Python 3.11.
 - An [OpenAI API key](https://platform.openai.com/api-keys).
-- A Pinecone API key for policy search. [Create a free Pinecone account](https://app.pinecone.io/), then [create an API key](https://docs.pinecone.io/guides/projects/manage-api-keys). You don't need to create an index; the Hotel API creates `hotel-policies` on first start.
+- Optional but recommended: a Pinecone API key for policy search. Without one, the Hotel API keeps policies in memory. [Create a free Pinecone account](https://app.pinecone.io/), then [create an API key](https://docs.pinecone.io/guides/projects/manage-api-keys). You don't need to create an index; the Hotel API creates `hotel-policies` on first start.
 - Optional: a [WeatherAPI](https://www.weatherapi.com/) key for weather forecasts.
 
 ## Step 1: Run the Hotel API
@@ -47,12 +47,12 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 export OPENAI_API_KEY="<your-openai-api-key>"
-export PINECONE_API_KEY="<your-pinecone-api-key>"
+export PINECONE_API_KEY="<your-pinecone-api-key>"  # optional; omit to use the in-memory policy store
 
 python -m uvicorn service:app --host 0.0.0.0 --port 9091
 ```
 
-On first start with a Pinecone key, the logs show the `hotel-policies` index being created and the policy PDFs being ingested. Check it is up with `curl http://localhost:9091/health`.
+With a Pinecone key, the first start creates the `hotel-policies` index and ingests the policy PDFs. Without one, the logs show `policy search ready (in-memory)`. Check it is up with `curl http://localhost:9091/health`.
 
 ### Making the Hotel API reachable
 

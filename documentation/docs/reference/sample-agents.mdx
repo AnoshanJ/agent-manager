@@ -104,7 +104,7 @@ Run the Hotel API first:
 cd samples/hotel-booking-agent/services/hotel_api
 pip install -r requirements.txt
 export OPENAI_API_KEY="<your-openai-api-key>"
-export PINECONE_API_KEY="<your-pinecone-api-key>"
+export PINECONE_API_KEY="<your-pinecone-api-key>"  # optional; omit to use the in-memory policy store
 python -m uvicorn service:app --host 0.0.0.0 --port 9091
 ```
 
