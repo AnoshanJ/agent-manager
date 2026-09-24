@@ -209,7 +209,14 @@ jobs:
           if [[ "$REGISTRY" == *"registry.npmjs.org"* ]]; then
             ACCESS="public"
           fi
-          npm publish --access "$ACCESS" --tag "$DIST_TAG"
+          if ! npm publish --access "$ACCESS" --tag "$DIST_TAG"; then
+            # A concurrent run may have published this same commit, which is the wanted state.
+            if [ "$DERIVED" = true ] && npm view "${name}@${TARGET_RELEASE}" version >/dev/null 2>&1; then
+              echo "${name}@${TARGET_RELEASE} was published concurrently; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit 1
+          fi
         env:
           DIST_TAG: ${{ steps.version.outputs.dist_tag }}
           DERIVED: ${{ steps.version.outputs.derived }}
