@@ -41,5 +41,8 @@ func main() {
 		cfg.Observer.ClientID,
 		cfg.Observer.ClientSecret,
 	)
-	app.Run(cfg, authProvider, app.Options{})
+	if err := app.Run(cfg, authProvider, app.Options{}); err != nil {
+		slog.Error("Observer stopped", "error", err)
+		os.Exit(1)
+	}
 }

@@ -19,6 +19,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -117,5 +118,30 @@ func TestIsSpanDetailPath(t *testing.T) {
 		if got := isSpanDetailPath(path); got != want {
 			t.Errorf("isSpanDetailPath(%q) = %v, want %v", path, got, want)
 		}
+	}
+}
+
+func TestRun_ReturnsListenError(t *testing.T) {
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	cfg := &config.Config{
+		Server:   config.ServerConfig{Port: ln.Addr().(*net.TCPAddr).Port},
+		Observer: config.ObserverConfig{BaseURL: "http://unused"},
+		Auth:     config.AuthConfig{IsLocalDevEnv: true},
+	}
+	done := make(chan error, 1)
+	go func() { done <- Run(cfg, requestTokenProvider{}, Options{}) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected error for a port already in use, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after failing to bind")
 	}
 }

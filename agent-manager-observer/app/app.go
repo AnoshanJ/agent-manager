@@ -19,6 +19,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -42,7 +43,7 @@ import (
 type Options struct{}
 
 // Run serves the observer API until SIGINT or SIGTERM, then shuts down gracefully.
-func Run(cfg *config.Config, tokenProvider observer.TokenProvider, _ Options) {
+func Run(cfg *config.Config, tokenProvider observer.TokenProvider, _ Options) error {
 	setupLogger(cfg)
 
 	slog.Info("Starting agent-manager-observer", "port", cfg.Server.Port)
@@ -56,18 +57,23 @@ func Run(cfg *config.Config, tokenProvider observer.TokenProvider, _ Options) {
 	}
 
 	// Start server in a goroutine
+	serveErr := make(chan error, 1)
 	go func() {
 		slog.Info("Server listening", "port", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server failed", "error", err)
-			os.Exit(1)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
 		}
 	}()
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	defer signal.Stop(quit)
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("server failed: %w", err)
+	case <-quit:
+	}
 
 	slog.Info("Shutting down server...")
 
@@ -76,11 +82,11 @@ func Run(cfg *config.Config, tokenProvider observer.TokenProvider, _ Options) {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Server forced to shutdown", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("server forced to shutdown: %w", err)
 	}
 
 	slog.Info("Server exited")
+	return nil
 }
 
 func newHandler(cfg *config.Config, tokenProvider observer.TokenProvider) http.Handler {
