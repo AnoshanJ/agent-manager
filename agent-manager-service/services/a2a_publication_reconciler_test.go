@@ -32,6 +32,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/orgctx"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -381,6 +382,40 @@ func TestDriftCheckPagesThroughPublishedRowsAcrossTicks(t *testing.T) {
 	assert.Equal(t, uuid.Nil, cursors[0])
 	assert.Equal(t, page[len(page)-1].ID, cursors[1], "the next tick resumes after the last row checked")
 	assert.Equal(t, uuid.Nil, cursors[2], "a short page wraps the scan back to the start")
+}
+
+// The reconciler runs off the request path, so no middleware resolves an org
+// for it. The OpenChoreo client stamps X-Impersonate-Org only from the context's
+// resolved org, and a platform that requires the header rejects the lookup — so
+// every attempt fails until the budget runs out.
+func TestReconcilerLooksUpTheBindingAsThePublicationsOrg(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+
+	h.svc.publishOne(context.Background(), pendingPublication())
+
+	lookups := h.ocClient.GetReleaseBindingServiceURLCalls()
+	require.Len(t, lookups, 1)
+	org, ok := orgctx.GetResolvedOrg(lookups[0].Ctx)
+	require.True(t, ok, "the lookup context carries a resolved org")
+	assert.Equal(t, "org-1", org.OUID)
+}
+
+func TestDriftCheckLooksUpEachBindingAsItsOwnOrg(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	first := publishedPublication("http://trip-planner.dp-default:9099")
+	second := publishedPublication("http://trip-planner.dp-default:9099")
+	second.OUID = "org-2"
+	h.withPublished(first, second)
+
+	h.svc.checkUpstreamDrift(context.Background())
+
+	lookups := h.ocClient.GetReleaseBindingRolloutCalls()
+	require.Len(t, lookups, 2)
+	for i, want := range []string{"org-1", "org-2"} {
+		org, ok := orgctx.GetResolvedOrg(lookups[i].Ctx)
+		require.True(t, ok, "lookup %d carries a resolved org", i)
+		assert.Equal(t, want, org.OUID)
+	}
 }
 
 // The gateway serves the card only once it has the Agent, so publishing is the card's trigger.
