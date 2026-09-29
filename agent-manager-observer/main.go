@@ -72,6 +72,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := cfg.Observer.ValidateClientCredentials(); err != nil {
+		slog.Error("Invalid observer credentials config", "error", err)
+		os.Exit(1)
+	}
+
 	// Setup structured logging
 	setupLogger(cfg)
 
