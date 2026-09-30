@@ -129,12 +129,14 @@ func baseParams() TraceQueryParams {
 // each call its own channel for isolation.
 func testFetchSem() chan struct{} { return make(chan struct{}, maxConcurrentFetches) }
 
-// (a) Root span carries entity.input/output and entity.output → root-derived
-// token usage. The cascade must short-circuit at step 1 — no extra fetches.
-func TestEnrichTraceOverview_RootHasEntityShortCircuits(t *testing.T) {
+// Root span carries entity.input/output and its own gen_ai.usage.*
+// report → the cascade short-circuits at step 1 with no extra fetches.
+func TestEnrichTraceOverview_RootHasEntityAndUsageShortCircuits(t *testing.T) {
 	root := makeRootSpan("root", map[string]interface{}{
-		"traceloop.entity.input":  `{"inputs":"hello there"}`,
-		"traceloop.entity.output": `{"outputs":{"messages":[{"kwargs":{"content":"hi back","response_metadata":{"token_usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}}}]}}`,
+		"traceloop.entity.input":     `{"inputs":"hello there"}`,
+		"traceloop.entity.output":    `{"outputs":{"messages":[{"kwargs":{"content":"hi back"}}]}}`,
+		"gen_ai.usage.input_tokens":  float64(10),
+		"gen_ai.usage.output_tokens": float64(3),
 	})
 	fake := &fakeObserverClient{rootSpan: &observer.SpanDetailsResponse{SpanID: "root"}}
 	c := NewTracingController(fake)
@@ -155,7 +157,27 @@ func TestEnrichTraceOverview_RootHasEntityShortCircuits(t *testing.T) {
 	}
 }
 
-// (b) Root span empty, but the immediate child chain span carries
+// Root entity.output carries token_usage but the trace has no leaf LLM
+// spans → the entity.output usage is used as the fallback.
+func TestEnrichTraceOverview_RootEntityTokensUsedWhenNoLeaves(t *testing.T) {
+	root := makeRootSpan("root", map[string]interface{}{
+		"traceloop.entity.input":  `{"inputs":"hello there"}`,
+		"traceloop.entity.output": `{"outputs":{"messages":[{"kwargs":{"content":"hi back","response_metadata":{"token_usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}}}]}}`,
+	})
+	fake := &fakeObserverClient{rootSpan: &observer.SpanDetailsResponse{SpanID: "root"}}
+	c := NewTracingController(fake)
+
+	_, _, tokens := c.enrichTraceOverview(context.Background(), baseParams(), baseTraceInfo(5), root, testFetchSem())
+
+	if tokens == nil || tokens.TotalTokens != 13 {
+		t.Errorf("expected entity.output fallback tokens, got %+v", tokens)
+	}
+	if got := atomic.LoadInt32(&fake.getSpanDetailsCalls); got != 0 {
+		t.Errorf("expected no GetSpanDetails calls (no child, no leaves), got %d", got)
+	}
+}
+
+// Root span empty, but the immediate child chain span carries
 // traceloop.entity.input/output (LangGraph pattern). Step 2 must fill it in.
 func TestEnrichTraceOverview_FallsBackToChildChainSpan(t *testing.T) {
 	root := makeRootSpan("root", map[string]interface{}{})
@@ -193,7 +215,7 @@ func TestEnrichTraceOverview_FallsBackToChildChainSpan(t *testing.T) {
 	}
 }
 
-// (c) Root and child empty, but leaf LLM spans carry gen_ai.input.messages /
+// Root and child empty, but leaf LLM spans carry gen_ai.input.messages /
 // gen_ai.output.messages / gen_ai.usage.* — the OpenAI Agents SDK case. Step
 // 3 aggregates: token sum across all leaves, first-leaf input, last-leaf output.
 func TestEnrichTraceOverview_AggregatesFromLeafLLMSpans(t *testing.T) {
@@ -243,7 +265,61 @@ func TestEnrichTraceOverview_AggregatesFromLeafLLMSpans(t *testing.T) {
 	}
 }
 
-// (d) Everything empty — degenerate case. No extra fetches beyond QueryTraceSpans.
+// LangGraph trace with three LLM calls: tokens are the sum of the leaf LLM
+// spans, not the usage in LangGraph.workflow's entity.output.
+func TestEnrichTraceOverview_LangGraphSumsLeavesOverEntityOutput(t *testing.T) {
+	root := makeRootSpan("root", map[string]interface{}{})
+	start := time.Now().Add(-10 * time.Minute)
+	aiMsg := func(in, out int) string {
+		return fmt.Sprintf(`{"kwargs":{"type":"ai","content":"a","usage_metadata":{"input_tokens":%d,"output_tokens":%d,"total_tokens":%d}}}`, in, out, in+out)
+	}
+	workflowOutput := `{"outputs":{"messages":[` +
+		`{"kwargs":{"type":"human","content":"earlier turn"}},` + aiMsg(2933, 26) + `,` +
+		`{"kwargs":{"type":"human","content":"reset my password"}},` +
+		aiMsg(2982, 31) + `,` + aiMsg(3086, 92) + `,` + aiMsg(3285, 63) + `]}}`
+
+	leafUsage := [][2]int{{2982, 31}, {3086, 92}, {3285, 63}}
+	spans := []observer.SpanInfo{
+		{SpanID: "workflow", SpanName: "LangGraph.workflow", ParentSpanID: "root", StartTime: start},
+	}
+	details := map[string]*observer.SpanDetailsResponse{
+		"workflow": {
+			SpanID: "workflow", SpanName: "LangGraph.workflow",
+			Attributes: map[string]interface{}{
+				"traceloop.entity.input":  `{"inputs":"reset my password"}`,
+				"traceloop.entity.output": workflowOutput,
+			},
+		},
+	}
+	for i, u := range leafUsage {
+		id := fmt.Sprintf("chat-%d", i)
+		seq := fmt.Sprintf("seq-%d", i)
+		spans = append(spans, observer.SpanInfo{
+			SpanID: id, SpanName: "ChatOpenAI.chat", ParentSpanID: seq,
+			StartTime: start.Add(time.Duration(i+1) * time.Second),
+		})
+		details[id] = &observer.SpanDetailsResponse{
+			SpanID: id, SpanName: "ChatOpenAI.chat", ParentSpanID: seq,
+			Attributes: map[string]interface{}{
+				"gen_ai.usage.input_tokens":  float64(u[0]),
+				"gen_ai.usage.output_tokens": float64(u[1]),
+			},
+		}
+	}
+	fake := &fakeObserverClient{spans: spans, spanDetails: details}
+	c := NewTracingController(fake)
+
+	input, output, tokens := c.enrichTraceOverview(context.Background(), baseParams(), baseTraceInfo(24), root, testFetchSem())
+
+	if input == nil || output == nil {
+		t.Errorf("expected input/output from workflow span, got input=%v output=%v", input, output)
+	}
+	if tokens == nil || tokens.InputTokens != 9353 || tokens.OutputTokens != 186 || tokens.TotalTokens != 9539 {
+		t.Errorf("tokens = %+v, want sum of the three LLM calls (9353/186/9539)", tokens)
+	}
+}
+
+// Everything empty — degenerate case. No extra fetches beyond QueryTraceSpans.
 // All three return nil; trace overview row simply renders "-" in the UI.
 func TestEnrichTraceOverview_AllEmptyReturnsNil(t *testing.T) {
 	root := makeRootSpan("root", map[string]interface{}{})
@@ -257,7 +333,7 @@ func TestEnrichTraceOverview_AllEmptyReturnsNil(t *testing.T) {
 	}
 }
 
-// (e) Leaf cap honoured. With > maxLLMLeavesPerTrace leaves, only the cap is
+// Leaf cap honoured. With > maxLLMLeavesPerTrace leaves, only the cap is
 // fetched and TokenUsage.Partial is true.
 func TestEnrichTraceOverview_LeafCapHonoredAndPartialFlagged(t *testing.T) {
 	root := makeRootSpan("root", map[string]interface{}{})
@@ -302,6 +378,44 @@ func TestEnrichTraceOverview_LeafCapHonoredAndPartialFlagged(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&fake.getSpanDetailsCalls); got != int32(maxLLMLeavesPerTrace) {
 		t.Errorf("expected exactly %d GetSpanDetails fetches, got %d", maxLLMLeavesPerTrace, got)
+	}
+}
+
+// A leaf whose details fetch fails is left out of the sum, and the usage is
+// flagged Partial because it no longer covers every selected leaf.
+func TestEnrichTraceOverview_FailedLeafFetchFlagsPartial(t *testing.T) {
+	root := makeRootSpan("root", map[string]interface{}{})
+	start := time.Now().Add(-10 * time.Minute)
+	fake := &fakeObserverClient{
+		spans: []observer.SpanInfo{
+			{SpanID: "leaf-ok", SpanName: "openai.chat", ParentSpanID: "root", StartTime: start},
+			{SpanID: "leaf-missing", SpanName: "openai.chat", ParentSpanID: "root", StartTime: start.Add(1 * time.Minute)},
+		},
+		spanDetails: map[string]*observer.SpanDetailsResponse{
+			"leaf-ok": {
+				SpanID: "leaf-ok", SpanName: "openai.chat",
+				Attributes: map[string]interface{}{
+					"gen_ai.usage.input_tokens":  float64(100),
+					"gen_ai.usage.output_tokens": float64(20),
+				},
+			},
+		},
+	}
+	c := NewTracingController(fake)
+
+	_, _, tokens := c.enrichTraceOverview(context.Background(), baseParams(), baseTraceInfo(5), root, testFetchSem())
+
+	if tokens == nil {
+		t.Fatalf("expected tokens, got nil")
+	}
+	if tokens.InputTokens != 100 || tokens.OutputTokens != 20 || tokens.TotalTokens != 120 {
+		t.Errorf("tokens = %+v, want usage from the fetched leaf only (100/20/120)", tokens)
+	}
+	if !tokens.Partial {
+		t.Errorf("expected Partial=true when a leaf fetch fails")
+	}
+	if got := atomic.LoadInt32(&fake.getSpanDetailsCalls); got != 2 {
+		t.Errorf("expected 2 GetSpanDetails fetches, got %d", got)
 	}
 }
 
