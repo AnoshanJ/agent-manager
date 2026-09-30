@@ -97,4 +97,4 @@ scripts/seed_traffic.py  Scripted conversations for seeding traces
 
 The tutorial series covers deployment, model governance, MCP tools, evaluation,
 and promotion to production, in that order. Start at
-[Create Your First Agent](https://wso2.github.io/agent-manager/docs/tutorials/create-your-first-agent).
+[Create Your First Agent](https://wso2.com/agent-platform/docs/latest/tutorials/create-your-first-agent).
