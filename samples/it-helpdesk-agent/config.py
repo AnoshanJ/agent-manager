@@ -24,7 +24,20 @@ class Config:
     use_mcp: bool
     mcp_url: str
     mcp_api_key: str
+    mcp_oauth: bool
+    agentid_client_id: str
+    agentid_client_secret: str
+    agentid_token_endpoint: str
+    agentid_scopes: str
     issue_tracker_repo: str
+
+    @property
+    def agentid_ready(self) -> bool:
+        return bool(
+            self.agentid_client_id
+            and self.agentid_client_secret
+            and self.agentid_token_endpoint
+        )
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -55,6 +68,13 @@ class Config:
         mcp_url = _env("GITHUB_MCP_URL", "")
         mcp_api_key = _env("GITHUB_MCP_API_KEY", "")
 
+        # With MCP_OAUTH=true the proxy is reached with an AgentID bearer token
+        # instead of an API key — for a proxy whose Security tab is set to OAuth.
+        # The AMP_AGENTID_* vars are injected by Agent Manager into every
+        # platform-hosted agent's pod; they are not validated here because
+        # provisioning finishes asynchronously after deploy.
+        mcp_oauth = _env("MCP_OAUTH", "false").lower() == "true"
+
         # Which repository holds the IT team's known-issue tracker. Without this the
         # agent would search issues across the whole of GitHub, which is both slow
         # and wrong — a match in someone else's project is not a known issue here.
@@ -63,7 +83,7 @@ class Config:
         if use_mcp:
             if not mcp_url:
                 raise RuntimeError("USE_MCP is true but GITHUB_MCP_URL is not set")
-            if not mcp_api_key:
+            if not mcp_oauth and not mcp_api_key:
                 raise RuntimeError("USE_MCP is true but GITHUB_MCP_API_KEY is not set")
             if not issue_tracker_repo:
                 raise RuntimeError(
@@ -89,5 +109,10 @@ class Config:
             use_mcp=use_mcp,
             mcp_url=mcp_url,
             mcp_api_key=mcp_api_key,
+            mcp_oauth=mcp_oauth,
+            agentid_client_id=_env("AMP_AGENTID_CLIENT_ID", ""),
+            agentid_client_secret=_env("AMP_AGENTID_CLIENT_SECRET", ""),
+            agentid_token_endpoint=_env("AMP_AGENTID_TOKEN_ENDPOINT", ""),
+            agentid_scopes=_env("AMP_AGENTID_SCOPES", ""),
             issue_tracker_repo=issue_tracker_repo,
         )
