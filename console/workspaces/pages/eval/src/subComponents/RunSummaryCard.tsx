@@ -232,7 +232,13 @@ export default function RunSummaryCard() {
                   : getRunScoreDisplay(run.scores);
                 return (
                   <TableRow key={run.id}>
-                    <TableCell sx={{ width: 16 }}>{status.icon}</TableCell>
+                    <TableCell sx={{ width: 16 }}>
+                      <Tooltip title={status.label}>
+                        <Box component="span" sx={{ display: "inline-flex" }}>
+                          {status.icon}
+                        </Box>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell>
                       <Typography variant="caption" noWrap>
                         {traceStart}
