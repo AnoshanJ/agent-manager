@@ -117,7 +117,7 @@ export default function RunSummaryCard() {
         },
         success: {
           icon: <CheckCircle size={14} color={palette?.success.main} />,
-          label: "Success",
+          label: "Completed",
         },
         running: {
           icon: <CircularProgress size={14} />,
