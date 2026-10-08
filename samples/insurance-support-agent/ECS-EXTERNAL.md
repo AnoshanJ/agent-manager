@@ -26,7 +26,14 @@ Both images use Python 3.11. The agent pins Strands Agents 1.58.0,
 MCP 1.29.0, and amp-instrumentation 0.4.1. Use Fargate Linux 1.4.0 or later for
 individual Secrets Manager JSON fields. This exercise incurs usage charges.
 
-## 1. Register and store credentials
+## 1. Get the sample
+
+```bash
+git clone https://github.com/wso2/agent-manager.git
+cd agent-manager/samples/insurance-support-agent
+```
+
+## 2. Register and store credentials
 
 1. In Agent Manager, open your project, choose **Add Agent**, select
    **Externally-Hosted Agent**, and register **Insurance Support Agent**.
@@ -41,7 +48,7 @@ individual Secrets Manager JSON fields. This exercise incurs usage charges.
 Keep secrets out of images, Git, and task-definition `environment` fields.
 ECS reads secrets at startup, so replace the task after credential rotation.
 
-## 2. Build and push
+## 3. Build and push
 
 Run from `samples/insurance-support-agent`. Substitute your existing cluster.
 Skip repository/log-group creation if reusing resources from an earlier run.
@@ -64,14 +71,19 @@ docker push "$ECR_REGISTRY/insurance-agent:$IMAGE_TAG"
 The agent Dockerfile runs as a non-root user and starts
 `amp-instrument python main.py`.
 
-## 3. Register and run the agent task
+## 4. Register and run the agent task
 
-Copy [ecs/agent-task-definition.json](ecs/agent-task-definition.json) outside the
-checkout. Replace every `<...>` placeholder: execution-role ARN, full image URI,
-Region, gateway/telemetry URLs, and secret ARN. Keep Region/model consistent with
+Copy [ecs/agent-task-definition.json](ecs/agent-task-definition.json) into the
+sample directory and replace every `<...>` placeholder: execution-role ARN, full
+image URI, Region, gateway/telemetry URLs, and secret ARN. Keep Region/model consistent with
 the provider. The template uses `amazon.nova-micro-v1:0` in `us-east-1`, 0.5 vCPU,
-1 GiB RAM, and `X86_64` to match the image. The following assumes your filled file
-is named `agent-task-definition.json` in the current directory.
+1 GiB RAM, and `X86_64` to match the image. Do not commit the filled file.
+
+```bash
+cp ecs/agent-task-definition.json agent-task-definition.json
+```
+
+After filling it, register and run the task:
 
 ```bash
 TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
@@ -98,8 +110,7 @@ curl --fail "$AGENT_URL/chat" -H 'Content-Type: application/json' \
   -d '{"session_id":"policy-baseline-1","message":"List my insurance policies using your tools."}'
 ```
 
-Expect `OZ-AUTO-4417`, `OZ-HOME-2280`, and `OZ-TRAV-9153`. Open the agent's
-**Traces** page and inspect `list_policies` and model spans. For stopped tasks,
+Expect `OZ-AUTO-4417`, `OZ-HOME-2280`, and `OZ-TRAV-9153`. For stopped tasks,
 inspect `stoppedReason`/container `reason`; for startup or export problems check
 `/ecs/insurance-agent` in CloudWatch. Check gateway URL/key, Bedrock key expiry,
 model permissions, telemetry endpoint/token, and network connectivity.
@@ -109,7 +120,42 @@ definition and update that service through your normal deployment workflow.
 Session IDs are caller-supplied and state is in memory. Use TLS, user authentication,
 and customer-level authorization before allowing production callers.
 
-## 4. Deploy the MCP extension
+## 5. Observe the agent
+
+1. Open the agent's **Traces** page and select the request's time window.
+2. Open the trace and find the agent, model, and `list_policies` spans. Confirm
+   the tool result contains the three policy IDs.
+3. Compare span durations and errors to separate slow model calls from slow tools.
+   Nested framework and SDK spans can describe the same model call, so do not sum
+   every token count.
+4. With a new session ID, ask for policy `OZ-UNKNOWN`. The lookup returns an
+   `error` field as data, not a span error, so inspect the content too.
+
+## 6. Add a gateway policy
+
+Follow [Add a prompt policy](BEDROCK-GATEWAY.md#add-a-prompt-policy). Send a
+policy-list request and `Write a poem about space travel`, each with a new session
+ID, before and after attaching the policy.
+
+## 7. Evaluate and monitor
+
+1. Send three requests with distinct session IDs: list all policies, look up
+   `OZ-UNKNOWN`, and file a claim for `OZ-AUTO-4417`. With local tools, the claim
+   request calls `file_claim` against in-memory data. With `USE_MCP=true`, the
+   agent has no claim tool. Record the trace IDs.
+2. Choose **Evaluation**, then choose **Add Monitor**. Select **Past Traces**, set the
+   request window, add **Step Success Rate** with `min_success_rate=1.0`, and
+   choose **Create Monitor**.
+3. For a window containing only policy-list requests, create a second monitor
+   with **Content Coverage** and `required_strings` set to
+   `["OZ-AUTO-4417", "OZ-HOME-2280", "OZ-TRAV-9153"]`.
+4. Review each score and explanation. Executions with no tool steps are skipped,
+   not scored as zero, and the `OZ-UNKNOWN` lookup can still score as successful.
+5. After one prompt, policy, model, or tool change, repeat the same requests and
+   compare runs. For new traffic, create a **Future Traces** monitor with a
+   five-minute interval.
+
+## 8. Deploy the MCP extension
 
 1. Create ECR repository `insurance-mcp`, log group `/ecs/insurance-mcp`, and
    Secrets Manager JSON secret `insurance-demo/mcp` with a generated nonempty
