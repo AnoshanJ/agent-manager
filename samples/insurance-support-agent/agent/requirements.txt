@@ -1,4 +1,4 @@
-strands-agents[openai]>=1.58.0,<2
+strands-agents[openai]==1.58.0
 
 fastapi==0.139.0
 uvicorn[standard]==0.47.0

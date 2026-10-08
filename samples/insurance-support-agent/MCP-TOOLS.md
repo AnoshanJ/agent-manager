@@ -18,7 +18,8 @@ From `samples/insurance-support-agent`, build its container:
 docker build --platform linux/amd64 -f mcp-server/Dockerfile -t insurance-mcp:latest .
 ```
 
-Push it to Amazon ECR using the repository's push instructions. In the ECS
+Use [ECS-EXTERNAL.md](ECS-EXTERNAL.md) for the full ECS setup and task templates.
+Push it to Amazon ECR using that guide. In the ECS
 console, create a Fargate task definition using this image, port `8001`, a log
 destination, and a task execution role that can pull the image and read its secret.
 Generate a dedicated random key in your secret-management workflow, store it in
@@ -38,21 +39,26 @@ does not replace a reachable HTTPS endpoint for the SaaS gateway.
 
 ## 2. Register and authorize the proxy in the console
 
-1. In Agent Manager's organization view, open **Resources → MCP Servers** and
+1. In Agent Manager's organization view, open **Resources → MCP Proxies** and
    add the server's HTTPS `/mcp` endpoint. Under **Advanced Configurations**, set
    **Header** to `X-Insurance-Upstream-Key` and **Value** to the upstream key.
-   Fetch the server's tools and save the proxy. Keep this key in the gateway
+   Use proxy handle `insurance-policies`. Fetch tools and save the proxy. Keep this key in the gateway
    configuration; do not give it to the agent.
 2. In **Manage Tools**, choose **Deny all**, then allow only `list_policies` and
    `lookup_policy`. Deploy the proxy to the environment used by your agent.
-3. Under **Agent ID → Roles**, create `policy-reader` and assign the external
-   insurance agent. On the MCP proxy's **Security** tab, select **OAuth** and
-   save. Create `read-policies`, select both policy tools, and assign that scope
-   to `policy-reader`. Apply/deploy the updated configuration to the environment.
+3. On **Security**, select **OAuth**. Create action `read`, producing scope
+   `insurance-policies:read`, and map **both** policy tools to it. Under
+   **Agent ID → Roles**, create `policy-reader` in the same environment, add
+   that scope, and assign the external agent's identity. Apply the configuration.
+   Unscoped tools default to permitted for authenticated callers: map every tool
+   you intend to restrict. The [authorization guide](https://wso2.com/agent-platform/docs/cloud/guides/authorize-agent-access-to-mcp-tools/)
+   provides scope/role/assignment API requests if your console differs.
 4. On the external agent, open **Configure → Tool Configurations → Add Tool
    Configuration**, select the insurance proxy, and save. Open **Connect to MCP
-   Server** for the target environment. Copy the proxy endpoint, client ID,
-   client secret, token endpoint, and scope from the panel.
+   Server** for the target environment and copy the proxy endpoint. Open the
+   agent's **Agent ID → Overview** in that environment. Copy the OAuth client ID,
+   choose **Regenerate Secret**, and store the secret. Copy **Token Endpoint**
+   under **OAuth2 Endpoints**. The overview card's Agent ID is not the client ID.
 
 ## 3. Configure the supplied agent client
 
@@ -63,7 +69,7 @@ USE_MCP=true
 INSURANCE_MCP_URL=<exact proxy endpoint from Connect to MCP Server>
 AMP_AGENTID_CLIENT_ID=<client ID>
 AMP_AGENTID_TOKEN_ENDPOINT=<token endpoint>
-AMP_AGENTID_SCOPES=read-policies
+AMP_AGENTID_SCOPES=insurance-policies:read
 ```
 
 Inject `AMP_AGENTID_CLIENT_SECRET` from Secrets Manager, then deploy a new task
