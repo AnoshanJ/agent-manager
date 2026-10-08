@@ -61,18 +61,35 @@ def build_model(cfg: Config):
     return OpenAIModel(client_args=client_args, model_id=cfg.openai_model)
 
 
-def build_agent(cfg: Config) -> Agent:
+def build_agent(cfg: Config, mcp_tools=None) -> Agent:
     model = build_model(cfg)
+
+    if cfg.use_mcp and not mcp_tools:
+        raise RuntimeError(
+            "MCP policy tools are unavailable; local fallback is disabled"
+        )
+    prompt = SYSTEM_PROMPT.format(company=cfg.company_name)
+    if cfg.use_mcp:
+        prompt = (
+            f"You are a read-only policy support agent for {cfg.company_name}. "
+            "Use list_policies and lookup_policy for all policy facts. "
+            "You cannot access claims, file claims, or change records. "
+            "If a tool is denied or unavailable, say so without guessing. "
+            "Use only the current tool result for policy facts, not earlier messages. "
+            "Keep responses brief and refer advice or complaints to a human."
+        )
 
     return Agent(
         model=model,
-        tools=[
+        tools=mcp_tools
+        if cfg.use_mcp
+        else [
             list_policies,
             list_claims,
             lookup_policy,
             get_claim_status,
             file_claim,
         ],
-        system_prompt=SYSTEM_PROMPT.format(company=cfg.company_name),
+        system_prompt=prompt,
         callback_handler=None,
     )

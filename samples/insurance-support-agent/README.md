@@ -34,6 +34,10 @@ For an instrumented ECS container, see [Run on Amazon ECS](ECS-EXTERNAL.md).
 To use Amazon Bedrock through the Agent Manager AI gateway, see
 [Bedrock gateway configuration](BEDROCK-GATEWAY.md). OpenAI remains the default.
 
+For a supplied read-only insurance MCP server and AgentID OAuth client, follow
+[Connect the insurance MCP tools](MCP-TOOLS.md). This mode requires configuration
+and deployment, not custom server or client code.
+
 ## Prerequisites
 
 - An OpenAI API key

@@ -41,6 +41,11 @@ Registration does not protect the agent endpoint. Session IDs are caller-supplie
 not authenticated identities; the sample keeps data and session state in memory.
 Use TLS and authentication before allowing production callers.
 
+## Optional policy tools through MCP
+
+Follow [MCP-TOOLS.md](MCP-TOOLS.md) to deploy the included read-only server,
+configure AgentID authorization, and enable the agent’s supplied OAuth client.
+
 ## Clean up
 
 Stop the task (and remove or scale down any service that would replace it).
