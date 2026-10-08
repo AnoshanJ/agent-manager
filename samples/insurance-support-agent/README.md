@@ -28,6 +28,12 @@ Sample data (all Ada Lovelace): policies `OZ-AUTO-4417` (motor), `OZ-HOME-2280`
 (home and contents), `OZ-TRAV-9153` (travel); claims `CLM-10432` (in review) and
 `CLM-10876` (settled).
 
+## External AWS deployment
+
+For an instrumented ECS container, see [Run on Amazon ECS](ECS-EXTERNAL.md).
+To use Amazon Bedrock through the Agent Manager AI gateway, see
+[Bedrock gateway configuration](BEDROCK-GATEWAY.md). OpenAI remains the default.
+
 ## Prerequisites
 
 - An OpenAI API key
