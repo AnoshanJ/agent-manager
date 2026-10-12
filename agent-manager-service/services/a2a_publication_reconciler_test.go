@@ -490,6 +490,20 @@ func TestReconcilerKeepsTheCardRowOfTheSameAgent(t *testing.T) {
 	assert.Empty(t, h.cardRepo.DeleteForAgentEnvCalls())
 }
 
+func TestReconcilerKeepsTheCardRowWhenTheAgentUUIDIsMissing(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	h.ocClient.GetComponentFunc = func(_ context.Context, _, _, name string) (*models.AgentResponse, error) {
+		return &models.AgentResponse{UUID: "", Name: name}, nil
+	}
+	pub := pendingPublication()
+	queuedFor := uuid.New()
+	pub.AgentUUID = &queuedFor
+
+	h.svc.publishOne(context.Background(), pub)
+
+	assert.Empty(t, h.cardRepo.DeleteForAgentEnvCalls())
+}
+
 // Rows queued before the UUID was recorded keep the name-only check.
 func TestReconcilerKeepsTheCardRowOfAnUnrecordedAgentThatStillExists(t *testing.T) {
 	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")

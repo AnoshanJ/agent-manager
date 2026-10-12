@@ -261,7 +261,7 @@ func (s *a2aPublicationReconcilerService) dropCardIfAgentGone(ctx context.Contex
 	case errors.Is(err, utils.ErrNotFound):
 	case err != nil:
 		return
-	case pub.AgentUUID == nil || current.UUID == pub.AgentUUID.String():
+	case pub.AgentUUID == nil || current.UUID == "" || current.UUID == pub.AgentUUID.String():
 		return
 	}
 	if err := s.cardRepo.DeleteForAgentEnv(ctx, pub.OUID, pub.ProjectName, pub.AgentName, pub.EnvironmentName); err != nil {
