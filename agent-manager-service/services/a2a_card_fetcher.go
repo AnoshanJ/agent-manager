@@ -95,6 +95,18 @@ func sameHostRedirectOnly(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
+// refusedRedirectHost names where a 3xx the client did not follow pointed, or "".
+func refusedRedirectHost(resp *http.Response) string {
+	if resp.StatusCode < 300 || resp.StatusCode > 399 {
+		return ""
+	}
+	loc, err := resp.Location()
+	if err != nil {
+		return ""
+	}
+	return loc.Host
+}
+
 func (f *a2aCardFetcher) Fetch(ctx context.Context, url string, guarded bool) (json.RawMessage, error) {
 	client := f.plain
 	if guarded {
@@ -119,6 +131,10 @@ func (f *a2aCardFetcher) Fetch(ctx context.Context, url string, guarded bool) (j
 		return nil, fmt.Errorf("could not reach the agent card URL: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if target := refusedRedirectHost(resp); target != "" {
+		return nil, fmt.Errorf("agent card request was redirected to %s; redirects to another host are not followed", target)
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("agent card request returned HTTP %d", resp.StatusCode)

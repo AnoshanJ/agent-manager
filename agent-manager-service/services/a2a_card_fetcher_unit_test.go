@@ -175,8 +175,21 @@ func TestA2ACardFetcherPlatformDoesNotFollowRedirectsToOtherHosts(t *testing.T) 
 
 	_, err := newA2ACardFetcher(time.Second, "").Fetch(context.Background(), redirector.URL+a2aAgentCardPath, false)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "HTTP 302")
+	assert.Contains(t, err.Error(), "redirected to "+strings.TrimPrefix(other.URL, "http://"))
+	assert.Contains(t, err.Error(), "not followed")
 	assert.False(t, hit.Load())
+}
+
+// A 3xx without a Location is no refused redirect; its status is the clue.
+func TestA2ACardFetcherReportsA3xxWithoutLocationByStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMultipleChoices)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := newA2ACardFetcher(time.Second, "").Fetch(context.Background(), srv.URL+a2aAgentCardPath, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTP 300")
 }
 
 // The error becomes last_error, which any project reader can see.
