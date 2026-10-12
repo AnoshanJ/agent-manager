@@ -21,7 +21,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-management-platform/api-client", () => ({
-  useGetAgent: vi.fn(),
+  isAgentCardNotFound: (error: unknown) => (error as { status?: number } | null)?.status === 404,
   useGetAgentCard: vi.fn(),
   useRefreshAgentCard: vi.fn(),
   useSetAgentCardSource: vi.fn(),
@@ -30,30 +30,24 @@ vi.mock("@agent-management-platform/api-client", () => ({
 
 import {
   useDeleteAgentCardSource,
-  useGetAgent,
   useGetAgentCard,
   useRefreshAgentCard,
   useSetAgentCardSource,
 } from "@agent-management-platform/api-client";
-import { EnvAgentCardSection } from "./EnvAgentCardSection";
+import { A2AAgentCardPanel } from "./A2AAgentCardPanel";
 
 const refresh = vi.fn();
 const setSource = vi.fn();
-
-const mockAgent = (subType: string) =>
-  vi.mocked(useGetAgent).mockReturnValue({
-    data: { agentType: { type: "agent-api", subType } },
-  } as unknown as ReturnType<typeof useGetAgent>);
 
 const mockCard = (value: Partial<ReturnType<typeof useGetAgentCard>>) =>
   vi.mocked(useGetAgentCard).mockReturnValue({
     data: undefined, isLoading: false, isError: false, error: null, ...value,
   } as unknown as ReturnType<typeof useGetAgentCard>);
 
-const renderSection = (external = false) =>
+const renderPanel = (external = false) =>
   render(
     <MemoryRouter>
-      <EnvAgentCardSection orgId="org" projectId="proj" agentId="agent" envId="dev" external={external} />
+      <A2AAgentCardPanel orgId="org" projectId="proj" agentId="agent" envId="dev" external={external} />
     </MemoryRouter>,
   );
 
@@ -70,16 +64,8 @@ beforeEach(() => {
       ReturnType<typeof useDeleteAgentCardSource>);
 });
 
-describe("EnvAgentCardSection", () => {
-  it("renders nothing for a non-A2A agent", () => {
-    mockAgent("chat-api");
-    mockCard({});
-    const { container } = renderSection();
-    expect(container).toBeEmptyDOMElement();
-  });
-
+describe("A2AAgentCardPanel", () => {
   it("shows the fetched card's summary and skills", () => {
-    mockAgent("a2a-agent");
     mockCard({
       data: {
         source: "platform", status: "fetched", sourceUrl: "https://gw/a/.well-known/agent-card.json", lastError: "",
@@ -91,7 +77,7 @@ describe("EnvAgentCardSection", () => {
         },
       },
     });
-    renderSection();
+    renderPanel();
     expect(screen.getByText("Trip Planner")).toBeInTheDocument();
     expect(screen.queryByText("Fetched")).not.toBeInTheDocument();
     expect(screen.getByText(`Fetched ${new Date("2026-10-07T10:00:00Z").toLocaleString()}`)).toBeInTheDocument();
@@ -101,25 +87,22 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("shows the last error when the fetch failed", () => {
-    mockAgent("a2a-agent");
     mockCard({ data: { source: "platform", status: "failed", sourceUrl: "", lastError: "HTTP 404" } });
-    renderSection();
+    renderPanel();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText(/HTTP 404/)).toBeInTheDocument();
   });
 
   it("refetches on demand", () => {
-    mockAgent("a2a-agent");
     mockCard({ data: { source: "platform", status: "fetched", sourceUrl: "", lastError: "" } });
-    renderSection();
+    renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Refetch" }));
     expect(refresh).toHaveBeenCalledWith({ orgName: "org", projName: "proj", agentName: "agent", envId: "dev" });
   });
 
   it("asks an external agent with no source for a card URL", () => {
-    mockAgent("a2a-agent");
     mockCard({ isError: true, error: Object.assign(new Error("nf"), { status: 404 }) });
-    renderSection(true);
+    renderPanel(true);
     fireEvent.change(screen.getByPlaceholderText(/agent-card\.json/), {
       target: { value: "https://agent.example/.well-known/agent-card.json" },
     });
@@ -134,9 +117,8 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("offers a refetch when a platform agent has no card fetch queued", () => {
-    mockAgent("a2a-agent");
     mockCard({ isError: true, error: Object.assign(new Error("nf"), { status: 404 }) });
-    renderSection();
+    renderPanel();
     expect(screen.getByText(/no agent card has been fetched/i)).toBeInTheDocument();
     expect(screen.queryByText(/register this agent/i)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/agent-card\.json/)).not.toBeInTheDocument();
@@ -145,15 +127,13 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("offers no refetch to an external agent with no source", () => {
-    mockAgent("a2a-agent");
     mockCard({ isError: true, error: Object.assign(new Error("nf"), { status: 404 }) });
-    renderSection(true);
+    renderPanel(true);
     expect(screen.getByText(/register this agent/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refetch" })).not.toBeInTheDocument();
   });
 
   it("survives a malformed card and shows the registered URL instead of the form", () => {
-    mockAgent("a2a-agent");
     mockCard({
       data: {
         source: "external", status: "fetched", sourceUrl: "https://agent.example/.well-known/agent-card.json", lastError: "",
@@ -164,7 +144,7 @@ describe("EnvAgentCardSection", () => {
         },
       },
     });
-    renderSection(true);
+    renderPanel(true);
     expect(screen.getByText("Odd")).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://x/rpc")).toBeInTheDocument();
     expect(screen.getAllByText("dup")).toHaveLength(2);
@@ -175,22 +155,19 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("does not offer the URL form while the card is still loading", () => {
-    mockAgent("a2a-agent");
     mockCard({ isLoading: true });
-    renderSection(true);
+    renderPanel(true);
     expect(screen.queryByPlaceholderText(/agent-card\.json/)).not.toBeInTheDocument();
   });
 
   it("does not offer the URL form when the card could not be loaded", () => {
-    mockAgent("a2a-agent");
     mockCard({ isError: true, error: Object.assign(new Error("boom"), { status: 500 }) });
-    renderSection(true);
+    renderPanel(true);
     expect(screen.getByText(/unable to load the agent card/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/agent-card\.json/)).not.toBeInTheDocument();
   });
 
   it("drops the stale card once its source is gone", () => {
-    mockAgent("a2a-agent");
     mockCard({
       isError: true,
       error: Object.assign(new Error("nf"), { status: 404 }),
@@ -199,7 +176,7 @@ describe("EnvAgentCardSection", () => {
         card: { name: "Old Agent", supportedInterfaces: [], skills: [] },
       },
     });
-    renderSection(true);
+    renderPanel(true);
     expect(screen.queryByText("Old Agent")).not.toBeInTheDocument();
     expect(screen.queryByText("https://old.example/card.json")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
@@ -208,21 +185,19 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("does not double the v of a version that already has one", () => {
-    mockAgent("a2a-agent");
     mockCard({
       data: {
         source: "platform", status: "fetched", sourceUrl: "", lastError: "",
         card: { name: "Trip Planner", version: "v2.0", supportedInterfaces: [], skills: [] },
       },
     });
-    renderSection();
+    renderPanel();
     expect(screen.getByText("v2.0")).toBeInTheDocument();
   });
 
   it("keeps Save disabled for a URL with no host, and caps its length", () => {
-    mockAgent("a2a-agent");
     mockCard({ isError: true, error: Object.assign(new Error("nf"), { status: 404 }) });
-    renderSection(true);
+    renderPanel(true);
     const input = screen.getByPlaceholderText(/agent-card\.json/);
     fireEvent.change(input, { target: { value: "https://" } });
     expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
@@ -230,9 +205,8 @@ describe("EnvAgentCardSection", () => {
   });
 
   it("caps the inline URL editor's length", () => {
-    mockAgent("a2a-agent");
     mockCard({ data: { source: "external", status: "fetched", sourceUrl: "https://a.example/c", lastError: "" } });
-    renderSection(true);
+    renderPanel(true);
     fireEvent.click(screen.getByRole("button", { name: "Edit URL" }));
     expect(screen.getByRole("textbox", { name: "Agent card URL" })).toHaveAttribute("maxLength", "2048");
   });

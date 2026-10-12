@@ -19,18 +19,20 @@
 import { useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, IconButton, Stack, Tooltip, Typography } from "@wso2/oxygen-ui";
 import { Edit, RefreshCw, Trash } from "@wso2/oxygen-ui-icons-react";
-import { useDeleteAgentCardSource, useGetAgent, useGetAgentCard, useRefreshAgentCard } from "@agent-management-platform/api-client";
+import {
+  isAgentCardNotFound, useDeleteAgentCardSource, useGetAgentCard, useRefreshAgentCard,
+} from "@agent-management-platform/api-client";
 import { CodeBlock, OverviewSectionCard, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { TextInput } from "@agent-management-platform/views";
 import type { AgentCardStatus } from "@agent-management-platform/types";
 import { AgentCardSourceForm } from "./AgentCardSourceForm";
 
-interface EnvAgentCardSectionProps {
+interface A2AAgentCardPanelProps {
   orgId: string;
   projectId: string;
   agentId: string;
   envId: string;
-  external?: boolean;
+  external: boolean;
 }
 
 const STATUS_CHIP: Record<AgentCardStatus, { label: string; color: "warning" | "success" | "error" }> = {
@@ -46,26 +48,19 @@ const asString = (v: unknown): string | undefined => (typeof v === "string" && v
 const objectsIn = (v: unknown): Json[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const stringsIn = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404;
-
-/** Stored A2A agent card for the selected environment. */
-export function EnvAgentCardSection({
+/** Stored A2A agent card for one environment, with its source controls. */
+export function A2AAgentCardPanel({
   orgId, projectId, agentId, envId, external,
-}: EnvAgentCardSectionProps) {
+}: A2AAgentCardPanelProps) {
   const params = { orgName: orgId, projName: projectId, agentName: agentId, envId };
-  const { data: agent } = useGetAgent({ orgName: orgId, projName: projectId, agentName: agentId });
-  const isA2A = agent?.agentType?.subType === "a2a-agent";
-  const { data, isLoading, isError, error } = useGetAgentCard(params, { enabled: isA2A });
+  const { data, isLoading, isError, error } = useGetAgentCard(params);
   const { mutate: refresh, isPending: isRefreshing } = useRefreshAgentCard();
   const { mutate: removeSource, isPending: isRemoving } = useDeleteAgentCardSource();
   const { addConfirmation } = useConfirmationDialog();
   const [showJson, setShowJson] = useState(false);
   const [editingUrl, setEditingUrl] = useState(false);
 
-  if (!isA2A) {
-    return null;
-  }
-  const noSource = isError && isNotFound(error);
+  const noSource = isError && isAgentCardNotFound(error);
   // A 404 leaves the previous card cached; it no longer exists.
   const card = noSource ? undefined : data;
   // Card content is third-party: read it as untyped JSON.
@@ -125,7 +120,6 @@ export function EnvAgentCardSection({
           </Button>
         )
       }
-      sx={{ mb: 1.5 }}
     >
       {showUrlForm && (
         <AgentCardSourceForm params={params} currentUrl={sourceUrl} />

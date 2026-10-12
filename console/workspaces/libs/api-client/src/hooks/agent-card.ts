@@ -40,12 +40,16 @@ export function removeAgentCardFromCache(queryClient: QueryClient, params: Agent
   queryClient.removeQueries({ queryKey: agentCardKey(params) });
 }
 
+/** A 404 means no card source exists for the environment; any card still cached is stale. */
+export const isAgentCardNotFound = (error: unknown) =>
+  (error as { status?: number } | null)?.status === 404;
+
 /** Re-poll while pending; stop on fetched, failed, or a 404 (which keeps stale data cached). */
 export function agentCardRefetchInterval(
   data: AgentCardResponse | undefined,
   error?: unknown,
 ): number | false {
-  if ((error as { status?: number } | null)?.status === 404) return false;
+  if (isAgentCardNotFound(error)) return false;
   return data?.status === "pending" ? POLL_INTERVAL : false;
 }
 

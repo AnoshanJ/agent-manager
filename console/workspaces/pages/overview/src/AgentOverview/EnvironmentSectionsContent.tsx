@@ -19,7 +19,7 @@
 import type { DeploymentStatus } from "@agent-management-platform/shared-component";
 import { EnvAgentInterfaceCard } from "./EnvAgentInterfaceCard";
 import { EnvAgentRolesGroupsSection } from "./EnvAgentRolesGroupsSection";
-import { EnvAgentCardSection } from "./EnvAgentCardSection";
+import { EnvAgentCardSummary } from "./EnvAgentCardSummary";
 import { EnvCapabilitiesSection } from "./EnvCapabilitiesSection";
 import { EnvConfigsSection } from "./EnvConfigsSection";
 import { EnvMonitorsSection } from "./EnvMonitorsSection";
@@ -57,7 +57,7 @@ export function EnvironmentSectionsContent({
                 external={external}
                 deploymentStatus={deploymentStatus}
             />
-            <EnvAgentCardSection
+            <EnvAgentCardSummary
                 orgId={orgId}
                 projectId={projectId}
                 agentId={agentId}
