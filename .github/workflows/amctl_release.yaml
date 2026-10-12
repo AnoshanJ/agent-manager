@@ -1,9 +1,8 @@
 name: amctl CLI Release
 
-# Releases the amctl CLI on its own stream (tag amctl/v<version>), independent of the
-# platform release, which also attaches amctl binaries. amctl's update check
-# (cli/pkg/update) reads this stream, so versions here must stay ahead of the platform
-# release that last shipped amctl.
+# Releases the amctl CLI on its own version line (tag amctl/v<version>), independent of
+# the platform release (amp/v<version>), which does not ship amctl. amctl's update check
+# (cli/pkg/update) reads this stream.
 
 on:
   workflow_dispatch:

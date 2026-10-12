@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -32,12 +33,21 @@ import (
 	"github.com/wso2/agent-manager/cli/pkg/config"
 	"github.com/wso2/agent-manager/cli/pkg/iostreams"
 	"github.com/wso2/agent-manager/cli/pkg/render"
+	"github.com/wso2/agent-manager/cli/pkg/update"
+	"github.com/wso2/agent-manager/cli/pkg/version"
 )
 
 // orgPeekLimit is the page size used when probing organizations after login.
 // Two is enough to distinguish "exactly one" from "more than one" without
 // fetching the full list.
 const orgPeekLimit = 2
+
+// releasesURL lists the amctl releases (amctl/v<version>). Not /releases/latest: that is
+// the repository's platform release, which does not ship amctl.
+const releasesURL = "https://github.com/wso2/agent-manager/releases?q=amctl"
+
+// updateCheckTimeout bounds the release check so it never delays login noticeably.
+const updateCheckTimeout = 3 * time.Second
 
 type loginData struct {
 	URL           string                       `json:"url"`
@@ -64,6 +74,8 @@ type LoginOptions struct {
 	Cloud    bool
 	Getenv   func(string) string
 	Resource string
+	// HTTPClient checks for a newer amctl release on cloud logins.
+	HTTPClient func() *http.Client
 }
 
 func NewLoginCmd(f *cmdutil.Factory) *cobra.Command {
@@ -73,6 +85,7 @@ func NewLoginCmd(f *cmdutil.Factory) *cobra.Command {
 		Authenticate: auth.Login,
 		AgentManager: f.AgentManager,
 		Getenv:       os.Getenv,
+		HTTPClient:   f.HTTPClient,
 	}
 
 	cmd := &cobra.Command{
@@ -97,6 +110,11 @@ func runLogin(ctx context.Context, opts *LoginOptions) error {
 	if opts.ClientSecret != "" && opts.ClientID == "" {
 		return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf("--client-id is required when --client-secret is set"))
 	}
+	if !opts.Cloud && cloud.IsAPIURL(opts.URL) {
+		return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf(
+			"%s is a WSO2 Cloud URL; log in with --cloud instead: export %s=%s && amctl login --cloud (if --cloud is unknown, download the latest amctl from %s)",
+			opts.URL, cloud.GatewayURLEnv, cloud.GatewayOf(opts.URL), releasesURL))
+	}
 	if opts.Cloud {
 		if opts.URL != "" {
 			return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf("--url cannot be used with --cloud"))
@@ -117,6 +135,9 @@ func runLogin(ctx context.Context, opts *LoginOptions) error {
 		opts.Name = "default"
 	}
 	scope := render.Scope{Instance: opts.Name}
+	if opts.Resource == cloud.Resource {
+		warnIfOutdated(ctx, opts)
+	}
 
 	inst, err := opts.Authenticate(ctx, auth.LoginOptions{
 		URL:          opts.URL,
@@ -213,6 +234,19 @@ func fillFromStoredInstance(opts *LoginOptions, cfg *config.Config) error {
 		}
 	}
 	return nil
+}
+
+func warnIfOutdated(ctx context.Context, opts *LoginOptions) {
+	if opts.HTTPClient == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
+	defer cancel()
+	rel, err := update.Latest(ctx, opts.HTTPClient())
+	if err != nil || !update.Newer(version.Version, rel.Version) {
+		return
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "warning: amctl %s is available (you have %s); download it from %s\n", rel.Version, version.Version, rel.URL)
 }
 
 func fetchOrgs(ctx context.Context, opts *LoginOptions) ([]amsvc.OrganizationListItem, error) {
