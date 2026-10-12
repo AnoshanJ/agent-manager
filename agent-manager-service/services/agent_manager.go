@@ -6210,6 +6210,7 @@ func (s *agentManagerService) enqueueA2APublication(
 	ctx context.Context,
 	ouID, projectName, agentName, environmentName string,
 	environmentUUID, artifactUUID uuid.UUID,
+	agentUUID *uuid.UUID,
 ) {
 	if s.a2aPublicationRepo == nil {
 		return
@@ -6221,6 +6222,7 @@ func (s *agentManagerService) enqueueA2APublication(
 		EnvironmentName: environmentName,
 		EnvironmentUUID: environmentUUID,
 		ArtifactUUID:    artifactUUID,
+		AgentUUID:       agentUUID,
 	}
 	if err := s.a2aPublicationRepo.Enqueue(ctx, pub); err != nil {
 		s.logger.Error("Failed to queue A2A agent gateway publication; the agent is deployed but will not reach its gateway until it is next deployed, promoted, or its deploy settings are saved",
@@ -6244,7 +6246,23 @@ func (s *agentManagerService) enqueueCreatedA2AAgent(
 			"agentName", agentName, "environment", environmentName, "environmentUUID", environmentUUID, "error", err)
 		return
 	}
-	s.enqueueA2APublication(ctx, ouID, projectName, agentName, environmentName, envUUID, artifact.UUID)
+	var agentUUID *uuid.UUID
+	if agent, err := s.ocClient.GetComponent(ctx, ouID, projectName, agentName); err != nil {
+		s.logger.Warn("Could not read the new A2A agent's UUID; its publication falls back to name checks",
+			"agentName", agentName, "error", err)
+	} else {
+		agentUUID = parseAgentUUID(agent.UUID)
+	}
+	s.enqueueA2APublication(ctx, ouID, projectName, agentName, environmentName, envUUID, artifact.UUID, agentUUID)
+}
+
+// parseAgentUUID returns nil for a missing or malformed UUID; the reconciler then checks by name.
+func parseAgentUUID(raw string) *uuid.UUID {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 // republishA2AAgent re-queues an A2A agent's gateway resource after the config
@@ -6265,6 +6283,6 @@ func (s *agentManagerService) republishA2AAgent(
 	if err != nil {
 		return fmt.Errorf("environment %q has an unparseable UUID %q: %w", environmentName, environmentUUID, err)
 	}
-	s.enqueueA2APublication(ctx, ouID, projectName, agentName, environmentName, envUUID, artifactUUID)
+	s.enqueueA2APublication(ctx, ouID, projectName, agentName, environmentName, envUUID, artifactUUID, parseAgentUUID(agent.UUID))
 	return nil
 }

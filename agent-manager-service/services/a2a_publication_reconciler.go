@@ -254,10 +254,14 @@ func (s *a2aPublicationReconcilerService) enqueueCardFetch(ctx context.Context, 
 	s.dropCardIfAgentGone(ctx, pub)
 }
 
-// dropCardIfAgentGone removes a card row written after a racing DeleteAgent cleared the agent's rows.
+// dropCardIfAgentGone removes a card row written after a racing DeleteAgent, even if the name was reused.
 func (s *a2aPublicationReconcilerService) dropCardIfAgentGone(ctx context.Context, pub models.A2APublication) {
-	_, err := s.ocClient.GetComponent(ctx, pub.OUID, pub.ProjectName, pub.AgentName)
-	if !errors.Is(err, utils.ErrNotFound) {
+	current, err := s.ocClient.GetComponent(ctx, pub.OUID, pub.ProjectName, pub.AgentName)
+	switch {
+	case errors.Is(err, utils.ErrNotFound):
+	case err != nil:
+		return
+	case pub.AgentUUID == nil || current.UUID == pub.AgentUUID.String():
 		return
 	}
 	if err := s.cardRepo.DeleteForAgentEnv(ctx, pub.OUID, pub.ProjectName, pub.AgentName, pub.EnvironmentName); err != nil {

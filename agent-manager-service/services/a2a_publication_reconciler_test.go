@@ -461,6 +461,47 @@ func TestReconcilerKeepsTheCardRowWhenTheAgentLookupFails(t *testing.T) {
 	assert.Empty(t, h.cardRepo.DeleteForAgentEnvCalls())
 }
 
+func TestReconcilerDropsTheCardRowWhenTheAgentWasReplacedMeanwhile(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	h.ocClient.GetComponentFunc = func(_ context.Context, _, _, name string) (*models.AgentResponse, error) {
+		return &models.AgentResponse{UUID: uuid.NewString(), Name: name}, nil
+	}
+	h.cardRepo.DeleteForAgentEnvFunc = func(context.Context, string, string, string, string) error { return nil }
+	pub := pendingPublication()
+	queuedFor := uuid.New()
+	pub.AgentUUID = &queuedFor
+
+	h.svc.publishOne(context.Background(), pub)
+
+	require.Len(t, h.cardRepo.DeleteForAgentEnvCalls(), 1)
+}
+
+func TestReconcilerKeepsTheCardRowOfTheSameAgent(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	queuedFor := uuid.New()
+	h.ocClient.GetComponentFunc = func(_ context.Context, _, _, name string) (*models.AgentResponse, error) {
+		return &models.AgentResponse{UUID: queuedFor.String(), Name: name}, nil
+	}
+	pub := pendingPublication()
+	pub.AgentUUID = &queuedFor
+
+	h.svc.publishOne(context.Background(), pub)
+
+	assert.Empty(t, h.cardRepo.DeleteForAgentEnvCalls())
+}
+
+// Rows queued before the UUID was recorded keep the name-only check.
+func TestReconcilerKeepsTheCardRowOfAnUnrecordedAgentThatStillExists(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	h.ocClient.GetComponentFunc = func(_ context.Context, _, _, name string) (*models.AgentResponse, error) {
+		return &models.AgentResponse{UUID: uuid.NewString(), Name: name}, nil
+	}
+
+	h.svc.publishOne(context.Background(), pendingPublication())
+
+	assert.Empty(t, h.cardRepo.DeleteForAgentEnvCalls())
+}
+
 // A rebuild or redeploy moves the binding to a new release without telling AMS; the card must follow.
 func TestDriftCheckRefetchesACardFromAnOlderRelease(t *testing.T) {
 	const upstream = "http://trip-planner.dp-default:9099"
