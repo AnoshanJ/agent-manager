@@ -60,13 +60,15 @@ type A2AAgentCard struct {
 	CardHash  string          `gorm:"column:card_hash;not null;default:''"`
 	FetchedAt *time.Time      `gorm:"column:fetched_at"`
 	// ReleaseName is the binding release a platform card was fetched from.
-	ReleaseName   string             `gorm:"column:release_name;not null;default:''"`
-	Status        A2AAgentCardStatus `gorm:"column:status;not null;default:'pending'"`
-	AttemptCount  int                `gorm:"column:attempt_count;not null;default:0"`
-	LastError     string             `gorm:"column:last_error;not null;default:''"`
-	NextAttemptAt *time.Time         `gorm:"column:next_attempt_at"`
-	CreatedAt     time.Time          `gorm:"column:created_at;not null;default:NOW()"`
-	UpdatedAt     time.Time          `gorm:"column:updated_at;not null;default:NOW()"`
+	ReleaseName string `gorm:"column:release_name;not null;default:''"`
+	// AttemptedReleaseName is the release the last platform fetch ran against.
+	AttemptedReleaseName string             `gorm:"column:attempted_release_name;not null;default:''"`
+	Status               A2AAgentCardStatus `gorm:"column:status;not null;default:'pending'"`
+	AttemptCount         int                `gorm:"column:attempt_count;not null;default:0"`
+	LastError            string             `gorm:"column:last_error;not null;default:''"`
+	NextAttemptAt        *time.Time         `gorm:"column:next_attempt_at"`
+	CreatedAt            time.Time          `gorm:"column:created_at;not null;default:NOW()"`
+	UpdatedAt            time.Time          `gorm:"column:updated_at;not null;default:NOW()"`
 }
 
 func (A2AAgentCard) TableName() string { return "a2a_agent_cards" }

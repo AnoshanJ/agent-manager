@@ -55,8 +55,8 @@ type A2AAgentCardRepository interface {
 
 	// MarkFetched rewrites card and card_hash only when cardHash differs from read.CardHash.
 	MarkFetched(ctx context.Context, read models.A2AAgentCard, card json.RawMessage, cardHash, fetchedURL, releaseName string) error
-	MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr string, nextAttemptAt time.Time) error
-	MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr string) error
+	MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr, releaseName string, nextAttemptAt time.Time) error
+	MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr, releaseName string) error
 
 	// Get returns ErrA2AAgentCardNotFound when no row exists.
 	Get(ctx context.Context, ouID, projectName, agentName, environmentName string) (*models.A2AAgentCard, error)
@@ -162,7 +162,7 @@ func newSourceURLAssignments(changed string) []clause.Assignment {
 
 // a2aCardClaimColumns omits card: the reconciler compares card_hash and never reads the stored body.
 const a2aCardClaimColumns = `id, ou_id, project_name, agent_name, environment_name, environment_uuid, source, source_url, card_hash,
-	fetched_at, release_name, status, attempt_count, last_error, next_attempt_at, created_at, updated_at`
+	fetched_at, release_name, attempted_release_name, status, attempt_count, last_error, next_attempt_at, created_at, updated_at`
 
 func (r *a2aAgentCardRepository) ClaimDue(ctx context.Context, now time.Time, limit int) ([]models.A2AAgentCard, error) {
 	var claimed []models.A2AAgentCard
@@ -198,24 +198,32 @@ func (r *a2aAgentCardRepository) MarkFetched(ctx context.Context, read models.A2
 		updates["card"] = card
 		updates["card_hash"] = cardHash
 	}
-	return r.updateIfUnchanged(ctx, read, updates)
+	return r.updateIfUnchanged(ctx, read, withAttemptedRelease(updates, releaseName))
 }
 
-func (r *a2aAgentCardRepository) MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr string, nextAttemptAt time.Time) error {
-	return r.updateIfUnchanged(ctx, read, map[string]interface{}{
+func (r *a2aAgentCardRepository) MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr, releaseName string, nextAttemptAt time.Time) error {
+	return r.updateIfUnchanged(ctx, read, withAttemptedRelease(map[string]interface{}{
 		"attempt_count":   gorm.Expr("attempt_count + 1"),
 		"last_error":      lastErr,
 		"next_attempt_at": nextAttemptAt,
-	})
+	}, releaseName))
 }
 
-func (r *a2aAgentCardRepository) MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr string) error {
-	return r.updateIfUnchanged(ctx, read, map[string]interface{}{
+func (r *a2aAgentCardRepository) MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr, releaseName string) error {
+	return r.updateIfUnchanged(ctx, read, withAttemptedRelease(map[string]interface{}{
 		"status":          models.A2AAgentCardStatusFailed,
 		"attempt_count":   gorm.Expr("attempt_count + 1"),
 		"last_error":      lastErr,
 		"next_attempt_at": nil,
-	})
+	}, releaseName))
+}
+
+// withAttemptedRelease keeps the last known release when this attempt never learned one.
+func withAttemptedRelease(updates map[string]interface{}, releaseName string) map[string]interface{} {
+	if releaseName != "" {
+		updates["attempted_release_name"] = releaseName
+	}
+	return updates
 }
 
 func (r *a2aAgentCardRepository) updateIfUnchanged(ctx context.Context, read models.A2AAgentCard, updates map[string]interface{}) error {

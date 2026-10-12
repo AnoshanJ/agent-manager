@@ -207,7 +207,7 @@ func (s *a2aPublicationReconcilerService) refetchCardOfNewRelease(ctx context.Co
 		return
 	}
 	if card.Source != models.A2AAgentCardSourcePlatform || card.Status == models.A2AAgentCardStatusPending ||
-		card.ReleaseName == rollout.ReleaseName {
+		card.ReleaseName == rollout.ReleaseName || card.AttemptedReleaseName == rollout.ReleaseName {
 		return
 	}
 	s.logger.Info("A2A agent serves a new release; re-fetching its card",

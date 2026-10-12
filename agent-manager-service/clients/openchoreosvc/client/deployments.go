@@ -1847,6 +1847,8 @@ type ReleaseBindingRollout struct {
 	ReleaseName string
 	// Serving is false until the release's workload finishes rolling out, so old pods are gone.
 	Serving bool
+	// Deployed is false when the environment has no binding or its binding is undeployed.
+	Deployed bool
 }
 
 func (c *openChoreoClient) GetReleaseBindingRollout(ctx context.Context, ouID, componentName, environment string) (ReleaseBindingRollout, error) {

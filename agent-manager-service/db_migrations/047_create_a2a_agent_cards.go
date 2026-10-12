@@ -44,6 +44,7 @@ var migration047 = migration{
 				card_hash        VARCHAR(64) NOT NULL DEFAULT '',
 				fetched_at       TIMESTAMPTZ,
 				release_name     VARCHAR(255) NOT NULL DEFAULT '',
+				attempted_release_name VARCHAR(255) NOT NULL DEFAULT '',
 				status           VARCHAR(32) NOT NULL DEFAULT 'pending',
 				attempt_count    INTEGER NOT NULL DEFAULT 0,
 				last_error       TEXT NOT NULL DEFAULT '',

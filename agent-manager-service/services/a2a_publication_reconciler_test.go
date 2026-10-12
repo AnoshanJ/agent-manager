@@ -500,6 +500,14 @@ func TestDriftCheckLeavesACardAlone(t *testing.T) {
 				return client.ReleaseBindingRollout{ServiceURL: upstream, ReleaseName: "trip-planner-r2"}, nil
 			}
 		},
+		"that already failed on the serving release": func(h *a2aReconcilerHarness) {
+			h.cardRepo.GetFunc = func(context.Context, string, string, string, string) (*models.A2AAgentCard, error) {
+				return &models.A2AAgentCard{
+					Source: models.A2AAgentCardSourcePlatform, Status: models.A2AAgentCardStatusFailed,
+					ReleaseName: "trip-planner-r1", AttemptedReleaseName: "trip-planner-r2",
+				}, nil
+			}
+		},
 		"of an external agent": func(h *a2aReconcilerHarness) {
 			h.cardRepo.GetFunc = func(context.Context, string, string, string, string) (*models.A2AAgentCard, error) {
 				return &models.A2AAgentCard{Source: models.A2AAgentCardSourceExternal, Status: models.A2AAgentCardStatusFetched}, nil
@@ -517,4 +525,21 @@ func TestDriftCheckLeavesACardAlone(t *testing.T) {
 			assert.Empty(t, h.cardRepo.EnqueueCalls())
 		})
 	}
+}
+
+// A failed card gets one new chance per release, so a fixing redeploy still heals it.
+func TestDriftCheckRetriesAFailedCardOnANewRelease(t *testing.T) {
+	const upstream = "http://trip-planner.dp-default:9099"
+	h := newA2AReconcilerHarness(upstream)
+	h.cardRepo.GetFunc = func(context.Context, string, string, string, string) (*models.A2AAgentCard, error) {
+		return &models.A2AAgentCard{
+			Source: models.A2AAgentCardSourcePlatform, Status: models.A2AAgentCardStatusFailed,
+			AttemptedReleaseName: "trip-planner-r1",
+		}, nil
+	}
+	h.withPublished(publishedPublication(upstream))
+
+	h.svc.checkUpstreamDrift(context.Background())
+
+	require.Len(t, h.cardRepo.EnqueueCalls(), 1)
 }

@@ -238,6 +238,7 @@ func TestA2AAgentCardMarkFetchedRecordsTheRelease(t *testing.T) {
 
 	require.NoError(t, repo.MarkFetched(ctx, dueCardFor(t, repo, card.AgentName), json.RawMessage(sampleCard), "h", "u", "agent-r7"))
 	assert.Equal(t, "agent-r7", cardRowOf(t, card).ReleaseName)
+	assert.Equal(t, "agent-r7", cardRowOf(t, card).AttemptedReleaseName)
 
 	require.NoError(t, repo.Enqueue(ctx, newTestCardLike(card)))
 	assert.Equal(t, "agent-r7", cardRowOf(t, card).ReleaseName, "a re-fetch keeps the last good card's release")
@@ -256,7 +257,7 @@ func TestA2AAgentCardClaimDueRespectsBackoff(t *testing.T) {
 	card := newTestCard("backoff-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
 	cleanupCard(t, repo, card)
 	require.NoError(t, repo.Enqueue(ctx, card))
-	require.NoError(t, repo.MarkAttemptFailed(ctx, *card, "HTTP 503", time.Now().Add(time.Hour)))
+	require.NoError(t, repo.MarkAttemptFailed(ctx, *card, "HTTP 503", "", time.Now().Add(time.Hour)))
 
 	due, err := repo.ClaimDue(ctx, time.Now(), 100)
 	require.NoError(t, err)
@@ -382,8 +383,8 @@ func TestA2AAgentCardMarkFetchedDoesNotSwallowANewerEnqueue(t *testing.T) {
 	require.NoError(t, repo.Enqueue(ctx, &moved))
 
 	require.ErrorIs(t, repo.MarkFetched(ctx, read, json.RawMessage(sampleCard), "h", read.SourceURL, ""), ErrA2AAgentCardSuperseded)
-	require.ErrorIs(t, repo.MarkAttemptFailed(ctx, read, "x", time.Now().Add(time.Hour)), ErrA2AAgentCardSuperseded)
-	require.ErrorIs(t, repo.MarkFailed(ctx, read, "x"), ErrA2AAgentCardSuperseded)
+	require.ErrorIs(t, repo.MarkAttemptFailed(ctx, read, "x", "", time.Now().Add(time.Hour)), ErrA2AAgentCardSuperseded)
+	require.ErrorIs(t, repo.MarkFailed(ctx, read, "x", ""), ErrA2AAgentCardSuperseded)
 
 	row := cardRowOf(t, card)
 	assert.Equal(t, models.A2AAgentCardStatusPending, row.Status)
@@ -397,12 +398,43 @@ func TestA2AAgentCardMarkFailedEndsTheCycle(t *testing.T) {
 	card := newTestCard("failed-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
 	cleanupCard(t, repo, card)
 	require.NoError(t, repo.Enqueue(ctx, card))
-	require.NoError(t, repo.MarkFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 404"))
+	require.NoError(t, repo.MarkFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 404", ""))
 
 	row := cardRowOf(t, card)
 	assert.Equal(t, models.A2AAgentCardStatusFailed, row.Status)
 	assert.Equal(t, "HTTP 404", row.LastError)
 	assert.Nil(t, row.NextAttemptAt)
+}
+
+// The drift scan skips a card that already failed on the serving release.
+func TestA2AAgentCardMarkFailedRecordsTheAttemptedRelease(t *testing.T) {
+	ctx := context.Background()
+	repo := NewA2AAgentCardRepository(db.GetDB())
+	card := newTestCard("attempted-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
+	cleanupCard(t, repo, card)
+	require.NoError(t, repo.Enqueue(ctx, card))
+
+	require.NoError(t, repo.MarkFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 404", "agent-r2"))
+
+	row := cardRowOf(t, card)
+	assert.Equal(t, "agent-r2", row.AttemptedReleaseName)
+	assert.Empty(t, row.ReleaseName, "no card was served by that release")
+}
+
+// An attempt whose rollout read failed knows no release and must not blank the last one.
+func TestA2AAgentCardMarkAttemptFailedKeepsTheAttemptedReleaseWhenUnknown(t *testing.T) {
+	ctx := context.Background()
+	repo := NewA2AAgentCardRepository(db.GetDB())
+	card := newTestCard("attempted-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
+	cleanupCard(t, repo, card)
+	require.NoError(t, repo.Enqueue(ctx, card))
+
+	require.NoError(t, repo.MarkAttemptFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 503", "agent-r2", time.Now()))
+	again := dueCardFor(t, repo, card.AgentName)
+	assert.Equal(t, "agent-r2", again.AttemptedReleaseName, "ClaimDue carries the column")
+	require.NoError(t, repo.MarkAttemptFailed(ctx, again, "rollout read failed", "", time.Now()))
+
+	assert.Equal(t, "agent-r2", cardRowOf(t, card).AttemptedReleaseName)
 }
 
 func TestA2AAgentCardListForAgentOrdersByEnvironment(t *testing.T) {
@@ -479,7 +511,7 @@ func TestA2AAgentCardRequeueResetsAFailedRow(t *testing.T) {
 	card.SourceURL = "https://a.example/card.json"
 	cleanupCard(t, repo, card)
 	require.NoError(t, repo.Enqueue(ctx, card))
-	require.NoError(t, repo.MarkFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 404"))
+	require.NoError(t, repo.MarkFailed(ctx, dueCardFor(t, repo, card.AgentName), "HTTP 404", ""))
 
 	require.NoError(t, repo.Requeue(ctx, card.OUID, card.ProjectName, card.AgentName, card.EnvironmentName))
 

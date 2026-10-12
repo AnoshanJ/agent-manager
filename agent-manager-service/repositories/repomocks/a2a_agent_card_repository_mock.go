@@ -43,10 +43,10 @@ import (
 //			ListForAgentFunc: func(ctx context.Context, ouID string, projectName string, agentName string) ([]models.A2AAgentCard, error) {
 //				panic("mock out the ListForAgent method")
 //			},
-//			MarkAttemptFailedFunc: func(ctx context.Context, read models.A2AAgentCard, lastErr string, nextAttemptAt time.Time) error {
+//			MarkAttemptFailedFunc: func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string, nextAttemptAt time.Time) error {
 //				panic("mock out the MarkAttemptFailed method")
 //			},
-//			MarkFailedFunc: func(ctx context.Context, read models.A2AAgentCard, lastErr string) error {
+//			MarkFailedFunc: func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string) error {
 //				panic("mock out the MarkFailed method")
 //			},
 //			MarkFetchedFunc: func(ctx context.Context, read models.A2AAgentCard, card json.RawMessage, cardHash string, fetchedURL string, releaseName string) error {
@@ -87,10 +87,10 @@ type A2AAgentCardRepositoryMock struct {
 	ListForAgentFunc func(ctx context.Context, ouID string, projectName string, agentName string) ([]models.A2AAgentCard, error)
 
 	// MarkAttemptFailedFunc mocks the MarkAttemptFailed method.
-	MarkAttemptFailedFunc func(ctx context.Context, read models.A2AAgentCard, lastErr string, nextAttemptAt time.Time) error
+	MarkAttemptFailedFunc func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string, nextAttemptAt time.Time) error
 
 	// MarkFailedFunc mocks the MarkFailed method.
-	MarkFailedFunc func(ctx context.Context, read models.A2AAgentCard, lastErr string) error
+	MarkFailedFunc func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string) error
 
 	// MarkFetchedFunc mocks the MarkFetched method.
 	MarkFetchedFunc func(ctx context.Context, read models.A2AAgentCard, card json.RawMessage, cardHash string, fetchedURL string, releaseName string) error
@@ -194,6 +194,8 @@ type A2AAgentCardRepositoryMock struct {
 			Read models.A2AAgentCard
 			// LastErr is the lastErr argument value.
 			LastErr string
+			// ReleaseName is the releaseName argument value.
+			ReleaseName string
 			// NextAttemptAt is the nextAttemptAt argument value.
 			NextAttemptAt time.Time
 		}
@@ -205,6 +207,8 @@ type A2AAgentCardRepositoryMock struct {
 			Read models.A2AAgentCard
 			// LastErr is the lastErr argument value.
 			LastErr string
+			// ReleaseName is the releaseName argument value.
+			ReleaseName string
 		}
 		// MarkFetched holds details about calls to the MarkFetched method.
 		MarkFetched []struct {
@@ -598,7 +602,7 @@ func (mock *A2AAgentCardRepositoryMock) ListForAgentCalls() []struct {
 }
 
 // MarkAttemptFailed calls MarkAttemptFailedFunc.
-func (mock *A2AAgentCardRepositoryMock) MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr string, nextAttemptAt time.Time) error {
+func (mock *A2AAgentCardRepositoryMock) MarkAttemptFailed(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string, nextAttemptAt time.Time) error {
 	if mock.MarkAttemptFailedFunc == nil {
 		panic("A2AAgentCardRepositoryMock.MarkAttemptFailedFunc: method is nil but A2AAgentCardRepository.MarkAttemptFailed was just called")
 	}
@@ -606,17 +610,19 @@ func (mock *A2AAgentCardRepositoryMock) MarkAttemptFailed(ctx context.Context, r
 		Ctx           context.Context
 		Read          models.A2AAgentCard
 		LastErr       string
+		ReleaseName   string
 		NextAttemptAt time.Time
 	}{
 		Ctx:           ctx,
 		Read:          read,
 		LastErr:       lastErr,
+		ReleaseName:   releaseName,
 		NextAttemptAt: nextAttemptAt,
 	}
 	mock.lockMarkAttemptFailed.Lock()
 	mock.calls.MarkAttemptFailed = append(mock.calls.MarkAttemptFailed, callInfo)
 	mock.lockMarkAttemptFailed.Unlock()
-	return mock.MarkAttemptFailedFunc(ctx, read, lastErr, nextAttemptAt)
+	return mock.MarkAttemptFailedFunc(ctx, read, lastErr, releaseName, nextAttemptAt)
 }
 
 // MarkAttemptFailedCalls gets all the calls that were made to MarkAttemptFailed.
@@ -627,12 +633,14 @@ func (mock *A2AAgentCardRepositoryMock) MarkAttemptFailedCalls() []struct {
 	Ctx           context.Context
 	Read          models.A2AAgentCard
 	LastErr       string
+	ReleaseName   string
 	NextAttemptAt time.Time
 } {
 	var calls []struct {
 		Ctx           context.Context
 		Read          models.A2AAgentCard
 		LastErr       string
+		ReleaseName   string
 		NextAttemptAt time.Time
 	}
 	mock.lockMarkAttemptFailed.RLock()
@@ -642,23 +650,25 @@ func (mock *A2AAgentCardRepositoryMock) MarkAttemptFailedCalls() []struct {
 }
 
 // MarkFailed calls MarkFailedFunc.
-func (mock *A2AAgentCardRepositoryMock) MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr string) error {
+func (mock *A2AAgentCardRepositoryMock) MarkFailed(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string) error {
 	if mock.MarkFailedFunc == nil {
 		panic("A2AAgentCardRepositoryMock.MarkFailedFunc: method is nil but A2AAgentCardRepository.MarkFailed was just called")
 	}
 	callInfo := struct {
-		Ctx     context.Context
-		Read    models.A2AAgentCard
-		LastErr string
+		Ctx         context.Context
+		Read        models.A2AAgentCard
+		LastErr     string
+		ReleaseName string
 	}{
-		Ctx:     ctx,
-		Read:    read,
-		LastErr: lastErr,
+		Ctx:         ctx,
+		Read:        read,
+		LastErr:     lastErr,
+		ReleaseName: releaseName,
 	}
 	mock.lockMarkFailed.Lock()
 	mock.calls.MarkFailed = append(mock.calls.MarkFailed, callInfo)
 	mock.lockMarkFailed.Unlock()
-	return mock.MarkFailedFunc(ctx, read, lastErr)
+	return mock.MarkFailedFunc(ctx, read, lastErr, releaseName)
 }
 
 // MarkFailedCalls gets all the calls that were made to MarkFailed.
@@ -666,14 +676,16 @@ func (mock *A2AAgentCardRepositoryMock) MarkFailed(ctx context.Context, read mod
 //
 //	len(mockedA2AAgentCardRepository.MarkFailedCalls())
 func (mock *A2AAgentCardRepositoryMock) MarkFailedCalls() []struct {
-	Ctx     context.Context
-	Read    models.A2AAgentCard
-	LastErr string
+	Ctx         context.Context
+	Read        models.A2AAgentCard
+	LastErr     string
+	ReleaseName string
 } {
 	var calls []struct {
-		Ctx     context.Context
-		Read    models.A2AAgentCard
-		LastErr string
+		Ctx         context.Context
+		Read        models.A2AAgentCard
+		LastErr     string
+		ReleaseName string
 	}
 	mock.lockMarkFailed.RLock()
 	calls = mock.calls.MarkFailed

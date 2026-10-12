@@ -60,10 +60,10 @@ type cardReconcilerHarness struct {
 func newCardReconcilerHarness(endpointURL string) *cardReconcilerHarness {
 	repo := &repomocks.A2AAgentCardRepositoryMock{
 		MarkFetchedFunc: func(context.Context, models.A2AAgentCard, json.RawMessage, string, string, string) error { return nil },
-		MarkAttemptFailedFunc: func(context.Context, models.A2AAgentCard, string, time.Time) error {
+		MarkAttemptFailedFunc: func(context.Context, models.A2AAgentCard, string, string, time.Time) error {
 			return nil
 		},
-		MarkFailedFunc: func(context.Context, models.A2AAgentCard, string) error { return nil },
+		MarkFailedFunc: func(context.Context, models.A2AAgentCard, string, string) error { return nil },
 	}
 	fetcher := &fakeA2ACardFetcher{
 		FetchFunc: func(context.Context, string, bool) (json.RawMessage, error) {
@@ -283,7 +283,7 @@ func TestCardReconcilerFallsBackWhenTheErrorCannotBeRecorded(t *testing.T) {
 	h.fetcher.FetchFunc = func(context.Context, string, bool) (json.RawMessage, error) {
 		return nil, errors.New("HTTP 503")
 	}
-	h.repo.MarkAttemptFailedFunc = func(_ context.Context, _ models.A2AAgentCard, lastErr string, _ time.Time) error {
+	h.repo.MarkAttemptFailedFunc = func(_ context.Context, _ models.A2AAgentCard, lastErr, _ string, _ time.Time) error {
 		if lastErr == a2aCardUnrecordableError {
 			return nil
 		}
@@ -302,7 +302,7 @@ func TestCardReconcilerDoesNotRetryTheRecordWhenSuperseded(t *testing.T) {
 	h.fetcher.FetchFunc = func(context.Context, string, bool) (json.RawMessage, error) {
 		return nil, errors.New("HTTP 503")
 	}
-	h.repo.MarkAttemptFailedFunc = func(context.Context, models.A2AAgentCard, string, time.Time) error {
+	h.repo.MarkAttemptFailedFunc = func(context.Context, models.A2AAgentCard, string, string, time.Time) error {
 		return repositories.ErrA2AAgentCardSuperseded
 	}
 
@@ -364,4 +364,50 @@ func TestCardReconcilerStopsTheBatchBeforeTheLeaseEnds(t *testing.T) {
 
 func TestCardReconcilerBatchFitsInsideTheClaimLease(t *testing.T) {
 	assert.Less(t, a2aCardBatchBudget, repositories.A2AAgentCardClaimLease)
+}
+
+// The drift scan compares the attempted release, so every failure path must report it.
+func TestCardReconcilerRecordsTheReleaseItTried(t *testing.T) {
+	t.Run("a failed fetch", func(t *testing.T) {
+		h := newCardReconcilerHarness("http://gw.example/a")
+		h.fetcher.FetchFunc = func(context.Context, string, bool) (json.RawMessage, error) {
+			return nil, errors.New("agent card request returned HTTP 503")
+		}
+		h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))
+		retries := h.repo.MarkAttemptFailedCalls()
+		require.Len(t, retries, 1)
+		assert.Equal(t, "trip-planner-r1", retries[0].ReleaseName)
+	})
+	t.Run("a rollout still in progress", func(t *testing.T) {
+		h := newCardReconcilerHarness("http://gw.example/a")
+		h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+			return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r2", Deployed: true}, nil
+		}
+		h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))
+		retries := h.repo.MarkAttemptFailedCalls()
+		require.Len(t, retries, 1)
+		assert.Equal(t, "trip-planner-r2", retries[0].ReleaseName)
+	})
+	t.Run("the last attempt", func(t *testing.T) {
+		h := newCardReconcilerHarness("http://gw.example/a")
+		h.fetcher.FetchFunc = func(context.Context, string, bool) (json.RawMessage, error) {
+			return nil, errors.New("agent card request returned HTTP 503")
+		}
+		row := pendingCard(models.A2AAgentCardSourcePlatform)
+		row.AttemptCount = a2aCardAttemptBudget - 1
+		h.svc.fetchOne(context.Background(), row)
+		failed := h.repo.MarkFailedCalls()
+		require.Len(t, failed, 1)
+		assert.Equal(t, "trip-planner-r1", failed[0].ReleaseName)
+	})
+	t.Run("an unreadable rollout", func(t *testing.T) {
+		h := newCardReconcilerHarness("http://gw.example/a")
+		h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+			return client.ReleaseBindingRollout{}, assert.AnError
+		}
+		h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))
+		retries := h.repo.MarkAttemptFailedCalls()
+		require.Len(t, retries, 1)
+		assert.Empty(t, retries[0].ReleaseName)
+	})
 }

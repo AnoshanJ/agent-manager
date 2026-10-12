@@ -151,12 +151,12 @@ func (s *a2aCardReconcilerService) fetchOne(ctx context.Context, row models.A2AA
 	ctx = context.WithoutCancel(ctx)
 	fetched, err := s.attemptFetch(attemptCtx, row)
 	if err != nil {
-		s.recordAttemptFailure(ctx, row, err)
+		s.recordAttemptFailure(ctx, row, fetched.releaseName, err)
 		return
 	}
 	hash, err := a2aCardHash(fetched.body)
 	if err != nil {
-		s.recordAttemptFailure(ctx, row, err)
+		s.recordAttemptFailure(ctx, row, fetched.releaseName, err)
 		return
 	}
 	err = s.cardRepo.MarkFetched(ctx, row, fetched.body, hash, fetched.url, fetched.releaseName)
@@ -164,7 +164,7 @@ func (s *a2aCardReconcilerService) fetchOne(ctx context.Context, row models.A2AA
 	case errors.Is(err, repositories.ErrA2AAgentCardSuperseded):
 		s.logSuperseded(row)
 	case err != nil:
-		s.recordAttemptFailure(ctx, row, fmt.Errorf("failed to store agent card: %w", err))
+		s.recordAttemptFailure(ctx, row, fetched.releaseName, fmt.Errorf("failed to store agent card: %w", err))
 	}
 }
 
@@ -193,28 +193,30 @@ func (s *a2aCardReconcilerService) fetchPlatformCard(ctx context.Context, row mo
 	if err != nil {
 		return a2aCardFetch{}, fmt.Errorf("failed to read agent rollout: %w", err)
 	}
+	attempt := a2aCardFetch{releaseName: rollout.ReleaseName}
 	if !rollout.Serving {
-		return a2aCardFetch{}, errA2ACardRolloutInProgress
+		return attempt, errA2ACardRolloutInProgress
 	}
 	if rollout.ExternalURL == "" {
-		return a2aCardFetch{}, errA2ACardEndpointNotReady
+		return attempt, errA2ACardEndpointNotReady
 	}
-	url := strings.TrimRight(rollout.ExternalURL, "/") + a2aAgentCardPath
-	body, err := s.fetcher.Fetch(ctx, url, false)
+	attempt.url = strings.TrimRight(rollout.ExternalURL, "/") + a2aAgentCardPath
+	body, err := s.fetcher.Fetch(ctx, attempt.url, false)
 	if err != nil {
 		// The derived URL is otherwise invisible to the user.
-		return a2aCardFetch{url: url}, fmt.Errorf("%s: %w", url, err)
+		return attempt, fmt.Errorf("%s: %w", attempt.url, err)
 	}
-	return a2aCardFetch{url: url, releaseName: rollout.ReleaseName, body: body}, nil
+	attempt.body = body
+	return attempt, nil
 }
 
-func (s *a2aCardReconcilerService) recordAttemptFailure(ctx context.Context, row models.A2AAgentCard, cause error) {
+func (s *a2aCardReconcilerService) recordAttemptFailure(ctx context.Context, row models.A2AAgentCard, releaseName string, cause error) {
 	lastErr := sanitizeA2ACardError(cause.Error())
-	err := s.markAttemptFailed(ctx, row, cause, lastErr)
+	err := s.markAttemptFailed(ctx, row, cause, lastErr, releaseName)
 	if err != nil && !errors.Is(err, repositories.ErrA2AAgentCardSuperseded) {
 		s.logger.Error("Failed to record A2A agent card attempt; retrying with a fixed message",
 			"agentName", row.AgentName, "error", err)
-		err = s.markAttemptFailed(ctx, row, cause, a2aCardUnrecordableError)
+		err = s.markAttemptFailed(ctx, row, cause, a2aCardUnrecordableError, releaseName)
 	}
 	switch {
 	case errors.Is(err, repositories.ErrA2AAgentCardSuperseded):
@@ -225,16 +227,16 @@ func (s *a2aCardReconcilerService) recordAttemptFailure(ctx context.Context, row
 }
 
 // markAttemptFailed charges one attempt, failing the row once the budget is spent.
-func (s *a2aCardReconcilerService) markAttemptFailed(ctx context.Context, row models.A2AAgentCard, cause error, lastErr string) error {
+func (s *a2aCardReconcilerService) markAttemptFailed(ctx context.Context, row models.A2AAgentCard, cause error, lastErr, releaseName string) error {
 	if row.AttemptCount+1 >= a2aCardAttemptBudget {
 		s.logger.Warn("A2A agent card could not be fetched within the attempt budget",
 			"agentName", row.AgentName, "environment", row.EnvironmentName, "error", cause)
-		return s.cardRepo.MarkFailed(ctx, row, lastErr)
+		return s.cardRepo.MarkFailed(ctx, row, lastErr, releaseName)
 	}
 	s.logger.Debug("A2A agent card not fetchable yet, will retry",
 		"agentName", row.AgentName, "environment", row.EnvironmentName,
 		"attempt", row.AttemptCount+1, "reason", cause)
-	return s.cardRepo.MarkAttemptFailed(ctx, row, lastErr, time.Now().Add(a2aCardRetryIn(row.AttemptCount)))
+	return s.cardRepo.MarkAttemptFailed(ctx, row, lastErr, releaseName, time.Now().Add(a2aCardRetryIn(row.AttemptCount)))
 }
 
 // sanitizeA2ACardError makes msg storable in a Postgres TEXT column and bounded in length.
