@@ -9,8 +9,9 @@ Three surfaces, which together are everything an A2A client needs:
     ``/tasks/{id}``, and so on).
 
 The paths are the ones AMP's gateway publishes an ``a2a-agent`` under: it
-routes ``/<agent-name>/rpc`` and ``/<agent-name>/rest`` here and rewrites the
-card it serves so clients dial the gateway, not this process.
+routes ``/<agent-name>/rpc`` and ``/<agent-name>/rest`` here. Set
+``AGENT_PUBLIC_BASE_URL`` to that gateway address so the card points clients
+at the gateway, not this process.
 """
 
 from __future__ import annotations
@@ -88,10 +89,11 @@ def build_agent_card() -> AgentCard:
     """Describe the agent: who it is, how to reach it, and what it can do.
 
     ``supportedInterfaces`` lists one entry per transport, which is what a
-    client picks from. The URLs are this agent's own address; the gateway
-    rewrites them to its own when it serves the card.
+    client picks from. Their base is ``AGENT_PUBLIC_BASE_URL`` when set - the
+    address clients actually reach, such as ``<gateway-url>/<agent-name>`` -
+    and the local address otherwise.
     """
-    base_url = os.getenv("AGENT_PUBLIC_BASE_URL", f"http://localhost:{PORT}").rstrip("/")
+    base_url = (os.getenv("AGENT_PUBLIC_BASE_URL") or f"http://localhost:{PORT}").rstrip("/")
     return AgentCard(
         name="a2a-notes-agent",
         description=(
