@@ -122,6 +122,14 @@ export const SeveralActiveFilters: Story = {
   },
 };
 
+// The second row's filters, with the paired tool chip.
+export const ToolAndMcpFilters: Story = {
+  args: {
+    initialFilters: { tool: 'search_web', toolError: true, mcpServer: 'github' },
+    traces: [sampleTraces[1]],
+  },
+};
+
 // Scrolled to the end of the list while the next page loads.
 export const MidScroll: Story = {
   args: {

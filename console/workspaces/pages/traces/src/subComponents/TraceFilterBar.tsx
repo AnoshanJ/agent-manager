@@ -34,12 +34,14 @@ import {
   MAX_TEXT_FILTER_LENGTH,
   STEP_PRESETS,
   TOKEN_PRESETS,
+  type TraceFilterChip,
   type TraceFilterKey,
   formatLatency,
   formatTokens,
   traceFilterChips,
 } from "../traceFilters";
 import { TraceIdSearch } from "./TraceIdSearch";
+import { ToolFailedSelect } from "./TraceFilterSelects";
 
 const ANY = "";
 
@@ -124,10 +126,10 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
 }) => {
   const set = <K extends TraceFilterKey>(key: K, value: TraceFilters[K]) =>
     onChange({ ...filters, [key]: value });
-  /** Clears one filter. */
-  const remove = (key: TraceFilterKey) => {
+  /** Clears the chip's filters. */
+  const remove = (chip: TraceFilterChip) => {
     const next = { ...filters };
-    delete next[key];
+    for (const key of [chip.key, ...(chip.alsoClears ?? [])]) delete next[key];
     onChange(next);
   };
   const chips = traceFilterChips(filters);
@@ -188,6 +190,21 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
         />
         {onTraceSearch && <TraceIdSearch onSearch={onTraceSearch} />}
       </Stack>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+        <CommitTextField
+          key={`tool:${filters.tool ?? ""}`}
+          label="Tool"
+          value={filters.tool}
+          onCommit={(v) => set("tool", v)}
+        />
+        <ToolFailedSelect value={filters.toolError} onChange={(v) => set("toolError", v)} />
+        <CommitTextField
+          key={`mcpServer:${filters.mcpServer ?? ""}`}
+          label="MCP server"
+          value={filters.mcpServer}
+          onCommit={(v) => set("mcpServer", v)}
+        />
+      </Stack>
       {chips.length > 0 && (
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
           <Typography variant="body2" color="text.secondary">
@@ -200,7 +217,7 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
               title={chip.label}
               size="small"
               variant="outlined"
-              onDelete={() => remove(chip.key)}
+              onDelete={() => remove(chip)}
               deleteIcon={<RemoveIcon size={14} aria-label={`Remove ${chip.label}`} />}
               sx={{ maxWidth: 320 }}
             />

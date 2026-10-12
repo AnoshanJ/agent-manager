@@ -20,7 +20,7 @@ import type { TraceFilters } from "@agent-management-platform/types";
 
 export type TraceFilterKey = keyof TraceFilters;
 type NumericFilterKey = "minDurationMs" | "minTokens" | "minSpanCount";
-type TextFilterKey = "model" | "conversationId";
+type TextFilterKey = "model" | "conversationId" | "tool" | "mcpServer";
 
 // URL param names match the API query params; this is also the chip order.
 export const TRACE_FILTER_KEYS: TraceFilterKey[] = [
@@ -30,12 +30,15 @@ export const TRACE_FILTER_KEYS: TraceFilterKey[] = [
   "minSpanCount",
   "model",
   "conversationId",
+  "tool",
+  "toolError",
+  "mcpServer",
 ];
 
 const NUMERIC_KEYS: NumericFilterKey[] = ["minDurationMs", "minTokens", "minSpanCount"];
-const TEXT_KEYS: TextFilterKey[] = ["model", "conversationId"];
+const TEXT_KEYS: TextFilterKey[] = ["model", "conversationId", "tool", "mcpServer"];
 
-// The API rejects longer model and conversationId values.
+// The API rejects longer text filter values.
 export const MAX_TEXT_FILTER_LENGTH = 256;
 
 export const LATENCY_PRESETS_MS = [1000, 5000, 10000, 30000];
@@ -67,6 +70,7 @@ export function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
     const raw = searchParams.get(key)?.trim();
     if (raw && raw.length <= MAX_TEXT_FILTER_LENGTH) filters[key] = raw;
   }
+  if (searchParams.get("toolError") === "true") filters.toolError = true;
   return filters;
 }
 
@@ -78,7 +82,7 @@ export function withTraceFilters(
   const next = new URLSearchParams(searchParams);
   for (const key of TRACE_FILTER_KEYS) {
     const value = filters[key];
-    if (value === undefined || value === "") next.delete(key);
+    if (value === undefined || value === "" || value === false) next.delete(key);
     else next.set(key, String(value));
   }
   return next;
@@ -87,6 +91,8 @@ export function withTraceFilters(
 export interface TraceFilterChip {
   key: TraceFilterKey;
   label: string;
+  // Other filters the chip's × clears with key.
+  alsoClears?: TraceFilterKey[];
 }
 
 // One human-readable chip per set filter, in TRACE_FILTER_KEYS order.
@@ -108,5 +114,14 @@ export function traceFilterChips(filters: TraceFilters): TraceFilterChip[] {
   if (filters.conversationId) {
     chips.push({ key: "conversationId", label: `Conversation: ${filters.conversationId}` });
   }
+  // tool with toolError means that tool failed, so they share one chip.
+  if (filters.tool && filters.toolError) {
+    chips.push({ key: "tool", label: `${filters.tool} failed`, alsoClears: ["toolError"] });
+  } else if (filters.tool) {
+    chips.push({ key: "tool", label: `Tool: ${filters.tool}` });
+  } else if (filters.toolError) {
+    chips.push({ key: "toolError", label: "Tool failed" });
+  }
+  if (filters.mcpServer) chips.push({ key: "mcpServer", label: `MCP server: ${filters.mcpServer}` });
   return chips;
 }

@@ -57,7 +57,7 @@ vi.mock("@agent-management-platform/shared-component", () => ({
 import { useExportTraces, useTrace, useTraceList } from "@agent-management-platform/api-client";
 import { copyToClipboard } from "@agent-management-platform/shared-component";
 import { TracesComponent } from "./Traces.Component";
-import { parseTraceFilters, traceFilterChips } from "./traceFilters";
+import { parseTraceFilters, traceFilterChips, withTraceFilters } from "./traceFilters";
 import { parseTraceColumns } from "./traceColumns";
 import { formatStartTime } from "./traceTime";
 
@@ -304,6 +304,132 @@ describe("TracesComponent filters", () => {
     renderPage("?selectedTrace=t-ok");
     pickOption("Status", "Error");
     expect(currentParams().get("status")).toBe("error");
+    expect(currentParams().get("selectedTrace")).toBeNull();
+  });
+});
+
+describe("tool and MCP server filter URL parsing", () => {
+  it("round-trips each new filter through the URL", () => {
+    const filters: TraceFilters = { tool: "search_web", toolError: true, mcpServer: "github" };
+    const params = withTraceFilters(new URLSearchParams("timeRange=1h"), filters);
+    expect(params.toString()).toBe("timeRange=1h&tool=search_web&toolError=true&mcpServer=github");
+    expect(parseTraceFilters(params)).toEqual(filters);
+  });
+
+  it("drops toolError other than true", () => {
+    expect(parseTraceFilters(new URLSearchParams("toolError=yes"))).toEqual({});
+    expect(parseTraceFilters(new URLSearchParams("toolError=false"))).toEqual({});
+  });
+
+  it("writes toolError only when true", () => {
+    const params = withTraceFilters(new URLSearchParams("toolError=true"), { toolError: false });
+    expect(params.toString()).toBe("");
+  });
+
+  it("labels the new chips, pairing tool with toolError", () => {
+    expect(
+      traceFilterChips({ tool: "search_web", mcpServer: "github" }).map((c) => c.label),
+    ).toEqual(["Tool: search_web", "MCP server: github"]);
+    expect(traceFilterChips({ toolError: true }).map((c) => c.label)).toEqual(["Tool failed"]);
+    expect(traceFilterChips({ tool: "search_web", toolError: true })).toEqual([
+      { key: "tool", label: "search_web failed", alsoClears: ["toolError"] },
+    ]);
+  });
+});
+
+describe("TracesComponent tool and MCP server filters", () => {
+  it("sends today's request from the default page", () => {
+    renderPage("?timeRange=1h");
+
+    expect(mockUseTraceList.mock.lastCall).toEqual([
+      "ns", "p", "a", "dev", "1h", 10, "desc", undefined, undefined, { filters: {}, paged: true },
+    ]);
+    expect(currentParams().toString()).toBe("timeRange=1h");
+  });
+
+  it("reproduces a pasted URL's new filters in the request, the controls and the chips", () => {
+    renderPage("?timeRange=1h&tool=search_web&mcpServer=github");
+
+    expect(lastFilters()).toEqual({ tool: "search_web", mcpServer: "github" });
+    expect(screen.getByRole("textbox", { name: "Tool" })).toHaveValue("search_web");
+    expect(screen.getByRole("textbox", { name: "MCP server" })).toHaveValue("github");
+    for (const label of ["Tool: search_web", "MCP server: github"]) {
+      expect(screen.getByText(label, { selector: ".MuiChip-label" })).toBeInTheDocument();
+    }
+  });
+
+  it("writes Tool, Tool failed and MCP server to the URL", () => {
+    renderPage("?timeRange=1h");
+
+    const tool = screen.getByRole("textbox", { name: "Tool" });
+    fireEvent.change(tool, { target: { value: " search_web " } });
+    expect(currentParams().get("tool")).toBeNull();
+    fireEvent.keyDown(tool, { key: "Enter" });
+    pickOption("Tool failed", "Yes");
+    const mcp = screen.getByRole("textbox", { name: "MCP server" });
+    fireEvent.change(mcp, { target: { value: "github" } });
+    fireEvent.blur(mcp);
+
+    const params = currentParams();
+    expect(params.get("tool")).toBe("search_web");
+    expect(params.get("toolError")).toBe("true");
+    expect(params.get("mcpServer")).toBe("github");
+    expect(lastFilters()).toEqual({ tool: "search_web", toolError: true, mcpServer: "github" });
+
+    pickOption("Tool failed", "Any");
+    expect(currentParams().get("toolError")).toBeNull();
+  });
+
+  it("shows tool with toolError as one chip whose × clears both", () => {
+    renderPage("?timeRange=1h&status=error&tool=search_web&toolError=true");
+
+    expect(screen.getByText("search_web failed", { selector: ".MuiChip-label" })).toBeInTheDocument();
+    expect(screen.queryByText("Tool: search_web", { selector: ".MuiChip-label" })).toBeNull();
+    expect(screen.queryByText("Tool failed", { selector: ".MuiChip-label" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Remove search_web failed"));
+    const params = currentParams();
+    expect(params.get("tool")).toBeNull();
+    expect(params.get("toolError")).toBeNull();
+    expect(params.get("status")).toBe("error");
+    expect(lastFilters()).toEqual({ status: "error" });
+  });
+
+  it("drops toolError other than true from a pasted URL", () => {
+    renderPage("?timeRange=1h&toolError=1");
+
+    expect(lastFilters()).toEqual({});
+    expect(screen.getByRole("combobox", { name: "Tool failed" })).toHaveTextContent("Tool failed: Any");
+  });
+
+  it("clears the new filters with Clear all", () => {
+    renderPage("?timeRange=1h&tool=search_web&toolError=true&mcpServer=github");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(currentParams().toString()).toBe("timeRange=1h");
+    expect(lastFilters()).toEqual({});
+  });
+
+  it("closes the drawer only when a new filter drops its trace", () => {
+    // Tool failed keeps only t-err; a stable object, as the hook returns.
+    const toolErrorList = { ...(listFor() as object), traces: [ALL[0]], totalCount: 1 };
+    const impl = mockUseTraceList.getMockImplementation()!;
+    mockUseTraceList.mockImplementation((...args) => {
+      const result = impl(...args);
+      return args[9]?.filters?.toolError
+        ? ({ ...result, data: toolErrorList } as unknown as typeof result)
+        : result;
+    });
+
+    const { unmount } = renderPage("?selectedTrace=t-err");
+    pickOption("Tool failed", "Yes");
+    expect(currentParams().get("toolError")).toBe("true");
+    expect(currentParams().get("selectedTrace")).toBe("t-err");
+    unmount();
+
+    renderPage("?selectedTrace=t-ok");
+    pickOption("Tool failed", "Yes");
+    expect(currentParams().get("toolError")).toBe("true");
     expect(currentParams().get("selectedTrace")).toBeNull();
   });
 });
