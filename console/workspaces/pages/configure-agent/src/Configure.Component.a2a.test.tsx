@@ -29,6 +29,7 @@ vi.mock("@agent-management-platform/api-client", () => ({
   useTrack: () => ({ track: vi.fn() }),
   useGetAgent: vi.fn(),
   useGetAllAgentBuilds: () => ({ data: { builds: [] }, isLoading: false }),
+  useGetAgentBuilds: () => ({ data: undefined, isLoading: false }),
   useListAgentModelConfigs: () => emptyList,
   useListAgentMCPConfigs: () => emptyList,
   useDeleteAgentModelConfig: () => mutation,
