@@ -26,6 +26,9 @@ import (
 // One row per (org, project, agent, environment). A re-fetch resets the row to
 // pending but keeps the last good card, so readers are never left without one
 // while a redeploy settles.
+//
+// a2a_publications also records the agent each row was queued for, so a card
+// written after a same-name delete and recreate can be told apart. Existing rows stay NULL.
 var migration047 = migration{
 	ID: 47,
 	Migrate: func(db *gorm.DB) error {
@@ -62,7 +65,14 @@ var migration047 = migration{
 			createIndex := `
 			CREATE INDEX IF NOT EXISTS idx_a2a_agent_cards_due
 				ON a2a_agent_cards (status, next_attempt_at)`
-			return runSQL(tx, createIndex)
+			if err := runSQL(tx, createIndex); err != nil {
+				return err
+			}
+
+			addPublicationAgentUUID := `
+			ALTER TABLE a2a_publications
+				ADD COLUMN IF NOT EXISTS agent_uuid UUID`
+			return runSQL(tx, addPublicationAgentUUID)
 		})
 	},
 }
