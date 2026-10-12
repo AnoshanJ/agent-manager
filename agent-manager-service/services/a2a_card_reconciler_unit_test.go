@@ -72,7 +72,7 @@ func newCardReconcilerHarness(endpointURL string) *cardReconcilerHarness {
 	}
 	oc := &clientmocks.OpenChoreoClientMock{
 		GetReleaseBindingRolloutFunc: func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
-			return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r1", ExternalURL: endpointURL, Serving: true}, nil
+			return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r1", ExternalURL: endpointURL, Serving: true, Deployed: true}, nil
 		},
 	}
 	return &cardReconcilerHarness{
@@ -106,7 +106,7 @@ func TestCardReconcilerFetchesAPlatformCardThroughTheEndpoint(t *testing.T) {
 func TestCardReconcilerWaitsForTheRolloutToFinish(t *testing.T) {
 	h := newCardReconcilerHarness("http://dev-org.gw.example/trip-planner/")
 	h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
-		return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r2"}, nil
+		return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r2", Deployed: true}, nil
 	}
 
 	h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))

@@ -465,7 +465,7 @@ func TestGetReleaseBindingRollout(t *testing.T) {
 		got, err := serve(t, binding("myagent-r2", ready)).GetReleaseBindingRollout(context.Background(), "acme", "myagent", "dev")
 		require.NoError(t, err)
 		assert.Equal(t, ReleaseBindingRollout{
-			ServiceURL: "http://b.svc:8000", ExternalURL: "http://gw.example/a", ReleaseName: "myagent-r2", Serving: true,
+			ServiceURL: "http://b.svc:8000", ExternalURL: "http://gw.example/a", ReleaseName: "myagent-r2", Serving: true, Deployed: true,
 		}, got, "the external URL is the first endpoint by name, as the card fetch needs")
 	})
 
@@ -473,6 +473,16 @@ func TestGetReleaseBindingRollout(t *testing.T) {
 		got, err := serve(t, binding("myagent-r2", progressing)).GetReleaseBindingRollout(context.Background(), "acme", "myagent", "dev")
 		require.NoError(t, err)
 		assert.Equal(t, "myagent-r2", got.ReleaseName)
+		assert.False(t, got.Serving)
+		assert.True(t, got.Deployed, "a binding mid-rollout is deployed")
+	})
+
+	t.Run("a binding not reconciled yet is deployed", func(t *testing.T) {
+		b := binding("myagent-r1")
+		b.Status = nil
+		got, err := serve(t, b).GetReleaseBindingRollout(context.Background(), "acme", "myagent", "dev")
+		require.NoError(t, err)
+		assert.True(t, got.Deployed, "a first deploy must not read as undeployed")
 		assert.False(t, got.Serving)
 	})
 
@@ -483,6 +493,7 @@ func TestGetReleaseBindingRollout(t *testing.T) {
 		got, err := serve(t, b).GetReleaseBindingRollout(context.Background(), "acme", "myagent", "dev")
 		require.NoError(t, err)
 		assert.False(t, got.Serving)
+		assert.False(t, got.Deployed)
 	})
 
 	t.Run("no binding for the environment is the zero rollout", func(t *testing.T) {

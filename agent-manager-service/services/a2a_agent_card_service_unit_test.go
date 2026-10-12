@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
+	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
@@ -48,6 +49,9 @@ func cardServiceFor(provisioning, subType string) (*a2aAgentCardService, *repomo
 		},
 		GetEnvironmentFunc: func(_ context.Context, _, name string) (*models.EnvironmentResponse, error) {
 			return &models.EnvironmentResponse{UUID: cardTestEnvUUID, Name: name}, nil
+		},
+		GetReleaseBindingRolloutFunc: func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+			return client.ReleaseBindingRollout{ReleaseName: "agent-r1", Deployed: true}, nil
 		},
 	}
 	repo := &repomocks.A2AAgentCardRepositoryMock{
@@ -134,9 +138,41 @@ func TestRefreshA2AAgentCardQueuesAPlatformFetch(t *testing.T) {
 	assert.Equal(t, uuid.MustParse(cardTestEnvUUID), queued[0].Card.EnvironmentUUID)
 }
 
+// The card worker could only wait out a missing deployment and then fail as "rolling out".
+func TestRefreshA2AAgentCardRefusesAnAgentNotDeployedThere(t *testing.T) {
+	for name, rollout := range map[string]client.ReleaseBindingRollout{
+		"never deployed": {},
+		"undeployed":     {ReleaseName: "agent-r1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, repo, oc := cardServiceFor("internal", "a2a-agent")
+			oc.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+				return rollout, nil
+			}
+			repo.EnqueueFunc = nil
+
+			err := svc.RefreshA2AAgentCard(tierGrantedCtx(t), "org", "proj", "agent", "dev")
+			assert.ErrorIs(t, err, utils.ErrAgentNotDeployedInEnvironment)
+		})
+	}
+}
+
+func TestRefreshA2AAgentCardDoesNotMaskARolloutReadFailure(t *testing.T) {
+	svc, repo, oc := cardServiceFor("internal", "a2a-agent")
+	oc.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+		return client.ReleaseBindingRollout{}, assert.AnError
+	}
+	repo.EnqueueFunc = nil
+
+	err := svc.RefreshA2AAgentCard(tierGrantedCtx(t), "org", "proj", "agent", "dev")
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.NotErrorIs(t, err, utils.ErrAgentNotDeployedInEnvironment)
+}
+
 func TestRefreshA2AAgentCardRequeuesTheExternalRowInPlace(t *testing.T) {
-	svc, repo, _ := cardServiceFor("external", "a2a-agent")
-	repo.EnqueueFunc = nil // an upsert could recreate a row removed meanwhile
+	svc, repo, oc := cardServiceFor("external", "a2a-agent")
+	repo.EnqueueFunc = nil                // an upsert could recreate a row removed meanwhile
+	oc.GetReleaseBindingRolloutFunc = nil // external cards never ask for the rollout
 	require.NoError(t, svc.RefreshA2AAgentCard(tierGrantedCtx(t), "org", "proj", "agent", "dev"))
 	requeued := repo.RequeueCalls()
 	require.Len(t, requeued, 1)

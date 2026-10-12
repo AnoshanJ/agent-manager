@@ -7998,7 +7998,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
-          description: Agent or environment not found, or an external agent has no card source
+          description: Agent or environment not found, the agent is not deployed in this environment, or an external agent has no card source
           content:
             application/json:
               schema:

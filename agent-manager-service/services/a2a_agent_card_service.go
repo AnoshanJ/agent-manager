@@ -91,6 +91,9 @@ func (s *a2aAgentCardService) RefreshA2AAgentCard(
 		return err
 	}
 	if !isExternalProvisioned(agent) {
+		if err := s.requireDeployed(ctx, ouID, agent.Name, envName); err != nil {
+			return err
+		}
 		return s.enqueue(ctx, agent, ouID, projectName, env, models.A2AAgentCardSourcePlatform, "")
 	}
 	// Update-only, so a concurrent remove can't be undone by an upsert.
@@ -101,6 +104,18 @@ func (s *a2aAgentCardService) RefreshA2AAgentCard(
 		return fmt.Errorf("failed to queue agent card fetch: %w", err)
 	}
 	return s.dropIfAgentGone(ctx, agent, ouID, projectName, envName)
+}
+
+// requireDeployed refuses a platform fetch the card worker could only wait out and fail.
+func (s *a2aAgentCardService) requireDeployed(ctx context.Context, ouID, agentName, envName string) error {
+	rollout, err := s.ocClient.GetReleaseBindingRollout(ctx, ouID, agentName, envName)
+	if err != nil {
+		return fmt.Errorf("failed to read agent deployment: %w", err)
+	}
+	if !rollout.Deployed {
+		return utils.ErrAgentNotDeployedInEnvironment
+	}
+	return nil
 }
 
 func (s *a2aAgentCardService) SetA2ACardSource(

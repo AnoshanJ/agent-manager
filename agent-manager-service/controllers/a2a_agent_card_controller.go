@@ -108,6 +108,8 @@ func writeAgentCardError(w http.ResponseWriter, r *http.Request, err error, fall
 	switch {
 	case errors.Is(err, utils.ErrAgentCardNotFound):
 		utils.WriteErrorResponse(w, http.StatusNotFound, "Agent card not found")
+	case errors.Is(err, utils.ErrAgentNotDeployedInEnvironment):
+		utils.WriteErrorResponse(w, http.StatusNotFound, "Agent is not deployed in this environment")
 	case errors.Is(err, utils.ErrAgentNotA2A),
 		errors.Is(err, utils.ErrAgentCardSourceNotExternal),
 		errors.Is(err, utils.ErrInvalidURL):

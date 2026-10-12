@@ -1859,10 +1859,12 @@ func (c *openChoreoClient) GetReleaseBindingRollout(ctx context.Context, ouID, c
 	if binding == nil {
 		return ReleaseBindingRollout{}, nil
 	}
+	status := determineDeploymentStatus(binding, runtimeReplicaState{})
 	rollout := ReleaseBindingRollout{
 		ServiceURL:  bindingServiceURL(binding),
 		ExternalURL: bindingExternalURL(binding),
-		Serving:     determineDeploymentStatus(binding, runtimeReplicaState{}) == DeploymentStatusActive,
+		Serving:     status == DeploymentStatusActive,
+		Deployed:    status != DeploymentStatusSuspended,
 	}
 	if binding.Spec != nil && binding.Spec.ReleaseName != nil {
 		rollout.ReleaseName = *binding.Spec.ReleaseName
