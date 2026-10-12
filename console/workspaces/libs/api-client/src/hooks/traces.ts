@@ -22,6 +22,7 @@ import {
   type GetTraceListPathParams,
   type TraceExportResponse,
   type TraceFilters,
+  type TraceInclude,
   getTimeRange
 } from "@agent-management-platform/types";
 import {
@@ -30,6 +31,7 @@ import {
   getSpanDetail,
   listTraceSpans,
   normalizeTraceFilters,
+  normalizeTraceInclude,
   type ObserverTraceListParams,
 } from "../apis/traces";
 import { getAgentTraceScores } from "../apis/monitors";
@@ -144,6 +146,8 @@ export interface TraceListOptions {
   filters?: TraceFilters;
   /** Fill models on every trace; costs the server one extra upstream call per trace. */
   includeModels?: boolean;
+  /** Optional fields to fill on every trace, sent with includeModels as one include param. */
+  include?: TraceInclude[];
   /** Turns off focus and reconnect refetches, which would drop pages loaded with loadMore. */
   paged?: boolean;
 }
@@ -174,6 +178,11 @@ export function useTraceList(
   const filters = useMemo<TraceFilters>(() => JSON.parse(filtersKey), [filtersKey]);
   const hasFilters = filtersKey !== "{}";
   const includeModels = options?.includeModels === true;
+  const includeKey = normalizeTraceInclude(options?.include).join(",");
+  const include = useMemo(
+    () => (includeKey ? (includeKey.split(",") as TraceInclude[]) : undefined),
+    [includeKey],
+  );
 
   // Non-time params — stable across refetches while org/project/etc don't change.
   const scopeParams = useMemo(() => {
@@ -188,8 +197,12 @@ export function useTraceList(
       sortOrder,
       filters,
       includeModels,
+      include,
     };
-  }, [organization, project, component, environment, pageSize, sortOrder, filters, includeModels]);
+  }, [
+    organization, project, component, environment, pageSize, sortOrder, filters, includeModels,
+    include,
+  ]);
 
   // Tracks the time range used in the most recent successful fetch so that
   // loadMore / loadNewer paginate against the same window.
@@ -222,6 +235,7 @@ export function useTraceList(
       customEndTime,
       filters,
       includeModels,
+      includeKey,
     ],
     queryFn: async () => {
       if (!scopeParams) {
