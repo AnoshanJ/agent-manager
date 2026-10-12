@@ -17,7 +17,7 @@
  */
 
 import { Sidebar } from "@wso2/oxygen-ui";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 export interface NavigationItem {
@@ -116,7 +116,14 @@ export function LeftNavigation({
   );
   const flatItems = useMemo(() => flattenWithChildren(allItems), [allItems]);
 
+  // Only force-expand when activeItem itself changes, not on every allItems
+  // reference change 
+  const lastExpandedForRef = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (lastExpandedForRef.current === activeItem) {
+      return;
+    }
+    lastExpandedForRef.current = activeItem;
     const parentLabel = findParentLabel(allItems, activeItem);
     if (parentLabel) {
       setExpandedMenus((prev) => (prev[parentLabel] ? prev : { ...prev, [parentLabel]: true }));

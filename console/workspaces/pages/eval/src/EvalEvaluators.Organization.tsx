@@ -311,16 +311,24 @@ export const EvalEvaluatorsOrganization: React.FC = () => {
                     handleDelete(evaluator);
                   };
                   const allTags = evaluator.tags ?? [];
-                  const methodTag = allTags.find((tag) => tag in METHOD_LABELS);
-                  // `type` is authoritative for custom evaluators; built-ins fall back to tags.
-                  const methodLabel =
-                    evaluator.type === "code"
-                      ? "Rule-based"
-                      : evaluator.type === "llm_judge"
-                        ? "LLM Judge"
-                        : methodTag
-                          ? METHOD_LABELS[methodTag]
-                          : undefined;
+                  // `type` is authoritative for custom evaluators, so only that
+                  // evaluator's own type tag is hidden from the footer, not any
+                  // unrelated custom tag that happens to match a method label.
+                  // Built-ins have no `type`, so fall back to scanning tags.
+                  let methodTag: string | undefined;
+                  let methodLabel: string | undefined;
+                  if (evaluator.type === "code") {
+                    methodLabel = "Rule-based";
+                    methodTag = allTags.find((tag) => tag === "code");
+                  } else if (evaluator.type === "llm_judge") {
+                    methodLabel = "LLM Judge";
+                    methodTag = allTags.find((tag) => tag === "llm-judge");
+                  } else {
+                    methodTag = allTags.find((tag) =>
+                      Object.prototype.hasOwnProperty.call(METHOD_LABELS, tag),
+                    );
+                    methodLabel = methodTag ? METHOD_LABELS[methodTag] : undefined;
+                  }
                   const tags = allTags.filter((tag) => tag !== methodTag);
                   const desc = evaluator.description ?? "";
                   const levelDisplay = evaluator.level
