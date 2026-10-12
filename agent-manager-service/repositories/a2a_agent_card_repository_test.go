@@ -623,3 +623,31 @@ func TestA2AAgentCardDeletePlatformForAgentEnvKeepsExternalRows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://a.example/.well-known/agent-card.json", row.SourceURL)
 }
+
+func TestA2AAgentCardDeleteIfUnchanged(t *testing.T) {
+	ctx := context.Background()
+	repo := NewA2AAgentCardRepository(db.GetDB())
+
+	t.Run("removes the row as claimed", func(t *testing.T) {
+		card := newTestCard("drop-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
+		cleanupCard(t, repo, card)
+		require.NoError(t, repo.Enqueue(ctx, card))
+
+		require.NoError(t, repo.DeleteIfUnchanged(ctx, dueCardFor(t, repo, card.AgentName)))
+
+		_, err := repo.Get(ctx, card.OUID, card.ProjectName, card.AgentName, card.EnvironmentName)
+		assert.ErrorIs(t, err, ErrA2AAgentCardNotFound)
+	})
+	t.Run("keeps a row re-enqueued since the claim", func(t *testing.T) {
+		card := newTestCard("drop-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
+		cleanupCard(t, repo, card)
+		require.NoError(t, repo.Enqueue(ctx, card))
+		due := dueCardFor(t, repo, card.AgentName)
+		require.NoError(t, repo.Enqueue(ctx, newTestCardLike(card)))
+
+		assert.ErrorIs(t, repo.DeleteIfUnchanged(ctx, due), ErrA2AAgentCardSuperseded)
+
+		_, err := repo.Get(ctx, card.OUID, card.ProjectName, card.AgentName, card.EnvironmentName)
+		assert.NoError(t, err)
+	})
+}

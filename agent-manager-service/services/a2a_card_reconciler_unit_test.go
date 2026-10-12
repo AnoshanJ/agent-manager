@@ -411,3 +411,45 @@ func TestCardReconcilerRecordsTheReleaseItTried(t *testing.T) {
 		assert.Empty(t, retries[0].ReleaseName)
 	})
 }
+
+// An undeployed agent's platform row goes away, as undeploy itself removes it.
+func TestCardReconcilerDropsTheRowOfAnUndeployedAgent(t *testing.T) {
+	for name, rollout := range map[string]client.ReleaseBindingRollout{
+		"never deployed": {},
+		"undeployed":     {ReleaseName: "trip-planner-r1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newCardReconcilerHarness("http://gw.example/a")
+			h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+				return rollout, nil
+			}
+			h.repo.DeleteIfUnchangedFunc = func(context.Context, models.A2AAgentCard) error { return nil }
+			row := pendingCard(models.A2AAgentCardSourcePlatform)
+
+			h.svc.fetchOne(context.Background(), row)
+
+			dropped := h.repo.DeleteIfUnchangedCalls()
+			require.Len(t, dropped, 1)
+			assert.Equal(t, row, dropped[0].Read)
+			assert.Empty(t, h.fetcher.calls)
+			assert.Empty(t, h.repo.MarkAttemptFailedCalls())
+			assert.Empty(t, h.repo.MarkFailedCalls())
+		})
+	}
+}
+
+// A row re-queued meanwhile belongs to a newer deploy or refresh.
+func TestCardReconcilerKeepsAnUndeployedRowReenqueuedMeanwhile(t *testing.T) {
+	h := newCardReconcilerHarness("http://gw.example/a")
+	h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
+		return client.ReleaseBindingRollout{}, nil
+	}
+	h.repo.DeleteIfUnchangedFunc = func(context.Context, models.A2AAgentCard) error {
+		return repositories.ErrA2AAgentCardSuperseded
+	}
+
+	h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))
+
+	assert.Empty(t, h.repo.MarkAttemptFailedCalls())
+	assert.Empty(t, h.repo.MarkFailedCalls())
+}

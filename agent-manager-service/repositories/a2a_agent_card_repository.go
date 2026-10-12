@@ -66,6 +66,8 @@ type A2AAgentCardRepository interface {
 	DeleteForAgentEnv(ctx context.Context, ouID, projectName, agentName, environmentName string) error
 	// DeletePlatformForAgentEnv drops a platform row and keeps an external one, whose URL is user config.
 	DeletePlatformForAgentEnv(ctx context.Context, ouID, projectName, agentName, environmentName string) error
+	// DeleteIfUnchanged removes the row as read; ErrA2AAgentCardSuperseded when it changed since.
+	DeleteIfUnchanged(ctx context.Context, read models.A2AAgentCard) error
 	// DeleteForEnvironment drops every agent's row in a deleted environment.
 	DeleteForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) error
 }
@@ -231,6 +233,19 @@ func (r *a2aAgentCardRepository) updateIfUnchanged(ctx context.Context, read mod
 	result := r.db.WithContext(ctx).Model(&models.A2AAgentCard{}).
 		Where("id = ? AND updated_at = ?", read.ID, read.UpdatedAt).
 		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrA2AAgentCardSuperseded
+	}
+	return nil
+}
+
+func (r *a2aAgentCardRepository) DeleteIfUnchanged(ctx context.Context, read models.A2AAgentCard) error {
+	result := r.db.WithContext(ctx).
+		Where("id = ? AND updated_at = ?", read.ID, read.UpdatedAt).
+		Delete(&models.A2AAgentCard{})
 	if result.Error != nil {
 		return result.Error
 	}

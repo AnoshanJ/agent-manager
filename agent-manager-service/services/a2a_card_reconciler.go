@@ -56,6 +56,9 @@ var errA2ACardEndpointNotReady = errors.New("agent has no public endpoint in thi
 // errA2ACardRolloutInProgress means the agent's latest release is not serving in this environment yet.
 var errA2ACardRolloutInProgress = errors.New("agent is still rolling out in this environment")
 
+// errA2ACardNotDeployed means the agent has no live binding in the row's environment.
+var errA2ACardNotDeployed = errors.New("agent is not deployed in this environment")
+
 // A2ACardReconcilerService drains the a2a_agent_cards fetch queue.
 type A2ACardReconcilerService interface {
 	Start(ctx context.Context) error
@@ -150,6 +153,10 @@ func (s *a2aCardReconcilerService) fetchOne(ctx context.Context, row models.A2AA
 	// The outcome must be recorded even when the attempt ran out of time.
 	ctx = context.WithoutCancel(ctx)
 	fetched, err := s.attemptFetch(attemptCtx, row)
+	if errors.Is(err, errA2ACardNotDeployed) {
+		s.dropUndeployedCard(ctx, row)
+		return
+	}
 	if err != nil {
 		s.recordAttemptFailure(ctx, row, fetched.releaseName, err)
 		return
@@ -165,6 +172,21 @@ func (s *a2aCardReconcilerService) fetchOne(ctx context.Context, row models.A2AA
 		s.logSuperseded(row)
 	case err != nil:
 		s.recordAttemptFailure(ctx, row, fetched.releaseName, fmt.Errorf("failed to store agent card: %w", err))
+	}
+}
+
+// dropUndeployedCard removes the row as undeploy would; a row re-queued meanwhile is kept.
+func (s *a2aCardReconcilerService) dropUndeployedCard(ctx context.Context, row models.A2AAgentCard) {
+	err := s.cardRepo.DeleteIfUnchanged(ctx, row)
+	switch {
+	case errors.Is(err, repositories.ErrA2AAgentCardSuperseded):
+		s.logSuperseded(row)
+	case err != nil:
+		s.logger.Warn("Failed to drop the card row of an undeployed A2A agent",
+			"agentName", row.AgentName, "environment", row.EnvironmentName, "error", err)
+	default:
+		s.logger.Info("A2A agent is not deployed in this environment; dropped its card row",
+			"agentName", row.AgentName, "environment", row.EnvironmentName)
 	}
 }
 
@@ -192,6 +214,9 @@ func (s *a2aCardReconcilerService) fetchPlatformCard(ctx context.Context, row mo
 	rollout, err := s.ocClient.GetReleaseBindingRollout(ctx, row.OUID, row.AgentName, row.EnvironmentName)
 	if err != nil {
 		return a2aCardFetch{}, fmt.Errorf("failed to read agent rollout: %w", err)
+	}
+	if !rollout.Deployed {
+		return a2aCardFetch{}, errA2ACardNotDeployed
 	}
 	attempt := a2aCardFetch{releaseName: rollout.ReleaseName}
 	if !rollout.Serving {

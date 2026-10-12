@@ -31,6 +31,9 @@ import (
 //			DeleteForEnvironmentFunc: func(ctx context.Context, ouID string, environmentUUID uuid.UUID) error {
 //				panic("mock out the DeleteForEnvironment method")
 //			},
+//			DeleteIfUnchangedFunc: func(ctx context.Context, read models.A2AAgentCard) error {
+//				panic("mock out the DeleteIfUnchanged method")
+//			},
 //			DeletePlatformForAgentEnvFunc: func(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) error {
 //				panic("mock out the DeletePlatformForAgentEnv method")
 //			},
@@ -73,6 +76,9 @@ type A2AAgentCardRepositoryMock struct {
 
 	// DeleteForEnvironmentFunc mocks the DeleteForEnvironment method.
 	DeleteForEnvironmentFunc func(ctx context.Context, ouID string, environmentUUID uuid.UUID) error
+
+	// DeleteIfUnchangedFunc mocks the DeleteIfUnchanged method.
+	DeleteIfUnchangedFunc func(ctx context.Context, read models.A2AAgentCard) error
 
 	// DeletePlatformForAgentEnvFunc mocks the DeletePlatformForAgentEnv method.
 	DeletePlatformForAgentEnvFunc func(ctx context.Context, ouID string, projectName string, agentName string, environmentName string) error
@@ -141,6 +147,13 @@ type A2AAgentCardRepositoryMock struct {
 			OuID string
 			// EnvironmentUUID is the environmentUUID argument value.
 			EnvironmentUUID uuid.UUID
+		}
+		// DeleteIfUnchanged holds details about calls to the DeleteIfUnchanged method.
+		DeleteIfUnchanged []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Read is the read argument value.
+			Read models.A2AAgentCard
 		}
 		// DeletePlatformForAgentEnv holds details about calls to the DeletePlatformForAgentEnv method.
 		DeletePlatformForAgentEnv []struct {
@@ -243,6 +256,7 @@ type A2AAgentCardRepositoryMock struct {
 	lockDeleteForAgent            sync.RWMutex
 	lockDeleteForAgentEnv         sync.RWMutex
 	lockDeleteForEnvironment      sync.RWMutex
+	lockDeleteIfUnchanged         sync.RWMutex
 	lockDeletePlatformForAgentEnv sync.RWMutex
 	lockEnqueue                   sync.RWMutex
 	lockGet                       sync.RWMutex
@@ -422,6 +436,42 @@ func (mock *A2AAgentCardRepositoryMock) DeleteForEnvironmentCalls() []struct {
 	mock.lockDeleteForEnvironment.RLock()
 	calls = mock.calls.DeleteForEnvironment
 	mock.lockDeleteForEnvironment.RUnlock()
+	return calls
+}
+
+// DeleteIfUnchanged calls DeleteIfUnchangedFunc.
+func (mock *A2AAgentCardRepositoryMock) DeleteIfUnchanged(ctx context.Context, read models.A2AAgentCard) error {
+	if mock.DeleteIfUnchangedFunc == nil {
+		panic("A2AAgentCardRepositoryMock.DeleteIfUnchangedFunc: method is nil but A2AAgentCardRepository.DeleteIfUnchanged was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Read models.A2AAgentCard
+	}{
+		Ctx:  ctx,
+		Read: read,
+	}
+	mock.lockDeleteIfUnchanged.Lock()
+	mock.calls.DeleteIfUnchanged = append(mock.calls.DeleteIfUnchanged, callInfo)
+	mock.lockDeleteIfUnchanged.Unlock()
+	return mock.DeleteIfUnchangedFunc(ctx, read)
+}
+
+// DeleteIfUnchangedCalls gets all the calls that were made to DeleteIfUnchanged.
+// Check the length with:
+//
+//	len(mockedA2AAgentCardRepository.DeleteIfUnchangedCalls())
+func (mock *A2AAgentCardRepositoryMock) DeleteIfUnchangedCalls() []struct {
+	Ctx  context.Context
+	Read models.A2AAgentCard
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Read models.A2AAgentCard
+	}
+	mock.lockDeleteIfUnchanged.RLock()
+	calls = mock.calls.DeleteIfUnchanged
+	mock.lockDeleteIfUnchanged.RUnlock()
 	return calls
 }
 
