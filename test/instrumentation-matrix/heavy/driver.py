@@ -29,7 +29,7 @@ from pathlib import Path
 import requests
 
 from harness.deployable_samples import DEPLOYABLE_SAMPLES
-from harness.heavy_subset import select_heavy_subset
+from harness.heavy_subset import filter_shard, select_heavy_subset
 from harness.manifest import Cell, expand_matrix, load_manifest
 from harness.reports import CellResult, write_cell_report
 from harness.validator import ContractValidator
@@ -114,6 +114,18 @@ def _outcome(r: CellResult) -> str:
 def main() -> int:
     m = load_manifest(HERE / "matrix.yaml")
     cells = select_heavy_subset(expand_matrix(m), m)
+
+    # Optional shard filter: the nightly runs one heavy job per Traceloop
+    # version, each against its own stack. Empty/unset runs every version.
+    shard = os.environ.get("HEAVY_PROVIDER_VERSION", "").strip()
+    if shard:
+        cells = filter_shard(cells, shard)
+        if not cells:
+            print(
+                f"HEAVY_PROVIDER_VERSION={shard!r} matched no cell in the heavy subset",
+                file=sys.stderr,
+            )
+            return 1
 
     # Optional single-cell filter for cheap iteration: set HEAVY_CELL_ID to a
     # cell id from the heavy subset to run just that one. Empty/unset runs all.

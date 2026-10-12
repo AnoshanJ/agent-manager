@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from harness.heavy_subset import select_heavy_subset
+from harness.heavy_subset import filter_shard, heavy_shards, select_heavy_subset
 from harness.manifest import (
     DefaultCell,
     FrameworkEntry,
@@ -125,3 +125,24 @@ def test_per_provider_axis_pins_each_framework_to_its_representative_version():
     assert {c.framework_version for c in crewai} == {"1.1.0"}  # first declared
     assert {c.provider_version for c in langchain} == {"0.60.0", "0.61.0"}
     assert {c.provider_version for c in crewai} == {"0.60.0", "0.61.0"}
+
+
+def test_heavy_shards_are_the_provider_versions_in_order():
+    m = _multi_manifest()
+    m.providers["traceloop"].versions = ["0.61.0", "0.60.0", "0.62.10", "0.62.4"]
+    m.providers["traceloop"].instrumentation_versions.update({"0.62.10": "0.5.0", "0.62.4": "0.4.2"})
+    sub = select_heavy_subset(expand_matrix(m), m)
+    # Numeric, not lexical: 0.62.10 sorts after 0.62.4.
+    assert heavy_shards(sub) == ["0.60.0", "0.61.0", "0.62.4", "0.62.10"]
+
+
+def test_filter_shard_keeps_only_that_provider_version():
+    m = _multi_manifest()
+    sub = select_heavy_subset(expand_matrix(m), m)
+    shard = filter_shard(sub, "0.61.0")
+    assert {c.provider_version for c in shard} == {"0.61.0"}
+    assert {c.framework_name for c in shard} == {"langchain", "crewai"}
+    # Every cell lands in exactly one shard.
+    assert sorted(c.id for s in heavy_shards(sub) for c in filter_shard(sub, s)) == sorted(
+        c.id for c in sub
+    )
