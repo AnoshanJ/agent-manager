@@ -90,11 +90,10 @@ const COLUMNS: {
   optional?: TraceColumn;
 }[] = [
   { field: "status", headerName: "Status", width: 4, align: "center" },
-  { field: "name", headerName: "Name", width: 9, align: "left" },
-  { field: "traceId", headerName: "Trace ID", width: 9, align: "left", optional: "traceId" },
-  { field: "input", headerName: "Input", width: 18, align: "left" },
-  { field: "output", headerName: "Output", width: 19, align: "left" },
-  { field: "conversation", headerName: "Conversation", width: 9, align: "left", optional: "conversation" },
+  { field: "traceId", headerName: "Trace ID", width: 11, align: "left", optional: "traceId" },
+  { field: "conversation", headerName: "Conversation", width: 11, align: "left", optional: "conversation" },
+  { field: "input", headerName: "Input", width: 21, align: "left", optional: "input" },
+  { field: "output", headerName: "Output", width: 21, align: "left", optional: "output" },
   { field: "startTime", headerName: "Start Time", width: 10, align: "center" },
   { field: "duration", headerName: "Duration", width: 6, align: "right" },
   { field: "tokens", headerName: "Tokens", width: 6, align: "right" },
@@ -188,6 +187,8 @@ export function TracesTable({
   const columns = COLUMNS.filter((c) => !c.optional || visibleColumns.includes(c.optional));
   const showTraceId = visibleColumns.includes("traceId");
   const showConversation = visibleColumns.includes("conversation");
+  const showInput = visibleColumns.includes("input");
+  const showOutput = visibleColumns.includes("output");
 
   const [sentinel, setSentinel] = useState<HTMLElement | null>(null);
   // Set when a load added no rows; auto-loading waits for a click.
@@ -321,72 +322,61 @@ export function TracesTable({
                       )}
                     </Tooltip>
                   </ListingTable.Cell>
-                  <ListingTable.Cell align="left">
-                    <Typography
-                      variant="caption"
-                      component="span"
-                      sx={{
-                        display: "block",
-                        textOverflow: "ellipsis",
-                        overflow: "hidden",
-                        whiteSpace: "nowrap",
-                        maxWidth: "300px",
-                      }}
-                    >
-                      {trace.rootSpanName}
-                    </Typography>
-                  </ListingTable.Cell>
                   {showTraceId && (
                     <ListingTable.Cell align="left" sx={{ maxWidth: 160 }}>
                       <TraceIdCell traceId={trace.traceId} />
                     </ListingTable.Cell>
                   )}
-                  <ListingTable.Cell align="left" sx={{ maxWidth: 200 }}>
-                    <Tooltip
-                      title="Preview only. Open the trace for the full input."
-                      disableHoverListener={!trace.input}
-                    >
-                      <Typography
-                        variant="caption"
-                        component="span"
-                        sx={{
-                          display: "block",
-                          textOverflow: "ellipsis",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          maxWidth: "100%",
-                        }}
-                      >
-                        {trace.input}
-                      </Typography>
-                    </Tooltip>
-                  </ListingTable.Cell>
-                  <ListingTable.Cell align="left" sx={{ maxWidth: 200 }}>
-                    <Tooltip
-                      title="Preview only. Open the trace for the full output."
-                      disableHoverListener={!trace.output}
-                    >
-                      <Typography
-                        variant="caption"
-                        component="span"
-                        sx={{
-                          display: "block",
-                          textOverflow: "ellipsis",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          maxWidth: "100%",
-                        }}
-                      >
-                        {trace.output}
-                      </Typography>
-                    </Tooltip>
-                  </ListingTable.Cell>
                   {showConversation && (
                     <ListingTable.Cell align="left" sx={{ maxWidth: 160 }}>
                       <ConversationCell
                         conversationId={trace.conversationId}
                         onSelect={onConversationSelect}
                       />
+                    </ListingTable.Cell>
+                  )}
+                  {showInput && (
+                    <ListingTable.Cell align="left" sx={{ maxWidth: 200 }}>
+                      <Tooltip
+                        title="Preview only. Open the trace for the full input."
+                        disableHoverListener={!trace.input}
+                      >
+                        <Typography
+                          variant="caption"
+                          component="span"
+                          sx={{
+                            display: "block",
+                            textOverflow: "ellipsis",
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            maxWidth: "100%",
+                          }}
+                        >
+                          {trace.input}
+                        </Typography>
+                      </Tooltip>
+                    </ListingTable.Cell>
+                  )}
+                  {showOutput && (
+                    <ListingTable.Cell align="left" sx={{ maxWidth: 200 }}>
+                      <Tooltip
+                        title="Preview only. Open the trace for the full output."
+                        disableHoverListener={!trace.output}
+                      >
+                        <Typography
+                          variant="caption"
+                          component="span"
+                          sx={{
+                            display: "block",
+                            textOverflow: "ellipsis",
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            maxWidth: "100%",
+                          }}
+                        >
+                          {trace.output}
+                        </Typography>
+                      </Tooltip>
                     </ListingTable.Cell>
                   )}
                   <ListingTable.Cell align="center">

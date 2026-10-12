@@ -668,7 +668,7 @@ func parseToolError(s string) (bool, error) {
 	case "true":
 		return true, nil
 	}
-	return false, fmt.Errorf("toolError must be 'true'")
+	return false, fmt.Errorf("toolError must be 'true' or 'false'")
 }
 
 // parseMinThreshold parses an optional non-negative integer filter.

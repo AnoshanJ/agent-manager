@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
+import { userEvent, within } from '@storybook/test';
 import type { TraceFilters, TraceOverview } from '@agent-management-platform/types';
 // Direct file imports: the subComponents index pulls in api-client via TraceDetails.
 import { TraceFilterBar } from './subComponents/TraceFilterBar';
@@ -52,6 +53,8 @@ const sampleTraces = [
 
 interface FilteredTracesProps {
   initialFilters: TraceFilters;
+  // Opens the Filters drawer on the initial filters.
+  initialOpen?: boolean;
   traces: TraceOverview[];
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -63,6 +66,7 @@ interface FilteredTracesProps {
 // The filter bar over the list, with filters held in local state instead of the URL.
 function FilteredTraces({
   initialFilters,
+  initialOpen = false,
   traces,
   hasMore,
   isLoadingMore,
@@ -71,9 +75,15 @@ function FilteredTraces({
   lookedBackTo,
 }: FilteredTracesProps) {
   const [filters, setFilters] = useState(initialFilters);
+  const [open, setOpen] = useState(initialOpen);
   return (
-    <>
-      <TraceFilterBar filters={filters} onChange={setFilters} />
+    <TraceFilterBar
+      filters={filters}
+      onChange={setFilters}
+      open={open}
+      onOpenChange={setOpen}
+      onTraceSearch={() => undefined}
+    >
       <TracesView
         traces={traces}
         selectedTrace={null}
@@ -83,11 +93,11 @@ function FilteredTraces({
         hasActiveFilters={Object.keys(filters).length > 0}
         truncated={truncated}
         lookedBackTo={lookedBackTo}
-        onTraceSelect={() => undefined}
+        onTraceSelect={() => setOpen(false)}
         onLoadMore={async () => undefined}
         onConversationSelect={(conversationId) => setFilters({ ...filters, conversationId })}
       />
-    </>
+    </TraceFilterBar>
   );
 }
 
@@ -122,11 +132,33 @@ export const SeveralActiveFilters: Story = {
   },
 };
 
-// The second row's filters, with the paired tool chip.
+// Tool and MCP server chips, with the paired tool chip.
 export const ToolAndMcpFilters: Story = {
   args: {
     initialFilters: { tool: 'search_web', toolError: true, mcpServer: 'github' },
     traces: [sampleTraces[1]],
+  },
+};
+
+// The Filters drawer open under the Filters button.
+export const FiltersDrawerOpen: Story = {
+  args: {
+    initialFilters: { status: 'error', minDurationMs: 5000, tool: 'reset_password' },
+    initialOpen: true,
+    traces: sampleTraces,
+  },
+};
+
+// A pasted 2500 ms shows as its own pill; Custom opens the field prefilled with 2.5 s.
+export const CustomValue: Story = {
+  args: {
+    initialFilters: { minDurationMs: 2500 },
+    initialOpen: true,
+    traces: sampleTraces,
+  },
+  play: async ({ canvasElement }) => {
+    const latency = within(canvasElement).getByRole('group', { name: 'Latency at least' });
+    await userEvent.click(within(latency).getByRole('button', { name: 'Custom' }));
   },
 };
 

@@ -53,6 +53,25 @@ export const formatLatency = (ms: number) =>
 export const formatTokens = (n: number) =>
   n >= 1000 && n % 1000 === 0 ? `${n / 1000}k` : `${n}`;
 
+/** Seconds as whole ms, e.g. "2.5" is 2500; undefined unless a plain non-negative decimal. */
+export function parseLatencyInput(raw: string): number | undefined {
+  const text = raw.trim();
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(text)) return undefined;
+  const ms = Math.round(Number(text) * 1000);
+  return Number.isSafeInteger(ms) ? ms : undefined;
+}
+
+/** A whole non-negative number, as the API takes for tokens and steps. */
+export function parseCountInput(raw: string): number | undefined {
+  const text = raw.trim();
+  if (!/^\d+$/.test(text)) return undefined;
+  const n = Number(text);
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+/** ms as seconds for a custom field, e.g. 2500 is "2.5". */
+export const latencyInputValue = (ms: number) => String(ms / 1000);
+
 // Reads filters from the URL, dropping anything the API would reject.
 export function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
   const filters: TraceFilters = {};
@@ -90,7 +109,11 @@ export function withTraceFilters(
 
 export interface TraceFilterChip {
   key: TraceFilterKey;
+  // The whole chip, e.g. "Latency ≥ 5s"; used for the title and the × label.
   label: string;
+  // The filter's name and value, shown apart: "Latency" and "≥ 5s".
+  name: string;
+  value: string;
   // Other filters the chip's × clears with key.
   alsoClears?: TraceFilterKey[];
 }
@@ -98,30 +121,147 @@ export interface TraceFilterChip {
 // One human-readable chip per set filter, in TRACE_FILTER_KEYS order.
 export function traceFilterChips(filters: TraceFilters): TraceFilterChip[] {
   const chips: TraceFilterChip[] = [];
+  /** Adds a chip; label defaults to "name value". */
+  const add = (key: TraceFilterKey, name: string, value: string, label = `${name} ${value}`) =>
+    chips.push({ key, label, name, value });
   if (filters.status) {
-    chips.push({ key: "status", label: `Status: ${filters.status === "error" ? "Error" : "OK"}` });
+    const status = filters.status === "error" ? "Error" : "Success";
+    add("status", "Status", status, `Status: ${status}`);
   }
   if (filters.minDurationMs !== undefined) {
-    chips.push({ key: "minDurationMs", label: `Latency ≥ ${formatLatency(filters.minDurationMs)}` });
+    add("minDurationMs", "Latency", `≥ ${formatLatency(filters.minDurationMs)}`);
   }
   if (filters.minTokens !== undefined) {
-    chips.push({ key: "minTokens", label: `Tokens ≥ ${formatTokens(filters.minTokens)}` });
+    add("minTokens", "Tokens", `≥ ${formatTokens(filters.minTokens)}`);
   }
   if (filters.minSpanCount !== undefined) {
-    chips.push({ key: "minSpanCount", label: `Steps ≥ ${filters.minSpanCount}` });
+    add("minSpanCount", "Steps", `≥ ${filters.minSpanCount}`);
   }
-  if (filters.model) chips.push({ key: "model", label: `Model: ${filters.model}` });
+  if (filters.model) add("model", "Model", filters.model, `Model: ${filters.model}`);
   if (filters.conversationId) {
-    chips.push({ key: "conversationId", label: `Conversation: ${filters.conversationId}` });
+    add("conversationId", "Conversation", filters.conversationId,
+      `Conversation: ${filters.conversationId}`);
   }
   // tool with toolError means that tool failed, so they share one chip.
   if (filters.tool && filters.toolError) {
-    chips.push({ key: "tool", label: `${filters.tool} failed`, alsoClears: ["toolError"] });
+    chips.push({
+      key: "tool",
+      label: `${filters.tool} failed`,
+      name: "Tool",
+      value: `${filters.tool} failed`,
+      alsoClears: ["toolError"],
+    });
   } else if (filters.tool) {
-    chips.push({ key: "tool", label: `Tool: ${filters.tool}` });
+    add("tool", "Tool", filters.tool, `Tool: ${filters.tool}`);
   } else if (filters.toolError) {
-    chips.push({ key: "toolError", label: "Tool failed" });
+    add("toolError", "Tool", "any failed", "Tool failed");
   }
-  if (filters.mcpServer) chips.push({ key: "mcpServer", label: `MCP server: ${filters.mcpServer}` });
+  if (filters.mcpServer) {
+    add("mcpServer", "MCP server", filters.mcpServer, `MCP server: ${filters.mcpServer}`);
+  }
   return chips;
+}
+
+// Thresholds the drawer edits as pills with a custom value.
+export type ThresholdKey = NumericFilterKey;
+
+export interface ThresholdSpec {
+  label: string;
+  presets: number[];
+  // Pill text for a value.
+  format: (n: number) => string;
+  // Reads a custom field; undefined when invalid.
+  parse: (raw: string) => number | undefined;
+  // Prefills the custom field from a value.
+  inputValue: (n: number) => string;
+  unit?: string;
+  invalidHint: string;
+}
+
+export const THRESHOLDS: Record<ThresholdKey, ThresholdSpec> = {
+  minDurationMs: {
+    label: "Latency at least",
+    presets: LATENCY_PRESETS_MS,
+    format: formatLatency,
+    parse: parseLatencyInput,
+    inputValue: latencyInputValue,
+    unit: "s",
+    invalidHint: "Enter seconds, like 2.5",
+  },
+  minTokens: {
+    label: "Tokens at least",
+    presets: TOKEN_PRESETS,
+    format: formatTokens,
+    parse: parseCountInput,
+    inputValue: String,
+    invalidHint: "Enter a whole number",
+  },
+  minSpanCount: {
+    label: "Steps at least",
+    presets: STEP_PRESETS,
+    format: String,
+    parse: parseCountInput,
+    inputValue: String,
+    invalidHint: "Enter a whole number",
+  },
+};
+
+// The drawer's edits, applied together by Filter.
+export interface TraceFilterDraft {
+  // Every filter but status; text stays untrimmed until applied.
+  filters: TraceFilters;
+  // Raw text of each threshold set to Custom.
+  custom: Partial<Record<ThresholdKey, string>>;
+}
+
+export const EMPTY_DRAFT: TraceFilterDraft = { filters: {}, custom: {} };
+
+/** A draft holding the filters, without status, which the toggle owns. */
+export function draftFrom(filters: TraceFilters): TraceFilterDraft {
+  const rest = { ...filters };
+  delete rest.status;
+  return { filters: rest, custom: {} };
+}
+
+/** The draft without keys, in its filters and its custom values. */
+export function draftWithout(draft: TraceFilterDraft, keys: TraceFilterKey[]): TraceFilterDraft {
+  const filters = { ...draft.filters };
+  const custom = { ...draft.custom };
+  for (const key of keys) {
+    delete filters[key];
+    delete custom[key as ThresholdKey];
+  }
+  return { filters, custom };
+}
+
+/** The threshold's value in the draft: its parsed custom value when set to Custom. */
+export function draftThreshold(draft: TraceFilterDraft, key: ThresholdKey): number | undefined {
+  const raw = draft.custom[key];
+  return raw === undefined ? draft.filters[key] : THRESHOLDS[key].parse(raw);
+}
+
+/** Why the threshold's custom value can't apply; undefined when it can or isn't custom. */
+export function customError(draft: TraceFilterDraft, key: ThresholdKey): string | undefined {
+  const raw = draft.custom[key];
+  if (raw === undefined || THRESHOLDS[key].parse(raw) !== undefined) return undefined;
+  return THRESHOLDS[key].invalidHint;
+}
+
+/** Whether every custom value in the draft can apply. */
+export const isDraftValid = (draft: TraceFilterDraft) =>
+  (Object.keys(draft.custom) as ThresholdKey[]).every((key) => !customError(draft, key));
+
+/** The filters Filter applies: the draft's, with custom values parsed, text trimmed, and status. */
+export function appliedFilters(
+  draft: TraceFilterDraft,
+  status: TraceFilters["status"],
+): TraceFilters {
+  const next: TraceFilters = { ...draft.filters, status };
+  for (const key of Object.keys(draft.custom) as ThresholdKey[]) {
+    next[key] = draftThreshold(draft, key);
+  }
+  for (const key of TEXT_KEYS) next[key] = draft.filters[key]?.trim() || undefined;
+  if (!next.toolError) delete next.toolError;
+  for (const key of TRACE_FILTER_KEYS) if (next[key] === undefined) delete next[key];
+  return next;
 }
