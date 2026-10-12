@@ -378,15 +378,18 @@ func TestCardReconcilerRecordsTheReleaseItTried(t *testing.T) {
 		require.Len(t, retries, 1)
 		assert.Equal(t, "trip-planner-r1", retries[0].ReleaseName)
 	})
+	// A release that never served was not really tried, so the drift scan must still retry it once it serves.
 	t.Run("a rollout still in progress", func(t *testing.T) {
 		h := newCardReconcilerHarness("http://gw.example/a")
 		h.ocClient.GetReleaseBindingRolloutFunc = func(context.Context, string, string, string) (client.ReleaseBindingRollout, error) {
 			return client.ReleaseBindingRollout{ReleaseName: "trip-planner-r2", Deployed: true}, nil
 		}
-		h.svc.fetchOne(context.Background(), pendingCard(models.A2AAgentCardSourcePlatform))
-		retries := h.repo.MarkAttemptFailedCalls()
-		require.Len(t, retries, 1)
-		assert.Equal(t, "trip-planner-r2", retries[0].ReleaseName)
+		row := pendingCard(models.A2AAgentCardSourcePlatform)
+		row.AttemptCount = a2aCardAttemptBudget - 1
+		h.svc.fetchOne(context.Background(), row)
+		failed := h.repo.MarkFailedCalls()
+		require.Len(t, failed, 1)
+		assert.Empty(t, failed[0].ReleaseName)
 	})
 	t.Run("the last attempt", func(t *testing.T) {
 		h := newCardReconcilerHarness("http://gw.example/a")

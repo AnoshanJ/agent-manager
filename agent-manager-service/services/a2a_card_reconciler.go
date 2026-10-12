@@ -218,10 +218,10 @@ func (s *a2aCardReconcilerService) fetchPlatformCard(ctx context.Context, row mo
 	if !rollout.Deployed {
 		return a2aCardFetch{}, errA2ACardNotDeployed
 	}
-	attempt := a2aCardFetch{releaseName: rollout.ReleaseName}
 	if !rollout.Serving {
-		return attempt, errA2ACardRolloutInProgress
+		return a2aCardFetch{}, errA2ACardRolloutInProgress
 	}
+	attempt := a2aCardFetch{releaseName: rollout.ReleaseName}
 	if rollout.ExternalURL == "" {
 		return attempt, errA2ACardEndpointNotReady
 	}
