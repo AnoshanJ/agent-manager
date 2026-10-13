@@ -164,8 +164,10 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
         <Stack
           direction="row"
           spacing={1}
+          useFlexGap
+          flexWrap="wrap"
           alignItems="center"
-          sx={{ float: "right", "&&": { mr: 0, ml: 1 } }}
+          sx={{ float: "right", maxWidth: "100%", minWidth: 0, "&&": { mr: 0, ml: 1 } }}
         >
           {onTraceSearch && <TraceIdSearch onSearch={onTraceSearch} />}
           <Button

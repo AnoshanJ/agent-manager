@@ -518,6 +518,8 @@ export function TracesTable({
         </ListingTable.Container>
       ) : (
         <ListingTable.Container>
+          {/* The header stays so the sort order can still change. */}
+          <ListingTable>{head}</ListingTable>
           <ListingTable.EmptyState
             illustration={<Workflow size={64} />}
             title="No traces found!"
