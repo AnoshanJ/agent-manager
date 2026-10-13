@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from harness.heavy_subset import filter_shard, heavy_shards, select_heavy_subset
+from harness.cell_filter import CellFilter
+from harness.heavy_subset import filter_shard, heavy_shards, select_heavy_run, select_heavy_subset
 from harness.manifest import (
     DefaultCell,
     FrameworkEntry,
@@ -146,3 +147,23 @@ def test_filter_shard_keeps_only_that_provider_version():
     assert sorted(c.id for s in heavy_shards(sub) for c in filter_shard(sub, s)) == sorted(
         c.id for c in sub
     )
+
+
+def test_select_heavy_run_applies_filters_to_the_subset():
+    m = _multi_manifest()
+    m.python_versions = ["3.10", "3.11"]
+    run = select_heavy_run(m, CellFilter(traceloop_versions={"0.61.0"}, frameworks={"crewai"}))
+    assert {(c.provider_version, c.framework_name) for c in run} == {("0.61.0", "crewai")}
+    assert {c.python for c in run} == {"3.10", "3.11"}
+
+
+def test_select_heavy_run_filter_to_non_deployable_framework_is_empty():
+    m = _multi_manifest()
+    assert select_heavy_run(m, CellFilter(frameworks={"llama-index"})) == []
+
+
+def test_select_heavy_run_cell_id_ignores_filters():
+    m = _multi_manifest()
+    target = "traceloop-0.60.0-crewai-1.1.0-py3.11"
+    run = select_heavy_run(m, CellFilter(traceloop_versions={"0.61.0"}), cell_id=target)
+    assert [c.id for c in run] == [target]
