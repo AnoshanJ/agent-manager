@@ -57,15 +57,7 @@ jobs:
       - name: List heavy-tier shards
         id: shards
         working-directory: test/instrumentation-matrix
-        run: |
-          python <<'PY' >> "$GITHUB_OUTPUT"
-          import json, sys
-          sys.path.insert(0, ".")
-          from harness.heavy_subset import heavy_shards, select_heavy_subset
-          from harness.manifest import expand_matrix, load_manifest
-          m = load_manifest("matrix.yaml")
-          print(f"versions={json.dumps(heavy_shards(select_heavy_subset(expand_matrix(m), m)))}")
-          PY
+        run: python scripts/resolve_heavy_shards.py
 
   heavy-tier:
     # Pinned to GitHub-hosted, unlike the emission jobs: this is the only job

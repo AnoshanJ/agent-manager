@@ -26,8 +26,9 @@ version for the default framework, the first declared version otherwise.
 """
 from __future__ import annotations
 
+from harness.cell_filter import CellFilter
 from harness.deployable_samples import DEPLOYABLE_SAMPLES
-from harness.manifest import Cell, Manifest
+from harness.manifest import Cell, Manifest, expand_matrix
 
 
 def select_heavy_subset(cells: list[Cell], manifest: Manifest) -> list[Cell]:
@@ -61,6 +62,19 @@ def select_heavy_subset(cells: list[Cell], manifest: Manifest) -> list[Cell]:
         seen.add(c.id)
         out.append(c)
     return out
+
+
+def select_heavy_run(
+    manifest: Manifest, cell_filter: CellFilter = CellFilter(), cell_id: str = ""
+) -> list[Cell]:
+    """The heavy cells one run covers: the subset, narrowed by the manual
+    workflow's filters, or just `cell_id` when one is given (filters are
+    ignored then — it names the exact cell to run). The driver and the CI
+    shard resolver both call this, so they always agree."""
+    cells = select_heavy_subset(expand_matrix(manifest), manifest)
+    if cell_id:
+        return [c for c in cells if c.id == cell_id]
+    return cell_filter.apply(cells)
 
 
 def heavy_shards(cells: list[Cell]) -> list[str]:

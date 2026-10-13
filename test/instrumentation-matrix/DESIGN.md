@@ -1033,7 +1033,14 @@ on:
       python_versions:      { type: string, description: 'comma-separated; default = all' }
       include_heavy_tier:   { type: boolean, default: false }
       include_record_mode:  { type: boolean, default: false }   # re-record cassettes
+      heavy_only:           { type: boolean, default: false }   # skip emission
+      heavy_cell_id:        { type: string,  default: '' }      # one heavy cell
 ```
+
+The four filters narrow the heavy subset as well as the emission matrix
+(`harness/cell_filter.py`). The heavy tier is sharded per Traceloop version
+like the nightly's, so `traceloop_versions=<new>` runs one ~50-minute shard
+rather than the whole subset.
 
 `include_record_mode` runs with `VCR_RECORD_MODE=once`, uses an
 OPENAI/ANTHROPIC key from a CI secret, and opens a follow-up PR with the
@@ -1214,7 +1221,8 @@ test/instrumentation-matrix/
 ├── scripts/
 │   ├── record_cassette.py                 # one-shot cassette recorder (§7.4)
 │   ├── scrub_cassettes.py                 # strip identifying headers post-record
-│   └── expand_filter.py                   # cell-id filter for the manual workflow
+│   ├── expand_filter.py                   # cell-id filter for the manual workflow
+│   └── resolve_heavy_shards.py            # per-Traceloop heavy shards (nightly + manual)
 └── reports/                               # per-run output (gitignored)
 
 .github/
