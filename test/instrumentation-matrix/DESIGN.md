@@ -1006,8 +1006,11 @@ on:
 Jobs:
 
 1. `full-emission-matrix` — same as tier 1 but ungated by file paths.
-2. `heavy-tier` — needs `full-emission-matrix`; builds AMP from source on
-   k3d (amp-dev-stack), iterates heavy cells, posts heavy-tier report.
+2. `heavy-tier` — needs `full-emission-matrix`; one shard per Traceloop
+   version (listed by `resolve-heavy-shards`, passed to the driver as
+   `HEAVY_PROVIDER_VERSION`). Each shard builds AMP from source on its own
+   k3d stack (amp-dev-stack), iterates its heavy cells, and uploads its
+   reports.
 3. `revalidate-known-broken` — re-runs every `known-broken` cell; opens an
    issue if any previously-broken cell now passes ("drop the exemption").
 4. `publish-matrix-summary` — aggregates emission + heavy reports, renders

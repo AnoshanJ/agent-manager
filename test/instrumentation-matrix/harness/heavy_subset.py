@@ -61,3 +61,21 @@ def select_heavy_subset(cells: list[Cell], manifest: Manifest) -> list[Cell]:
         seen.add(c.id)
         out.append(c)
     return out
+
+
+def heavy_shards(cells: list[Cell]) -> list[str]:
+    """The provider versions the heavy subset spans, one CI shard each.
+
+    The nightly runs one heavy job per Traceloop version, each on its own
+    stack, so a new release adds a parallel shard instead of lengthening a
+    single serial run.
+    """
+    return sorted({c.provider_version for c in cells}, key=_version_key)
+
+
+def filter_shard(cells: list[Cell], provider_version: str) -> list[Cell]:
+    return [c for c in cells if c.provider_version == provider_version]
+
+
+def _version_key(v: str) -> tuple:
+    return tuple(int(p) if p.isdigit() else p for p in v.split("."))

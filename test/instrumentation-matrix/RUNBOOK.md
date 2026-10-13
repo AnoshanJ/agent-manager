@@ -243,6 +243,10 @@ interpreter). So the subset (`harness/heavy_subset.py`) is one cell per
 framework's representative version. With one Traceloop version, four pythons,
 and two deployable frameworks that's eight cells.
 
+The nightly runs one heavy job per Traceloop version, each on its own stack
+(eight cells, ~50 min). A new Traceloop release in `matrix.yaml` adds a
+parallel shard automatically; it does not lengthen the existing ones.
+
 Frameworks without a deployable sample (`langgraph`, `llama-index`,
 `openai-direct`, `anthropic-direct`) stay emission-only — per-framework span
 *shape* for them is the emission tier's job. Adding a deployable sample under
@@ -277,6 +281,8 @@ values the dev bring-up exposes (overridable, never required):
 | `IDP_TOKEN_URL` | default | `http://thunder.amp.localhost:8080/oauth2/token` |
 | `IDP_CLIENT_ID` | default | `amp-api-client` |
 | `IDP_CLIENT_SECRET` | default | `amp-api-client-secret` |
+| `HEAVY_PROVIDER_VERSION` | filter | run only this Traceloop version's cells; the nightly sets it per shard. Empty = every version |
+| `HEAVY_CELL_ID` | filter | run only this one heavy-subset cell. Empty = the whole subset |
 
 Auth is OAuth2 `client_credentials` against Thunder IDP (no static admin
 token); the client fetches + refreshes a bearer token, mirroring
