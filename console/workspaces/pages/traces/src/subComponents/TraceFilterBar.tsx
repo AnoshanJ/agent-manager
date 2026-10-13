@@ -22,7 +22,6 @@ import {
   Box,
   Button,
   ButtonGroup,
-  Divider,
   Stack,
   ToggleButton,
   ToggleButtonGroup,
@@ -112,7 +111,7 @@ const FilterChip: React.FC<FilterChipProps> = ({ chip, onOpen, onRemove }) => (
   </ButtonGroup>
 );
 
-/** One row: status toggle and chips on the left, trace ID search and Filters on the right. */
+/** Status toggle and chips on the left, trace ID search and Filters fixed on the right. */
 export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
   filters,
   onChange,
@@ -153,35 +152,21 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
 
   return (
     <>
-      <Stack
-        direction="row"
-        spacing={1}
-        useFlexGap
-        flexWrap="wrap"
-        alignItems="center"
-        sx={{ mb: 2 }}
+      {/* Search and Filters float right on the first line; chips that don't fit wrap below,
+          across the full width, so the Filters button never moves. */}
+      <Box
+        sx={{
+          display: "flow-root",
+          mb: 1,
+          "& > *": { display: "inline-flex", verticalAlign: "middle", mr: 1, mb: 1 },
+        }}
       >
-        <StatusToggle
-          value={filters.status}
-          onChange={(status) => onChange({ ...filters, status })}
-        />
-        {chips.length > 0 && (
-          <Divider orientation="vertical" sx={{ height: 20, alignSelf: "center", mx: 0.5 }} />
-        )}
-        {chips.map((chip) => (
-          <FilterChip
-            key={chip.key}
-            chip={chip}
-            onOpen={openDrawer}
-            onRemove={() => remove(chip)}
-          />
-        ))}
-        {chips.length + (filters.status ? 1 : 0) >= 2 && (
-          <Button size="small" variant="text" onClick={clearAll}>
-            Clear all
-          </Button>
-        )}
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: "auto" }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          sx={{ float: "right", "&&": { mr: 0, ml: 1 } }}
+        >
           {onTraceSearch && <TraceIdSearch onSearch={onTraceSearch} />}
           <Button
             ref={setFiltersButton}
@@ -196,7 +181,24 @@ export const TraceFilterBar: React.FC<TraceFilterBarProps> = ({
             Advanced Filters
           </Button>
         </Stack>
-      </Stack>
+        <StatusToggle
+          value={filters.status}
+          onChange={(status) => onChange({ ...filters, status })}
+        />
+        {chips.map((chip) => (
+          <FilterChip
+            key={chip.key}
+            chip={chip}
+            onOpen={openDrawer}
+            onRemove={() => remove(chip)}
+          />
+        ))}
+        {chips.length + (filters.status ? 1 : 0) >= 2 && (
+          <Button size="small" variant="text" onClick={clearAll}>
+            Clear all
+          </Button>
+        )}
+      </Box>
       {children}
       {open && filtersButton && (
         <TraceFiltersDrawer

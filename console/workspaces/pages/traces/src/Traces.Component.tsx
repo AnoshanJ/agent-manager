@@ -37,8 +37,6 @@ import {
 import {
   Workflow,
   RefreshCcw,
-  SortAsc,
-  SortDesc,
   Download,
 } from "@wso2/oxygen-ui-icons-react";
 import {
@@ -460,23 +458,6 @@ export const TracesComponent: React.FC = () => {
               onCustomRangeApply={handleCustomRangeApply}
             />
 
-            {/* Sort Toggle */}
-            <IconButton
-              size="small"
-              onClick={() =>
-                handleSortOrderChange(sortOrder === "desc" ? "asc" : "desc")
-              }
-              aria-label={
-                sortOrder === "desc" ? "Sort ascending" : "Sort descending"
-              }
-            >
-              {sortOrder === "desc" ? (
-                <SortDesc size={16} />
-              ) : (
-                <SortAsc size={16} />
-              )}
-            </IconButton>
-
             <TraceColumnsMenu
               visibleColumns={visibleColumns}
               onChange={handleColumnsChange}
@@ -541,6 +522,8 @@ export const TracesComponent: React.FC = () => {
             onTraceSelect={handleTraceSelect}
             onLoadMore={loadMore}
             onConversationSelect={handleConversationSelect}
+            sortOrder={sortOrder}
+            onSortOrderChange={handleSortOrderChange}
           />
         </TraceFilterBar>
         <DrawerWrapper

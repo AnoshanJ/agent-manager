@@ -1286,6 +1286,14 @@ describe("TracesComponent infinite scroll", () => {
     expect(loadMore).toHaveBeenCalledTimes(1);
   });
 
+  it("flips the sort order from the Start Time header", () => {
+    renderPage();
+    expect(mockUseTraceList.mock.lastCall?.[6]).toBe("desc");
+
+    fireEvent.click(screen.getByText("Start Time"));
+    expect(mockUseTraceList.mock.lastCall?.[6]).toBe("asc");
+  });
+
   it.each([
     ["desc", "", "desc"],
     ["asc", "?sortOrder=asc", "asc"],

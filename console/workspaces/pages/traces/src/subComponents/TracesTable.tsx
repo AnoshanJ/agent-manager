@@ -21,18 +21,16 @@ import {
   Typography,
   Tooltip,
   ListingTable,
-  DataGrid,
   Box,
   Button,
   CircularProgress,
   IconButton,
   Link,
+  Skeleton,
   Stack,
 } from "@wso2/oxygen-ui";
 import { FadeIn, scoreColor } from "@agent-management-platform/views";
 import { copyToClipboard } from "@agent-management-platform/shared-component";
-
-const { DataGrid: DataGridComponent } = DataGrid;
 import {
   TraceOverview,
 } from "@agent-management-platform/types";
@@ -62,12 +60,17 @@ interface TracesTableProps {
   // Resolves to whether the page added rows, or undefined if the list moved on.
   onLoadMore?: () => Promise<boolean | undefined>;
   onConversationSelect?: (conversationId: string) => void;
+  sortOrder?: "asc" | "desc";
+  onSortOrderChange?: (sortOrder: "asc" | "desc") => void;
 }
 
 // How far below the visible area the end of the list is when the next page starts loading.
 // The page scrolls inside PageContent, which clips the sentinel, so a viewport rootMargin
 // would have no effect; the sentinel is this tall instead.
 const PRELOAD_DISTANCE_PX = 200;
+
+// Placeholder rows shown while the first page loads.
+const SKELETON_ROWS = 8;
 
 const toNStoSeconds = (ns: number) => {
   return ns / 1000_000_000;
@@ -100,6 +103,11 @@ const COLUMNS: {
   { field: "spans", headerName: "Spans", width: 5, align: "right" },
   { field: "score", headerName: "Score", width: 5, align: "right" },
 ];
+
+// Line-style sort arrow matching the console's other icons; MUI rotates it for asc.
+function SortArrow({ className }: { className?: string }) {
+  return <ArrowDown size={14} className={className} />;
+}
 
 // Trace ID, truncated, with a button that copies it.
 function TraceIdCell({ traceId }: { traceId: string }) {
@@ -183,6 +191,8 @@ export function TracesTable({
   loadError,
   onLoadMore,
   onConversationSelect,
+  sortOrder = "desc",
+  onSortOrderChange,
 }: TracesTableProps) {
   const columns = COLUMNS.filter((c) => !c.optional || visibleColumns.includes(c.optional));
   const showTraceId = visibleColumns.includes("traceId");
@@ -258,36 +268,58 @@ export function TracesTable({
     </Stack>
   );
 
+  // Start Time sorts the list; clicking it flips the order.
+  const head = (
+    <ListingTable.Head>
+      <ListingTable.Row>
+        {columns.map((c) => (
+          <ListingTable.Cell
+            key={c.field}
+            align={c.align}
+            width={`${c.width}%`}
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            {c.field === "startTime" ? (
+              <ListingTable.SortLabel
+                active
+                direction={sortOrder}
+                IconComponent={SortArrow}
+                onClick={() => onSortOrderChange?.(sortOrder === "desc" ? "asc" : "desc")}
+              >
+                {c.headerName}
+              </ListingTable.SortLabel>
+            ) : (
+              c.headerName
+            )}
+          </ListingTable.Cell>
+        ))}
+      </ListingTable.Row>
+    </ListingTable.Head>
+  );
+
   return (
     <FadeIn>
       {isLoading ? (
-        <DataGridComponent
-          rows={[]}
-          columns={columns.map(({ field, headerName, width }) => ({
-            field,
-            headerName,
-            flex: width,
-          }))}
-          loading
-          hideFooter
-        />
+        <ListingTable.Container>
+          <ListingTable>
+            {head}
+            <ListingTable.Body>
+              {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                <ListingTable.Row key={i}>
+                  {columns.map((c) => (
+                    <ListingTable.Cell key={c.field}>
+                      <Skeleton variant="text" />
+                    </ListingTable.Cell>
+                  ))}
+                </ListingTable.Row>
+              ))}
+            </ListingTable.Body>
+          </ListingTable>
+        </ListingTable.Container>
       ) : traces.length > 0 ? (
         <ListingTable.Container>
           <ListingTable>
-            <ListingTable.Head>
-              <ListingTable.Row>
-                {columns.map((c) => (
-                  <ListingTable.Cell
-                    key={c.field}
-                    align={c.align}
-                    width={`${c.width}%`}
-                    sx={c.field === "status" ? { maxWidth: 20 } : undefined}
-                  >
-                    {c.headerName}
-                  </ListingTable.Cell>
-                ))}
-              </ListingTable.Row>
-            </ListingTable.Head>
+            {head}
             <ListingTable.Body>
               {traces.map((trace) => (
                 <ListingTable.Row
