@@ -19,6 +19,7 @@
 package cloud
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -31,9 +32,7 @@ const (
 	BaseDomain        = "cloud.wso2.com"
 )
 
-// APIURL returns the Agent Manager API base URL on WSO2 Cloud: the gateway in
-// AMCTL_CLOUD_URL (production when unset) followed by APIPath. Use it to build the
-// instance URL for amctl login --cloud.
+// APIURL returns the API base URL for --cloud: the AMCTL_CLOUD_URL gateway (production by default) plus APIPath.
 func APIURL(getenv func(string) string) string {
 	gateway := strings.TrimSpace(getenv(GatewayURLEnv))
 	if gateway == "" {
@@ -42,11 +41,9 @@ func APIURL(getenv func(string) string) string {
 	return strings.TrimRight(gateway, "/") + APIPath
 }
 
-// IsAPIURL reports whether raw points at the Agent Manager API on a WSO2 Cloud gateway
-// (a cloud.wso2.com host with a path under APIPath). Use it to catch a cloud URL passed
-// to --url, which would log in without the cloud resource indicator and get no scopes.
+// IsAPIURL reports whether raw is an Agent Manager API URL on a WSO2 Cloud gateway.
 func IsAPIURL(raw string) bool {
-	u, err := url.Parse(raw)
+	u, err := parseURL(raw)
 	if err != nil {
 		return false
 	}
@@ -58,12 +55,25 @@ func IsAPIURL(raw string) bool {
 	return path == APIPath || strings.HasPrefix(path, APIPath+"/")
 }
 
-// GatewayOf returns the scheme and host of a WSO2 Cloud API URL, or "" if raw does not
-// parse. Use it to tell users which AMCTL_CLOUD_URL value selects that environment.
-func GatewayOf(raw string) string {
-	u, err := url.Parse(raw)
+func LoginHint(raw, releasesURL string) string {
+	return fmt.Sprintf("%s is a WSO2 Cloud URL; log in with --cloud instead: export %s=%s && amctl login --cloud (if --cloud is unknown, download the latest amctl from %s)",
+		raw, GatewayURLEnv, gatewayOf(raw), releasesURL)
+}
+
+// gatewayOf returns the scheme and host of raw, or "" if it does not parse.
+func gatewayOf(raw string) string {
+	u, err := parseURL(raw)
 	if err != nil {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// parseURL parses raw, assuming https:// when it has no scheme so a bare host/path
+// still yields a hostname.
+func parseURL(raw string) (*url.URL, error) {
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	return url.Parse(raw)
 }

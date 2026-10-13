@@ -14,8 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package update finds the latest published amctl, so commands can tell users when the
-// binary they run is out of date.
+// Package update finds the latest published amctl release.
 package update
 
 import (
@@ -29,38 +28,49 @@ import (
 )
 
 const (
-	releasesURL = "https://api.github.com/repos/wso2/agent-manager/releases?per_page=100"
-	// assetPrefix names the amctl binaries attached to a release: amctl_v<version>_<os>_<arch>.*
-	assetPrefix = "amctl_v"
-	// maxPages caps the releases walk (100 per page) so a long list cannot stall login.
+	repo   = "wso2/agent-manager"
+	stream = "amctl"
+
+	releasesURL = "https://api.github.com/repos/" + repo + "/releases?per_page=100"
+	tagPrefix   = stream + "/v"
+	assetPrefix = stream + "_v"
+	// maxPages caps the paged release walk.
 	maxPages = 10
 )
 
-const tagPrefix = "amctl/v"
+// ReleasesPageURL lists amctl releases for users; /releases/latest is the platform release.
+const ReleasesPageURL = "https://github.com/" + repo + "/releases?q=" + stream
 
+// Release is a published amctl: its version and a download URL (the binary for this platform, or the release page).
 type Release struct {
 	Version string
 	URL     string
 }
 
+// Latest returns the highest published, non-pre-release amctl release.
 func Latest(ctx context.Context, httpc *http.Client) (Release, error) {
-	// GitHub pages the list (newest first); follow it so amctl releases stay
-	// discoverable however many other components release after them.
-	var releases []githubRelease
+	// Releases are listed newest first, so stop after the first page with an amctl
+	// release; later pages are never fetched once one is found.
+	var latest Release
 	next := releasesURL
-	// The list is newest first, so stopping at maxPages keeps the newest releases.
-	for page := 0; next != "" && page < maxPages; page++ {
+	for page := 0; next != "" && page < maxPages && latest.Version == ""; page++ {
 		batch, link, err := fetchReleases(ctx, httpc, next)
 		if err != nil {
 			return Release{}, err
 		}
-		releases = append(releases, batch...)
+		latest = highest(latest, batch)
 		next = link
 	}
+	if latest.Version == "" {
+		return Release{}, fmt.Errorf("no published amctl release")
+	}
+	return latest, nil
+}
 
+// highest returns the highest published amctl release in rs, or best if none beats it.
+func highest(best Release, rs []githubRelease) Release {
 	platform := "_" + runtime.GOOS + "_" + runtime.GOARCH + "."
-	var latest Release
-	for _, r := range releases {
+	for _, r := range rs {
 		if r.Draft || r.Prerelease {
 			continue
 		}
@@ -68,7 +78,7 @@ func Latest(ctx context.Context, httpc *http.Client) (Release, error) {
 		if !ok {
 			continue
 		}
-		if latest.Version != "" && !Newer(latest.Version, version) {
+		if best.Version != "" && !Newer(best.Version, version) {
 			continue
 		}
 		candidate := Release{Version: version}
@@ -88,12 +98,9 @@ func Latest(ctx context.Context, httpc *http.Client) (Release, error) {
 		if candidate.URL == "" {
 			candidate.URL = r.HTMLURL
 		}
-		latest = candidate
+		best = candidate
 	}
-	if latest.Version == "" {
-		return Release{}, fmt.Errorf("no published amctl release")
-	}
-	return latest, nil
+	return best
 }
 
 type githubRelease struct {
@@ -107,8 +114,7 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-// fetchReleases returns one page of releases and the URL of the next page, or "" on
-// the last page.
+// fetchReleases returns one page of releases and the next page URL ("" on the last).
 func fetchReleases(ctx context.Context, httpc *http.Client, url string) ([]githubRelease, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -132,7 +138,7 @@ func fetchReleases(ctx context.Context, httpc *http.Client, url string) ([]githu
 	return page, nextLink(resp.Header.Get("Link")), nil
 }
 
-// nextLink returns the rel="next" URL from a GitHub Link header, or "" if there is none.
+// nextLink returns the rel="next" URL from a GitHub Link header, or "".
 func nextLink(header string) string {
 	for _, part := range strings.Split(header, ",") {
 		target, params, ok := strings.Cut(part, ";")
@@ -155,6 +161,14 @@ func streamVersion(tag string) (string, bool) {
 	return version, true
 }
 
+// IsRelease reports whether v is a release version rather than e.g. a "dev" build.
+func IsRelease(v string) bool {
+	_, ok := parse(v)
+	return ok
+}
+
+// Newer reports whether latest is newer than current. It returns false if either does not
+// parse as a version, which is how "dev" builds skip the update warning.
 func Newer(current, latest string) bool {
 	c, ok := parse(current)
 	if !ok {

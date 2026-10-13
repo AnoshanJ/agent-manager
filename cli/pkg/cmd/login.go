@@ -42,11 +42,7 @@ import (
 // fetching the full list.
 const orgPeekLimit = 2
 
-// releasesURL lists the amctl releases (amctl/v<version>). Not /releases/latest: that is
-// the repository's platform release, which does not ship amctl.
-const releasesURL = "https://github.com/wso2/agent-manager/releases?q=amctl"
-
-// updateCheckTimeout bounds the release check so it never delays login noticeably.
+// updateCheckTimeout bounds the release check on login.
 const updateCheckTimeout = 3 * time.Second
 
 type loginData struct {
@@ -111,9 +107,7 @@ func runLogin(ctx context.Context, opts *LoginOptions) error {
 		return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf("--client-id is required when --client-secret is set"))
 	}
 	if !opts.Cloud && cloud.IsAPIURL(opts.URL) {
-		return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf(
-			"%s is a WSO2 Cloud URL; log in with --cloud instead: export %s=%s && amctl login --cloud (if --cloud is unknown, download the latest amctl from %s)",
-			opts.URL, cloud.GatewayURLEnv, cloud.GatewayOf(opts.URL), releasesURL))
+		return render.Error(opts.IO, render.Scope{}, cmdutil.FlagErrorf("%s", cloud.LoginHint(opts.URL, update.ReleasesPageURL)))
 	}
 	if opts.Cloud {
 		if opts.URL != "" {
@@ -135,9 +129,7 @@ func runLogin(ctx context.Context, opts *LoginOptions) error {
 		opts.Name = "default"
 	}
 	scope := render.Scope{Instance: opts.Name}
-	if opts.Resource == cloud.Resource {
-		warnIfOutdated(ctx, opts)
-	}
+	outdated := startUpdateCheck(ctx, opts)
 
 	inst, err := opts.Authenticate(ctx, auth.LoginOptions{
 		URL:          opts.URL,
@@ -152,6 +144,13 @@ func runLogin(ctx context.Context, opts *LoginOptions) error {
 		return render.Error(opts.IO, scope, clierr.Newf(clierr.Transport, "%v", err))
 	}
 	inst.AuthServer = opts.AuthServer
+	select {
+	case msg := <-outdated:
+		if msg != "" {
+			fmt.Fprintln(opts.IO.ErrOut, msg)
+		}
+	default:
+	}
 
 	cleared := cfg.ClearLinksIfSwitching(opts.Name)
 	if cleared == 0 {
@@ -236,17 +235,24 @@ func fillFromStoredInstance(opts *LoginOptions, cfg *config.Config) error {
 	return nil
 }
 
-func warnIfOutdated(ctx context.Context, opts *LoginOptions) {
-	if opts.HTTPClient == nil {
-		return
+// startUpdateCheck looks for a newer amctl in the background so it never delays login.
+// It returns nil, and makes no request, off cloud or for builds without a release version.
+func startUpdateCheck(ctx context.Context, opts *LoginOptions) <-chan string {
+	if opts.HTTPClient == nil || !cloud.IsAPIURL(opts.URL) || !update.IsRelease(version.Version) {
+		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
-	defer cancel()
-	rel, err := update.Latest(ctx, opts.HTTPClient())
-	if err != nil || !update.Newer(version.Version, rel.Version) {
-		return
-	}
-	fmt.Fprintf(opts.IO.ErrOut, "warning: amctl %s is available (you have %s); download it from %s\n", rel.Version, version.Version, rel.URL)
+	result := make(chan string, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
+		defer cancel()
+		rel, err := update.Latest(ctx, opts.HTTPClient())
+		if err != nil || !update.Newer(version.Version, rel.Version) {
+			result <- ""
+			return
+		}
+		result <- fmt.Sprintf("warning: amctl %s is available (you have %s); download it from %s", rel.Version, version.Version, rel.URL)
+	}()
+	return result
 }
 
 func fetchOrgs(ctx context.Context, opts *LoginOptions) ([]amsvc.OrganizationListItem, error) {
