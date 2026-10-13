@@ -682,10 +682,9 @@ func IsLLMLeafSpan(spanName string) bool {
 // conversationIDKeys name a span's conversation, in the order they're read.
 // langsmith.trace.session_id is left out: it names a LangSmith project.
 var conversationIDKeys = []string{
-	"gen_ai.conversation.id", // OTel GenAI, Google ADK, Traceloop @conversation
-	"session.id",             // OpenInference, Strands trace_attributes
-	"langfuse.session.id",    // Langfuse SDK
-
+	"gen_ai.conversation.id",                           // OTel GenAI, Google ADK, Traceloop @conversation
+	"session.id",                                       // OpenInference, Strands trace_attributes
+	"langfuse.session.id",                              // Langfuse SDK
 	"traceloop.association.properties.session_id",      // Traceloop associations, LangChain metadata
 	"traceloop.association.properties.conversation_id", // LangChain metadata
 	"traceloop.association.properties.thread_id",       // LangGraph thread via LangChain metadata

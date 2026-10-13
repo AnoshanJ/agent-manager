@@ -87,9 +87,6 @@ export interface TraceFilters {
   mcpServer?: string;
 }
 
-/** Optional TraceOverview fields the list fills on request (`?include=`). */
-export type TraceInclude = 'models' | 'tools' | 'mcpServers';
-
 // Keep Trace as an alias for backward compatibility
 export type Trace = TraceOverview;
 

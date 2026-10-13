@@ -20,7 +20,6 @@ import type {
   TraceListResponse,
   TraceExportResponse,
   TraceFilters,
-  TraceInclude,
   Span,
   TraceSpanSummaryListResponse,
 } from "@agent-management-platform/types";
@@ -39,8 +38,6 @@ export interface ObserverTraceListParams {
   filters?: TraceFilters;
   /** Fill models on every trace; costs the server one extra upstream call per trace. */
   includeModels?: boolean;
-  /** Optional fields to fill on every trace; merged with includeModels into one include param. */
-  include?: TraceInclude[];
   /** nextCursor from the previous page of the same window, sort order and filters. */
   cursor?: string;
 }
@@ -48,20 +45,8 @@ export interface ObserverTraceListParams {
 /** Export takes the list's window and filters; it has no cursor or include. */
 export type ExportTracesQueryParams = Omit<
   ObserverTraceListParams,
-  "includeModels" | "include" | "cursor"
+  "includeModels" | "cursor"
 >;
-
-const TRACE_INCLUDE_ORDER: TraceInclude[] = ["models", "tools", "mcpServers"];
-
-/** Returns the requested include values, de-duplicated and in a fixed order. */
-export function normalizeTraceInclude(
-  include?: TraceInclude[],
-  includeModels?: boolean,
-): TraceInclude[] {
-  const wanted = new Set(include);
-  if (includeModels === true) wanted.add("models");
-  return TRACE_INCLUDE_ORDER.filter((value) => wanted.has(value));
-}
 
 /** Returns only the set filter fields, in a fixed order. */
 export function normalizeTraceFilters(filters?: TraceFilters): TraceFilters {
@@ -125,7 +110,6 @@ export async function getTraceList(
     sortOrder,
     filters,
     includeModels,
-    include,
     cursor,
   } = params;
   assertRequired(organization, "organization");
@@ -148,8 +132,7 @@ export async function getTraceList(
   if (limit !== undefined) searchParams.limit = limit.toString();
   if (sortOrder) searchParams.sortOrder = sortOrder;
   Object.assign(searchParams, traceFilterSearchParams(filters));
-  const includeValues = normalizeTraceInclude(include, includeModels);
-  if (includeValues.length > 0) searchParams.include = includeValues.join(",");
+  if (includeModels) searchParams.include = "models";
   if (cursor) searchParams.cursor = cursor;
 
   const res = await httpGETObserver("/api/v1/traces", { searchParams, token });

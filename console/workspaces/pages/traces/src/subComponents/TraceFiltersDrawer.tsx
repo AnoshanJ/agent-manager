@@ -27,6 +27,7 @@ import {
   IconButton,
   Paper,
   Popper,
+  type PopperProps,
   Stack,
   Typography,
 } from "@wso2/oxygen-ui";
@@ -41,6 +42,24 @@ const TRACE_FILTERS_DRAWER_WIDTH = 760;
 
 // Space between the Filters button and the panel.
 const PANEL_GAP = 6;
+
+// Places the panel below the button and caps its height at the space left above the
+// window's bottom (16px margin). Popper reruns this on resize and scroll.
+const PANEL_MODIFIERS: PopperProps["modifiers"] = [
+  { name: "offset", options: { offset: [0, PANEL_GAP] } },
+  {
+    name: "fitBelowAnchor",
+    enabled: true,
+    phase: "beforeWrite",
+    fn: ({ state }) => {
+      const anchorBottom = state.elements.reference.getBoundingClientRect().bottom;
+      state.elements.popper.style.setProperty(
+        "--trace-filters-max-height",
+        `${window.innerHeight - anchorBottom - PANEL_GAP - 16}px`,
+      );
+    },
+  },
+];
 
 interface SectionProps {
   draft: TraceFilterDraft;
@@ -146,9 +165,6 @@ export const TraceFiltersDrawer: React.FC<TraceFiltersDrawerProps> = ({
     [],
   );
 
-  // Fits the panel between the button and the bottom of the window, with a 16px margin.
-  const maxHeight = `calc(100vh - ${anchorEl.getBoundingClientRect().bottom + PANEL_GAP + 16}px)`;
-
   // Escape anywhere closes the drawer; an open menu takes its own Escape first.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -166,7 +182,7 @@ export const TraceFiltersDrawer: React.FC<TraceFiltersDrawerProps> = ({
       transition
       // Not a tooltip; the panel inside is the landmark.
       role="presentation"
-      modifiers={[{ name: "offset", options: { offset: [0, PANEL_GAP] } }]}
+      modifiers={PANEL_MODIFIERS}
       sx={{ zIndex: (theme) => theme.zIndex.mobileStepper }}
     >
       {({ TransitionProps, placement }) => (
@@ -184,7 +200,7 @@ export const TraceFiltersDrawer: React.FC<TraceFiltersDrawerProps> = ({
             tabIndex={-1}
             elevation={8}
             sx={{
-              maxHeight,
+              maxHeight: "var(--trace-filters-max-height)",
               width: TRACE_FILTERS_DRAWER_WIDTH,
               maxWidth: "calc(100vw - 32px)",
               display: "flex",

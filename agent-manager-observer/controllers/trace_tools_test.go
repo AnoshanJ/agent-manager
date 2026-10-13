@@ -246,7 +246,7 @@ func TestIncludeTools_ListFetchFailureKeepsRow(t *testing.T) {
 	if got := resp.Traces[1]; got.Tools != nil {
 		t.Errorf("trace-0001 calls no tool, got %v", got.Tools)
 	}
-	want := []string{"enrichTraceOverview: QueryTraceSpans failed, skipping enrichment"}
+	want := []string{"fetchTraceSpanSummaries: QueryTraceSpans failed, skipping enrichment"}
 	if got := warnings(logs); !slices.Equal(got, want) {
 		t.Errorf("warnings = %q, want %q", got, want)
 	}

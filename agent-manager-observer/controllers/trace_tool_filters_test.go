@@ -570,8 +570,8 @@ func TestGetTraceOverviews_ToolFilterSpanListFails(t *testing.T) {
 			}
 			// One warning per attempt, and the walk retries a failed trace once.
 			wantWarns := []string{
-				"enrichTraceOverview: QueryTraceSpans failed, skipping enrichment",
-				"enrichTraceOverview: QueryTraceSpans failed, skipping enrichment",
+				"fetchTraceSpanSummaries: QueryTraceSpans failed, skipping enrichment",
+				"fetchTraceSpanSummaries: QueryTraceSpans failed, skipping enrichment",
 			}
 			if got := warnings(logs); !slices.Equal(got, wantWarns) {
 				t.Errorf("warnings = %q, want %q", got, wantWarns)

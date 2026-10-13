@@ -273,7 +273,7 @@ func (c *TracingController) traceOverviewPage(ctx context.Context, params TraceQ
 // which cancels those in flight without a warning; the walk then stops before
 // the chunk they belong to.
 //
-// Past maxMCPHandshakesPerRequest handshake fetches it stops the same way, before the next chunk and without a retry.
+// Past maxMCPHandshakesPerRequest handshake fetches it stops before the next chunk.
 func (c *TracingController) lookBackForMatches(ctx context.Context, params TraceQueryParams, budget time.Duration) (*opensearch.TraceOverviewResponse, walkStats, error) {
 	walkCtx, cancel := c.budget(ctx, budget)
 	defer cancel()
@@ -403,7 +403,7 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 			survivors := filterTraceInfos(chunk, params.Filters)
 			chunkCtx := fetchCtx()
 			overviews, chunkFailed := c.enrichTraces(chunkCtx, params, survivors, handshakes)
-			if len(chunkFailed) > 0 && !pastBudget() && !pastHandshakeCap() {
+			if len(chunkFailed) > 0 && !pastBudget() {
 				var retried []opensearch.TraceOverview
 				retried, chunkFailed = c.enrichTraces(chunkCtx, params, tracesWithIDs(survivors, chunkFailed), handshakes)
 				overviews = append(overviews, retried...)
@@ -550,7 +550,7 @@ func (c *TracingController) enrichTraces(
 
 	// outerSem caps how many traces are being enriched at once; innerSem caps
 	// the total observer round-trips across all enrichments in flight (root
-	// fetches plus anything enrichTraceOverview fetches inside).
+	// fetches plus anything enrichTrace fetches inside).
 	// Two pools avoid the deadlock a single shared pool would hit when every
 	// outer slot is held by a goroutine waiting on a fetch slot.
 	type result struct {
@@ -634,21 +634,21 @@ func (c *TracingController) enrichTraces(
 				results[idx] = result{verdict: enrichRejected}
 				return
 			}
-			input, output, tokens, models, conversationID, tools, failedTools, verdict := c.enrichTrace(ctx, params, t, root, spans, innerSem, &mcp)
+			e, verdict := c.enrichTrace(ctx, params, t, root, spans, innerSem, &mcp)
 			if verdict != enrichKept {
 				results[idx] = result{verdict: verdict}
 				return
 			}
 			results[idx] = result{
 				span:           root,
-				input:          input,
-				output:         output,
-				tokenUsage:     tokens,
-				models:         models,
+				input:          e.input,
+				output:         e.output,
+				tokenUsage:     e.tokenUsage,
+				models:         e.models,
 				status:         status,
-				conversationID: conversationID,
-				tools:          tools,
-				failedTools:    failedTools,
+				conversationID: e.conversationID,
+				tools:          e.tools,
+				failedTools:    e.failedTools,
 				mcpServers:     mcp.servers,
 			}
 		}(i, t)
@@ -751,16 +751,13 @@ func (c *TracingController) rootFromSpanList(
 	return spans, nil
 }
 
-// enrichTraceOverview is enrichTrace without the MCP servers.
-func (c *TracingController) enrichTraceOverview(
-	ctx context.Context,
-	params TraceQueryParams,
-	traceInfo observer.TraceInfo,
-	rootSpan *opensearch.Span,
-	spans []observer.SpanInfo,
-	fetchSem chan struct{},
-) (input interface{}, output interface{}, tokenUsage *opensearch.TokenUsage, models []string, conversationID string, tools, failedTools []string, verdict enrichVerdict) {
-	return c.enrichTrace(ctx, params, traceInfo, rootSpan, spans, fetchSem, &mcpLookup{handshakes: new(atomic.Int32)})
+// traceEnrichment holds the trace-list row fields enrichTrace computes.
+type traceEnrichment struct {
+	input, output      interface{}
+	tokenUsage         *opensearch.TokenUsage
+	models             []string
+	conversationID     string
+	tools, failedTools []string
 }
 
 // enrichTrace computes Input/Output/Tokens/Models/ConversationID/Tools
@@ -833,11 +830,17 @@ func (c *TracingController) enrichTrace(
 	spans []observer.SpanInfo,
 	fetchSem chan struct{},
 	mcp *mcpLookup,
-) (input interface{}, output interface{}, tokenUsage *opensearch.TokenUsage, models []string, conversationID string, tools, failedTools []string, verdict enrichVerdict) {
+) (traceEnrichment, enrichVerdict) {
+	var (
+		input, output      interface{}
+		tokenUsage         *opensearch.TokenUsage
+		models             []string
+		tools, failedTools []string
+	)
 	// Step 1: root span attributes.
-	conversationID = opensearch.ExtractConversationID(rootSpan)
+	conversationID := opensearch.ExtractConversationID(rootSpan)
 	if conversationRulesOut(conversationID, params.Filters) {
-		return nil, nil, nil, nil, "", nil, nil, enrichRejected
+		return traceEnrichment{}, enrichRejected
 	}
 	if opensearch.IsCrewAISpan(rootSpan.Attributes) {
 		input, output = opensearch.ExtractCrewAIRootSpanInputOutput(rootSpan)
@@ -859,7 +862,7 @@ func (c *TracingController) enrichTrace(
 
 	// Without leaf aggregation the trace has no models.
 	if rejectOnModel && !aggregateLeaves {
-		return nil, nil, nil, nil, "", nil, nil, enrichRejected
+		return traceEnrichment{}, enrichRejected
 	}
 
 	// Nothing left to fetch, unless tools or MCP servers need the list.
@@ -867,21 +870,21 @@ func (c *TracingController) enrichTrace(
 		if (toolsFromList || mcpFromList) && spans == nil {
 			var ok bool
 			if spans, ok = c.fetchTraceSpanSummaries(ctx, params, traceInfo, fetchSem, false); !ok && params.Filters.hasSpanListFilter() {
-				return nil, nil, nil, nil, "", nil, nil, enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
 		}
 		if toolsFromList {
 			tools, failedTools = toolsFromSpanList(spans)
 			if !matchesTools(tools, failedTools, params.Filters) {
-				return nil, nil, nil, nil, "", nil, nil, enrichRejected
+				return traceEnrichment{}, enrichRejected
 			}
 		}
 		if mcpFromList {
 			if verdict := c.readMCPServers(ctx, params, traceInfo, spans, fetchSem, mcp); verdict != enrichKept {
-				return nil, nil, nil, nil, "", nil, nil, verdict
+				return traceEnrichment{}, verdict
 			}
 		}
-		return input, output, tokenUsage, nil, conversationID, tools, failedTools, enrichKept
+		return traceEnrichment{input: input, output: output, tokenUsage: tokenUsage, conversationID: conversationID, tools: tools, failedTools: failedTools}, enrichKept
 	}
 
 	// Steps 2 and 3, inline models and tools all need the span list. Fetch it once.
@@ -890,27 +893,27 @@ func (c *TracingController) enrichTrace(
 		spans, ok = c.fetchTraceSpanSummaries(ctx, params, traceInfo, fetchSem, modelsFromList)
 		if !ok {
 			if rejectOnModel || params.Filters.hasSpanListFilter() || params.Filters.MinTokens != nil || conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", nil, nil, enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
-			return input, output, cmp.Or(tokenUsage, entityTokens), nil, conversationID, nil, nil, enrichKept
+			return traceEnrichment{input: input, output: output, tokenUsage: cmp.Or(tokenUsage, entityTokens), conversationID: conversationID}, enrichKept
 		}
 	}
 	if toolsFromList {
 		tools, failedTools = toolsFromSpanList(spans)
 		if !matchesTools(tools, failedTools, params.Filters) {
-			return nil, nil, nil, nil, "", nil, nil, enrichRejected
+			return traceEnrichment{}, enrichRejected
 		}
 	}
 	// The list carries attributes exactly when modelsFromList holds.
 	if modelsFromList {
 		models = modelsFromSpanList(traceInfo.TraceID, spans)
 		if rejectOnModel && !matchesModel(models, params.Filters) {
-			return nil, nil, nil, nil, "", nil, nil, enrichRejected
+			return traceEnrichment{}, enrichRejected
 		}
 	}
 	if mcpFromList {
 		if verdict := c.readMCPServers(ctx, params, traceInfo, spans, fetchSem, mcp); verdict != enrichKept {
-			return nil, nil, nil, nil, "", nil, nil, verdict
+			return traceEnrichment{}, verdict
 		}
 	}
 
@@ -933,11 +936,11 @@ func (c *TracingController) enrichTrace(
 			conversationID = cmp.Or(conversationID, childConversationID)
 		}
 		if conversationRulesOut(conversationID, params.Filters) {
-			return nil, nil, nil, nil, "", nil, nil, enrichRejected
+			return traceEnrichment{}, enrichRejected
 		}
 		// The child that couldn't be read may hold the ID.
 		if childUnread && conversationPending(conversationID, params.Filters) {
-			return nil, nil, nil, nil, "", nil, nil, enrichFailed
+			return traceEnrichment{}, enrichFailed
 		}
 	}
 
@@ -952,7 +955,7 @@ func (c *TracingController) enrichTrace(
 				"threshold", skipLeafAggregationSpanCountThreshold)
 			// The skipped leaves may hold the ID.
 			if conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", nil, nil, enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
 		} else {
 			leafInput, leafOutput, leafTokens, leafModels, leafConversationID, leavesUnread, leafIDUnread := c.aggregateFromLeafLLMSpans(ctx, traceInfo.TraceID, spans, modelsFromList, fetchSem)
@@ -961,7 +964,7 @@ func (c *TracingController) enrichTrace(
 			}
 			// A leaf that couldn't be read ahead of the first ID may have held another.
 			if leafIDUnread && conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", nil, nil, enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
 			conversationID = cmp.Or(conversationID, leafConversationID)
 			if input == nil {
@@ -979,9 +982,9 @@ func (c *TracingController) enrichTrace(
 
 	tokenUsage = cmp.Or(tokenUsage, entityTokens)
 	if tokensUnread && !matchesMinTokens(tokenUsage, params.Filters) {
-		return nil, nil, nil, nil, "", nil, nil, enrichFailed
+		return traceEnrichment{}, enrichFailed
 	}
-	return input, output, tokenUsage, models, conversationID, tools, failedTools, enrichKept
+	return traceEnrichment{input: input, output: output, tokenUsage: tokenUsage, models: models, conversationID: conversationID, tools: tools, failedTools: failedTools}, enrichKept
 }
 
 // fetchTraceSpanSummaries calls QueryTraceSpans for one trace and returns
@@ -1020,7 +1023,7 @@ func (c *TracingController) fetchTraceSpanSummaries(
 	<-fetchSem
 	if err != nil {
 		if ctx.Err() == nil {
-			log.Warn("enrichTraceOverview: QueryTraceSpans failed, skipping enrichment",
+			log.Warn("fetchTraceSpanSummaries: QueryTraceSpans failed, skipping enrichment",
 				"traceId", traceInfo.TraceID, "err", err)
 		}
 		return nil, false

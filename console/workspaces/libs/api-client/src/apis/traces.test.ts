@@ -17,7 +17,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TraceFilters, TraceInclude } from "@agent-management-platform/types";
+import type { TraceFilters } from "@agent-management-platform/types";
 import { httpGETObserver } from "../utils";
 import { exportTraces, getTraceList, type ObserverTraceListParams } from "./traces";
 
@@ -191,27 +191,5 @@ describe("getTraceList tool and MCP server filters", () => {
     expect(opts.searchParams).toEqual({
       ...BASE_QUERY, tool: "search_web", toolError: "true", mcpServer: "github",
     });
-  });
-});
-
-describe("getTraceList include", () => {
-  it.each([
-    [undefined, true, "models"],
-    [["tools"], undefined, "tools"],
-    [["mcpServers"], false, "mcpServers"],
-    [["mcpServers", "tools"], undefined, "tools,mcpServers"],
-    [["tools"], true, "models,tools"],
-    [["models"], true, "models"],
-    [["tools", "models", "tools"], undefined, "models,tools"],
-  ] satisfies [TraceInclude[] | undefined, boolean | undefined, string][])(
-    "include=%o with includeModels=%s sends include=%s",
-    async (include, includeModels, expected) => {
-      expect(await sentQuery({ ...BASE, include, includeModels }))
-        .toEqual({ ...BASE_QUERY, include: expected });
-    },
-  );
-
-  it.each([[[]], [undefined]])("sends no include for include=%o", async (include) => {
-    expect(await sentQuery({ ...BASE, include })).toEqual(BASE_QUERY);
   });
 });
