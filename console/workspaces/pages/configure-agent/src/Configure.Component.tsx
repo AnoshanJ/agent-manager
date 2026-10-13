@@ -42,7 +42,12 @@ import {
   type AgentConfigTableLabels,
 } from "./Configure/subComponents/AgentConfigTableSection";
 import { AddMCPToolConfigPanel } from "./Configure/subComponents/AddMCPToolConfigPanel";
-import { CONFIGURE_TAB_KEYS, CONFIGURE_TAB_PARAM } from "./configureTabs";
+import { A2AConfigureTab } from "./Configure/subComponents/A2AConfigureTab";
+import {
+  CONFIGURE_TAB_KEYS,
+  CONFIGURE_TAB_PARAM,
+  type ConfigureTabKey,
+} from "./configureTabs";
 
 const configureRoutes =
   absoluteRouteMap.children.org.children.projects.children.agents.children
@@ -93,8 +98,8 @@ const NO_COMPLETED_BUILD_REASON =
   "Complete a build for this agent before adding configurations.";
 
 type TabPanelProps = {
-  value: number;
-  index: number;
+  value: ConfigureTabKey;
+  index: ConfigureTabKey;
   children: React.ReactNode;
 };
 
@@ -109,23 +114,17 @@ function TabPanel({ value, index, children }: TabPanelProps) {
 export const ConfigureComponent: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { track } = useTrack();
-  const requestedTabIndex = CONFIGURE_TAB_KEYS.indexOf(
-    searchParams.get(
-      CONFIGURE_TAB_PARAM,
-    ) as (typeof CONFIGURE_TAB_KEYS)[number],
-  );
-  const tabIndex = requestedTabIndex === -1 ? 0 : requestedTabIndex;
-  const handleTabChange = (_: React.SyntheticEvent, index: number) => {
+  const handleTabChange = (_: React.SyntheticEvent, key: ConfigureTabKey) => {
     track(ConsoleAction.TabSwitch, {
       page: "configure-agent",
-      tab: CONFIGURE_TAB_KEYS[index],
+      tab: key,
     });
     // Preserve any other query params already on the URL instead of
     // replacing the whole search string with just this one.
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.set(CONFIGURE_TAB_PARAM, CONFIGURE_TAB_KEYS[index]);
+        next.set(CONFIGURE_TAB_PARAM, key);
         return next;
       },
       { replace: true },
@@ -178,8 +177,16 @@ export const ConfigureComponent: React.FC = () => {
     projName: projectId,
     agentName: agentId,
   });
-  const buildsOwnImage =
-    !!agent && agent.provisioning?.type !== "external" && !agent.kindName;
+  const isA2AAgent = agent?.agentType?.subType === "a2a-agent";
+  const isExternal = agent?.provisioning?.type === "external";
+  const visibleTabKeys = CONFIGURE_TAB_KEYS.filter(
+    (key) => key !== "a2a" || isA2AAgent,
+  );
+  const requestedTab = searchParams.get(CONFIGURE_TAB_PARAM) as ConfigureTabKey;
+  const tabKey = visibleTabKeys.includes(requestedTab)
+    ? requestedTab
+    : visibleTabKeys[0];
+  const buildsOwnImage = !!agent && !isExternal && !agent.kindName;
 
   // Exempt agents have no builds of their own, so the list is never fetched for
   // them — the gate is already open and the request would only be an empty
@@ -252,17 +259,18 @@ export const ConfigureComponent: React.FC = () => {
     <PageLayout title="Configure Agent" disableIcon>
       <Card variant="outlined">
         <Tabs
-          value={tabIndex}
+          value={tabKey}
           onChange={handleTabChange}
           variant="scrollable"
           allowScrollButtonsMobile
         >
-          <Tab label={llmLabels.title} />
-          <Tab label={mcpLabels.title} />
+          <Tab value="llm" label={llmLabels.title} />
+          <Tab value="tools" label={mcpLabels.title} />
+          {isA2AAgent && <Tab value="a2a" label="A2A" />}
         </Tabs>
         <Divider />
 
-        <TabPanel value={tabIndex} index={0}>
+        <TabPanel value={tabKey} index="llm">
           <AgentConfigTableSection
             configs={llmConfigs}
             isLoading={isLoadingLLM}
@@ -283,7 +291,7 @@ export const ConfigureComponent: React.FC = () => {
           />
         </TabPanel>
 
-        <TabPanel value={tabIndex} index={1}>
+        <TabPanel value={tabKey} index="tools">
           <AgentConfigTableSection
             configs={mcpConfigs}
             isLoading={isLoadingMCP}
@@ -311,6 +319,17 @@ export const ConfigureComponent: React.FC = () => {
             onClose={() => setIsAddingMcp(false)}
           />
         </TabPanel>
+
+        {isA2AAgent && orgId && projectId && agentId && (
+          <TabPanel value={tabKey} index="a2a">
+            <A2AConfigureTab
+              orgId={orgId}
+              projectId={projectId}
+              agentId={agentId}
+              external={isExternal}
+            />
+          </TabPanel>
+        )}
       </Card>
     </PageLayout>
   );

@@ -41,8 +41,8 @@ What that means in code:
 - **The card** (`/.well-known/agent-card.json`) declares both interfaces at
   `protocolBinding: JSONRPC` under `/rpc` and `protocolBinding: HTTP+JSON` under
   `/rest`, plus the two skills. These are the paths AMP's gateway publishes an
-  A2A agent under; their base is `AGENT_PUBLIC_BASE_URL`, so set it to the
-  gateway address and clients dial the gateway rather than the agent.
+  A2A agent under, and it rewrites the card it serves so clients dial the
+  gateway rather than the agent.
 - **One process serves both transports** (`app.py`), over one request handler and
   one task store, so a task sent over JSON-RPC is readable over HTTP+JSON.
 - **Streaming works for free** (`SendStreamingMessage`, `/message:stream`): the
@@ -115,7 +115,7 @@ Optional, with defaults:
 | Key | Default | Purpose |
 |---|---|---|
 | `OPENAI_MODEL` | `gpt-4o-mini` | Model used by both skills |
-| `AGENT_PUBLIC_BASE_URL` | `http://localhost:9099` | The base URL the agent advertises in its card's interfaces. For a deployed agent, set it to the gateway URL it is exposed at, `<gateway-url>/<agent-name>` (shown by `amctl agent status`), so the card's `/rpc` and `/rest` URLs are ones clients can reach. |
+| `AGENT_PUBLIC_BASE_URL` | `http://localhost:9099` | The address the agent advertises in its own card. The gateway rewrites the card it serves, so leave this unset for deployed agents. |
 
 ### Step 5: Deploy
 
@@ -138,8 +138,7 @@ amctl agent create a2a-notes-agent \
   --language python \
   --language-version 3.11 \
   --run-command "python main.py" \
-  --env-secret OPENAI_API_KEY=<your-openai-key> \
-  --env AGENT_PUBLIC_BASE_URL=<gateway-url>/a2a-notes-agent
+  --env-secret OPENAI_API_KEY=<your-openai-key>
 
 amctl agent build create a2a-notes-agent     # takes a few minutes
 amctl agent deploy a2a-notes-agent           # deploys the newest build
@@ -161,8 +160,9 @@ Calls go to the gateway, not to the agent: `<gateway-url>/<agent-name>/rpc` for
 JSON-RPC, `<gateway-url>/<agent-name>/rest/...` for HTTP+JSON. If you turned on
 API key security for the agent, send its key in the `X-API-Key` header.
 
-The card the gateway serves at the well-known path carries those URLs when
-`AGENT_PUBLIC_BASE_URL` is set to the gateway URL (Step 4).
+The card the gateway serves at the well-known path is the authority on those
+URLs — it is the agent's card with its addresses rewritten to the gateway's —
+so resolve it first when you are unsure how a deployment is exposed.
 
 ```bash
 curl -X POST "https://<gateway-url>/<agent-name>/rpc" \
@@ -325,11 +325,10 @@ asyncio.run(main())
   to `a2a-sdk` below 1.1.5 has to give that up; point `amp-instrumentation` at
   the exporter yourself in that case — see the `manual-instrumentation-agent`
   sample for that path.
-- **The card the gateway serves is the agent's own body.** As of this writing the
-  gateway's passthrough rewrite does not touch A2A 1.0 `supportedInterfaces`
-  URLs, so the card advertises whatever `AGENT_PUBLIC_BASE_URL` says. Set it to
-  the agent's gateway URL (Step 4) and the card is accurate; leave it unset and
-  the card points at `localhost:9099`.
+- **The card the gateway serves advertises the gateway.** The gateway's passthrough
+  rewrite points each gateway-fronted A2A 1.0 `supportedInterfaces[].url` at
+  itself (unfronted entries and `securitySchemes` are left as-is), so resolve the card
+  through the gateway and use the URLs it returns.
 
 ## File guide
 
