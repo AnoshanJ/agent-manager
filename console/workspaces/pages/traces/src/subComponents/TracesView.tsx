@@ -35,11 +35,13 @@ export interface TracesViewProps {
   lookedBackTo?: string;
   loadError?: Error | null;
   visibleColumns?: TraceColumn[];
+  sortOrder?: "asc" | "desc";
 
   // Handlers
   onTraceSelect: (traceId: string) => void;
   onLoadMore?: () => Promise<boolean | undefined>;
   onConversationSelect?: (conversationId: string) => void;
+  onSortOrderChange?: (sortOrder: "asc" | "desc") => void;
 }
 
 export const TracesView: React.FC<TracesViewProps> = ({
@@ -53,9 +55,11 @@ export const TracesView: React.FC<TracesViewProps> = ({
   lookedBackTo,
   loadError,
   visibleColumns,
+  sortOrder,
   onTraceSelect,
   onLoadMore,
   onConversationSelect,
+  onSortOrderChange,
 }) => {
   return (
     <>
@@ -79,6 +83,8 @@ export const TracesView: React.FC<TracesViewProps> = ({
         loadError={loadError}
         onLoadMore={onLoadMore}
         onConversationSelect={onConversationSelect}
+        sortOrder={sortOrder}
+        onSortOrderChange={onSortOrderChange}
       />
     </>
   );

@@ -157,6 +157,7 @@ export interface FilterTextFieldProps {
   placeholder: string;
   value?: string;
   monospace?: boolean;
+  disabled?: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
 }
@@ -167,6 +168,7 @@ export const FilterTextField: React.FC<FilterTextFieldProps> = ({
   placeholder,
   value,
   monospace = false,
+  disabled = false,
   onChange,
   onSubmit,
 }) => {
@@ -182,6 +184,7 @@ export const FilterTextField: React.FC<FilterTextFieldProps> = ({
         fullWidth
         placeholder={placeholder}
         value={value ?? ""}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") onSubmit();

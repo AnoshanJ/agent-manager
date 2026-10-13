@@ -55,6 +55,13 @@ type TraceFilters struct {
 	ToolError bool
 	// MCPServer matches an MCP server name.
 	MCPServer string
+	// Missing keeps traces without the named fields.
+	Missing MissingFields
+}
+
+// MissingFields names the trace fields a missing filter requires to be absent.
+type MissingFields struct {
+	ConversationID bool
 }
 
 // ParseTraceStatus accepts an empty status, "error" or "ok".
@@ -103,6 +110,11 @@ func (f TraceFilters) hasSpanListFilter() bool {
 	return f.hasToolFilter() || f.MCPServer != ""
 }
 
+// hasConversationFilter reports whether a conversationId or missing=conversationId filter is set.
+func (f TraceFilters) hasConversationFilter() bool {
+	return f.ConversationID != "" || f.Missing.ConversationID
+}
+
 // impliedInclude adds the includes f's model, tool and MCP server filters need.
 func impliedInclude(include Include, f TraceFilters) Include {
 	include.Models = include.Models || f.Model != ""
@@ -139,6 +151,9 @@ func (f TraceFilters) LogValue() slog.Value {
 	}
 	if f.MCPServer != "" {
 		attrs = append(attrs, slog.String("mcpServer", f.MCPServer))
+	}
+	if f.Missing.ConversationID {
+		attrs = append(attrs, slog.String("missing", "conversationId"))
 	}
 	return slog.GroupValue(attrs...)
 }
@@ -199,8 +214,12 @@ func matchesStatus(status *opensearch.TraceStatus, f TraceFilters) bool {
 	return true
 }
 
-// matchesConversation checks the conversationId filter; a trace with no conversation ID fails it.
+// matchesConversation checks the conversationId filter, which a trace with no
+// conversation ID fails, and missing=conversationId, which only such a trace passes.
 func matchesConversation(conversationID string, f TraceFilters) bool {
+	if f.Missing.ConversationID {
+		return conversationID == ""
+	}
 	return f.ConversationID == "" || conversationID == f.ConversationID
 }
 
@@ -210,9 +229,10 @@ func conversationRulesOut(conversationID string, f TraceFilters) bool {
 	return conversationID != "" && !matchesConversation(conversationID, f)
 }
 
-// conversationPending reports whether a conversationId filter still lacks the trace's ID.
+// conversationPending reports whether a conversation filter still lacks the
+// trace's ID. missing=conversationId needs every span read to confirm there is none.
 func conversationPending(conversationID string, f TraceFilters) bool {
-	return f.ConversationID != "" && conversationID == ""
+	return f.hasConversationFilter() && conversationID == ""
 }
 
 // containsFold reports whether a model, tool or server name contains sub, ignoring case.

@@ -297,22 +297,7 @@ func TestGetTraceOverviews_ConversationIDFilterUnreadLeaves(t *testing.T) {
 		{name: "over the span threshold", setup: func(fake *fakeObserverClient) {
 			fake.traces[3].SpanCount = skipLeafAggregationSpanCountThreshold + 1
 		}},
-		{name: "over the leaf cap", setup: func(fake *fakeObserverClient) {
-			// Leaves without the ID start first and fill the cap.
-			info := &fake.traces[3]
-			extra := make([]observer.SpanInfo, maxLLMLeavesPerTrace)
-			for j := range extra {
-				extra[j] = observer.SpanInfo{SpanID: fmt.Sprintf("leaf-x%02d-0003", j), SpanName: "ChatOpenAI.chat",
-					ParentSpanID: "chain-0003", StartTime: info.StartTime.Add(-time.Duration(len(extra)-j) * time.Millisecond),
-					Attributes: map[string]interface{}{}}
-				fake.spanDetails[extra[j].SpanID] = &observer.SpanDetailsResponse{
-					SpanID: extra[j].SpanID, SpanName: extra[j].SpanName, ParentSpanID: extra[j].ParentSpanID, Attributes: extra[j].Attributes,
-				}
-			}
-			spans := append(extra, fake.spansByTrace[info.TraceID]...)
-			fake.spansByTrace[info.TraceID] = spans
-			info.SpanCount = len(spans)
-		}},
+		{name: "over the leaf cap", setup: fillLeafCap},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -321,6 +306,127 @@ func TestGetTraceOverviews_ConversationIDFilterUnreadLeaves(t *testing.T) {
 			tt.setup(fake)
 			params := lookBackParams(20)
 			params.Filters.ConversationID = "thread-match"
+			c := NewTracingController(fake)
+			ctx, logs := logContext()
+
+			resp, err := c.GetTraceOverviews(ctx, params)
+			if err != nil {
+				t.Fatalf("GetTraceOverviews returned error: %v", err)
+			}
+
+			if len(resp.Traces) != 19 || slices.ContainsFunc(resp.Traces, func(ov opensearch.TraceOverview) bool {
+				return ov.TraceID == "trace-0003"
+			}) {
+				t.Errorf("got %d traces, want the 19 besides trace-0003", len(resp.Traces))
+			}
+			if got := logField(t, logs, "Retrieved trace overviews", "failed"); got != float64(1) {
+				t.Errorf("failed logged as %v, want 1", got)
+			}
+			export := mustExport(t, c, params)
+			if want := []string{"trace-0003"}; !slices.Equal(export.FailedTraceIDs, want) {
+				t.Errorf("failedTraceIds = %v, want %v", export.FailedTraceIDs, want)
+			}
+		})
+	}
+}
+
+// fillLeafCap gives trace 3 enough leaves without an ID, starting first, to
+// fill the leaf cap.
+func fillLeafCap(fake *fakeObserverClient) {
+	info := &fake.traces[3]
+	extra := make([]observer.SpanInfo, maxLLMLeavesPerTrace)
+	for j := range extra {
+		extra[j] = observer.SpanInfo{SpanID: fmt.Sprintf("leaf-x%02d-0003", j), SpanName: "ChatOpenAI.chat",
+			ParentSpanID: "chain-0003", StartTime: info.StartTime.Add(-time.Duration(len(extra)-j) * time.Millisecond),
+			Attributes: map[string]interface{}{}}
+		fake.spanDetails[extra[j].SpanID] = &observer.SpanDetailsResponse{
+			SpanID: extra[j].SpanID, SpanName: extra[j].SpanName, ParentSpanID: extra[j].ParentSpanID, Attributes: extra[j].Attributes,
+		}
+	}
+	spans := append(extra, fake.spansByTrace[info.TraceID]...)
+	fake.spansByTrace[info.TraceID] = spans
+	info.SpanCount = len(spans)
+}
+
+// missingConversationParams lists traces without a conversation ID.
+func missingConversationParams(limit int) TraceQueryParams {
+	params := lookBackParams(limit)
+	params.Filters = TraceFilters{Missing: MissingFields{ConversationID: true}}
+	return params
+}
+
+// missing=conversationId keeps the traces with no ID on any span. An ID on the
+// root rules a trace out before any other fetch, and one on the chain span
+// before the leaf fetches.
+func TestGetTraceOverviews_MissingConversationID(t *testing.T) {
+	fake := langGraphFake(40, func(i int) map[string]interface{} {
+		if i%10 == 1 {
+			return map[string]interface{}{"gen_ai.conversation.id": "conv-root"}
+		}
+		return nil
+	})
+	setThreads(fake, true, func(i int) string {
+		if i%10 == 2 {
+			return "thread-chain"
+		}
+		return ""
+	})
+	setThreads(fake, false, func(i int) string {
+		if i%10 == 3 {
+			return "thread-leaf"
+		}
+		return ""
+	})
+
+	ids, _, truncated := traceIDs(NewTracingController(fake), t, missingConversationParams(10))
+
+	want := []string{"trace-0000", "trace-0004", "trace-0005", "trace-0006", "trace-0007",
+		"trace-0008", "trace-0009", "trace-0010", "trace-0014", "trace-0015"}
+	if !slices.Equal(ids, want) || truncated {
+		t.Fatalf("traces = %v, truncated %v; want %v, false", ids, truncated, want)
+	}
+	for _, id := range fake.detailSpanIDs {
+		switch i := traceIndex(t, id) % 10; {
+		case i == 1 && !strings.HasPrefix(id, "root-"):
+			t.Errorf("fetched %s, though its root names a conversation", id)
+		case i == 2 && strings.HasPrefix(id, "leaf-"):
+			t.Errorf("fetched %s, though its chain span names a conversation", id)
+		}
+	}
+}
+
+// Under missing=conversationId, a trace whose ID may sit on a span it didn't
+// read is listed as failed: a failed span list, chain span or leaf, leaves
+// skipped over the span threshold, or leaves cut off by the cap.
+func TestGetTraceOverviews_MissingConversationIDUnreadSpans(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(fake *fakeObserverClient)
+	}{
+		{name: "span list", setup: func(fake *fakeObserverClient) {
+			fake.failCall = func(id string) error {
+				if id == "trace-0003" {
+					return failEvery(id)
+				}
+				return nil
+			}
+		}},
+		{name: "chain span", setup: func(fake *fakeObserverClient) {
+			fake.failCall = failTimes(map[string]int{"chain-0003": -1})
+		}},
+		{name: "leaf", setup: func(fake *fakeObserverClient) {
+			fake.failCall = failTimes(map[string]int{"leaf-b-0003": -1})
+		}},
+		{name: "over the span threshold", setup: func(fake *fakeObserverClient) {
+			fake.traces[3].SpanCount = skipLeafAggregationSpanCountThreshold + 1
+		}},
+		{name: "over the leaf cap", setup: fillLeafCap},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := langGraphFake(20, completeRootNoID)
+			tt.setup(fake)
+			params := missingConversationParams(20)
 			c := NewTracingController(fake)
 			ctx, logs := logContext()
 

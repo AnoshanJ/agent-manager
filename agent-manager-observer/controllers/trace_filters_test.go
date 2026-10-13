@@ -94,6 +94,8 @@ func TestMatchesFilters(t *testing.T) {
 		{name: "conversationId exact match", overview: filterOverview(), filters: TraceFilters{ConversationID: "conv-1"}, want: true},
 		{name: "conversationId mismatch rejects", overview: filterOverview(), filters: TraceFilters{ConversationID: "conv-10"}, want: false},
 		{name: "conversationId rejects empty", overview: opensearch.TraceOverview{}, filters: TraceFilters{ConversationID: "conv-1"}, want: false},
+		{name: "missing conversationId keeps empty", overview: opensearch.TraceOverview{}, filters: TraceFilters{Missing: MissingFields{ConversationID: true}}, want: true},
+		{name: "missing conversationId rejects any ID", overview: filterOverview(), filters: TraceFilters{Missing: MissingFields{ConversationID: true}}, want: false},
 
 		{name: "two filters both match", overview: filterOverview(), filters: TraceFilters{Status: TraceStatusError, Model: "gpt-4o"}, want: true},
 		{name: "two filters, one fails", overview: filterOverview(), filters: TraceFilters{Status: TraceStatusError, MinTokens: ptr(2000)}, want: false},

@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import type { TraceFilters } from "@agent-management-platform/types";
+import type { TraceFilters, TraceMissingField } from "@agent-management-platform/types";
 
 export type TraceFilterKey = keyof TraceFilters;
 type NumericFilterKey = "minDurationMs" | "minTokens" | "minSpanCount";
@@ -30,10 +30,13 @@ export const TRACE_FILTER_KEYS: TraceFilterKey[] = [
   "minSpanCount",
   "model",
   "conversationId",
+  "missing",
   "tool",
   "toolError",
   "mcpServer",
 ];
+
+const MISSING_FIELDS: TraceMissingField[] = ["conversationId"];
 
 const NUMERIC_KEYS: NumericFilterKey[] = ["minDurationMs", "minTokens", "minSpanCount"];
 const TEXT_KEYS: TextFilterKey[] = ["model", "conversationId", "tool", "mcpServer"];
@@ -90,6 +93,10 @@ export function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
     if (raw && raw.length <= MAX_TEXT_FILTER_LENGTH) filters[key] = raw;
   }
   if (searchParams.get("toolError") === "true") filters.toolError = true;
+  const missingParam = searchParams.get("missing")?.split(",") ?? [];
+  // The API rejects a field filtered both by value and as missing.
+  const missing = MISSING_FIELDS.filter((field) => missingParam.includes(field) && !filters[field]);
+  if (missing.length) filters.missing = missing;
   return filters;
 }
 
@@ -101,7 +108,9 @@ export function withTraceFilters(
   const next = new URLSearchParams(searchParams);
   for (const key of TRACE_FILTER_KEYS) {
     const value = filters[key];
-    if (value === undefined || value === "" || value === false) next.delete(key);
+    const empty = value === undefined || value === "" || value === false ||
+      (Array.isArray(value) && value.length === 0);
+    if (empty) next.delete(key);
     else next.set(key, String(value));
   }
   return next;
@@ -141,6 +150,9 @@ export function traceFilterChips(filters: TraceFilters): TraceFilterChip[] {
   if (filters.conversationId) {
     add("conversationId", "Conversation", filters.conversationId,
       `Conversation: ${filters.conversationId}`);
+  }
+  if (filters.missing?.includes("conversationId")) {
+    add("missing", "Conversation", "none", "Conversation: none");
   }
   // tool with toolError means that tool failed, so they share one chip.
   if (filters.tool && filters.toolError) {
@@ -262,6 +274,9 @@ export function appliedFilters(
   }
   for (const key of TEXT_KEYS) next[key] = draft.filters[key]?.trim() || undefined;
   if (!next.toolError) delete next.toolError;
+  // A field missing has no value filter.
+  for (const field of next.missing ?? []) delete next[field];
+  if (!next.missing?.length) delete next.missing;
   for (const key of TRACE_FILTER_KEYS) if (next[key] === undefined) delete next[key];
   return next;
 }

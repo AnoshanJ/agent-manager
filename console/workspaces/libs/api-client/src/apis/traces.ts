@@ -61,6 +61,7 @@ export function normalizeTraceFilters(filters?: TraceFilters): TraceFilters {
   if (filters.tool) out.tool = filters.tool;
   if (filters.toolError === true) out.toolError = true;
   if (filters.mcpServer) out.mcpServer = filters.mcpServer;
+  if (filters.missing?.length) out.missing = [...new Set(filters.missing)].sort();
   return out;
 }
 

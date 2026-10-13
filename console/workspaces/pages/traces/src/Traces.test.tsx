@@ -730,6 +730,44 @@ describe("TracesComponent tool and MCP server filters", () => {
   });
 });
 
+describe("missing conversation filter", () => {
+  const noConversationBox = () =>
+    within(drawer()).getByRole("checkbox", { name: "Only traces without a conversation ID" });
+
+  it("round-trips missing through the URL and drops it beside a conversation ID", () => {
+    const filters: TraceFilters = { missing: ["conversationId"] };
+    const params = withTraceFilters(new URLSearchParams("timeRange=1h"), filters);
+    expect(params.toString()).toBe("timeRange=1h&missing=conversationId");
+    expect(parseTraceFilters(params)).toEqual(filters);
+    expect(parseTraceFilters(new URLSearchParams("missing=model"))).toEqual({});
+    expect(parseTraceFilters(new URLSearchParams("conversationId=c1&missing=conversationId")))
+      .toEqual({ conversationId: "c1" });
+  });
+
+  it("labels the chip as no conversation", () => {
+    expect(traceFilterChips({ missing: ["conversationId"] }).map((c) => c.label))
+      .toEqual(["Conversation: none"]);
+  });
+
+  it("writes missing=conversationId from the drawer, disabling and clearing the ID", () => {
+    renderPage("?timeRange=1h&conversationId=c1");
+
+    openFilters();
+    fireEvent.click(noConversationBox());
+    expect(drawerField("Conversation ID")).toBeDisabled();
+    applyFilters();
+
+    expect(currentParams().get("missing")).toBe("conversationId");
+    expect(currentParams().get("conversationId")).toBeNull();
+    expect(lastFilters()).toEqual({ missing: ["conversationId"] });
+    expect(chip("Conversation: none")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Remove Conversation: none"));
+    expect(currentParams().get("missing")).toBeNull();
+    expect(lastFilters()).toEqual({});
+  });
+});
+
 describe("TracesComponent trace ID search", () => {
   it("opens the trace on Enter, trimmed and lowercased, keeping the other params", () => {
     renderPage("?timeRange=1h&status=error");
@@ -1284,6 +1322,14 @@ describe("TracesComponent infinite scroll", () => {
     expect(loadMore).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("flips the sort order from the Start Time header", () => {
+    renderPage();
+    expect(mockUseTraceList.mock.lastCall?.[6]).toBe("desc");
+
+    fireEvent.click(screen.getByText("Start Time"));
+    expect(mockUseTraceList.mock.lastCall?.[6]).toBe("asc");
   });
 
   it.each([
