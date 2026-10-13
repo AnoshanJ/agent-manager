@@ -193,3 +193,12 @@ describe("getTraceList tool and MCP server filters", () => {
     });
   });
 });
+
+describe("getTraceList missing filter", () => {
+  it.each([
+    [{ missing: ["conversationId"] }, { missing: "conversationId" }],
+    [{ missing: [] }, {}],
+  ] satisfies [TraceFilters, Record<string, string>][])("sends %o", async (filters, extra) => {
+    expect(await sentQuery({ ...BASE, filters })).toEqual({ ...BASE_QUERY, ...extra });
+  });
+});

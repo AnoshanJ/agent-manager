@@ -69,7 +69,7 @@ paths:
         Uses the Observer Service instead of OpenSearch. No offset; use `limit` for page size.
 
         The filter parameters (`status`, `minDurationMs`, `minTokens`, `minSpanCount`, `model`,
-        `conversationId`, `tool`, `toolError`, `mcpServer`) are optional and combine with AND. With any filter set, the server walks
+        `conversationId`, `tool`, `toolError`, `mcpServer`, `missing`) are optional and combine with AND. With any filter set, the server walks
         the window in sort order until it has `limit` matches, the window runs out, it has examined
         500 traces, it has fetched 100 MCP handshakes (only with `mcpServer` or `include=mcpServers`),
         or it has searched for 20 seconds (`truncated` is then true, and `nextCursor` continues the
@@ -144,6 +144,7 @@ paths:
         - $ref: "#/components/parameters/toolFilter"
         - $ref: "#/components/parameters/toolErrorFilter"
         - $ref: "#/components/parameters/mcpServerFilter"
+        - $ref: "#/components/parameters/missingFilter"
         - name: cursor
           in: query
           required: false
@@ -223,6 +224,7 @@ paths:
         - $ref: "#/components/parameters/toolFilter"
         - $ref: "#/components/parameters/toolErrorFilter"
         - $ref: "#/components/parameters/mcpServerFilter"
+        - $ref: "#/components/parameters/missingFilter"
       responses:
         "200":
           description: Export payload
@@ -662,6 +664,28 @@ components:
         type: string
         maxLength: 256
         example: github-mcp-server
+    missingFilter:
+      name: missing
+      in: query
+      required: false
+      style: form
+      explode: false
+      description: |
+        Keep traces without the named fields, as a comma-separated list. The parameter
+        may be repeated. Unknown values return 400.
+
+        - `conversationId`: keep traces with no conversation ID on the root, its first
+          child or its LLM spans. A trace with an ID on its root is ruled out at the root;
+          one without reads every span that may carry an ID, even when the root fills
+          `input`, `output` and `tokenUsage`. A trace whose ID may sit on a span that
+          wasn't read is left out as unreadable: one above 100 spans, one with more than
+          50 LLM spans, or one with a failed fetch. Can't be combined with `conversationId`
+          (400).
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [conversationId]
 
   responses:
     BadRequest:
@@ -961,8 +985,9 @@ components:
           description: |
             The trace's conversation, session or thread ID. Read from the root span, then
             from the spans fetched to fill `input`, `output` or `tokenUsage`: the root's
-            first child, then the LLM spans in start order. With a `conversationId` filter, a
-            root without one reads those spans even when it has all three. The first span with
+            first child, then the LLM spans in start order. With a `conversationId` filter or
+            `missing=conversationId`, a root without one reads those spans even when it has
+            all three. The first span with
             one wins.
             On each span the keys are read in this order: `gen_ai.conversation.id`,
             `session.id`, `langfuse.session.id`, the Traceloop association properties

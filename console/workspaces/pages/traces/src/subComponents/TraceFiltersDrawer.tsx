@@ -121,19 +121,35 @@ const ModelToolsSection: React.FC<SectionProps> = ({ draft, onDraftChange, onSub
   </FilterSection>
 );
 
-/** Conversation ID, in monospace. */
-const ConversationSection: React.FC<SectionProps> = ({ draft, onDraftChange, onSubmit }) => (
-  <FilterSection title="Conversation">
-    <FilterTextField
-      label="Conversation ID"
-      placeholder=""
-      monospace
-      value={draft.filters.conversationId}
-      onChange={(v) => onDraftChange(withFilter(draft, "conversationId", v))}
-      onSubmit={onSubmit}
-    />
-  </FilterSection>
-);
+/** Conversation ID, in monospace, or no conversation ID at all. */
+const ConversationSection: React.FC<SectionProps> = ({ draft, onDraftChange, onSubmit }) => {
+  const missing = !!draft.filters.missing?.includes("conversationId");
+  return (
+    <FilterSection title="Conversation">
+      <FilterTextField
+        label="Conversation ID"
+        placeholder=""
+        monospace
+        disabled={missing}
+        value={missing ? "" : draft.filters.conversationId}
+        onChange={(v) => onDraftChange(withFilter(draft, "conversationId", v))}
+        onSubmit={onSubmit}
+      />
+      <FormControlLabel
+        label="Only traces without a conversation ID"
+        control={
+          <Checkbox
+            size="small"
+            checked={missing}
+            onChange={(e) =>
+              onDraftChange(withFilter(draft, "missing", e.target.checked ? ["conversationId"] : []))}
+          />
+        }
+        slotProps={{ typography: { variant: "body2" } }}
+      />
+    </FilterSection>
+  );
+};
 
 export interface TraceFiltersDrawerProps {
   /** The Filters button the panel hangs from. */

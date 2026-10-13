@@ -534,7 +534,7 @@ const (
 // rest of the cascade.
 // Traces that couldn't be read are skipped too and returned as failed: no
 // root span ID, a failed root fetch, or a failed fetch a model, tool, minTokens
-// or conversationId filter needs.
+// or conversation filter needs.
 // When listSpansFirst holds, the root comes from the trace's attribute span
 // list instead of its own fetch. With a tool or MCP server filter and no root
 // filter, the span list comes before the root and a trace whose tools fail the
@@ -695,7 +695,7 @@ func (c *TracingController) enrichTraces(
 func (c *TracingController) listSpansFirst(params TraceQueryParams, t observer.TraceInfo) bool {
 	return params.Include.Models &&
 		t.SpanCount <= skipLeafAggregationSpanCountThreshold &&
-		params.Filters.Status == TraceStatusAny && params.Filters.ConversationID == ""
+		params.Filters.Status == TraceStatusAny && !params.Filters.hasConversationFilter()
 }
 
 // toolListFirst reports whether a tool or MCP server filter judges t on its span
@@ -705,7 +705,7 @@ func (c *TracingController) listSpansFirst(params TraceQueryParams, t observer.T
 func (c *TracingController) toolListFirst(params TraceQueryParams, t observer.TraceInfo) bool {
 	return params.Filters.hasSpanListFilter() &&
 		t.SpanCount <= maxToolListSpans &&
-		params.Filters.Status == TraceStatusAny && params.Filters.ConversationID == "" &&
+		params.Filters.Status == TraceStatusAny && !params.Filters.hasConversationFilter() &&
 		(params.Filters.Model == "" || t.SpanCount <= skipLeafAggregationSpanCountThreshold)
 }
 
@@ -790,11 +790,12 @@ type traceEnrichment struct {
 //
 // The conversation ID is the first one found on the root, the step 2 child,
 // then the step 3 leaves in start order. Only spans a step reads anyway are
-// checked, so it costs no fetch. With a conversationId filter, a root without
-// an ID doesn't end the cascade, even a complete one: steps 2 and 3 run to
-// find it. The verdict is enrichRejected once an ID is found that doesn't
-// match: on the root before any fetch, or on the child before step 3. A trace
-// with no ID is kept here and ruled out by matchesFilters. It is enrichFailed
+// checked, so it costs no fetch. With a conversationId or missing=conversationId
+// filter, a root without an ID doesn't end the cascade, even a complete one:
+// steps 2 and 3 run to find it. The verdict is enrichRejected once an ID is
+// found that doesn't match, which for missing=conversationId is any ID: on the
+// root before any fetch, or on the child before step 3. A trace with no ID is
+// kept here and judged by matchesFilters. It is enrichFailed
 // when a span the ID may sit on goes unread: a failed span list, child or leaf
 // ahead of the first ID, leaves skipped over the span threshold, or leaves cut
 // off by the cap.

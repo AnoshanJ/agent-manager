@@ -70,6 +70,9 @@ export interface TraceListResponse {
   nextCursor?: string;
 }
 
+/** A trace field the missing filter can require to be absent. */
+export type TraceMissingField = 'conversationId';
+
 /** Server-side trace list filters. Set fields AND together. */
 export interface TraceFilters {
   status?: 'error' | 'ok';
@@ -85,6 +88,8 @@ export interface TraceFilters {
   toolError?: boolean;
   /** Case-insensitive substring of any entry in TraceOverview.mcpServers. */
   mcpServer?: string;
+  /** Only traces without these fields. Can't be combined with the same field's value filter. */
+  missing?: TraceMissingField[];
 }
 
 // Keep Trace as an alias for backward compatibility

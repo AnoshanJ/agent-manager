@@ -458,6 +458,8 @@ func TestTraceEndpoints_InvalidFilters(t *testing.T) {
 		{name: "negative minDurationMs", query: "&minDurationMs=-5"},
 		{name: "fractional minDurationMs", query: "&minDurationMs=1.5"},
 		{name: "negative minSpanCount", query: "&minSpanCount=-2"},
+		{name: "unknown missing value", query: "&missing=model"},
+		{name: "conversationId with missing=conversationId", query: "&conversationId=conv-42&missing=conversationId"},
 	}
 	endpoints := map[string]func(*Handler) http.HandlerFunc{
 		"/api/v1/traces":        func(h *Handler) http.HandlerFunc { return h.GetTraceOverviews },
@@ -579,6 +581,16 @@ func TestParseTraceFilters(t *testing.T) {
 		}
 		if f.Model != "gpt-4o" || f.ConversationID != "conv-42" {
 			t.Errorf("model/conversationId = %q/%q, want gpt-4o/conv-42", f.Model, f.ConversationID)
+		}
+	})
+
+	t.Run("missing parses as a list", func(t *testing.T) {
+		f, err := parseTraceFilters(url.Values{"missing": {" conversationId,"}})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !f.Missing.ConversationID {
+			t.Errorf("missing = %+v, want conversationId", f.Missing)
 		}
 	})
 

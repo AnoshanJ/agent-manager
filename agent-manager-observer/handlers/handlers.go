@@ -657,7 +657,30 @@ func parseTraceFilters(query url.Values) (controllers.TraceFilters, error) {
 	if err := controllers.CheckFilterValue("mcpServer", f.MCPServer); err != nil {
 		return controllers.TraceFilters{}, err
 	}
+	if f.Missing, err = parseMissing(query["missing"]); err != nil {
+		return controllers.TraceFilters{}, err
+	}
+	if f.Missing.ConversationID && f.ConversationID != "" {
+		return controllers.TraceFilters{}, fmt.Errorf("conversationId and missing=conversationId can't be combined")
+	}
 	return f, nil
+}
+
+// parseMissing parses the comma-separated missing query parameter; unknown values are an error.
+func parseMissing(raw []string) (controllers.MissingFields, error) {
+	var missing controllers.MissingFields
+	for _, list := range raw {
+		for _, item := range strings.Split(list, ",") {
+			switch v := strings.TrimSpace(item); v {
+			case "":
+			case "conversationId":
+				missing.ConversationID = true
+			default:
+				return controllers.MissingFields{}, fmt.Errorf("invalid missing value %q: must be 'conversationId'", v)
+			}
+		}
+	}
+	return missing, nil
 }
 
 // parseToolError accepts an empty value or "false" (unset) and "true".
