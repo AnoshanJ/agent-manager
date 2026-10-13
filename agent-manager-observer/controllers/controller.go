@@ -49,6 +49,12 @@ const (
 	// for "way more than 50 LLM leaves" that keeps the worst-case list-endpoint
 	// cost bounded.
 	skipLeafAggregationSpanCountThreshold = 100
+	// maxToolListSpans is the most spans a trace can have and still report tools.
+	maxToolListSpans = 200
+	// maxMCPHandshakesPerTrace caps the MCP initialize spans fetched per trace, one per tool, in start order.
+	maxMCPHandshakesPerTrace = 5
+	// maxMCPHandshakesPerRequest ends a filtered walk before its next chunk once it has fetched this many handshakes.
+	maxMCPHandshakesPerRequest = 100
 	// lookBackBatchSize is a filtered list request's first fetch size and the
 	// number of traces it enriches at a time.
 	lookBackBatchSize = 50
@@ -98,7 +104,9 @@ type TraceQueryParams struct {
 // The API exposes it as the comma-separated include query parameter.
 // Each one is off by default because it costs extra upstream reads.
 type Include struct {
-	Models bool
+	Models     bool
+	Tools      bool
+	MCPServers bool
 }
 
 // SpanSummary is a lightweight span summary for the span list endpoint.
@@ -131,6 +139,8 @@ type walkStats struct {
 	// read counts the examined traces enrichment read, kept or ruled out.
 	read           int
 	budgetExceeded bool
+	// handshakeCapReached is set when maxMCPHandshakesPerRequest stopped the walk.
+	handshakeCapReached bool
 	// failed lists the examined traces that couldn't be read, in page order.
 	failed []string
 }
@@ -139,8 +149,9 @@ type walkStats struct {
 // With no filter and no cursor it calls QueryTraces once, unless traces share a
 // start time at the page's end, and fetches root span details in parallel.
 // With a filter it looks back through the window in batches until the page fills,
-// the window runs out, maxExaminedTraces traces have been examined, or
-// listLookBackBudget has passed.
+// the window runs out, maxExaminedTraces traces have been examined,
+// maxMCPHandshakesPerRequest handshakes have been fetched, or listLookBackBudget
+// has passed.
 // A cursor continues from an earlier page over the same whole window.
 // A trace that can't be read is left out of the page.
 // The request fails if it runs past requestTimeout, or if it could read none
@@ -172,6 +183,7 @@ func (c *TracingController) GetTraceOverviews(ctx context.Context, params TraceQ
 		"matched", len(resp.Traces),
 		"truncated", resp.Truncated,
 		"budgetExceeded", stats.budgetExceeded,
+		"handshakeCapReached", stats.handshakeCapReached,
 		"failed", len(stats.failed))
 
 	return resp, nil
@@ -233,7 +245,7 @@ func (c *TracingController) traceOverviewPage(ctx context.Context, params TraceQ
 		}
 		page := traces[start:end]
 		var failed []string
-		resp.Traces, failed = c.enrichTraces(ctx, params, page)
+		resp.Traces, failed = c.enrichTraces(ctx, params, page, new(atomic.Int32))
 		// A done ctx would leave out every trace it was reading.
 		if err := ctx.Err(); err != nil {
 			return nil, walkStats{}, fmt.Errorf("controllers.GetTraceOverviews: %w", err)
@@ -260,14 +272,13 @@ func (c *TracingController) traceOverviewPage(ctx context.Context, params TraceQ
 // been examined. After the first chunk the walk's fetches run under budget,
 // which cancels those in flight without a warning; the walk then stops before
 // the chunk they belong to.
+//
+// Past maxMCPHandshakesPerRequest handshake fetches it stops before the next chunk.
 func (c *TracingController) lookBackForMatches(ctx context.Context, params TraceQueryParams, budget time.Duration) (*opensearch.TraceOverviewResponse, walkStats, error) {
 	walkCtx, cancel := c.budget(ctx, budget)
 	defer cancel()
 
-	// A model filter needs Models filled.
-	if params.Filters.Model != "" {
-		params.Include.Models = true
-	}
+	params.Include = impliedInclude(params.Include, params.Filters)
 	cur := params.Cursor
 	asc := params.SortOrder == "asc"
 	summaryOnly := params.Filters.SummaryOnly()
@@ -281,6 +292,9 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 		last.TraceID = cur.ID
 	}
 	budgetExceeded := false
+	handshakeCapReached := false
+	// handshakes counts the walk's MCP handshake fetches.
+	handshakes := new(atomic.Int32)
 	var failed []string
 
 	done := func(lookedBackTo time.Time, truncated, more bool) (*opensearch.TraceOverviewResponse, walkStats, error) {
@@ -295,7 +309,8 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 			rank := min(skipped+examined+rootless, maxCursorDepth)
 			resp.NextCursor = TraceCursor{Rank: rank, Time: last.StartTime, ID: last.TraceID}.Encode()
 		}
-		return resp, walkStats{examined: examined, read: read, budgetExceeded: budgetExceeded, failed: failed}, nil
+		return resp, walkStats{examined: examined, read: read, budgetExceeded: budgetExceeded,
+			handshakeCapReached: handshakeCapReached, failed: failed}, nil
 	}
 	// pastBudget reports whether the budget is spent, never before the first chunk.
 	pastBudget := func() bool {
@@ -304,6 +319,15 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 	// stopAtBudget ends the walk after the last examined trace.
 	stopAtBudget := func() (*opensearch.TraceOverviewResponse, walkStats, error) {
 		budgetExceeded = true
+		return done(last.StartTime, true, true)
+	}
+	// pastHandshakeCap reports whether the walk has fetched maxMCPHandshakesPerRequest handshakes.
+	pastHandshakeCap := func() bool {
+		return handshakes.Load() >= maxMCPHandshakesPerRequest
+	}
+	// stopAtHandshakeCap ends the walk after the last examined trace.
+	stopAtHandshakeCap := func() (*opensearch.TraceOverviewResponse, walkStats, error) {
+		handshakeCapReached = true
 		return done(last.StartTime, true, true)
 	}
 	// fetchCtx is ctx until the first chunk is examined, then walkCtx.
@@ -325,6 +349,9 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 		}
 		if pastBudget() {
 			return stopAtBudget()
+		}
+		if pastHandshakeCap() {
+			return stopAtHandshakeCap()
 		}
 		fetchLimit := fetchSize(size)
 		tracesResp, err := c.observerClient.QueryTraces(fetchCtx(), c.traceListRequest(params, fetchLimit))
@@ -364,6 +391,9 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 			if pastBudget() {
 				return stopAtBudget()
 			}
+			if pastHandshakeCap() {
+				return stopAtHandshakeCap()
+			}
 			chunk := fresh[:min(lookBackBatchSize, len(fresh), maxExaminedTraces-examined)]
 			// Summary-only survivors all match, so enrich no more than the page still needs.
 			if summaryOnly {
@@ -372,10 +402,10 @@ func (c *TracingController) lookBackForMatches(ctx context.Context, params Trace
 			fresh = fresh[len(chunk):]
 			survivors := filterTraceInfos(chunk, params.Filters)
 			chunkCtx := fetchCtx()
-			overviews, chunkFailed := c.enrichTraces(chunkCtx, params, survivors)
+			overviews, chunkFailed := c.enrichTraces(chunkCtx, params, survivors, handshakes)
 			if len(chunkFailed) > 0 && !pastBudget() {
 				var retried []opensearch.TraceOverview
-				retried, chunkFailed = c.enrichTraces(chunkCtx, params, tracesWithIDs(survivors, chunkFailed))
+				retried, chunkFailed = c.enrichTraces(chunkCtx, params, tracesWithIDs(survivors, chunkFailed), handshakes)
 				overviews = append(overviews, retried...)
 			}
 			// A cancelled request would report every trace it was reading as unread.
@@ -500,19 +530,27 @@ const (
 
 // enrichTraces fetches root spans and enriches traces in parallel, returning
 // overviews in input order. Traces whose root fails matchesStatus, or whose
-// conversation ID or models fail their filter, are skipped before the rest of
-// the cascade.
+// conversation ID, tools or models fail their filter, are skipped before the
+// rest of the cascade.
 // Traces that couldn't be read are skipped too and returned as failed: no
-// root span ID, a failed root fetch, or a failed fetch a model, minTokens or
-// conversationId filter needs.
+// root span ID, a failed root fetch, or a failed fetch a model, tool, minTokens
+// or conversationId filter needs.
 // When listSpansFirst holds, the root comes from the trace's attribute span
-// list instead of its own fetch.
-func (c *TracingController) enrichTraces(ctx context.Context, params TraceQueryParams, traces []observer.TraceInfo) (overviews []opensearch.TraceOverview, failed []string) {
+// list instead of its own fetch. With a tool or MCP server filter and no root
+// filter, the span list comes before the root and a trace whose tools fail the
+// filter never fetches its root. Without a model check pending, the MCP
+// handshakes come before the root too. handshakes counts the handshake fetches.
+func (c *TracingController) enrichTraces(
+	ctx context.Context,
+	params TraceQueryParams,
+	traces []observer.TraceInfo,
+	handshakes *atomic.Int32,
+) (overviews []opensearch.TraceOverview, failed []string) {
 	log := logger.GetLogger(ctx)
 
 	// outerSem caps how many traces are being enriched at once; innerSem caps
 	// the total observer round-trips across all enrichments in flight (root
-	// fetches plus anything enrichTraceOverview fetches inside).
+	// fetches plus anything enrichTrace fetches inside).
 	// Two pools avoid the deadlock a single shared pool would hit when every
 	// outer slot is held by a goroutine waiting on a fetch slot.
 	type result struct {
@@ -523,6 +561,9 @@ func (c *TracingController) enrichTraces(ctx context.Context, params TraceQueryP
 		models         []string
 		status         *opensearch.TraceStatus
 		conversationID string
+		tools          []string
+		failedTools    []string
+		mcpServers     []string
 		verdict        enrichVerdict
 	}
 	results := make([]result, len(traces))
@@ -544,8 +585,32 @@ func (c *TracingController) enrichTraces(ctx context.Context, params TraceQueryP
 
 			var spans []observer.SpanInfo
 			var root *opensearch.Span
-			if c.listSpansFirst(params, t) {
+			mcp := mcpLookup{handshakes: handshakes}
+			toolsFirst := c.toolListFirst(params, t)
+			attrsFirst := c.listSpansFirst(params, t)
+			switch {
+			case attrsFirst:
 				spans, root = c.rootFromSpanList(ctx, params, t, innerSem)
+			case toolsFirst:
+				spans = c.plainSpanList(ctx, params, t, innerSem)
+			}
+			if toolsFirst {
+				// A nil list is a failed fetch, already warned about.
+				if spans == nil {
+					results[idx] = result{verdict: enrichFailed}
+					return
+				}
+				if tools, failedTools := toolsFromSpanList(spans); !matchesTools(tools, failedTools, params.Filters) {
+					results[idx] = result{verdict: enrichRejected}
+					return
+				}
+				// An attribute list leaves a model check, which comes first.
+				if params.Include.MCPServers && !attrsFirst {
+					if verdict := c.readMCPServers(ctx, params, t, spans, innerSem, &mcp); verdict != enrichKept {
+						results[idx] = result{verdict: verdict}
+						return
+					}
+				}
 			}
 			if root == nil {
 				innerSem <- struct{}{}
@@ -569,19 +634,22 @@ func (c *TracingController) enrichTraces(ctx context.Context, params TraceQueryP
 				results[idx] = result{verdict: enrichRejected}
 				return
 			}
-			input, output, tokens, models, conversationID, verdict := c.enrichTraceOverview(ctx, params, t, root, spans, innerSem)
+			e, verdict := c.enrichTrace(ctx, params, t, root, spans, innerSem, &mcp)
 			if verdict != enrichKept {
 				results[idx] = result{verdict: verdict}
 				return
 			}
 			results[idx] = result{
 				span:           root,
-				input:          input,
-				output:         output,
-				tokenUsage:     tokens,
-				models:         models,
+				input:          e.input,
+				output:         e.output,
+				tokenUsage:     e.tokenUsage,
+				models:         e.models,
 				status:         status,
-				conversationID: conversationID,
+				conversationID: e.conversationID,
+				tools:          e.tools,
+				failedTools:    e.failedTools,
+				mcpServers:     mcp.servers,
 			}
 		}(i, t)
 	}
@@ -613,6 +681,9 @@ func (c *TracingController) enrichTraces(ctx context.Context, params TraceQueryP
 			Output:          res.output,
 			Models:          res.models,
 			ConversationID:  res.conversationID,
+			Tools:           res.tools,
+			FailedTools:     res.failedTools,
+			MCPServers:      res.mcpServers,
 		})
 	}
 	return overviews, failed
@@ -625,6 +696,35 @@ func (c *TracingController) listSpansFirst(params TraceQueryParams, t observer.T
 	return params.Include.Models &&
 		t.SpanCount <= skipLeafAggregationSpanCountThreshold &&
 		params.Filters.Status == TraceStatusAny && params.Filters.ConversationID == ""
+}
+
+// toolListFirst reports whether a tool or MCP server filter judges t on its span
+// list before its root is fetched. Root filters keep the root first, as for
+// listSpansFirst, and so does a model filter that rejects t at its root for its
+// span count.
+func (c *TracingController) toolListFirst(params TraceQueryParams, t observer.TraceInfo) bool {
+	return params.Filters.hasSpanListFilter() &&
+		t.SpanCount <= maxToolListSpans &&
+		params.Filters.Status == TraceStatusAny && params.Filters.ConversationID == "" &&
+		(params.Filters.Model == "" || t.SpanCount <= skipLeafAggregationSpanCountThreshold)
+}
+
+// plainSpanList fetches t's span list without attributes. It is nil when the
+// fetch fails.
+func (c *TracingController) plainSpanList(
+	ctx context.Context,
+	params TraceQueryParams,
+	t observer.TraceInfo,
+	fetchSem chan struct{},
+) []observer.SpanInfo {
+	spans, ok := c.fetchTraceSpanSummaries(ctx, params, t, fetchSem, false)
+	switch {
+	case !ok:
+		return nil
+	case spans == nil:
+		return []observer.SpanInfo{}
+	}
+	return spans
 }
 
 // rootFromSpanList fetches t's attribute span list and builds the root from it.
@@ -651,8 +751,17 @@ func (c *TracingController) rootFromSpanList(
 	return spans, nil
 }
 
-// enrichTraceOverview computes Input/Output/Tokens/Models/ConversationID for
-// one trace-list row, cascading through three sources in order of cost.
+// traceEnrichment holds the trace-list row fields enrichTrace computes.
+type traceEnrichment struct {
+	input, output      interface{}
+	tokenUsage         *opensearch.TokenUsage
+	models             []string
+	conversationID     string
+	tools, failedTools []string
+}
+
+// enrichTrace computes Input/Output/Tokens/Models/ConversationID/Tools
+// for one trace-list row, cascading through three sources in order of cost.
 // enrichTraces calls it only for traces whose root passes matchesStatus, so a
 // rejected trace costs just its root fetch:
 //
@@ -694,24 +803,44 @@ func (c *TracingController) rootFromSpanList(
 // it instead of fetching them. spans is the list when the caller already
 // fetched it with attributes, or nil.
 //
+// With params.Include.Tools, tools and failedTools come from the span list's
+// names and statuses (toolsFromSpanList), for traces of at most
+// maxToolListSpans spans. They reuse the list the cascade reads; a trace with
+// nothing left to fetch fetches it without attributes. A failed fetch leaves
+// them nil and keeps the row, unless a tool filter is set: then the verdict is
+// enrichFailed. With a tool filter, the verdict is enrichRejected as soon as the
+// tools rule the trace out, right after the list and before the model check
+// and steps 2 and 3.
+//
+// With params.Include.MCPServers, readMCPServers fills mcp from the same list,
+// once, after the tool and model checks and before steps 2 and 3. A caller
+// that already read them sets mcp.read.
+//
 // Token usage from traceloop.entity.output is used only when no step finds a
 // gen_ai.usage.* report.
 //
 // fetchSem bounds the total observer fetches across all concurrent
 // enrichments — callers pass a shared semaphore so a 50-trace page can't
 // fan out into thousands of in-flight requests.
-func (c *TracingController) enrichTraceOverview(
+func (c *TracingController) enrichTrace(
 	ctx context.Context,
 	params TraceQueryParams,
 	traceInfo observer.TraceInfo,
 	rootSpan *opensearch.Span,
 	spans []observer.SpanInfo,
 	fetchSem chan struct{},
-) (input interface{}, output interface{}, tokenUsage *opensearch.TokenUsage, models []string, conversationID string, verdict enrichVerdict) {
+	mcp *mcpLookup,
+) (traceEnrichment, enrichVerdict) {
+	var (
+		input, output      interface{}
+		tokenUsage         *opensearch.TokenUsage
+		models             []string
+		tools, failedTools []string
+	)
 	// Step 1: root span attributes.
-	conversationID = opensearch.ExtractConversationID(rootSpan)
+	conversationID := opensearch.ExtractConversationID(rootSpan)
 	if conversationRulesOut(conversationID, params.Filters) {
-		return nil, nil, nil, nil, "", enrichRejected
+		return traceEnrichment{}, enrichRejected
 	}
 	if opensearch.IsCrewAISpan(rootSpan.Attributes) {
 		input, output = opensearch.ExtractCrewAIRootSpanInputOutput(rootSpan)
@@ -727,34 +856,64 @@ func (c *TracingController) enrichTraceOverview(
 	rootComplete := input != nil && output != nil && tokenUsage != nil
 	aggregateLeaves := traceInfo.SpanCount <= skipLeafAggregationSpanCountThreshold
 	modelsFromList := params.Include.Models && aggregateLeaves
+	toolsFromList := params.Include.Tools && traceInfo.SpanCount <= maxToolListSpans
+	mcpFromList := params.Include.MCPServers && traceInfo.SpanCount <= maxToolListSpans
 	rejectOnModel := params.Filters.Model != ""
 
 	// Without leaf aggregation the trace has no models.
 	if rejectOnModel && !aggregateLeaves {
-		return nil, nil, nil, nil, "", enrichRejected
+		return traceEnrichment{}, enrichRejected
 	}
 
-	// Nothing left to fetch.
+	// Nothing left to fetch, unless tools or MCP servers need the list.
 	if rootComplete && !modelsFromList && !conversationPending(conversationID, params.Filters) {
-		return input, output, tokenUsage, nil, conversationID, enrichKept
+		if (toolsFromList || mcpFromList) && spans == nil {
+			var ok bool
+			if spans, ok = c.fetchTraceSpanSummaries(ctx, params, traceInfo, fetchSem, false); !ok && params.Filters.hasSpanListFilter() {
+				return traceEnrichment{}, enrichFailed
+			}
+		}
+		if toolsFromList {
+			tools, failedTools = toolsFromSpanList(spans)
+			if !matchesTools(tools, failedTools, params.Filters) {
+				return traceEnrichment{}, enrichRejected
+			}
+		}
+		if mcpFromList {
+			if verdict := c.readMCPServers(ctx, params, traceInfo, spans, fetchSem, mcp); verdict != enrichKept {
+				return traceEnrichment{}, verdict
+			}
+		}
+		return traceEnrichment{input: input, output: output, tokenUsage: tokenUsage, conversationID: conversationID, tools: tools, failedTools: failedTools}, enrichKept
 	}
 
-	// Steps 2 and 3 and inline models all need the span list. Fetch it once.
+	// Steps 2 and 3, inline models and tools all need the span list. Fetch it once.
 	if spans == nil {
 		var ok bool
 		spans, ok = c.fetchTraceSpanSummaries(ctx, params, traceInfo, fetchSem, modelsFromList)
 		if !ok {
-			if rejectOnModel || params.Filters.MinTokens != nil || conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", enrichFailed
+			if rejectOnModel || params.Filters.hasSpanListFilter() || params.Filters.MinTokens != nil || conversationPending(conversationID, params.Filters) {
+				return traceEnrichment{}, enrichFailed
 			}
-			return input, output, cmp.Or(tokenUsage, entityTokens), nil, conversationID, enrichKept
+			return traceEnrichment{input: input, output: output, tokenUsage: cmp.Or(tokenUsage, entityTokens), conversationID: conversationID}, enrichKept
+		}
+	}
+	if toolsFromList {
+		tools, failedTools = toolsFromSpanList(spans)
+		if !matchesTools(tools, failedTools, params.Filters) {
+			return traceEnrichment{}, enrichRejected
 		}
 	}
 	// The list carries attributes exactly when modelsFromList holds.
 	if modelsFromList {
 		models = modelsFromSpanList(traceInfo.TraceID, spans)
 		if rejectOnModel && !matchesModel(models, params.Filters) {
-			return nil, nil, nil, nil, "", enrichRejected
+			return traceEnrichment{}, enrichRejected
+		}
+	}
+	if mcpFromList {
+		if verdict := c.readMCPServers(ctx, params, traceInfo, spans, fetchSem, mcp); verdict != enrichKept {
+			return traceEnrichment{}, verdict
 		}
 	}
 
@@ -777,11 +936,11 @@ func (c *TracingController) enrichTraceOverview(
 			conversationID = cmp.Or(conversationID, childConversationID)
 		}
 		if conversationRulesOut(conversationID, params.Filters) {
-			return nil, nil, nil, nil, "", enrichRejected
+			return traceEnrichment{}, enrichRejected
 		}
 		// The child that couldn't be read may hold the ID.
 		if childUnread && conversationPending(conversationID, params.Filters) {
-			return nil, nil, nil, nil, "", enrichFailed
+			return traceEnrichment{}, enrichFailed
 		}
 	}
 
@@ -796,7 +955,7 @@ func (c *TracingController) enrichTraceOverview(
 				"threshold", skipLeafAggregationSpanCountThreshold)
 			// The skipped leaves may hold the ID.
 			if conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
 		} else {
 			leafInput, leafOutput, leafTokens, leafModels, leafConversationID, leavesUnread, leafIDUnread := c.aggregateFromLeafLLMSpans(ctx, traceInfo.TraceID, spans, modelsFromList, fetchSem)
@@ -805,7 +964,7 @@ func (c *TracingController) enrichTraceOverview(
 			}
 			// A leaf that couldn't be read ahead of the first ID may have held another.
 			if leafIDUnread && conversationPending(conversationID, params.Filters) {
-				return nil, nil, nil, nil, "", enrichFailed
+				return traceEnrichment{}, enrichFailed
 			}
 			conversationID = cmp.Or(conversationID, leafConversationID)
 			if input == nil {
@@ -823,9 +982,9 @@ func (c *TracingController) enrichTraceOverview(
 
 	tokenUsage = cmp.Or(tokenUsage, entityTokens)
 	if tokensUnread && !matchesMinTokens(tokenUsage, params.Filters) {
-		return nil, nil, nil, nil, "", enrichFailed
+		return traceEnrichment{}, enrichFailed
 	}
-	return input, output, tokenUsage, models, conversationID, enrichKept
+	return traceEnrichment{input: input, output: output, tokenUsage: tokenUsage, models: models, conversationID: conversationID, tools: tools, failedTools: failedTools}, enrichKept
 }
 
 // fetchTraceSpanSummaries calls QueryTraceSpans for one trace and returns
@@ -864,7 +1023,7 @@ func (c *TracingController) fetchTraceSpanSummaries(
 	<-fetchSem
 	if err != nil {
 		if ctx.Err() == nil {
-			log.Warn("enrichTraceOverview: QueryTraceSpans failed, skipping enrichment",
+			log.Warn("fetchTraceSpanSummaries: QueryTraceSpans failed, skipping enrichment",
 				"traceId", traceInfo.TraceID, "err", err)
 		}
 		return nil, false
@@ -886,6 +1045,152 @@ func modelsFromSpanList(traceID string, spans []observer.SpanInfo) []string {
 	}
 	sort.Slice(leaves, func(i, j int) bool { return leaves[i].StartTime.Before(leaves[j].StartTime) })
 	return opensearch.ExtractModels(leaves)
+}
+
+// toolsFromSpanList returns the distinct non-empty tool names in a span list,
+// in start-time order, and those with any span whose status is error. It reads
+// span names and statuses only, even when the list carries attributes.
+func toolsFromSpanList(spans []observer.SpanInfo) (tools, failedTools []string) {
+	type toolCall struct {
+		name   string
+		start  time.Time
+		failed bool
+	}
+	calls := make([]toolCall, 0)
+	for _, s := range spans {
+		if name, ok := opensearch.ToolNameFromSpanName(s.SpanName); ok && name != "" {
+			calls = append(calls, toolCall{name: name, start: s.StartTime, failed: spanStatusIsError(s.Status)})
+		}
+	}
+	sort.SliceStable(calls, func(i, j int) bool { return calls[i].start.Before(calls[j].start) })
+	failed := make(map[string]bool, len(calls))
+	for _, call := range calls {
+		if _, seen := failed[call.name]; !seen {
+			tools = append(tools, call.name)
+		}
+		failed[call.name] = failed[call.name] || call.failed
+	}
+	for _, name := range tools {
+		if failed[name] {
+			failedTools = append(failedTools, name)
+		}
+	}
+	return tools, failedTools
+}
+
+// mcpLookup holds a trace's MCP servers once readMCPServers has read them.
+type mcpLookup struct {
+	servers []string
+	read    bool
+	// handshakes counts the request's handshake fetches.
+	handshakes *atomic.Int32
+}
+
+// readMCPServers fills mcp from t's handshake spans unless it is already read.
+// The verdict is enrichRejected when the servers fail the mcpServer filter, and
+// enrichFailed when a handshake fetch fails under it. A trace with no handshake
+// span costs no call.
+func (c *TracingController) readMCPServers(
+	ctx context.Context,
+	params TraceQueryParams,
+	t observer.TraceInfo,
+	spans []observer.SpanInfo,
+	fetchSem chan struct{},
+	mcp *mcpLookup,
+) enrichVerdict {
+	if mcp.read {
+		return enrichKept
+	}
+	servers, ok := c.mcpServersFromSpanList(ctx, t.TraceID, spans, fetchSem, mcp.handshakes)
+	mcp.servers, mcp.read = servers, true
+	switch {
+	case !ok && params.Filters.MCPServer != "":
+		return enrichFailed
+	case !matchesMCPServer(servers, params.Filters):
+		return enrichRejected
+	}
+	return enrichKept
+}
+
+// mcpServersFromSpanList returns the distinct servers the handshakesToFetch spans name; ok is false when a fetch fails.
+func (c *TracingController) mcpServersFromSpanList(
+	ctx context.Context,
+	traceID string,
+	spans []observer.SpanInfo,
+	fetchSem chan struct{},
+	fetched *atomic.Int32,
+) (servers []string, ok bool) {
+	handshakes := handshakesToFetch(spans)
+	fetched.Add(int32(len(handshakes)))
+
+	names := make([]string, len(handshakes))
+	failed := make([]bool, len(handshakes))
+	var wg sync.WaitGroup
+	for i, s := range handshakes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fetchSem <- struct{}{}
+			details, err := c.observerClient.GetSpanDetails(ctx, traceID, s.SpanID)
+			<-fetchSem
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.GetLogger(ctx).Warn("failed to fetch MCP handshake span details",
+						"traceId", traceID, "spanId", s.SpanID, "err", err)
+				}
+				failed[i] = true
+				return
+			}
+			names[i] = opensearch.MCPServerFromHandshake(details.Attributes)
+		}()
+	}
+	wg.Wait()
+
+	for _, name := range names {
+		if name != "" && !slices.Contains(servers, name) {
+			servers = append(servers, name)
+		}
+	}
+	return servers, !slices.Contains(failed, true)
+}
+
+// handshakesToFetch picks the first handshake per parent tool in start order, up to maxMCPHandshakesPerTrace.
+func handshakesToFetch(spans []observer.SpanInfo) []observer.SpanInfo {
+	var handshakes []observer.SpanInfo
+	for _, s := range spans {
+		if opensearch.IsMCPHandshakeSpan(s.SpanName) {
+			handshakes = append(handshakes, s)
+		}
+	}
+	if len(handshakes) == 0 {
+		return nil
+	}
+	sort.SliceStable(handshakes, func(i, j int) bool { return handshakes[i].StartTime.Before(handshakes[j].StartTime) })
+
+	names := make(map[string]string, len(spans))
+	for _, s := range spans {
+		names[s.SpanID] = s.SpanName
+	}
+	type key struct{ tool, span string }
+	seen := make(map[key]bool, len(handshakes))
+	picked := make([]observer.SpanInfo, 0, min(len(handshakes), maxMCPHandshakesPerTrace))
+	for _, h := range handshakes {
+		k := key{span: h.SpanID}
+		if parent, ok := names[h.ParentSpanID]; ok {
+			if tool, ok := opensearch.ToolNameFromSpanName(parent); ok && tool != "" {
+				k = key{tool: tool}
+			}
+		}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		picked = append(picked, h)
+		if len(picked) == maxMCPHandshakesPerTrace {
+			break
+		}
+	}
+	return picked
 }
 
 // tryChildChainSpan fetches the earliest immediate child of the root span
@@ -1344,8 +1649,9 @@ func (c *TracingController) ExportTraces(ctx context.Context, params TraceQueryP
 
 // selectExportTraces picks the traces to export. Without a filter it calls
 // QueryTraces once. With one it selects matches the way a filtered list does,
-// from the start of the window, so the examine cap and exportLookBackBudget apply,
-// and lists the examined traces it couldn't read in FailedTraceIDs.
+// from the start of the window, so the examine cap, maxMCPHandshakesPerRequest
+// and exportLookBackBudget apply, and lists the examined traces it couldn't read
+// in FailedTraceIDs.
 func (c *TracingController) selectExportTraces(ctx context.Context, params TraceQueryParams) ([]observer.TraceInfo, *opensearch.TraceExportResponse, error) {
 	if params.Filters.IsZero() {
 		tracesResp, err := c.observerClient.QueryTraces(ctx, c.traceListRequest(params, params.Limit))
@@ -1375,6 +1681,7 @@ func (c *TracingController) selectExportTraces(ctx context.Context, params Trace
 		"matched", len(traces),
 		"truncated", page.Truncated,
 		"budgetExceeded", stats.budgetExceeded,
+		"handshakeCapReached", stats.handshakeCapReached,
 		"failed", len(stats.failed))
 	return traces, &opensearch.TraceExportResponse{
 		TotalCount:     page.TotalCount,

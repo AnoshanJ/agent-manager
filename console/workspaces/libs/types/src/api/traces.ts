@@ -53,6 +53,9 @@ export interface TraceOverview {
   output?: string;
   models?: string[];
   conversationId?: string;
+  tools?: string[];
+  failedTools?: string[];
+  mcpServers?: string[];
   score?: TraceScore | null;
 }
 
@@ -76,6 +79,12 @@ export interface TraceFilters {
   /** Case-insensitive substring of any entry in TraceOverview.models. Implies includeModels. */
   model?: string;
   conversationId?: string;
+  /** Case-insensitive substring of any entry in TraceOverview.tools. */
+  tool?: string;
+  /** Only traces with a failed tool; with tool set, the failed tool must be one tool matches. */
+  toolError?: boolean;
+  /** Case-insensitive substring of any entry in TraceOverview.mcpServers. */
+  mcpServer?: string;
 }
 
 // Keep Trace as an alias for backward compatibility

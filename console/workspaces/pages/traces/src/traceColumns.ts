@@ -17,15 +17,17 @@
  */
 
 // Columns the user can show or hide; the others are always shown.
-export type TraceColumn = "traceId" | "conversation";
+export type TraceColumn = "traceId" | "conversation" | "input" | "output";
 
 // Menu and URL order.
 export const OPTIONAL_TRACE_COLUMNS: { key: TraceColumn; label: string }[] = [
   { key: "traceId", label: "Trace ID" },
   { key: "conversation", label: "Conversation" },
+  { key: "input", label: "Input" },
+  { key: "output", label: "Output" },
 ];
 
-export const DEFAULT_TRACE_COLUMNS: TraceColumn[] = ["conversation"];
+export const DEFAULT_TRACE_COLUMNS: TraceColumn[] = ["traceId", "conversation", "input", "output"];
 
 /** True for a known optional column key. */
 const isTraceColumn = (value: string): value is TraceColumn =>

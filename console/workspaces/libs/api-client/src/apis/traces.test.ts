@@ -17,6 +17,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { TraceFilters } from "@agent-management-platform/types";
 import { httpGETObserver } from "../utils";
 import { exportTraces, getTraceList, type ObserverTraceListParams } from "./traces";
 
@@ -154,5 +155,41 @@ describe("exportTraces query string", () => {
       filters: { status: undefined, minSpanCount: 0, model: "" },
     });
     expect(query).toEqual({ ...BASE_QUERY, minSpanCount: "0" });
+  });
+});
+
+describe("getTraceList tool and MCP server filters", () => {
+  it.each([
+    [{ tool: "search_web" }, { tool: "search_web" }],
+    [{ toolError: true }, { toolError: "true" }],
+    [{ mcpServer: "github" }, { mcpServer: "github" }],
+  ] satisfies [TraceFilters, Record<string, string>][])("sends %o", async (filters, extra) => {
+    expect(await sentQuery({ ...BASE, filters })).toEqual({ ...BASE_QUERY, ...extra });
+  });
+
+  it("sends tool and toolError together", async () => {
+    const query = await sentQuery({ ...BASE, filters: { tool: "search_web", toolError: true } });
+    expect(query).toEqual({ ...BASE_QUERY, tool: "search_web", toolError: "true" });
+  });
+
+  it.each([false, undefined])("sends nothing for toolError=%s", async (toolError) => {
+    expect(await sentQuery({ ...BASE, filters: { toolError } })).toEqual(BASE_QUERY);
+  });
+
+  it("omits empty strings", async () => {
+    const query = await sentQuery({ ...BASE, filters: { tool: "", mcpServer: "" } });
+    expect(query).toEqual(BASE_QUERY);
+  });
+
+  it("exports with the same filters", async () => {
+    await exportTraces({
+      ...BASE,
+      filters: { tool: "search_web", toolError: true, mcpServer: "github" },
+    });
+    const [path, opts] = mockGET.mock.calls[0];
+    expect(path).toBe("/api/v1/traces/export");
+    expect(opts.searchParams).toEqual({
+      ...BASE_QUERY, tool: "search_web", toolError: "true", mcpServer: "github",
+    });
   });
 });

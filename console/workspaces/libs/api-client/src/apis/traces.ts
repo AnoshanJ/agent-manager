@@ -42,8 +42,11 @@ export interface ObserverTraceListParams {
   cursor?: string;
 }
 
-/** Export takes the list's window and filters; it has no cursor or includeModels. */
-export type ExportTracesQueryParams = Omit<ObserverTraceListParams, "includeModels" | "cursor">;
+/** Export takes the list's window and filters; it has no cursor or include. */
+export type ExportTracesQueryParams = Omit<
+  ObserverTraceListParams,
+  "includeModels" | "cursor"
+>;
 
 /** Returns only the set filter fields, in a fixed order. */
 export function normalizeTraceFilters(filters?: TraceFilters): TraceFilters {
@@ -55,6 +58,9 @@ export function normalizeTraceFilters(filters?: TraceFilters): TraceFilters {
   if (filters.minSpanCount !== undefined) out.minSpanCount = filters.minSpanCount;
   if (filters.model) out.model = filters.model;
   if (filters.conversationId) out.conversationId = filters.conversationId;
+  if (filters.tool) out.tool = filters.tool;
+  if (filters.toolError === true) out.toolError = true;
+  if (filters.mcpServer) out.mcpServer = filters.mcpServer;
   return out;
 }
 
@@ -126,7 +132,7 @@ export async function getTraceList(
   if (limit !== undefined) searchParams.limit = limit.toString();
   if (sortOrder) searchParams.sortOrder = sortOrder;
   Object.assign(searchParams, traceFilterSearchParams(filters));
-  if (includeModels === true) searchParams.include = "models";
+  if (includeModels) searchParams.include = "models";
   if (cursor) searchParams.cursor = cursor;
 
   const res = await httpGETObserver("/api/v1/traces", { searchParams, token });

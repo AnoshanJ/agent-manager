@@ -192,6 +192,7 @@ export const TracesComponent: React.FC = () => {
 
   const filters = useMemo(() => parseTraceFilters(searchParams), [searchParams]);
   const hasActiveFilters = Object.keys(filters).length > 0;
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const visibleColumns = useMemo(() => parseTraceColumns(searchParams), [searchParams]);
 
@@ -244,6 +245,8 @@ export const TracesComponent: React.FC = () => {
       // only signal that the trace explorer is being used at all. The trace id
       // is not reported: it identifies a customer's own request.
       track(ConsoleAction.TraceOpened, { source_page: "traces" });
+      // Close the filters drawer, discarding its draft, so the two drawers never show together.
+      setFiltersOpen(false);
       const next = new URLSearchParams(searchParams);
       next.set("selectedTrace", traceId);
       setSearchParams(next);
@@ -520,23 +523,26 @@ export const TracesComponent: React.FC = () => {
         <TraceFilterBar
           filters={filters}
           onChange={handleFiltersChange}
+          open={filtersOpen && !selectedTrace}
+          onOpenChange={setFiltersOpen}
           onTraceSearch={handleTraceSelect}
-        />
-        <TracesView
-          traces={traceData?.traces ?? []}
-          isLoading={prereqsPending || isLoading}
-          selectedTrace={selectedTrace}
-          isLoadingMore={isLoadingMore}
-          hasMore={hasMore}
-          hasActiveFilters={hasActiveFilters}
-          truncated={truncated}
-          lookedBackTo={lookedBackTo}
-          loadError={loadError}
-          visibleColumns={visibleColumns}
-          onTraceSelect={handleTraceSelect}
-          onLoadMore={loadMore}
-          onConversationSelect={handleConversationSelect}
-        />
+        >
+          <TracesView
+            traces={traceData?.traces ?? []}
+            isLoading={prereqsPending || isLoading}
+            selectedTrace={selectedTrace}
+            isLoadingMore={isLoadingMore}
+            hasMore={hasMore}
+            hasActiveFilters={hasActiveFilters}
+            truncated={truncated}
+            lookedBackTo={lookedBackTo}
+            loadError={loadError}
+            visibleColumns={visibleColumns}
+            onTraceSelect={handleTraceSelect}
+            onLoadMore={loadMore}
+            onConversationSelect={handleConversationSelect}
+          />
+        </TraceFilterBar>
         <DrawerWrapper
           open={!!selectedTrace}
           disableScroll

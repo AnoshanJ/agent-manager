@@ -189,7 +189,9 @@ export function useTraceList(
       filters,
       includeModels,
     };
-  }, [organization, project, component, environment, pageSize, sortOrder, filters, includeModels]);
+  }, [
+    organization, project, component, environment, pageSize, sortOrder, filters, includeModels,
+  ]);
 
   // Tracks the time range used in the most recent successful fetch so that
   // loadMore / loadNewer paginate against the same window.
