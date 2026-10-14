@@ -159,8 +159,20 @@ type ListTracesParams struct {
 	Model          string
 	ConversationID string
 
-	// IncludeModels fills TraceOverview.Models; only ListTraces sends it.
-	IncludeModels bool
+	// Tool and MCPServer are substrings; with Tool set, ToolError needs that tool to fail.
+	Tool      string
+	ToolError bool
+	MCPServer string
+
+	// Score bounds are inclusive decimals in [0, 1]; Evaluator needs one of them.
+	MinScore  *float64
+	MaxScore  *float64
+	Evaluator string
+
+	// Include* fill the matching TraceOverview fields; only ListTraces sends them.
+	IncludeModels     bool
+	IncludeTools      bool
+	IncludeMCPServers bool
 }
 
 type ExportTracesParams = ListTracesParams

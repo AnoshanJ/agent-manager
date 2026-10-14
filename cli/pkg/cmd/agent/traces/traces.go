@@ -41,6 +41,8 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 		minDuration time.Duration
 		minTokens   int64
 		minSpans    int64
+		minScore    float64
+		maxScore    float64
 	)
 
 	cmd := &cobra.Command{
@@ -52,7 +54,15 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			"--condition is a shorthand for one filter: error_status is --status error, " +
 			"high_latency is a duration above --max-latency, high_token_usage is tokens above --max-tokens, " +
 			"and excessive_steps is spans above --max-spans. tool_call_fails is checked in the CLI " +
-			"over one page of exported traces, since the server has no tool filter yet.",
+			"over one page of exported traces.\n\n" +
+			"--tool and --mcp-server match any tool or MCP server whose name contains the value, ignoring case. " +
+			"--tool-error keeps traces with a failed tool; with --tool, the failed tool must be one --tool matches. " +
+			"--tool-error searches the whole window on the server, but it knows a tool span only by its name " +
+			"and a failure only by the span's OTel status. tool_call_fails reads span attributes instead, so it also " +
+			"finds tool spans named after the function and failures marked only by error.type or gen_ai.tool.status. " +
+			"MCP servers show only for traces that open an MCP session.\n\n" +
+			"--min-score and --max-score bound a trace's mean evaluation score, inclusive; --evaluator scores " +
+			"only that evaluator and needs one of them.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			org, proj, err := opts.ResolveScope(cmd, true, true)
@@ -89,6 +99,12 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			if cmd.Flags().Changed("min-spans") {
 				opts.MinSpans = &minSpans
 			}
+			if cmd.Flags().Changed("min-score") {
+				opts.MinScore = &minScore
+			}
+			if cmd.Flags().Changed("max-score") {
+				opts.MaxScore = &maxScore
+			}
 			if err := resolveFilters(opts); err != nil {
 				return render.Error(opts.IO, scope, err)
 			}
@@ -113,6 +129,14 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Only traces where a model name contains this value, ignoring case (implies --show-models)")
 	cmd.Flags().StringVar(&opts.ConversationID, "conversation", "", "Only traces with exactly this conversation ID")
 	cmd.Flags().BoolVar(&opts.ShowModels, "show-models", false, "Add a Model column (costs the server one extra call per trace)")
+	cmd.Flags().StringVar(&opts.Tool, "tool", "", "Only traces that called a tool whose name contains this value, ignoring case (implies --show-tools)")
+	cmd.Flags().BoolVar(&opts.ToolError, "tool-error", false, "Only traces with a failed tool, by the tool span's OTel status; with --tool, that tool failed (implies --show-tools)")
+	cmd.Flags().StringVar(&opts.MCPServer, "mcp-server", "", "Only traces that used an MCP server whose name contains this value, ignoring case (implies --show-mcp-servers)")
+	cmd.Flags().Float64Var(&minScore, "min-score", 0, "Only traces whose mean evaluation score is at least this (0-1)")
+	cmd.Flags().Float64Var(&maxScore, "max-score", 0, "Only traces whose mean evaluation score is at most this (0-1)")
+	cmd.Flags().StringVar(&opts.Evaluator, "evaluator", "", "Score only this evaluator, by its exact display name (needs --min-score or --max-score)")
+	cmd.Flags().BoolVar(&opts.ShowTools, "show-tools", false, "Add a Tools column, with failed tools marked (costs the server up to one extra call per trace)")
+	cmd.Flags().BoolVar(&opts.ShowMCPServers, "show-mcp-servers", false, "Add an MCP Servers column (costs the server extra calls per trace)")
 	cmd.Flags().StringVar(&opts.Condition, "condition", "", "Shorthand filter: error_status, high_latency, high_token_usage, tool_call_fails, excessive_steps")
 	cmd.Flags().IntVar(&opts.MaxLatency, "max-latency", 30000, "Latency threshold in ms; high_latency matches traces above it")
 	cmd.Flags().IntVar(&opts.MaxTokens, "max-tokens", 10000, "Token threshold; high_token_usage matches traces above it")

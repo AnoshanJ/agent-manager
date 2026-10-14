@@ -19,6 +19,7 @@ package traces
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -75,6 +76,15 @@ type ListTracesOptions struct {
 	Model          string
 	ConversationID string
 	ShowModels     bool
+
+	Tool           string
+	ToolError      bool
+	MCPServer      string
+	MinScore       *float64
+	MaxScore       *float64
+	Evaluator      string
+	ShowTools      bool
+	ShowMCPServers bool
 }
 
 func parseTimeOrZero(s string) time.Time {
@@ -104,13 +114,20 @@ func listParams(o *ListTracesOptions) *observersvc.ListTracesParams {
 		MinSpanCount:   o.MinSpans,
 		Model:          o.Model,
 		ConversationID: o.ConversationID,
+		Tool:           o.Tool,
+		ToolError:      o.ToolError,
+		MCPServer:      o.MCPServer,
+		MinScore:       o.MinScore,
+		MaxScore:       o.MaxScore,
+		Evaluator:      o.Evaluator,
 	}
 }
 
 // hasFilters reports whether any filter flag is set.
 func hasFilters(o *ListTracesOptions) bool {
 	return o.Status != "" || o.MinDurationMs != nil || o.MinTokens != nil || o.MinSpans != nil ||
-		o.Model != "" || o.ConversationID != ""
+		o.Model != "" || o.ConversationID != "" || o.Tool != "" || o.ToolError || o.MCPServer != "" ||
+		o.MinScore != nil || o.MaxScore != nil
 }
 
 // runListTraces lists trace overviews, filtered server-side.
@@ -125,6 +142,8 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 
 	params := listParams(o)
 	params.IncludeModels = o.ShowModels
+	params.IncludeTools = o.ShowTools
+	params.IncludeMCPServers = o.ShowMCPServers
 	resp, err := client.ListTraces(ctx, params)
 	if err != nil {
 		return render.Error(o.IO, o.Scope, cmdutil.ObserverErrorFromResponse(err))
@@ -142,7 +161,12 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 		} else {
 			fmt.Fprintln(o.IO.Out, "No traces found.")
 		}
-	} else if err := renderOverviewTable(o, resp.Traces, true, o.ShowModels || o.Model != ""); err != nil {
+	} else if err := renderOverviewTable(o, resp.Traces, overviewColumns{
+		conversation: true,
+		models:       o.ShowModels || o.Model != "",
+		tools:        o.ShowTools || o.Tool != "" || o.ToolError,
+		mcpServers:   o.ShowMCPServers || o.MCPServer != "",
+	}); err != nil {
 		return err
 	}
 	if resp.Truncated {
@@ -160,14 +184,25 @@ func truncatedNotice(hasCursor bool) string {
 	return "The list stops here: the remaining traces are more than 1,000 traces into this time range; narrow the time range to see more."
 }
 
-// renderOverviewTable prints traces as a table, with optional conversation and model columns.
-func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOverview, showConversation, showModels bool) error {
+// overviewColumns picks the optional columns of the overview table.
+type overviewColumns struct {
+	conversation, models, tools, mcpServers bool
+}
+
+// renderOverviewTable prints traces as a table, with the optional columns cols picks.
+func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOverview, cols overviewColumns) error {
 	headers := []string{"trace id", "status", "duration", "spans", "tokens", "root span"}
-	if showConversation {
+	if cols.conversation {
 		headers = append(headers, "conversation")
 	}
-	if showModels {
+	if cols.models {
 		headers = append(headers, "model")
+	}
+	if cols.tools {
+		headers = append(headers, "tools")
+	}
+	if cols.mcpServers {
+		headers = append(headers, "mcp servers")
 	}
 	tp := tableprinter.New(o.IO, append(headers, "started")...)
 	for _, tr := range traces {
@@ -177,11 +212,17 @@ func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOvervie
 		tp.AddField(fmt.Sprintf("%d", tr.SpanCount))
 		tp.AddField(tokenCount(tr.TokenUsage))
 		tp.AddField(truncate(tr.RootSpanName, 20))
-		if showConversation {
+		if cols.conversation {
 			tp.AddField(orDash(truncate(tr.ConversationID, 20)))
 		}
-		if showModels {
+		if cols.models {
 			tp.AddField(modelList(tr.Models))
+		}
+		if cols.tools {
+			tp.AddField(toolList(tr.Tools, tr.FailedTools))
+		}
+		if cols.mcpServers {
+			tp.AddField(orDash(strings.Join(tr.MCPServers, ", ")))
 		}
 		tp.AddField(timeAgo(tr.StartTime))
 		tp.EndRow()
@@ -189,9 +230,8 @@ func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOvervie
 	return tp.Render()
 }
 
-// runToolCallFails lists traces with a failed tool span. The server has no
-// tool filter until Milestone 2, so this checks the spans of one exported
-// page client-side; the other filters still run server-side.
+// runToolCallFails lists traces with a failed tool span, checked client-side
+// over one exported page by span attributes; the other filters run server-side.
 func runToolCallFails(ctx context.Context, o *ListTracesOptions) error {
 	if err := cmdutil.ValidatePathParam("agent name", o.AgentName); err != nil {
 		return render.Error(o.IO, o.Scope, err)
@@ -230,7 +270,7 @@ func renderFilteredOverview(o *ListTracesOptions, traces []observersvc.TraceOver
 		fmt.Fprintln(o.IO.Out, "No traces match the condition.")
 		return nil
 	}
-	return renderOverviewTable(o, traces, false, false)
+	return renderOverviewTable(o, traces, overviewColumns{})
 }
 
 var validConditions = []string{
@@ -279,7 +319,55 @@ func resolveFilters(o *ListTracesOptions) error {
 	if o.ShowModels && o.Condition == conditionToolCallFails {
 		return cmdutil.FlagErrorf("--show-models can't be used with --condition %s", conditionToolCallFails)
 	}
+	if err := checkToolFilters(o); err != nil {
+		return err
+	}
+	if err := checkScoreFilters(o); err != nil {
+		return err
+	}
 	return applyCondition(o)
+}
+
+// checkToolFilters rejects tool flags that clash with --condition tool_call_fails.
+func checkToolFilters(o *ListTracesOptions) error {
+	if o.Condition != conditionToolCallFails {
+		return nil
+	}
+	for _, f := range []struct {
+		flag string
+		set  bool
+	}{
+		{"--tool-error", o.ToolError},
+		{"--show-tools", o.ShowTools},
+		{"--show-mcp-servers", o.ShowMCPServers},
+	} {
+		if f.set {
+			return cmdutil.FlagErrorf("%s can't be used with --condition %s", f.flag, conditionToolCallFails)
+		}
+	}
+	return nil
+}
+
+// checkScoreFilters checks the score bounds and that --evaluator has one.
+func checkScoreFilters(o *ListTracesOptions) error {
+	for _, b := range []struct {
+		flag string
+		val  *float64
+	}{
+		{"--min-score", o.MinScore},
+		{"--max-score", o.MaxScore},
+	} {
+		if b.val != nil && (math.IsNaN(*b.val) || *b.val < 0 || *b.val > 1) {
+			return cmdutil.FlagErrorf("%s must be between 0 and 1", b.flag)
+		}
+	}
+	if o.MinScore != nil && o.MaxScore != nil && *o.MinScore > *o.MaxScore {
+		return cmdutil.FlagErrorf("--min-score must not be above --max-score")
+	}
+	if o.Evaluator != "" && o.MinScore == nil && o.MaxScore == nil {
+		return cmdutil.FlagErrorf("--evaluator needs --min-score or --max-score")
+	}
+	return nil
 }
 
 // applyCondition turns a --condition shorthand into the filter it stands for.
@@ -352,6 +440,25 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// toolList shows every tool, marking the ones that failed.
+func toolList(tools, failed []string) string {
+	if len(tools) == 0 {
+		return "-"
+	}
+	failedSet := make(map[string]bool, len(failed))
+	for _, t := range failed {
+		failedSet[t] = true
+	}
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t
+		if failedSet[t] {
+			names[i] += " (failed)"
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // modelList shows the first model and how many more there are.

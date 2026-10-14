@@ -141,6 +141,27 @@ func setCommonParams(q url.Values, p *ListTracesParams) {
 	if p.ConversationID != "" {
 		q.Set("conversationId", p.ConversationID)
 	}
+	if p.Tool != "" {
+		q.Set("tool", p.Tool)
+	}
+	if p.ToolError {
+		q.Set("toolError", "true")
+	}
+	if p.MCPServer != "" {
+		q.Set("mcpServer", p.MCPServer)
+	}
+	setOptionalFloat64(q, "minScore", p.MinScore)
+	setOptionalFloat64(q, "maxScore", p.MaxScore)
+	if p.Evaluator != "" {
+		q.Set("evaluator", p.Evaluator)
+	}
+}
+
+// setOptionalFloat64 sets key only when val is non-nil.
+func setOptionalFloat64(q url.Values, key string, val *float64) {
+	if val != nil {
+		q.Set(key, strconv.FormatFloat(*val, 'f', -1, 64))
+	}
 }
 
 // setOptionalInt64 sets key only when val is non-nil.
@@ -162,14 +183,29 @@ func setTimeRange(q url.Values, start, end time.Time) {
 func (c *Client) ListTraces(ctx context.Context, p *ListTracesParams) (*TraceOverviewResponse, error) {
 	q := url.Values{}
 	setCommonParams(q, p)
-	if p.IncludeModels {
-		q.Set("include", "models")
+	if include := includeValues(p); len(include) > 0 {
+		q.Set("include", strings.Join(include, ","))
 	}
 	var out TraceOverviewResponse
 	if err := c.do(ctx, http.MethodGet, "/api/v1/traces", q, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// includeValues lists the include values p asks for.
+func includeValues(p *ListTracesParams) []string {
+	var include []string
+	if p.IncludeModels {
+		include = append(include, "models")
+	}
+	if p.IncludeTools {
+		include = append(include, "tools")
+	}
+	if p.IncludeMCPServers {
+		include = append(include, "mcpServers")
+	}
+	return include
 }
 
 func (c *Client) ExportTraces(ctx context.Context, p *ExportTracesParams) (*TraceExportResponse, error) {
