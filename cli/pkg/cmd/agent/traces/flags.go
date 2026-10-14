@@ -32,8 +32,6 @@ type filterFlagValues struct {
 	minDuration time.Duration
 	minTokens   int64
 	minSpans    int64
-	minScore    float64
-	maxScore    float64
 }
 
 // addFilterFlags adds the filter flags list and export share. list adds the
@@ -56,9 +54,6 @@ func addFilterFlags(cmd *cobra.Command, o *ListTracesOptions, v *filterFlagValue
 	fl.StringVar(&o.Tool, "tool", "", "Only traces that called a tool whose name contains this value, ignoring case"+implies("--show-tools"))
 	fl.BoolVar(&o.ToolError, "tool-error", false, "Only traces with a failed tool, by the tool span's OTel status; with --tool, that tool failed"+implies("--show-tools"))
 	fl.StringVar(&o.MCPServer, "mcp-server", "", "Only traces that used an MCP server whose name contains this value, ignoring case"+implies("--show-mcp-servers"))
-	fl.Float64Var(&v.minScore, "min-score", 0, "Only traces whose mean evaluation score is at least this (0-1)")
-	fl.Float64Var(&v.maxScore, "max-score", 0, "Only traces whose mean evaluation score is at most this (0-1)")
-	fl.StringVar(&o.Evaluator, "evaluator", "", "Score only this evaluator, by its exact display name (needs --min-score or --max-score)")
 }
 
 // applyFilterFlags sets o's optional filters from the flags changed reports as set.
@@ -71,12 +66,6 @@ func applyFilterFlags(changed func(string) bool, o *ListTracesOptions, v *filter
 	}
 	if changed("min-spans") {
 		o.MinSpans = &v.minSpans
-	}
-	if changed("min-score") {
-		o.MinScore = &v.minScore
-	}
-	if changed("max-score") {
-		o.MaxScore = &v.maxScore
 	}
 }
 
@@ -147,11 +136,6 @@ func nextPageCommand(o *ListTracesOptions, cursor string) string {
 			args = append(args, flag, strconv.FormatInt(*v, 10))
 		}
 	}
-	addFloat := func(flag string, v *float64) {
-		if v != nil {
-			args = append(args, flag, strconv.FormatFloat(*v, 'f', -1, 64))
-		}
-	}
 	add("--org", o.Org)
 	add("--project", o.Proj)
 	add("--env", o.Env)
@@ -171,9 +155,6 @@ func nextPageCommand(o *ListTracesOptions, cursor string) string {
 	add("--tool", o.Tool)
 	addBool("--tool-error", o.ToolError)
 	add("--mcp-server", o.MCPServer)
-	addFloat("--min-score", o.MinScore)
-	addFloat("--max-score", o.MaxScore)
-	add("--evaluator", o.Evaluator)
 	addBool("--show-models", o.ShowModels)
 	addBool("--show-tools", o.ShowTools)
 	addBool("--show-mcp-servers", o.ShowMCPServers)

@@ -129,15 +129,13 @@ func TestTraceMissingInputRejected(t *testing.T) {
 // step with TRACE_FILTER_KEYS in console/workspaces/pages/traces/src/traceFilters.ts.
 var consoleParity = []struct {
 	param string
-	// input and value are what an MCP client sends; "" means the tools lack the param.
+	// input and value are what an MCP client sends.
 	input string
 	value any
 	// want is the TraceFilters the HTTP handler sets for the param, if it's a filter.
 	want controllers.TraceFilters
 	// listOnly marks inputs get_traces doesn't take, as the export route doesn't.
 	listOnly bool
-	// lacked says why the tools don't take the param.
-	lacked string
 }{
 	{param: "status", input: "status", value: "error", want: controllers.TraceFilters{Status: controllers.TraceStatusError}},
 	{param: "minDurationMs", input: "min_duration_ms", value: 5000, want: controllers.TraceFilters{MinDurationMs: ptr(int64(5000))}},
@@ -149,9 +147,6 @@ var consoleParity = []struct {
 	{param: "tool", input: "tool", value: "search", want: controllers.TraceFilters{Tool: "search"}},
 	{param: "toolError", input: "tool_error", value: true, want: controllers.TraceFilters{ToolError: true}},
 	{param: "mcpServer", input: "mcp_server", value: "github", want: controllers.TraceFilters{MCPServer: "github"}},
-	{param: "minScore", lacked: "am-obs-mcp tokens can't be forwarded to agent-manager-service for scores"},
-	{param: "maxScore", lacked: "am-obs-mcp tokens can't be forwarded to agent-manager-service for scores"},
-	{param: "evaluator", lacked: "am-obs-mcp tokens can't be forwarded to agent-manager-service for scores"},
 	{param: "startTime", input: "start_time", value: "2026-10-01T00:00:00Z"},
 	{param: "endTime", input: "end_time", value: "2026-10-01T01:00:00Z"},
 	{param: "sortOrder", input: "sort_order", value: "asc"},
@@ -159,7 +154,7 @@ var consoleParity = []struct {
 	{param: "cursor", input: "cursor", listOnly: true},
 }
 
-// Every console param is an input on list_traces and get_traces, or listed with the reason it isn't.
+// Every console param is an input on list_traces and get_traces.
 func TestConsoleParamParity(t *testing.T) {
 	session, _ := setupTestServer(t)
 	tools, err := session.ListTools(context.Background(), nil)
@@ -178,12 +173,6 @@ func TestConsoleParamParity(t *testing.T) {
 	}
 	for _, p := range consoleParity {
 		t.Run(p.param, func(t *testing.T) {
-			if p.input == "" {
-				if p.lacked == "" {
-					t.Fatalf("%s has no input and no reason", p.param)
-				}
-				return
-			}
 			for _, tool := range []string{"list_traces", "get_traces"} {
 				_, ok := inputs[tool][p.input]
 				if want := tool == "list_traces" || !p.listOnly; ok != want {
@@ -197,7 +186,7 @@ func TestConsoleParamParity(t *testing.T) {
 // Each console filter's input sets the TraceFilters field the HTTP handler sets for it.
 func TestConsoleFilterParity(t *testing.T) {
 	for _, p := range consoleParity {
-		if p.input == "" || p.want.IsZero() {
+		if p.want.IsZero() {
 			continue
 		}
 		t.Run(p.param, func(t *testing.T) {

@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -83,9 +82,6 @@ type ListTracesOptions struct {
 	Tool           string
 	ToolError      bool
 	MCPServer      string
-	MinScore       *float64
-	MaxScore       *float64
-	Evaluator      string
 	ShowTools      bool
 	ShowMCPServers bool
 
@@ -146,16 +142,13 @@ func setFilterParams(p *observersvc.ListTracesParams, o *ListTracesOptions) {
 	p.Tool = o.Tool
 	p.ToolError = o.ToolError
 	p.MCPServer = o.MCPServer
-	p.MinScore = o.MinScore
-	p.MaxScore = o.MaxScore
-	p.Evaluator = o.Evaluator
 }
 
 // hasFilters reports whether any filter flag is set.
 func hasFilters(o *ListTracesOptions) bool {
 	return o.Status != "" || o.MinDurationMs != nil || o.MinTokens != nil || o.MinSpans != nil ||
 		o.Model != "" || o.ConversationID != "" || o.NoConversation || o.Tool != "" || o.ToolError ||
-		o.MCPServer != "" || o.MinScore != nil || o.MaxScore != nil
+		o.MCPServer != ""
 }
 
 // runListTraces lists trace overviews, filtered server-side.
@@ -408,9 +401,6 @@ func resolveFilters(o *ListTracesOptions) error {
 	if err := checkToolFilters(o); err != nil {
 		return err
 	}
-	if err := checkScoreFilters(o); err != nil {
-		return err
-	}
 	return applyCondition(o)
 }
 
@@ -431,28 +421,6 @@ func checkToolFilters(o *ListTracesOptions) error {
 		if f.set {
 			return cmdutil.FlagErrorf("%s can't be used with --condition %s", f.flag, conditionToolCallFails)
 		}
-	}
-	return nil
-}
-
-// checkScoreFilters checks the score bounds and that --evaluator has one.
-func checkScoreFilters(o *ListTracesOptions) error {
-	for _, b := range []struct {
-		flag string
-		val  *float64
-	}{
-		{"--min-score", o.MinScore},
-		{"--max-score", o.MaxScore},
-	} {
-		if b.val != nil && (math.IsNaN(*b.val) || *b.val < 0 || *b.val > 1) {
-			return cmdutil.FlagErrorf("%s must be between 0 and 1", b.flag)
-		}
-	}
-	if o.MinScore != nil && o.MaxScore != nil && *o.MinScore > *o.MaxScore {
-		return cmdutil.FlagErrorf("--min-score must not be above --max-score")
-	}
-	if o.Evaluator != "" && o.MinScore == nil && o.MaxScore == nil {
-		return cmdutil.FlagErrorf("--evaluator needs --min-score or --max-score")
 	}
 	return nil
 }

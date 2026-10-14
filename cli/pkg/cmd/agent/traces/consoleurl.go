@@ -85,12 +85,6 @@ var consoleParams = []consoleParam{
 		}, flagValue: oneOf("true")},
 	{param: "mcpServer", flag: "mcp-server", filter: true,
 		value: func(o *ListTracesOptions) string { return o.MCPServer }, flagValue: text},
-	{param: "evaluator", flag: "evaluator", filter: true,
-		value: func(o *ListTracesOptions) string { return o.Evaluator }, flagValue: text},
-	{param: "minScore", flag: "min-score", filter: true,
-		value: func(o *ListTracesOptions) string { return formatFloat(o.MinScore) }, flagValue: score},
-	{param: "maxScore", flag: "max-score", filter: true,
-		value: func(o *ListTracesOptions) string { return formatFloat(o.MaxScore) }, flagValue: score},
 	{param: "timeRange", flag: "since", window: true, def: "1h",
 		value: func(o *ListTracesOptions) string { return consoleTimeRange(o.Since) }, flagValue: oneOf(consoleTimeRanges...)},
 	{param: "startTime", flag: "start", window: true,
@@ -369,15 +363,6 @@ func millis(v string) (string, error) {
 	return v + "ms", nil
 }
 
-// score accepts a decimal in [0, 1].
-func score(v string) (string, error) {
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || math.IsNaN(f) || f < 0 || f > 1 {
-		return "", errors.New("must be a number between 0 and 1")
-	}
-	return v, nil
-}
-
 // missingField accepts conversationId, the only field the console filters as missing.
 func missingField(v string) (string, error) {
 	for _, field := range strings.Split(v, ",") {
@@ -419,14 +404,6 @@ func formatInt(v *int64) string {
 		return ""
 	}
 	return strconv.FormatInt(*v, 10)
-}
-
-// formatFloat formats v, or "" when it's nil.
-func formatFloat(v *float64) string {
-	if v == nil {
-		return ""
-	}
-	return strconv.FormatFloat(*v, 'f', -1, 64)
 }
 
 // applyFromURL sets the list's scope and flags from a console URL and returns args with its agent.

@@ -126,9 +126,6 @@ var consoleParamFlags = []struct {
 	{param: "tool", args: []string{"--tool", "search"}, want: "search"},
 	{param: "toolError", args: []string{"--tool-error"}, want: "true"},
 	{param: "mcpServer", args: []string{"--mcp-server", "github"}, want: "github"},
-	{param: "minScore", args: []string{"--min-score", "0.25"}, want: "0.25"},
-	{param: "maxScore", args: []string{"--max-score", "0.75"}, want: "0.75"},
-	{param: "evaluator", args: []string{"--evaluator", "Helpfulness", "--max-score", "0.5"}, want: "Helpfulness"},
 	// The console's timeRange is a relative window, which the request sends as startTime and endTime.
 	{param: "timeRange", args: []string{"--since", "1h"}},
 	{param: "startTime", args: []string{"--start", testStart, "--end", testEnd}, want: testStart},
@@ -231,8 +228,7 @@ func TestExportCmd_FilterFlagsReachTheServer(t *testing.T) {
 	args := append(slices.Clone(exportArgs),
 		"--start", testStart, "--end", testEnd,
 		"--status", "error", "--min-duration", "2s", "--min-tokens", "0", "--min-spans", "3",
-		"--model", "gpt", "--no-conversation", "--tool", "search", "--tool-error", "--mcp-server", "github",
-		"--min-score", "0.1", "--max-score", "0.9", "--evaluator", "Helpfulness")
+		"--model", "gpt", "--no-conversation", "--tool", "search", "--tool-error", "--mcp-server", "github")
 	run := runAmctl(t, serve(map[string]any{"traces": []any{}}), true, args...)
 	if run.err != nil {
 		t.Fatalf("unexpected error: %v", run.err)
@@ -245,7 +241,6 @@ func TestExportCmd_FilterFlagsReachTheServer(t *testing.T) {
 		"startTime": testStart, "endTime": testEnd,
 		"status": "error", "minDurationMs": "2000", "minTokens": "0", "minSpanCount": "3",
 		"model": "gpt", "missing": "conversationId", "tool": "search", "toolError": "true", "mcpServer": "github",
-		"minScore": "0.1", "maxScore": "0.9", "evaluator": "Helpfulness",
 	} {
 		if got := q.Get(key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
@@ -271,8 +266,6 @@ func TestTracesCmd_RejectsInvalidWindowAndFilterFlags(t *testing.T) {
 		{name: "start with since", args: []string{"--start", testStart, "--end", testEnd, "--since", "1h"}},
 		{name: "start not RFC 3339", args: []string{"--start", "yesterday", "--end", testEnd}},
 		{name: "invalid status", args: []string{"--status", "failed"}},
-		{name: "evaluator without a bound", args: []string{"--evaluator", "Helpfulness"}},
-		{name: "score out of range", args: []string{"--min-score", "2"}},
 		{name: "cursor with tool_call_fails", args: []string{"--cursor", "c", "--condition", "tool_call_fails"}, listOnly: true},
 	} {
 		for _, cmd := range []struct {

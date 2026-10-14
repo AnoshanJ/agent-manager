@@ -34,7 +34,7 @@ import (
 )
 
 // toolFilterKeys are every filter and include param the list can send.
-var toolFilterKeys = append(append([]string{}, filterKeys...), "tool", "toolError", "mcpServer", "minScore", "maxScore", "evaluator")
+var toolFilterKeys = append(append([]string{}, filterKeys...), "tool", "toolError", "mcpServer")
 
 // runTracesCmdOutput runs `traces my-agent` with args and returns the request, stdout and stderr.
 func runTracesCmdOutput(t *testing.T, body any, args ...string) (*capturedRequest, *bytes.Buffer, *bytes.Buffer, error) {
@@ -83,7 +83,7 @@ func assertToolFilterQuery(t *testing.T, q url.Values, want map[string]string) {
 	}
 }
 
-func TestTracesCmd_ToolAndScoreFlagsReachTheServer(t *testing.T) {
+func TestTracesCmd_ToolAndMCPFlagsReachTheServer(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -99,15 +99,6 @@ func TestTracesCmd_ToolAndScoreFlagsReachTheServer(t *testing.T) {
 			want: map[string]string{"tool": "search_web", "toolError": "true"},
 		},
 		{name: "mcp-server", args: []string{"--mcp-server", "github"}, want: map[string]string{"mcpServer": "github"}},
-		{name: "min-score", args: []string{"--min-score", "0.25"}, want: map[string]string{"minScore": "0.25"}},
-		{name: "min-score zero still filters", args: []string{"--min-score", "0"}, want: map[string]string{"minScore": "0"}},
-		{name: "max-score", args: []string{"--max-score", "1"}, want: map[string]string{"maxScore": "1"}},
-		{
-			name: "evaluator with a bound",
-			args: []string{"--evaluator", "Answer Relevancy", "--max-score", "0.5"},
-			want: map[string]string{"evaluator": "Answer Relevancy", "maxScore": "0.5"},
-		},
-		{name: "equal bounds", args: []string{"--min-score", "0.5", "--max-score", "0.5"}, want: map[string]string{"minScore": "0.5", "maxScore": "0.5"}},
 		{name: "show-tools", args: []string{"--show-tools"}, want: map[string]string{"include": "tools"}},
 		{name: "show-mcp-servers", args: []string{"--show-mcp-servers"}, want: map[string]string{"include": "mcpServers"}},
 		{
@@ -117,8 +108,8 @@ func TestTracesCmd_ToolAndScoreFlagsReachTheServer(t *testing.T) {
 		},
 		{
 			name: "with the other filters and a condition",
-			args: []string{"--condition", "error_status", "--model", "gpt", "--tool", "search", "--mcp-server", "git", "--min-score", "0.1"},
-			want: map[string]string{"status": "error", "model": "gpt", "tool": "search", "mcpServer": "git", "minScore": "0.1"},
+			args: []string{"--condition", "error_status", "--model", "gpt", "--tool", "search", "--mcp-server", "git"},
+			want: map[string]string{"status": "error", "model": "gpt", "tool": "search", "mcpServer": "git"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,18 +125,11 @@ func TestTracesCmd_ToolAndScoreFlagsReachTheServer(t *testing.T) {
 	}
 }
 
-func TestTracesCmd_RejectsInvalidToolAndScoreFlags(t *testing.T) {
+func TestTracesCmd_RejectsInvalidToolFlags(t *testing.T) {
 	for _, tc := range []struct {
 		args    []string
 		wantErr string
 	}{
-		{[]string{"--min-score", "-0.1"}, "--min-score must be between 0 and 1"},
-		{[]string{"--min-score", "1.5"}, "--min-score must be between 0 and 1"},
-		{[]string{"--max-score", "2"}, "--max-score must be between 0 and 1"},
-		{[]string{"--max-score", "NaN"}, "--max-score must be between 0 and 1"},
-		{[]string{"--min-score", "high"}, "--min-score"},
-		{[]string{"--min-score", "0.8", "--max-score", "0.2"}, "--min-score must not be above --max-score"},
-		{[]string{"--evaluator", "Answer Relevancy"}, "--evaluator needs --min-score or --max-score"},
 		{[]string{"--tool-error=maybe"}, "--tool-error"},
 		{[]string{"--condition", "tool_call_fails", "--tool-error"}, "--tool-error can't be used with --condition tool_call_fails"},
 		{[]string{"--condition", "tool_call_fails", "--show-tools"}, "--show-tools can't be used with --condition tool_call_fails"},
@@ -168,14 +152,14 @@ func TestTracesCmd_RejectsInvalidToolAndScoreFlags(t *testing.T) {
 
 func TestTracesCmd_ToolCallFailsSendsNewFiltersToExport(t *testing.T) {
 	captured, _, _, err := runTracesCmdOutput(t, observersvc.TraceExportResponse{},
-		"--condition", "tool_call_fails", "--tool", "search", "--mcp-server", "github", "--min-score", "0.5")
+		"--condition", "tool_call_fails", "--tool", "search", "--mcp-server", "github")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if captured.path != "/api/v1/traces/export" {
 		t.Errorf("path = %q, want the export endpoint", captured.path)
 	}
-	assertToolFilterQuery(t, captured.query, map[string]string{"tool": "search", "mcpServer": "github", "minScore": "0.5"})
+	assertToolFilterQuery(t, captured.query, map[string]string{"tool": "search", "mcpServer": "github"})
 }
 
 // tool_call_fails stays client-side because it sees failures the server's

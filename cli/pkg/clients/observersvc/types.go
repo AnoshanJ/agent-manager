@@ -166,11 +166,6 @@ type ListTracesParams struct {
 	ToolError bool
 	MCPServer string
 
-	// Score bounds are inclusive decimals in [0, 1]; Evaluator needs one of them.
-	MinScore  *float64
-	MaxScore  *float64
-	Evaluator string
-
 	// Include* fill the matching TraceOverview fields; only ListTraces sends them.
 	IncludeModels     bool
 	IncludeTools      bool

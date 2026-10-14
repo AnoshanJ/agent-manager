@@ -56,8 +56,6 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			"and a failure only by the span's OTel status. tool_call_fails reads span attributes instead, so it also " +
 			"finds tool spans named after the function and failures marked only by error.type or gen_ai.tool.status. " +
 			"MCP servers show only for traces that open an MCP session.\n\n" +
-			"--min-score and --max-score bound a trace's mean evaluation score, inclusive; --evaluator scores " +
-			"only that evaluator and needs one of them.\n\n" +
 			"--no-conversation keeps traces with no conversation ID. --start and --end set a fixed window " +
 			"instead of --since. When the server stops searching early in table output, the notice prints the " +
 			"command for the next page; JSON output carries nextCursor, which --cursor takes with the same " +

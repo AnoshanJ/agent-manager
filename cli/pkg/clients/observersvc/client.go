@@ -153,18 +153,6 @@ func setCommonParams(q url.Values, p *ListTracesParams) {
 	if p.MCPServer != "" {
 		q.Set("mcpServer", p.MCPServer)
 	}
-	setOptionalFloat64(q, "minScore", p.MinScore)
-	setOptionalFloat64(q, "maxScore", p.MaxScore)
-	if p.Evaluator != "" {
-		q.Set("evaluator", p.Evaluator)
-	}
-}
-
-// setOptionalFloat64 sets key only when val is non-nil.
-func setOptionalFloat64(q url.Values, key string, val *float64) {
-	if val != nil {
-		q.Set(key, strconv.FormatFloat(*val, 'f', -1, 64))
-	}
 }
 
 // setOptionalInt64 sets key only when val is non-nil.

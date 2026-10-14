@@ -155,14 +155,11 @@ func TestExportTraces_SendsFiltersButNotInclude(t *testing.T) {
 	}
 }
 
-func float64Ptr(v float64) *float64 { return &v }
-
-func TestListTraces_SendsToolMCPAndScoreFilters(t *testing.T) {
+func TestListTraces_SendsToolAndMCPFilters(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		for key, want := range map[string]string{
 			"tool": "search_web", "toolError": "true", "mcpServer": "github",
-			"minScore": "0", "maxScore": "0.75", "evaluator": "Answer Relevancy",
 			"include": "models,tools,mcpServers",
 		} {
 			if q.Get(key) != want {
@@ -177,7 +174,6 @@ func TestListTraces_SendsToolMCPAndScoreFilters(t *testing.T) {
 	c, _ := NewClient(srv.URL)
 	resp, err := c.ListTraces(context.Background(), &ListTracesParams{
 		Organization: "acme", Tool: "search_web", ToolError: true, MCPServer: "github",
-		MinScore: float64Ptr(0), MaxScore: float64Ptr(0.75), Evaluator: "Answer Relevancy",
 		IncludeModels: true, IncludeTools: true, IncludeMCPServers: true,
 	})
 	if err != nil {
@@ -189,10 +185,10 @@ func TestListTraces_SendsToolMCPAndScoreFilters(t *testing.T) {
 	}
 }
 
-func TestListTraces_OmitsUnsetToolMCPAndScoreFilters(t *testing.T) {
+func TestListTraces_OmitsUnsetToolAndMCPFilters(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		for _, key := range []string{"tool", "toolError", "mcpServer", "minScore", "maxScore", "evaluator", "include"} {
+		for _, key := range []string{"tool", "toolError", "mcpServer", "include"} {
 			if q.Has(key) {
 				t.Errorf("%s = %q, want unset", key, q.Get(key))
 			}
@@ -211,7 +207,7 @@ func TestListTraces_OmitsUnsetToolMCPAndScoreFilters(t *testing.T) {
 func TestExportTraces_SendsToolFiltersButNoInclude(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("tool") != "search" || q.Get("toolError") != "true" || q.Get("mcpServer") != "github" || q.Get("maxScore") != "0.5" {
+		if q.Get("tool") != "search" || q.Get("toolError") != "true" || q.Get("mcpServer") != "github" {
 			t.Errorf("filters missing: %v", q)
 		}
 		if q.Has("include") {
@@ -224,7 +220,7 @@ func TestExportTraces_SendsToolFiltersButNoInclude(t *testing.T) {
 
 	c, _ := NewClient(srv.URL)
 	if _, err := c.ExportTraces(context.Background(), &ExportTracesParams{
-		Organization: "acme", Tool: "search", ToolError: true, MCPServer: "github", MaxScore: float64Ptr(0.5),
+		Organization: "acme", Tool: "search", ToolError: true, MCPServer: "github",
 		IncludeTools: true, IncludeMCPServers: true,
 	}); err != nil {
 		t.Fatalf("ExportTraces: %v", err)

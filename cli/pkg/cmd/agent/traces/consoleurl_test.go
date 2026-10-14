@@ -159,7 +159,7 @@ func TestConsoleURL_EachParamBothWays(t *testing.T) {
 func TestConsoleURL_RoundTrip(t *testing.T) {
 	for _, args := range [][]string{
 		{"--status", "ok", "--min-duration", "2.5s", "--model", "gpt 4o", "--tool", "search", "--tool-error",
-			"--min-score", "0.2", "--max-score", "0.9", "--evaluator", "Helpful ness", "--sort", "asc", "--limit", "50", "--since", "3h"},
+			"--sort", "asc", "--limit", "50", "--since", "3h"},
 		{"--no-conversation", "--mcp-server", "github", "--min-tokens", "0", "--start", testStart, "--end", testEnd},
 		{"--conversation", "conv/1&2", "--since", "45m"},
 	} {
@@ -270,7 +270,6 @@ func TestFromURL_Rejects(t *testing.T) {
 		{"minSpanCount", []string{"traces", "--from-url", consolePath + "?minSpanCount=1e3"}, "minSpanCount"},
 		{"missing", []string{"traces", "--from-url", consolePath + "?missing=model"}, "missing"},
 		{"toolError", []string{"traces", "--from-url", consolePath + "?toolError=yes"}, "toolError"},
-		{"minScore", []string{"traces", "--from-url", consolePath + "?minScore=2"}, "minScore"},
 		{"timeRange", []string{"traces", "--from-url", consolePath + "?timeRange=2h"}, "timeRange"},
 		{"startTime", []string{"traces", "--from-url", consolePath + "?startTime=yesterday&endTime=" + testEnd}, "startTime"},
 		{"sortOrder", []string{"traces", "--from-url", consolePath + "?sortOrder=up"}, "sortOrder"},
