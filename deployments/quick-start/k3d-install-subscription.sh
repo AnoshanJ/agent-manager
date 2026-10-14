@@ -16,7 +16,8 @@
 # Credentials come from AMP_REGISTRY_USERNAME and AMP_REGISTRY_PASSWORD, from a
 # file named by AMP_REGISTRY_CREDENTIALS_FILE holding both, or from a prompt on
 # the terminal. They are never taken as arguments: argv is readable by every user
-# through ps, and lands in shell history.
+# through ps, and lands in shell history, and they are only ever sent over HTTPS
+# (AMP_REGISTRY_ALLOW_INSECURE=true lifts that for a test registry).
 set -euo pipefail
 
 # Stamped to the release version at build time (see .github/scripts/update-install-helpers.sh).
@@ -147,14 +148,22 @@ fi
 [[ -n "${AMP_REGISTRY_USERNAME:-}" && -n "${AMP_REGISTRY_PASSWORD:-}" ]] || die "registry username and token are both required"
 
 # --- Registry access ----------------------------------------------------------
-# Credentials and tokens reach curl through a config on stdin, never argv.
+# Credentials and tokens reach curl through a config on stdin, never argv, and
+# only over HTTPS: every credential-bearing request is limited to it, so neither
+# a plain-HTTP registry URL nor a plain-HTTP token service can receive them.
+PROTO="=https"
+if [[ "${AMP_REGISTRY_ALLOW_INSECURE:-false}" == true ]]; then
+  PROTO="=http,https"
+elif [[ "$REGISTRY_URL" != https://* ]]; then
+  die "the registry URL must use HTTPS (got ${REGISTRY_URL}); set AMP_REGISTRY_ALLOW_INSECURE=true only for a test registry"
+fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 quote() { local s="${1//\\/\\\\}"; printf '"%s"' "${s//\"/\\\"}"; }
 
 # The registry says how to authenticate in its /v2/ challenge: a bearer token
 # from a token service (Harbor), or basic auth on every request.
-challenge="$(curl -sS -o /dev/null -D - "${REGISTRY_URL}/v2/" 2>/dev/null | tr -d '\r' \
+challenge="$(curl -sS --proto "$PROTO" -o /dev/null -D - "${REGISTRY_URL}/v2/" 2>/dev/null | tr -d '\r' \
   | awk 'tolower($1) == "www-authenticate:" { $1 = ""; sub(/^ /, ""); print; exit }')" || true
 AUTH_CONFIG="$WORK/auth.curlrc"
 case "$challenge" in
@@ -163,7 +172,7 @@ case "$challenge" in
     service="$(sed -n 's/.*service="\([^"]*\)".*/\1/p' <<<"$challenge")"
     [[ -n "$realm" ]] || die "could not read the token service from ${REGISTRY_HOST}"
     token="$(printf 'user = %s\n' "$(quote "${AMP_REGISTRY_USERNAME}:${AMP_REGISTRY_PASSWORD}")" \
-      | curl -sS -K - -G "$realm" --data-urlencode "service=${service}" \
+      | curl -sS --proto "$PROTO" -K - -G "$realm" --data-urlencode "service=${service}" \
           --data-urlencode "scope=repository:${PROJECT}/${BUNDLE_REPO}:pull" 2>/dev/null \
       | grep -oE '"(token|access_token)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
       | sed 's/.*"\([^"]*\)"$/\1/')" || true
@@ -183,7 +192,7 @@ chmod 600 "$AUTH_CONFIG"
 # may redirect to storage; only HTTPS redirects are followed, so the credentials
 # can never be replayed over plain HTTP.
 registry_get() {
-  local args=(-sS -L --proto-redir "=https" -K "$AUTH_CONFIG" -o "$2" -w '%{http_code}')
+  local args=(-sS -L --proto "$PROTO" --proto-redir "=https" -K "$AUTH_CONFIG" -o "$2" -w '%{http_code}')
   [[ -n "${3:-}" ]] && args+=(-H "Accept: $3")
   curl "${args[@]}" "${REGISTRY_URL}/v2/${PROJECT}/${BUNDLE_REPO}/$1" 2>/dev/null || true
 }
@@ -219,7 +228,10 @@ code="$(registry_get "manifests/${TAG}" "$WORK/manifest.json" "application/vnd.o
 # means the artifact is not what this script expects, so it stops rather than
 # unpacking whichever blob a looser match would pick.
 BUNDLE_MEDIA_TYPE="application/vnd.oci.image.layer.v1.tar+gzip"
+# A descriptor may carry a "urls" list; it is dropped first so its brackets
+# cannot end the layers list early.
 bundle_layers="$(tr -d '\n\r\t ' < "$WORK/manifest.json" \
+  | sed 's/"urls":\[[^]]*\],\{0,1\}//g' \
   | sed -n 's/.*"layers":\[\([^]]*\)\].*/\1/p' \
   | awk '{ gsub(/\},\{/, "}\n{"); print }' \
   | grep -F "\"mediaType\":\"${BUNDLE_MEDIA_TYPE}\"" || true)"
