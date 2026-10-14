@@ -339,10 +339,10 @@ func TestTracesCmd_DefaultRequestAndTableUnchanged(t *testing.T) {
 	}
 	bold := func(s string) string { return "\x1b[1m" + s + "\x1b[0m" }
 	wantTable := strings.Join([]string{
-		bold("TRACE ID"), bold("STATUS"), bold("DURATION"), bold("SPANS"), bold("TOKENS"),
-		bold("ROOT SPAN     "), bold("CONVERSATION"), bold("STARTED"),
+		bold("STATUS"), bold("TRACE ID"), bold("CONVERSATION"), bold("STARTED   "),
+		bold("DURATION"), bold("TOKENS"), bold("SPANS"),
 	}, "  ") + "\n" +
-		"abc123    ok      1.5s      7      42      handle_request  conv-42       2026-05-12\n"
+		"ok      abc123    conv-42       2026-05-12  1.5s      42      7\n"
 	if out.String() != wantTable {
 		t.Errorf("table =\n%s\nwant\n%s", out.String(), wantTable)
 	}

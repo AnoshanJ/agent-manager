@@ -235,10 +235,11 @@ type overviewColumns struct {
 
 // renderOverviewTable prints traces as a table, with the optional columns cols picks.
 func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOverview, cols overviewColumns) error {
-	headers := []string{"trace id", "status", "duration", "spans", "tokens", "root span"}
+	headers := []string{"status", "trace id"}
 	if cols.conversation {
 		headers = append(headers, "conversation")
 	}
+	headers = append(headers, "started", "duration", "tokens", "spans")
 	if cols.models {
 		headers = append(headers, "model")
 	}
@@ -248,17 +249,17 @@ func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOvervie
 	if cols.mcpServers {
 		headers = append(headers, "mcp servers")
 	}
-	tp := tableprinter.New(o.IO, append(headers, "started")...)
+	tp := tableprinter.New(o.IO, headers...)
 	for _, tr := range traces {
-		tp.AddField(tr.TraceID)
 		tp.AddField(traceStatus(tr.Status))
-		tp.AddField(formatDuration(tr.DurationInNanos))
-		tp.AddField(fmt.Sprintf("%d", tr.SpanCount))
-		tp.AddField(tokenCount(tr.TokenUsage))
-		tp.AddField(truncate(tr.RootSpanName, 20))
+		tp.AddField(tr.TraceID)
 		if cols.conversation {
-			tp.AddField(orDash(truncate(tr.ConversationID, 20)))
+			tp.AddField(orDash(tr.ConversationID))
 		}
+		tp.AddField(timeAgo(tr.StartTime))
+		tp.AddField(formatDuration(tr.DurationInNanos))
+		tp.AddField(tokenCount(tr.TokenUsage))
+		tp.AddField(fmt.Sprintf("%d", tr.SpanCount))
 		if cols.models {
 			tp.AddField(modelList(tr.Models))
 		}
@@ -268,7 +269,6 @@ func renderOverviewTable(o *ListTracesOptions, traces []observersvc.TraceOvervie
 		if cols.mcpServers {
 			tp.AddField(orDash(strings.Join(tr.MCPServers, ", ")))
 		}
-		tp.AddField(timeAgo(tr.StartTime))
 		tp.EndRow()
 	}
 	return tp.Render()
@@ -289,39 +289,71 @@ func runToolCallFails(ctx context.Context, o *ListTracesOptions) error {
 	if err != nil {
 		return render.Error(o.IO, o.Scope, cmdutil.ObserverErrorFromResponse(err))
 	}
-	filtered := make([]observersvc.TraceOverview, 0, len(resp.Traces))
+	var filtered []observersvc.FullTrace
 	for _, tr := range resp.Traces {
 		if matchesFullCondition(tr) {
-			filtered = append(filtered, tr.TraceOverview)
+			filtered = append(filtered, tr)
 		}
 	}
-	return renderFilteredOverview(o, filtered)
+	return renderFilteredOverview(o, resp, filtered)
 }
 
 // renderFilteredOverview prints the tool_call_fails result. Export carries no
 // conversation ID or models, so the table leaves those columns out.
-func renderFilteredOverview(o *ListTracesOptions, traces []observersvc.TraceOverview) error {
+func renderFilteredOverview(o *ListTracesOptions, resp *observersvc.TraceExportResponse, traces []observersvc.FullTrace) error {
+	overviews := make([]observersvc.TraceOverview, 0, len(traces))
+	for _, tr := range traces {
+		overviews = append(overviews, tr.TraceOverview)
+	}
 	link := consoleLinkFor(o)
 	if o.IO.JSON {
-		if traces == nil {
-			traces = []observersvc.TraceOverview{}
-		}
-		data := map[string]any{
-			"traces": traces,
-			"count":  len(traces),
-		}
-		if link != "" {
-			data["consoleUrl"] = link
+		data, err := withConsoleURL(observersvc.TraceOverviewResponse{
+			Traces:       overviews,
+			TotalCount:   len(overviews),
+			LookedBackTo: resp.LookedBackTo,
+			Truncated:    resp.Truncated,
+		}, link)
+		if err != nil {
+			return render.Error(o.IO, o.Scope, err)
 		}
 		return render.JSONSuccess(o.IO, o.Scope, data)
 	}
 	if len(traces) == 0 {
 		fmt.Fprintln(o.IO.Out, "No traces match the condition.")
-	} else if err := renderOverviewTable(o, traces, overviewColumns{}); err != nil {
-		return err
+	} else {
+		rows := make([]observersvc.TraceOverview, 0, len(traces))
+		for _, tr := range traces {
+			row := tr.TraceOverview
+			row.Status = rootStatus(tr)
+			rows = append(rows, row)
+		}
+		if err := renderOverviewTable(o, rows, overviewColumns{}); err != nil {
+			return err
+		}
 	}
 	printConsoleLink(o.IO, link)
+	if resp.Truncated {
+		fmt.Fprintln(o.IO.ErrOut, truncatedNotice(o, ""))
+	}
+	if n := len(resp.FailedTraceIDs); n == 1 {
+		fmt.Fprintln(o.IO.ErrOut, "1 trace couldn't be read, so the list may be missing it.")
+	} else if n > 1 {
+		fmt.Fprintf(o.IO.ErrOut, "%d traces couldn't be read, so the list may be missing them.\n", n)
+	}
 	return nil
+}
+
+// rootStatus is the root span's status, as the server's --status filter reads it.
+func rootStatus(tr observersvc.FullTrace) *observersvc.TraceStatus {
+	for _, sp := range tr.Spans {
+		if sp.SpanID == tr.RootSpanID {
+			if sp.AmpAttributes != nil && sp.AmpAttributes.Status != nil && sp.AmpAttributes.Status.Error {
+				return &observersvc.TraceStatus{ErrorCount: 1}
+			}
+			return &observersvc.TraceStatus{}
+		}
+	}
+	return tr.Status
 }
 
 var validConditions = []string{
