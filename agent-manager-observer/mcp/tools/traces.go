@@ -67,14 +67,19 @@ type tracesInput struct {
 	MinSpanCount   *int64 `json:"min_span_count,omitempty" jsonschema:"Only traces with at least this many spans. ANDs with the other filters."`
 	Model          string `json:"model,omitempty" jsonschema:"Only traces where a model name contains this value, ignoring case (gpt-4o also matches gpt-4o-mini). ANDs with the other filters."`
 	ConversationID string `json:"conversation_id,omitempty" jsonschema:"Only traces with exactly this conversation ID. ANDs with the other filters."`
+	Tool           string `json:"tool,omitempty" jsonschema:"Only traces where a tool name contains this value, ignoring case; with tool_error, that tool must have failed. Traces over 200 spans never match. ANDs with the other filters."`
+	ToolError      bool   `json:"tool_error,omitempty" jsonschema:"Only traces with a failed tool (a tool span with OTel status error); with tool set, the failed tool must match tool. ANDs with the other filters."`
+	MCPServer      string `json:"mcp_server,omitempty" jsonschema:"Only traces where an MCP server name contains this value, ignoring case. Only traces that open an MCP session name a server. ANDs with the other filters."`
 }
 
 // listTracesInput backs list_traces (-> GetTraceOverviews), which also takes
-// include_models and a paging cursor.
+// the includes and a paging cursor.
 type listTracesInput struct {
 	tracesInput
-	IncludeModels bool   `json:"include_models,omitempty" jsonschema:"Fill models on every trace. Costs one extra upstream call per trace; the model filter implies it."`
-	Cursor        string `json:"cursor,omitempty" jsonschema:"nextCursor from a previous list_traces result, to get the next page. Send the same time window, sort order and filters."`
+	IncludeModels     bool   `json:"include_models,omitempty" jsonschema:"Fill models on every trace. Costs one extra upstream call per trace; the model filter implies it."`
+	IncludeTools      bool   `json:"include_tools,omitempty" jsonschema:"Fill tools and failedTools on every trace, from its span list. Costs one span-list call for traces that don't list their spans anyway; the tool and tool_error filters imply it."`
+	IncludeMCPServers bool   `json:"include_mcp_servers,omitempty" jsonschema:"Fill mcpServers on every trace, from its MCP handshake spans. Costs a span-list call plus up to 5 span fetches per trace, and only traces that open an MCP session name a server; the mcp_server filter implies it."`
+	Cursor            string `json:"cursor,omitempty" jsonschema:"nextCursor from a previous list_traces result, to get the next page. Send the same time window, sort order and filters."`
 }
 
 // traceDetailsInput mirrors REST GetTraceSpans: only organization + trace_id
@@ -105,7 +110,7 @@ func (t *Toolsets) registerTraceTools(server *gomcp.Server) {
 		Name: "list_traces",
 		Description: "Returns a summary view of recent traces for an agent within a time window. " +
 			"A trace is a single end-to-end execution record for an agent request. " +
-			"Filters are applied server-side across the whole window, not just one page. " +
+			"Filters (status, duration, tokens, span count, model, conversation, tool, tool_error and mcp_server) are applied server-side across the whole window, not just one page. " +
 			"The result reports lookedBackTo (how far back the search got) and truncated (the search stopped early); " +
 			"pass nextCursor back as cursor to continue.",
 	}, withToolLogging("list_traces", listTraces(t.Tracing, authorize)))
@@ -114,7 +119,7 @@ func (t *Toolsets) registerTraceTools(server *gomcp.Server) {
 		Name: "get_traces",
 		Description: "Returns the traces for an agent including full span details within a time window. " +
 			"A trace is a single end-to-end execution record for an agent which contains spans that record the internal steps of an execution. " +
-			"Filters are applied server-side across the whole window. " +
+			"Filters (status, duration, tokens, span count, model, conversation, tool, tool_error and mcp_server) are applied server-side across the whole window. " +
 			"The result reports lookedBackTo (how far back a filtered search got) and truncated (the search stopped early or a trace's spans were cut).",
 	}, withToolLogging("get_traces", getTraces(t.Tracing, authorize)))
 
@@ -217,6 +222,12 @@ func (in tracesInput) filters() (controllers.TraceFilters, error) {
 	if err := controllers.CheckFilterValue("conversation_id", in.ConversationID); err != nil {
 		return controllers.TraceFilters{}, err
 	}
+	if err := controllers.CheckFilterValue("tool", in.Tool); err != nil {
+		return controllers.TraceFilters{}, err
+	}
+	if err := controllers.CheckFilterValue("mcp_server", in.MCPServer); err != nil {
+		return controllers.TraceFilters{}, err
+	}
 	return controllers.TraceFilters{
 		Status:         status,
 		MinDurationMs:  in.MinDurationMs,
@@ -224,7 +235,25 @@ func (in tracesInput) filters() (controllers.TraceFilters, error) {
 		MinSpanCount:   in.MinSpanCount,
 		Model:          in.Model,
 		ConversationID: in.ConversationID,
+		Tool:           in.Tool,
+		ToolError:      in.ToolError,
+		MCPServer:      in.MCPServer,
 	}, nil
+}
+
+// listQueryParams validates list_traces' inputs: the shared ones, the includes and the cursor.
+func (in listTracesInput) listQueryParams() (controllers.TraceQueryParams, error) {
+	params, err := in.queryParams(defaultTraceListLimit, maxTraceListLimit)
+	if err != nil {
+		return controllers.TraceQueryParams{}, err
+	}
+	params.Include = controllers.Include{Models: in.IncludeModels, Tools: in.IncludeTools, MCPServers: in.IncludeMCPServers}
+	if in.Cursor != "" {
+		if params.Cursor, err = controllers.DecodeTraceCursor(in.Cursor); err != nil {
+			return controllers.TraceQueryParams{}, fmt.Errorf("invalid cursor")
+		}
+	}
+	return params, nil
 }
 
 // listTraces handles list_traces: one page of trace overviews, filtered and paged by cursor.
@@ -233,15 +262,9 @@ func listTraces(tracing *controllers.TracingController, authorize func(*gomcp.Ca
 		if err := authorize(req); err != nil {
 			return nil, nil, err
 		}
-		params, err := input.queryParams(defaultTraceListLimit, maxTraceListLimit)
+		params, err := input.listQueryParams()
 		if err != nil {
 			return nil, nil, err
-		}
-		params.Include.Models = input.IncludeModels
-		if input.Cursor != "" {
-			if params.Cursor, err = controllers.DecodeTraceCursor(input.Cursor); err != nil {
-				return nil, nil, fmt.Errorf("invalid cursor")
-			}
 		}
 
 		result, err := tracing.GetTraceOverviews(ctx, params)
