@@ -520,3 +520,60 @@ func TestGetMetrics_NonOKReturnsHTTPError(t *testing.T) {
 		t.Fatalf("expected *HTTPError, got %T: %v", err, err)
 	}
 }
+
+func TestListTraces_SendsMissingAndCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("missing") != "conversationId" || q.Get("cursor") != "abc" {
+			t.Errorf("missing = %q, cursor = %q; want conversationId and abc", q.Get("missing"), q.Get("cursor"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(TraceOverviewResponse{})
+	}))
+	defer srv.Close()
+
+	c, _ := NewClient(srv.URL)
+	if _, err := c.ListTraces(context.Background(), &ListTracesParams{
+		Organization: "acme", Missing: []string{"conversationId"}, Cursor: "abc",
+	}); err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+}
+
+func TestExportTraces_SendsMissingButNoCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("missing") != "conversationId" {
+			t.Errorf("missing = %q, want conversationId", q.Get("missing"))
+		}
+		if q.Has("cursor") {
+			t.Errorf("export sent cursor %q", q.Get("cursor"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(TraceExportResponse{})
+	}))
+	defer srv.Close()
+
+	c, _ := NewClient(srv.URL)
+	if _, err := c.ExportTraces(context.Background(), &ExportTracesParams{
+		Organization: "acme", Missing: []string{"conversationId"}, Cursor: "abc",
+	}); err != nil {
+		t.Fatalf("ExportTraces: %v", err)
+	}
+}
+
+func TestListTraces_OmitsUnsetMissingAndCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query(); q.Has("missing") || q.Has("cursor") {
+			t.Errorf("unset params sent: %v", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(TraceOverviewResponse{})
+	}))
+	defer srv.Close()
+
+	c, _ := NewClient(srv.URL)
+	if _, err := c.ListTraces(context.Background(), &ListTracesParams{Organization: "acme"}); err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+}

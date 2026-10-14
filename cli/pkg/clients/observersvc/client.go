@@ -141,6 +141,9 @@ func setCommonParams(q url.Values, p *ListTracesParams) {
 	if p.ConversationID != "" {
 		q.Set("conversationId", p.ConversationID)
 	}
+	if len(p.Missing) > 0 {
+		q.Set("missing", strings.Join(p.Missing, ","))
+	}
 	if p.Tool != "" {
 		q.Set("tool", p.Tool)
 	}
@@ -185,6 +188,9 @@ func (c *Client) ListTraces(ctx context.Context, p *ListTracesParams) (*TraceOve
 	setCommonParams(q, p)
 	if include := includeValues(p); len(include) > 0 {
 		q.Set("include", strings.Join(include, ","))
+	}
+	if p.Cursor != "" {
+		q.Set("cursor", p.Cursor)
 	}
 	var out TraceOverviewResponse
 	if err := c.do(ctx, http.MethodGet, "/api/v1/traces", q, &out); err != nil {

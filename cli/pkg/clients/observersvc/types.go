@@ -158,6 +158,8 @@ type ListTracesParams struct {
 	MinSpanCount   *int64
 	Model          string
 	ConversationID string
+	// Missing names fields a trace must lack, in the API's spelling (conversationId).
+	Missing []string
 
 	// Tool and MCPServer are substrings; with Tool set, ToolError needs that tool to fail.
 	Tool      string
@@ -173,6 +175,9 @@ type ListTracesParams struct {
 	IncludeModels     bool
 	IncludeTools      bool
 	IncludeMCPServers bool
+
+	// Cursor is an earlier page's nextCursor; only ListTraces sends it.
+	Cursor string
 }
 
 type ExportTracesParams = ListTracesParams

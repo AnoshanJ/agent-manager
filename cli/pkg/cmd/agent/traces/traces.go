@@ -17,8 +17,6 @@
 package traces
 
 import (
-	"time"
-
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/agent-manager/cli/pkg/cmdutil"
@@ -37,12 +35,8 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 		MakeScope:    f.EnvScope,
 	}
 	var (
-		since       string
-		minDuration time.Duration
-		minTokens   int64
-		minSpans    int64
-		minScore    float64
-		maxScore    float64
+		window  windowFlags
+		filters filterFlagValues
 	)
 
 	cmd := &cobra.Command{
@@ -62,7 +56,11 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			"finds tool spans named after the function and failures marked only by error.type or gen_ai.tool.status. " +
 			"MCP servers show only for traces that open an MCP session.\n\n" +
 			"--min-score and --max-score bound a trace's mean evaluation score, inclusive; --evaluator scores " +
-			"only that evaluator and needs one of them.",
+			"only that evaluator and needs one of them.\n\n" +
+			"--no-conversation keeps traces with no conversation ID. --start and --end set a fixed window " +
+			"instead of --since. When the server stops searching early in table output, the notice prints the " +
+			"command for the next page; JSON output carries nextCursor, which --cursor takes with the same " +
+			"window, sort and filters.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			org, proj, err := opts.ResolveScope(cmd, true, true)
@@ -81,30 +79,17 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			scope := opts.MakeScope(org, proj, agentName, env)
 			opts.Org, opts.Proj, opts.AgentName, opts.Env, opts.Scope = org, proj, agentName, env, scope
 
-			opts.StartTime, opts.EndTime, err = cmdutil.ResolveSinceWindow(since)
+			opts.StartTime, opts.EndTime, err = resolveWindow(&window, cmd.Flags().Changed("since"))
 			if err != nil {
-				return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--since: %v", err))
+				return render.Error(opts.IO, scope, err)
 			}
+			opts.CommandPath = cmd.CommandPath()
 
 			if opts.Limit < 1 || opts.Limit > 100 {
 				return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--limit must be between 1 and 100"))
 			}
 
-			if cmd.Flags().Changed("min-duration") {
-				opts.MinDurationMs = int64Ptr(minDuration.Milliseconds())
-			}
-			if cmd.Flags().Changed("min-tokens") {
-				opts.MinTokens = &minTokens
-			}
-			if cmd.Flags().Changed("min-spans") {
-				opts.MinSpans = &minSpans
-			}
-			if cmd.Flags().Changed("min-score") {
-				opts.MinScore = &minScore
-			}
-			if cmd.Flags().Changed("max-score") {
-				opts.MaxScore = &maxScore
-			}
+			applyFilterFlags(cmd.Flags().Changed, opts, &filters)
 			if err := resolveFilters(opts); err != nil {
 				return render.Error(opts.IO, scope, err)
 			}
@@ -119,22 +104,13 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			return runListTraces(cmd.Context(), opts)
 		},
 	}
-	cmd.Flags().StringVar(&since, "since", "24h", "Time window (e.g. 1h, 30m, 7d)")
+	cmd.Flags().StringVar(&window.since, "since", "24h", "Time window (e.g. 1h, 30m, 7d)")
+	addWindowFlags(cmd, &window)
 	cmd.Flags().IntVar(&opts.Limit, "limit", 10, "Max traces to return (1-100)")
 	cmd.Flags().StringVar(&opts.SortOrder, "sort", "desc", "Sort order: asc or desc")
-	cmd.Flags().StringVar(&opts.Status, "status", "", "Only traces with this status: error or ok")
-	cmd.Flags().DurationVar(&minDuration, "min-duration", 0, "Only traces lasting at least this long (e.g. 500ms, 30s)")
-	cmd.Flags().Int64Var(&minTokens, "min-tokens", 0, "Only traces using at least this many tokens")
-	cmd.Flags().Int64Var(&minSpans, "min-spans", 0, "Only traces with at least this many spans")
-	cmd.Flags().StringVar(&opts.Model, "model", "", "Only traces where a model name contains this value, ignoring case (implies --show-models)")
-	cmd.Flags().StringVar(&opts.ConversationID, "conversation", "", "Only traces with exactly this conversation ID")
+	cmd.Flags().StringVar(&opts.Cursor, "cursor", "", "Continue from the nextCursor of an earlier run; keep its window, sort and filters")
+	addFilterFlags(cmd, opts, &filters, true)
 	cmd.Flags().BoolVar(&opts.ShowModels, "show-models", false, "Add a Model column (costs the server one extra call per trace)")
-	cmd.Flags().StringVar(&opts.Tool, "tool", "", "Only traces that called a tool whose name contains this value, ignoring case (implies --show-tools)")
-	cmd.Flags().BoolVar(&opts.ToolError, "tool-error", false, "Only traces with a failed tool, by the tool span's OTel status; with --tool, that tool failed (implies --show-tools)")
-	cmd.Flags().StringVar(&opts.MCPServer, "mcp-server", "", "Only traces that used an MCP server whose name contains this value, ignoring case (implies --show-mcp-servers)")
-	cmd.Flags().Float64Var(&minScore, "min-score", 0, "Only traces whose mean evaluation score is at least this (0-1)")
-	cmd.Flags().Float64Var(&maxScore, "max-score", 0, "Only traces whose mean evaluation score is at most this (0-1)")
-	cmd.Flags().StringVar(&opts.Evaluator, "evaluator", "", "Score only this evaluator, by its exact display name (needs --min-score or --max-score)")
 	cmd.Flags().BoolVar(&opts.ShowTools, "show-tools", false, "Add a Tools column, with failed tools marked (costs the server up to one extra call per trace)")
 	cmd.Flags().BoolVar(&opts.ShowMCPServers, "show-mcp-servers", false, "Add an MCP Servers column (costs the server extra calls per trace)")
 	cmd.Flags().StringVar(&opts.Condition, "condition", "", "Shorthand filter: error_status, high_latency, high_token_usage, tool_call_fails, excessive_steps")

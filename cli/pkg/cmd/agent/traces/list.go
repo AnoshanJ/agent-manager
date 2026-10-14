@@ -18,8 +18,10 @@ package traces
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -75,6 +77,7 @@ type ListTracesOptions struct {
 	MinSpans       *int64
 	Model          string
 	ConversationID string
+	NoConversation bool
 	ShowModels     bool
 
 	Tool           string
@@ -85,6 +88,10 @@ type ListTracesOptions struct {
 	Evaluator      string
 	ShowTools      bool
 	ShowMCPServers bool
+
+	// Cursor continues an earlier list; CommandPath starts the printed next-page command.
+	Cursor      string
+	CommandPath string
 }
 
 func parseTimeOrZero(s string) time.Time {
@@ -99,35 +106,44 @@ func parseTimeOrZero(s string) time.Time {
 func listParams(o *ListTracesOptions) *observersvc.ListTracesParams {
 	limit := o.Limit
 	sortOrder := o.SortOrder
-	return &observersvc.ListTracesParams{
-		Organization:   o.Org,
-		Project:        o.Proj,
-		Agent:          o.AgentName,
-		Environment:    o.Env,
-		StartTime:      parseTimeOrZero(o.StartTime),
-		EndTime:        parseTimeOrZero(o.EndTime),
-		Limit:          &limit,
-		SortOrder:      &sortOrder,
-		Status:         o.Status,
-		MinDurationMs:  o.MinDurationMs,
-		MinTokens:      o.MinTokens,
-		MinSpanCount:   o.MinSpans,
-		Model:          o.Model,
-		ConversationID: o.ConversationID,
-		Tool:           o.Tool,
-		ToolError:      o.ToolError,
-		MCPServer:      o.MCPServer,
-		MinScore:       o.MinScore,
-		MaxScore:       o.MaxScore,
-		Evaluator:      o.Evaluator,
+	p := &observersvc.ListTracesParams{
+		Organization: o.Org,
+		Project:      o.Proj,
+		Agent:        o.AgentName,
+		Environment:  o.Env,
+		StartTime:    parseTimeOrZero(o.StartTime),
+		EndTime:      parseTimeOrZero(o.EndTime),
+		Limit:        &limit,
+		SortOrder:    &sortOrder,
 	}
+	setFilterParams(p, o)
+	return p
+}
+
+// setFilterParams copies o's filters onto p.
+func setFilterParams(p *observersvc.ListTracesParams, o *ListTracesOptions) {
+	p.Status = o.Status
+	p.MinDurationMs = o.MinDurationMs
+	p.MinTokens = o.MinTokens
+	p.MinSpanCount = o.MinSpans
+	p.Model = o.Model
+	p.ConversationID = o.ConversationID
+	if o.NoConversation {
+		p.Missing = []string{"conversationId"}
+	}
+	p.Tool = o.Tool
+	p.ToolError = o.ToolError
+	p.MCPServer = o.MCPServer
+	p.MinScore = o.MinScore
+	p.MaxScore = o.MaxScore
+	p.Evaluator = o.Evaluator
 }
 
 // hasFilters reports whether any filter flag is set.
 func hasFilters(o *ListTracesOptions) bool {
 	return o.Status != "" || o.MinDurationMs != nil || o.MinTokens != nil || o.MinSpans != nil ||
-		o.Model != "" || o.ConversationID != "" || o.Tool != "" || o.ToolError || o.MCPServer != "" ||
-		o.MinScore != nil || o.MaxScore != nil
+		o.Model != "" || o.ConversationID != "" || o.NoConversation || o.Tool != "" || o.ToolError ||
+		o.MCPServer != "" || o.MinScore != nil || o.MaxScore != nil
 }
 
 // runListTraces lists trace overviews, filtered server-side.
@@ -144,14 +160,16 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 	params.IncludeModels = o.ShowModels
 	params.IncludeTools = o.ShowTools
 	params.IncludeMCPServers = o.ShowMCPServers
+	params.Cursor = o.Cursor
 	resp, err := client.ListTraces(ctx, params)
 	if err != nil {
+		if o.Cursor != "" && isInvalidCursor(err) {
+			return render.Error(o.IO, o.Scope, cmdutil.FlagErrorf("--cursor: not a nextCursor the server accepts"))
+		}
 		return render.Error(o.IO, o.Scope, cmdutil.ObserverErrorFromResponse(err))
 	}
 
 	if o.IO.JSON {
-		// The CLI takes no cursor, so don't print one.
-		resp.NextCursor = ""
 		return render.JSONSuccess(o.IO, o.Scope, resp)
 	}
 
@@ -170,16 +188,24 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 		return err
 	}
 	if resp.Truncated {
-		fmt.Fprintln(o.IO.ErrOut, truncatedNotice(resp.NextCursor != ""))
+		fmt.Fprintln(o.IO.ErrOut, truncatedNotice(o, resp.NextCursor))
 	}
 	return nil
 }
 
+// isInvalidCursor reports whether the server rejected the request's cursor.
+func isInvalidCursor(err error) bool {
+	var herr *observersvc.HTTPError
+	return errors.As(err, &herr) && herr.StatusCode == http.StatusBadRequest &&
+		herr.Body != nil && herr.Body.Message == "invalid cursor"
+}
+
 // truncatedNotice explains a truncated list. With a cursor the examine cap or
-// the time budget stopped the search; without one the list hit the depth cap.
-func truncatedNotice(hasCursor bool) string {
-	if hasCursor {
-		return "Showing matches from the traces searched so far; narrow the time range to see more."
+// the time budget stopped the search, and the notice gives the next page's
+// command; without one the list hit the depth cap.
+func truncatedNotice(o *ListTracesOptions, cursor string) string {
+	if cursor != "" {
+		return "Showing matches from the traces searched so far; for the next page, run:\n  " + nextPageCommand(o, cursor)
 	}
 	return "The list stops here: the remaining traces are more than 1,000 traces into this time range; narrow the time range to see more."
 }
@@ -316,6 +342,9 @@ func resolveFilters(o *ListTracesOptions) error {
 			return cmdutil.FlagErrorf("%s must not be negative", m.flag)
 		}
 	}
+	if o.NoConversation && o.ConversationID != "" {
+		return cmdutil.FlagErrorf("--no-conversation can't be used with --conversation")
+	}
 	if o.ShowModels && o.Condition == conditionToolCallFails {
 		return cmdutil.FlagErrorf("--show-models can't be used with --condition %s", conditionToolCallFails)
 	}
@@ -328,7 +357,7 @@ func resolveFilters(o *ListTracesOptions) error {
 	return applyCondition(o)
 }
 
-// checkToolFilters rejects tool flags that clash with --condition tool_call_fails.
+// checkToolFilters rejects the flags --condition tool_call_fails can't take.
 func checkToolFilters(o *ListTracesOptions) error {
 	if o.Condition != conditionToolCallFails {
 		return nil
@@ -340,6 +369,7 @@ func checkToolFilters(o *ListTracesOptions) error {
 		{"--tool-error", o.ToolError},
 		{"--show-tools", o.ShowTools},
 		{"--show-mcp-servers", o.ShowMCPServers},
+		{"--cursor", o.Cursor != ""},
 	} {
 		if f.set {
 			return cmdutil.FlagErrorf("%s can't be used with --condition %s", f.flag, conditionToolCallFails)

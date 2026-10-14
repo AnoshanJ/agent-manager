@@ -53,23 +53,24 @@ const (
 // listTracesInput: both REST routes accept the same scope, time-window,
 // paging and filter inputs. Set filters AND together.
 type tracesInput struct {
-	Organization   string `json:"organization" jsonschema:"required"`
-	Project        string `json:"project" jsonschema:"required"`
-	Agent          string `json:"agent" jsonschema:"required"`
-	Environment    string `json:"environment" jsonschema:"required"`
-	StartTime      string `json:"start_time,omitempty"`
-	EndTime        string `json:"end_time,omitempty"`
-	Limit          *int   `json:"limit,omitempty"`
-	SortOrder      string `json:"sort_order,omitempty"`
-	Status         string `json:"status,omitempty" jsonschema:"Only traces whose root span is 'error' or 'ok'. ANDs with the other filters."`
-	MinDurationMs  *int64 `json:"min_duration_ms,omitempty" jsonschema:"Only traces lasting at least this many milliseconds. ANDs with the other filters."`
-	MinTokens      *int64 `json:"min_tokens,omitempty" jsonschema:"Only traces using at least this many tokens in total; a trace with no token usage never matches. ANDs with the other filters."`
-	MinSpanCount   *int64 `json:"min_span_count,omitempty" jsonschema:"Only traces with at least this many spans. ANDs with the other filters."`
-	Model          string `json:"model,omitempty" jsonschema:"Only traces where a model name contains this value, ignoring case (gpt-4o also matches gpt-4o-mini). ANDs with the other filters."`
-	ConversationID string `json:"conversation_id,omitempty" jsonschema:"Only traces with exactly this conversation ID. ANDs with the other filters."`
-	Tool           string `json:"tool,omitempty" jsonschema:"Only traces where a tool name contains this value, ignoring case; with tool_error, that tool must have failed. Traces over 200 spans never match. ANDs with the other filters."`
-	ToolError      bool   `json:"tool_error,omitempty" jsonschema:"Only traces with a failed tool (a tool span with OTel status error); with tool set, the failed tool must match tool. ANDs with the other filters."`
-	MCPServer      string `json:"mcp_server,omitempty" jsonschema:"Only traces where an MCP server name contains this value, ignoring case. Only traces that open an MCP session name a server. ANDs with the other filters."`
+	Organization   string   `json:"organization" jsonschema:"required"`
+	Project        string   `json:"project" jsonschema:"required"`
+	Agent          string   `json:"agent" jsonschema:"required"`
+	Environment    string   `json:"environment" jsonschema:"required"`
+	StartTime      string   `json:"start_time,omitempty"`
+	EndTime        string   `json:"end_time,omitempty"`
+	Limit          *int     `json:"limit,omitempty"`
+	SortOrder      string   `json:"sort_order,omitempty"`
+	Status         string   `json:"status,omitempty" jsonschema:"Only traces whose root span is 'error' or 'ok'. ANDs with the other filters."`
+	MinDurationMs  *int64   `json:"min_duration_ms,omitempty" jsonschema:"Only traces lasting at least this many milliseconds. ANDs with the other filters."`
+	MinTokens      *int64   `json:"min_tokens,omitempty" jsonschema:"Only traces using at least this many tokens in total; a trace with no token usage never matches. ANDs with the other filters."`
+	MinSpanCount   *int64   `json:"min_span_count,omitempty" jsonschema:"Only traces with at least this many spans. ANDs with the other filters."`
+	Model          string   `json:"model,omitempty" jsonschema:"Only traces where a model name contains this value, ignoring case (gpt-4o also matches gpt-4o-mini). ANDs with the other filters."`
+	ConversationID string   `json:"conversation_id,omitempty" jsonschema:"Only traces with exactly this conversation ID. ANDs with the other filters."`
+	Tool           string   `json:"tool,omitempty" jsonschema:"Only traces where a tool name contains this value, ignoring case; with tool_error, that tool must have failed. Traces over 200 spans never match. ANDs with the other filters."`
+	ToolError      bool     `json:"tool_error,omitempty" jsonschema:"Only traces with a failed tool (a tool span with OTel status error); with tool set, the failed tool must match tool. ANDs with the other filters."`
+	MCPServer      string   `json:"mcp_server,omitempty" jsonschema:"Only traces where an MCP server name contains this value, ignoring case. Only traces that open an MCP session name a server. ANDs with the other filters."`
+	Missing        []string `json:"missing,omitempty" jsonschema:"Only traces without these fields; accepts conversation_id. Can't be combined with conversation_id. ANDs with the other filters."`
 }
 
 // listTracesInput backs list_traces (-> GetTraceOverviews), which also takes
@@ -110,7 +111,7 @@ func (t *Toolsets) registerTraceTools(server *gomcp.Server) {
 		Name: "list_traces",
 		Description: "Returns a summary view of recent traces for an agent within a time window. " +
 			"A trace is a single end-to-end execution record for an agent request. " +
-			"Filters (status, duration, tokens, span count, model, conversation, tool, tool_error and mcp_server) are applied server-side across the whole window, not just one page. " +
+			"Filters (status, duration, tokens, span count, model, conversation, missing, tool, tool_error and mcp_server) are applied server-side across the whole window, not just one page. " +
 			"The result reports lookedBackTo (how far back the search got) and truncated (the search stopped early); " +
 			"pass nextCursor back as cursor to continue.",
 	}, withToolLogging("list_traces", listTraces(t.Tracing, authorize)))
@@ -119,7 +120,7 @@ func (t *Toolsets) registerTraceTools(server *gomcp.Server) {
 		Name: "get_traces",
 		Description: "Returns the traces for an agent including full span details within a time window. " +
 			"A trace is a single end-to-end execution record for an agent which contains spans that record the internal steps of an execution. " +
-			"Filters (status, duration, tokens, span count, model, conversation, tool, tool_error and mcp_server) are applied server-side across the whole window. " +
+			"Filters (status, duration, tokens, span count, model, conversation, missing, tool, tool_error and mcp_server) are applied server-side across the whole window. " +
 			"The result reports lookedBackTo (how far back a filtered search got) and truncated (the search stopped early or a trace's spans were cut).",
 	}, withToolLogging("get_traces", getTraces(t.Tracing, authorize)))
 
@@ -228,7 +229,13 @@ func (in tracesInput) filters() (controllers.TraceFilters, error) {
 	if err := controllers.CheckFilterValue("mcp_server", in.MCPServer); err != nil {
 		return controllers.TraceFilters{}, err
 	}
-	return controllers.TraceFilters{
+	var missing controllers.MissingFields
+	for _, v := range in.Missing {
+		if err := controllers.ParseMissingField(&missing, v, "conversation_id"); err != nil {
+			return controllers.TraceFilters{}, err
+		}
+	}
+	f := controllers.TraceFilters{
 		Status:         status,
 		MinDurationMs:  in.MinDurationMs,
 		MinTokens:      in.MinTokens,
@@ -238,7 +245,12 @@ func (in tracesInput) filters() (controllers.TraceFilters, error) {
 		Tool:           in.Tool,
 		ToolError:      in.ToolError,
 		MCPServer:      in.MCPServer,
-	}, nil
+		Missing:        missing,
+	}
+	if err := controllers.CheckMissingConflict(f, "conversation_id"); err != nil {
+		return controllers.TraceFilters{}, err
+	}
+	return f, nil
 }
 
 // listQueryParams validates list_traces' inputs: the shared ones, the includes and the cursor.

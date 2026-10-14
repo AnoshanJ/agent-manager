@@ -278,12 +278,12 @@ func TestListTraces_TruncatedNotice(t *testing.T) {
 		{
 			name: "search stopped early",
 			resp: observersvc.TraceOverviewResponse{Traces: []observersvc.TraceOverview{trace}, Truncated: true, NextCursor: "c"},
-			want: "Showing matches from the traces searched so far; narrow the time range to see more.\n",
+			want: "Showing matches from the traces searched so far; for the next page, run:\n  amctl agent traces my-agent --limit 10 --status error --cursor c\n",
 		},
 		{
 			name: "no matches yet",
 			resp: observersvc.TraceOverviewResponse{Truncated: true, NextCursor: "c"},
-			want: "Showing matches from the traces searched so far; narrow the time range to see more.\n",
+			want: "Showing matches from the traces searched so far; for the next page, run:\n  amctl agent traces my-agent --limit 10 --status error --cursor c\n",
 		},
 		{
 			name: "depth cap",
@@ -324,7 +324,6 @@ func TestListTraces_JSONCarriesTruncatedWithoutCursor(t *testing.T) {
 		Traces:       []observersvc.TraceOverview{},
 		LookedBackTo: "2026-05-12T03:00:00Z",
 		Truncated:    true,
-		NextCursor:   "c",
 	})
 	defer closeFn()
 

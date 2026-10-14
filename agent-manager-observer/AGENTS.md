@@ -22,7 +22,7 @@ HTTP → RequestLogger → CORS → mux ┬→ /health                          
 - **`mcp/`** — the `am-obs-mcp` streamable-HTTP MCP server (`mcp/setup.go`) and its seven tools (`mcp/tools/`): `get_runtime_logs`, `get_build_logs`, `get_metrics`, `list_traces`, `get_traces`, `get_trace_details`, `get_span_details`.
   - Tool handlers call `controllers.TracingController`/`controllers.ObservabilityController` directly — no HTTP hop, no claims parsing.
   - Every tool takes an explicit, required `organization` input except `get_span_details` (its controller call is scoped by trace/span ID alone).
-  - `list_traces` and `get_traces` take the list filters as snake_case inputs, checked by the same `controllers` validators as the HTTP handler: `status`, `min_duration_ms`, `min_tokens`, `min_span_count`, `model`, `conversation_id`, `tool`, `tool_error` and `mcp_server`.
+  - `list_traces` and `get_traces` take the list filters as snake_case inputs, checked by the same `controllers` validators as the HTTP handler: `status`, `min_duration_ms`, `min_tokens`, `min_span_count`, `model`, `conversation_id`, `missing` (`["conversation_id"]` keeps traces without one; not with `conversation_id`), `tool`, `tool_error` and `mcp_server`.
   - `list_traces` also takes `include_models`, `include_tools`, `include_mcp_servers` and `cursor`.
   - The tools take no score filters: agent-manager-service doesn't accept `am-obs-mcp` tokens, and forwarding them would be token passthrough.
 
