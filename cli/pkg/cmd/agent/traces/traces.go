@@ -37,6 +37,7 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 	var (
 		window  windowFlags
 		filters filterFlagValues
+		fromURL string
 	)
 
 	cmd := &cobra.Command{
@@ -60,9 +61,24 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			"--no-conversation keeps traces with no conversation ID. --start and --end set a fixed window " +
 			"instead of --since. When the server stops searching early in table output, the notice prints the " +
 			"command for the next page; JSON output carries nextCursor, which --cursor takes with the same " +
-			"window, sort and filters.",
+			"window, sort and filters.\n\n" +
+			"--console-url prints the console path that shows the same list; paste it after your console's host. " +
+			"--from-url takes a console URL, path or \"?...\" query and lists the same traces. Its path sets the " +
+			"org, project, agent and environment, so <agent> is optional; with no time range in the URL, the window " +
+			"is the console's 1h. A filter can't come from both the URL and its flag; --limit, --sort, --since, " +
+			"--start and --end override the URL.\n\n" +
+			"Examples:\n" +
+			"  amctl agent traces my-agent --env dev --min-duration 5s --since 3h --console-url\n" +
+			"  amctl agent traces --from-url 'https://console.example.com/org/acme/project/triage/agents/my-agent/" +
+			"environment/dev/observability/traces?minDurationMs=5000&timeRange=3h'",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if fromURL != "" {
+				var err error
+				if args, err = applyFromURL(cmd, fromURL, args, opts.Condition); err != nil {
+					return render.Error(opts.IO, render.Scope{}, err)
+				}
+			}
 			org, proj, err := opts.ResolveScope(cmd, true, true)
 			if err != nil {
 				return render.Error(opts.IO, render.Scope{}, err)
@@ -82,6 +98,9 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 			opts.StartTime, opts.EndTime, err = resolveWindow(&window, cmd.Flags().Changed("since"))
 			if err != nil {
 				return render.Error(opts.IO, scope, err)
+			}
+			if window.start == "" {
+				opts.Since = window.since
 			}
 			opts.CommandPath = cmd.CommandPath()
 
@@ -117,6 +136,7 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd.Flags().IntVar(&opts.MaxLatency, "max-latency", 30000, "Latency threshold in ms; high_latency matches traces above it")
 	cmd.Flags().IntVar(&opts.MaxTokens, "max-tokens", 10000, "Token threshold; high_token_usage matches traces above it")
 	cmd.Flags().IntVar(&opts.MaxSpans, "max-spans", 40, "Span count threshold; excessive_steps matches traces above it")
+	addConsoleFlags(cmd, &opts.ShowConsoleURL, &fromURL)
 	cmdutil.AddEnvFlag(cmd)
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {

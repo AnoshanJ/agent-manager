@@ -92,6 +92,18 @@ type ListTracesOptions struct {
 	// Cursor continues an earlier list; CommandPath starts the printed next-page command.
 	Cursor      string
 	CommandPath string
+
+	// Since is --since when it set the window; ShowConsoleURL prints the console link.
+	Since          string
+	ShowConsoleURL bool
+}
+
+// consoleLinkFor is the list's console link, or "" without --console-url.
+func consoleLinkFor(o *ListTracesOptions) string {
+	if !o.ShowConsoleURL {
+		return ""
+	}
+	return consoleLink(o, consoleParams, "")
 }
 
 func parseTimeOrZero(s string) time.Time {
@@ -169,8 +181,13 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 		return render.Error(o.IO, o.Scope, cmdutil.ObserverErrorFromResponse(err))
 	}
 
+	link := consoleLinkFor(o)
 	if o.IO.JSON {
-		return render.JSONSuccess(o.IO, o.Scope, resp)
+		data, err := withConsoleURL(resp, link)
+		if err != nil {
+			return render.Error(o.IO, o.Scope, err)
+		}
+		return render.JSONSuccess(o.IO, o.Scope, data)
 	}
 
 	if len(resp.Traces) == 0 {
@@ -187,6 +204,7 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 	}); err != nil {
 		return err
 	}
+	printConsoleLink(o.IO, link)
 	if resp.Truncated {
 		fmt.Fprintln(o.IO.ErrOut, truncatedNotice(o, resp.NextCursor))
 	}
@@ -283,20 +301,27 @@ func runToolCallFails(ctx context.Context, o *ListTracesOptions) error {
 // renderFilteredOverview prints the tool_call_fails result. Export carries no
 // conversation ID or models, so the table leaves those columns out.
 func renderFilteredOverview(o *ListTracesOptions, traces []observersvc.TraceOverview) error {
+	link := consoleLinkFor(o)
 	if o.IO.JSON {
 		if traces == nil {
 			traces = []observersvc.TraceOverview{}
 		}
-		return render.JSONSuccess(o.IO, o.Scope, map[string]any{
+		data := map[string]any{
 			"traces": traces,
 			"count":  len(traces),
-		})
+		}
+		if link != "" {
+			data["consoleUrl"] = link
+		}
+		return render.JSONSuccess(o.IO, o.Scope, data)
 	}
 	if len(traces) == 0 {
 		fmt.Fprintln(o.IO.Out, "No traces match the condition.")
-		return nil
+	} else if err := renderOverviewTable(o, traces, overviewColumns{}); err != nil {
+		return err
 	}
-	return renderOverviewTable(o, traces, overviewColumns{})
+	printConsoleLink(o.IO, link)
+	return nil
 }
 
 var validConditions = []string{

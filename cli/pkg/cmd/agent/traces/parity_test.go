@@ -84,7 +84,7 @@ func runAmctl(t *testing.T, handler http.HandlerFunc, jsonMode bool, args ...str
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return cmdutil.FlagErrorWrap(err) })
 	cmdutil.EnableOrgOverride(root, f)
 	cmdutil.EnableProjectOverride(root, f)
-	root.AddCommand(NewTracesCmd(f))
+	root.AddCommand(NewTracesCmd(f), NewTraceCmd(f))
 	root.SetArgs(args)
 	run.err = root.Execute()
 	run.out, run.errOut = out.String(), errOut.String()

@@ -177,6 +177,7 @@ func nextPageCommand(o *ListTracesOptions, cursor string) string {
 	addBool("--show-models", o.ShowModels)
 	addBool("--show-tools", o.ShowTools)
 	addBool("--show-mcp-servers", o.ShowMCPServers)
+	addBool("--console-url", o.ShowConsoleURL)
 	add("--cursor", cursor)
 	return strings.Join(args, " ")
 }
