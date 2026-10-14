@@ -51,6 +51,7 @@ type ExportTracesOptions struct {
 	Filters ListTracesOptions
 }
 
+// NewExportCmd returns the `agent traces export` command.
 func NewExportCmd(f *cmdutil.Factory) *cobra.Command {
 	opts := &ExportTracesOptions{
 		IO:           f.IOStreams,
@@ -127,6 +128,7 @@ func NewExportCmd(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
+// runExportTraces exports the traces and writes them out.
 func runExportTraces(ctx context.Context, o *ExportTracesOptions) error {
 	if err := cmdutil.ValidatePathParam("agent name", o.AgentName); err != nil {
 		return render.Error(o.IO, o.Scope, err)

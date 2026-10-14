@@ -180,6 +180,7 @@ func TestFromURL_FormsReadTheSame(t *testing.T) {
 		{"traces", "--from-url", "http://localhost:3000" + consolePath + query},
 		{"traces", "--from-url", consolePath + query},
 		{"traces", "--from-url", "https://console.example.com/amp/console" + consolePath + "/" + query + "#top"},
+		{"traces", "--from-url", "https://console.example.com/org/console" + consolePath + query},
 	} {
 		got := mustRun(t, args...)
 		sameRequest(t, want.requests[0], got.requests[0])

@@ -567,6 +567,7 @@ func pathSegment(path, prefix, suffix string) string {
 	return seg
 }
 
+// parseRFC3339 parses s as an RFC 3339 time.
 func parseRFC3339(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, fmt.Errorf("value is required")
@@ -574,6 +575,7 @@ func parseRFC3339(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)
 }
 
+// parseLimit parses a page size, defaulting to defaultVal and capped at maxVal.
 func parseLimit(s string, defaultVal, maxVal int) (int, error) {
 	if s == "" {
 		return defaultVal, nil
@@ -588,6 +590,7 @@ func parseLimit(s string, defaultVal, maxVal int) (int, error) {
 	return v, nil
 }
 
+// parseSortOrder parses asc or desc, defaulting to defaultVal.
 func parseSortOrder(s, defaultVal string) (string, error) {
 	if s == "" {
 		return defaultVal, nil
@@ -769,6 +772,7 @@ func parseOptionalLimit(s string, maxVal int) (*int, error) {
 	return &v, nil
 }
 
+// optionalStr returns a pointer to s, or nil when s is empty.
 func optionalStr(s string) *string {
 	if s == "" {
 		return nil
@@ -776,6 +780,7 @@ func optionalStr(s string) *string {
 	return &s
 }
 
+// writeJSON writes data as a JSON response with status.
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -784,6 +789,7 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 }
 
+// writeError writes message as a JSON error response with status.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, ErrorResponse{Error: "error", Message: message})
 }

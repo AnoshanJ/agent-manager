@@ -58,6 +58,7 @@ type TraceOptions struct {
 	ShowConsoleURL bool
 }
 
+// NewTraceCmd returns the `agent trace` command.
 func NewTraceCmd(f *cmdutil.Factory) *cobra.Command {
 	opts := &TraceOptions{
 		IO:           f.IOStreams,
@@ -174,6 +175,7 @@ func NewTraceCmd(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
+// runTrace prints a trace's spans.
 func runTrace(ctx context.Context, o *TraceOptions) error {
 	if err := cmdutil.ValidatePathParam("agent name", o.AgentName); err != nil {
 		return render.Error(o.IO, o.Scope, err)
@@ -250,6 +252,7 @@ func traceConsoleLink(o *TraceOptions) string {
 	}, windowParams(), o.TraceID)
 }
 
+// runSpanDetail prints one span's details.
 func runSpanDetail(ctx context.Context, o *TraceOptions) error {
 	o.TraceID = strings.ToLower(o.TraceID)
 	o.SpanID = strings.ToLower(o.SpanID)
@@ -285,6 +288,7 @@ func runSpanDetail(ctx context.Context, o *TraceOptions) error {
 	return nil
 }
 
+// printSpanDetail prints s's fields.
 func printSpanDetail(io *iostreams.IOStreams, s *observersvc.Span) error {
 	parent := s.ParentSpanID
 	if parent == "" {

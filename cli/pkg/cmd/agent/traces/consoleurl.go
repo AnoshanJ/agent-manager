@@ -189,31 +189,42 @@ func parseConsoleURL(raw string) (*consoleURL, error) {
 	}
 	u := &consoleURL{query: query}
 	segments := strings.Split(path, "/")
-	at := slices.Index(segments, "org")
-	if at < 0 {
+	if !slices.Contains(segments, "org") {
 		return u, nil
 	}
-	route := segments[at+1:]
+	for at, seg := range segments {
+		if seg != "org" {
+			continue
+		}
+		if names, ok := matchRoute(segments[at+1:]); ok {
+			u.org, u.proj, u.agent, u.env, u.hasPath = names[0], names[1], names[2], names[3], true
+			return u, nil
+		}
+	}
+	return nil, notTraceList()
+}
+
+// matchRoute returns the org, project, agent and environment when route is the trace list route.
+func matchRoute(route []string) ([]string, bool) {
 	if len(route) < len(consoleRoute)+1 {
-		return nil, notTraceList()
+		return nil, false
 	}
 	names := make([]string, 0, 4)
 	for i, want := range append([]string{""}, consoleRoute...) {
 		seg, err := url.PathUnescape(route[i])
 		if err != nil {
-			return nil, notTraceList()
+			return nil, false
 		}
 		switch {
 		case want == "" && seg == "":
-			return nil, notTraceList()
+			return nil, false
 		case want == "":
 			names = append(names, seg)
 		case seg != want:
-			return nil, notTraceList()
+			return nil, false
 		}
 	}
-	u.org, u.proj, u.agent, u.env, u.hasPath = names[0], names[1], names[2], names[3], true
-	return u, nil
+	return names, true
 }
 
 // notTraceList is the error for a path that isn't the console's trace list.

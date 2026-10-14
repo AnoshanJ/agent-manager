@@ -35,6 +35,7 @@ type HTTPError struct {
 	RawBody    []byte
 }
 
+// Error returns the status code and message.
 func (e *HTTPError) Error() string {
 	if e.Body != nil && e.Body.Message != "" {
 		return fmt.Sprintf("observer: %d %s: %s", e.StatusCode, e.Body.Error, e.Body.Message)

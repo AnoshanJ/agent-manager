@@ -102,6 +102,7 @@ func consoleLinkFor(o *ListTracesOptions) string {
 	return consoleLink(o, consoleParams, "")
 }
 
+// parseTimeOrZero parses an RFC 3339 time, or returns the zero time.
 func parseTimeOrZero(s string) time.Time {
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
@@ -357,6 +358,7 @@ var validConditions = []string{
 	conditionExcessiveSteps,
 }
 
+// validateCondition checks c is empty or a known --condition.
 func validateCondition(c string) error {
 	if c == "" {
 		return nil
@@ -459,6 +461,7 @@ func applyCondition(o *ListTracesOptions) error {
 // int64Ptr returns a pointer to v.
 func int64Ptr(v int64) *int64 { return &v }
 
+// matchesFullCondition reports whether tr has a failed tool span.
 func matchesFullCondition(tr observersvc.FullTrace) bool {
 	for _, span := range tr.Spans {
 		attrs := span.AmpAttributes
@@ -475,6 +478,7 @@ func matchesFullCondition(tr observersvc.FullTrace) bool {
 	return false
 }
 
+// traceStatus is error when the trace has errors, else ok.
 func traceStatus(status *observersvc.TraceStatus) string {
 	if status != nil && status.ErrorCount > 0 {
 		return "error"
@@ -482,6 +486,7 @@ func traceStatus(status *observersvc.TraceStatus) string {
 	return "ok"
 }
 
+// tokenCount is the trace's total tokens, or 0 when unset.
 func tokenCount(usage *observersvc.TokenUsage) string {
 	if usage == nil {
 		return "0"
