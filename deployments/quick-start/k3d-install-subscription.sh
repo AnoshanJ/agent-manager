@@ -179,9 +179,11 @@ case "$challenge" in
 esac
 chmod 600 "$AUTH_CONFIG"
 
-# registry_get <path> <out-file> [accept]: prints the HTTP status.
+# registry_get <path> <out-file> [accept]: prints the HTTP status. Blob downloads
+# may redirect to storage; only HTTPS redirects are followed, so the credentials
+# can never be replayed over plain HTTP.
 registry_get() {
-  local args=(-sS -L -K "$AUTH_CONFIG" -o "$2" -w '%{http_code}')
+  local args=(-sS -L --proto-redir "=https" -K "$AUTH_CONFIG" -o "$2" -w '%{http_code}')
   [[ -n "${3:-}" ]] && args+=(-H "Accept: $3")
   curl "${args[@]}" "${REGISTRY_URL}/v2/${PROJECT}/${BUNDLE_REPO}/$1" 2>/dev/null || true
 }
@@ -213,9 +215,18 @@ log "Using ${PROJECT} update ${TAG} (charts ${CHART_VERSION})"
 # --- Download and verify the bundle -------------------------------------------
 code="$(registry_get "manifests/${TAG}" "$WORK/manifest.json" "application/vnd.oci.image.manifest.v1+json")"
 [[ "$code" == 200 ]] || access_error "$code" "$TAG"
-LAYER="$(tr -d '\n\r\t ' < "$WORK/manifest.json" \
-  | sed -n 's/.*"layers":\[[^]]*"digest":"\(sha256:[0-9a-f]\{64\}\)".*/\1/p')"
-[[ -n "$LAYER" ]] || die "the ${TAG} bundle manifest lists no layer"
+# The bundle is the one layer of this media type. Anything other than exactly one
+# means the artifact is not what this script expects, so it stops rather than
+# unpacking whichever blob a looser match would pick.
+BUNDLE_MEDIA_TYPE="application/vnd.oci.image.layer.v1.tar+gzip"
+bundle_layers="$(tr -d '\n\r\t ' < "$WORK/manifest.json" \
+  | sed -n 's/.*"layers":\[\([^]]*\)\].*/\1/p' \
+  | awk '{ gsub(/\},\{/, "}\n{"); print }' \
+  | grep -F "\"mediaType\":\"${BUNDLE_MEDIA_TYPE}\"" || true)"
+[[ -n "$bundle_layers" && "$(grep -c . <<<"$bundle_layers")" -eq 1 ]] || \
+  die "the ${TAG} bundle manifest does not have exactly one ${BUNDLE_MEDIA_TYPE} layer"
+LAYER="$(sed -n 's/.*"digest":"\(sha256:[0-9a-f]\{64\}\)".*/\1/p' <<<"$bundle_layers")"
+[[ -n "$LAYER" ]] || die "the ${TAG} bundle layer has no valid digest"
 
 DIST_DIR="${AMP_HOME}/subscription/${PROJECT}/${TAG}"
 mkdir -p "$DIST_DIR"
