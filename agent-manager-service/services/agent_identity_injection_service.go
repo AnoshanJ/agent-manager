@@ -208,12 +208,14 @@ type AgentIdentityShutdownContextSetter interface {
 }
 
 type agentIdentityInjectionService struct {
-	repo                 repositories.AgentThunderClientRepository
-	agentConfigRepo      repositories.AgentConfigurationRepository
-	mcpProxyScopeRepo    repositories.MCPProxyScopeRepository
-	ocClient             client.OpenChoreoClient
-	refreshInterval      string
-	logger               *slog.Logger
+	repo              repositories.AgentThunderClientRepository
+	agentConfigRepo   repositories.AgentConfigurationRepository
+	mcpProxyScopeRepo repositories.MCPProxyScopeRepository
+	ocClient          client.OpenChoreoClient
+	refreshInterval   string
+	logger            *slog.Logger
+	// resolveTokenEndpoint optionally overrides the agent-facing env-Thunder
+	// token URL. nil keeps the standard in-cluster on-premises endpoint.
 	resolveTokenEndpoint func(context.Context, string, string, string) (string, error)
 	// now is injectable for tests; defaults to time.Now.
 	now func() time.Time
@@ -471,8 +473,10 @@ func (s *agentIdentityInjectionService) deleteSecretReference(ctx context.Contex
 }
 
 // buildEnvVars assembles the four identity env vars for one binding. On-premises
-// deployments use the cluster-internal token endpoint; deployments with a
-// configured resolver may inject a separate public OAuth endpoint.
+// deployments use the cluster-internal token endpoint: env-Thunder is not
+// published on the gateway vhost, so pods reach it by in-cluster address.
+// Deployments with a configured resolver may inject a separate public OAuth
+// endpoint instead.
 //
 // The URL is built from ThunderOrgNamespace(), NOT binding.OUID: env-Thunder
 // is addressed by the org's namespace/handle (e.g. "default"), and binding.OUID

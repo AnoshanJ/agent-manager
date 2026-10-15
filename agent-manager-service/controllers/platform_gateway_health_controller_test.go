@@ -40,7 +40,8 @@ import (
 // also asserts the refusal happens BEFORE any cross-org query runs.
 func TestGetPlatformGatewayFailureSummary_RefusesWithoutThePlatformAdminGuard(t *testing.T) {
 	ctrl := NewGatewayController(
-		services.NewPlatformGatewayService(&repomocks.GatewayRepositoryMock{}, nil), nil)
+		services.NewPlatformGatewayService(&repomocks.GatewayRepositoryMock{}, nil), nil,
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/platform/gateways/failure-summary", nil)
 	rec := httptest.NewRecorder()

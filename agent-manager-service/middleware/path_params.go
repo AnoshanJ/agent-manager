@@ -145,11 +145,11 @@ func (rr *RouteRegistrar) HandleFuncWithValidationAndAuthzAllowRootOU(pattern st
 // across every organization, admitting only the platform-admin OU.
 //
 // perm is declared so the route carries a permission for the audit action label
-// and the route-table invariants, and so the scope check starts enforcing for
-// free if RBAC is ever enabled. It is not what protects the route:
-// RequirePlatformAdminOU is, and it is composed outside the scope check so a
-// caller from the wrong organization is refused before its scopes are looked at
-// — see that function for why the scope check cannot be relied on here.
+// and the route-table invariants, and its scope check always runs. It is not
+// what separates tenants: RequirePlatformAdminOU is, and it is composed outside
+// the scope check so a caller from the wrong organization is refused before its
+// scopes are looked at — see that function for why a scope alone cannot be
+// relied on here.
 //
 // Patterns registered through this must NOT contain {orgName}: the org comes
 // from the token for every other route, and these routes have no single org.

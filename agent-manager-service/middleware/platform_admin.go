@@ -40,10 +40,10 @@ const platformAdminKey platformAdminCtxKey = iota
 // with no ou_id predicate. Three properties are load-bearing, and each of them
 // is here because the obvious alternative fails open:
 //
-//  1. It does not consult RBACEnabled. Every scope check in this package
-//     short-circuits when RBAC_ENABLED is false (see requireScopes) — the
-//     default, and the setting cloud runs with — so a cross-org route gated on
-//     a scope alone is gated on nothing at all. This check is unconditional.
+//  1. It does not depend on the caller's scopes. The permission a cross-org
+//     route declares (gateway:read) is an ordinary org-level grant that every
+//     tenant's admin holds, so a route gated on a scope alone would admit any
+//     tenant. This check is unconditional and keyed on the organization.
 //
 //  2. An empty PlatformAdminOUID denies everyone rather than admitting
 //     everyone. A deployment with no platform-admin org configured has no

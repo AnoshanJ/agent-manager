@@ -68,7 +68,8 @@ func TestGatewayFailureSummary_CountsOnly(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(false))
+		context.Background(), summaryQuery(false),
+	)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(412), resp.Total)
@@ -110,7 +111,8 @@ func TestGatewayFailureSummary_WindowBoundsAreNowMinusThresholds(t *testing.T) {
 			MaxAge:                     maxAge,
 			FailurePercentageThreshold: 10,
 			IncludeDetails:             false,
-		})
+		},
+	)
 	after := time.Now()
 
 	require.NoError(t, err)
@@ -202,7 +204,8 @@ func TestGatewayFailureSummary_PropagatesCountError(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(false))
+		context.Background(), summaryQuery(false),
+	)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel, "the underlying error must stay unwrappable")
@@ -230,7 +233,8 @@ func TestGatewayFailureSummary_PropagatesDetailError(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(true))
+		context.Background(), summaryQuery(true),
+	)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -263,7 +267,8 @@ func TestGatewayFailureSummary_IncludeDetails(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(true))
+		context.Background(), summaryQuery(true),
+	)
 
 	require.NoError(t, err)
 	assert.False(t, resp.Truncated)
@@ -301,7 +306,8 @@ func TestGatewayFailureSummary_TruncatesDetails(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(true))
+		context.Background(), summaryQuery(true),
+	)
 
 	require.NoError(t, err)
 	assert.True(t, resp.Truncated, "a capped list must be reported as capped")
@@ -369,7 +375,8 @@ func TestGatewayFailureSummary_PercentageAndVerdict(t *testing.T) {
 					MaxAge:                     7 * 24 * time.Hour,
 					FailurePercentageThreshold: tc.threshold,
 					IncludeDetails:             false,
-				})
+				},
+			)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantPercentage, resp.FailurePercentage)
@@ -413,7 +420,8 @@ func TestGatewayFailureSummary_VerdictIsPresentWithDetails(t *testing.T) {
 	}
 
 	resp, err := failureSummarySvc(repo).GetCrossOrgGatewayFailureSummary(
-		context.Background(), summaryQuery(true))
+		context.Background(), summaryQuery(true),
+	)
 
 	require.NoError(t, err)
 	assert.False(t, resp.Healthy, "a 90%-failed fleet must report unhealthy even in the detailed form")

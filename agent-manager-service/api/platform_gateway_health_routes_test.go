@@ -33,6 +33,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/rbac"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
@@ -72,7 +73,8 @@ func platformHealthMux(t *testing.T, total, failed, abandoned int64) *http.Serve
 
 	mux := http.NewServeMux()
 	RegisterPlatformGatewayHealthRoutes(
-		middleware.NewRouteRegistrar(mux, nil, audit.NewNoopRecorder()), ctrl)
+		middleware.NewRouteRegistrar(mux, nil, audit.NewNoopRecorder()), ctrl,
+	)
 	return mux
 }
 
@@ -86,8 +88,16 @@ func callPlatformHealth(
 		target += "?includeDetails=true"
 	}
 	req := httptest.NewRequest(http.MethodGet, target, nil)
-	req = req.WithContext(jwtassertion.ContextWithTokenClaims(req.Context(),
-		&jwtassertion.TokenClaims{Sub: "user-a", OuId: tokenOUID, OuHandle: "handle-a"}))
+	// The route is registered with rbac.GatewayRead. Scope checks are
+	// unconditional now that the RBAC kill-switch is gone, so the token has to
+	// carry that scope for these tests to reach the platform-admin gate they
+	// are actually about — an unscoped token would 403 on the scope check first
+	// and every assertion below would pass for the wrong reason.
+	req = req.WithContext(jwtassertion.ContextWithTokenClaimsAndScope(req.Context(),
+		&jwtassertion.TokenClaims{
+			Sub: "user-a", OuId: tokenOUID, OuHandle: "handle-a",
+			Scope: rbac.GatewayRead.Scope(),
+		}))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -149,15 +159,11 @@ func TestPlatformGatewayHealthRoute_AdmitsPlatformAdmin(t *testing.T) {
 // TestPlatformGatewayHealthRoute_RefusesTenantToken is the isolation guarantee
 // at the route level: an ordinary tenant's token must not read the whole fleet.
 //
-// It runs with RBAC disabled, the default and what cloud runs, because that is
-// the configuration in which every scope check on this route is skipped — so
-// this asserts the platform-admin gate carries the route on its own.
+// The RBAC kill-switch this test used to toggle is gone (main removed
+// config.RBACEnabled), so scope checks are now unconditional. The assertion is
+// unchanged and still the point: the platform-admin gate must refuse a tenant
+// token on its own, independently of whatever scopes that token carries.
 func TestPlatformGatewayHealthRoute_RefusesTenantToken(t *testing.T) {
-	cfg := config.GetConfig()
-	origRBAC := cfg.RBACEnabled
-	cfg.RBACEnabled = false
-	t.Cleanup(func() { cfg.RBACEnabled = origRBAC })
-
 	withPlatformAdminOUID(t, "ou-platform-admin")
 
 	rec := callPlatformHealth(t, platformHealthMux(t, 412, 7, 0), "ou-some-tenant", false)
@@ -199,7 +205,8 @@ func TestPlatformAdminRegistrarRejectsOrgScopedPattern(t *testing.T) {
 	rr := middleware.NewRouteRegistrar(http.NewServeMux(), nil, audit.NewNoopRecorder())
 	rr.HandleFuncWithValidationAndPlatformAdminAuthz(
 		"GET /orgs/{orgName}/gateways/failure-summary", "gateway:read",
-		func(http.ResponseWriter, *http.Request) {})
+		func(http.ResponseWriter, *http.Request) {},
+	)
 }
 
 // TestPlatformGatewayHealthRoute_UnhealthyFleetAnswers503 is the status-carries-

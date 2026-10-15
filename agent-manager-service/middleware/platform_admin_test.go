@@ -81,26 +81,13 @@ func TestRequirePlatformAdminOU_DeniesOtherOU(t *testing.T) {
 	}
 }
 
-// TestRequirePlatformAdminOU_DeniesWhenRBACDisabled is the test this file exists
-// for.
-//
-// RBAC_ENABLED is false by default and is what cloud runs with, and every scope
-// check in this package returns early and admits the caller in that state (see
-// requireScopes). So a cross-org route gated on a scope alone is gated on
-// nothing. This gate must not inherit that short-circuit: with RBAC off, a
-// non-admin OU still has to be refused. If this test ever passes because the
-// check was folded into the scope path, the route is wide open in production.
-func TestRequirePlatformAdminOU_DeniesWhenRBACDisabled(t *testing.T) {
-	setRBACEnabled(t, false)
-	setPlatformAdminOUID(t, "ou-platform-admin")
-	status, ran, _ := servePlatformAdmin(t, "ou-some-tenant")
-	if ran {
-		t.Fatal("RBAC disabled: handler must NOT run for a non-admin OU")
-	}
-	if status != http.StatusForbidden {
-		t.Fatalf("RBAC disabled: want 403, got %d", status)
-	}
-}
+// The kill-switch test that used to live here is gone: main removed the RBAC
+// kill-switch entirely (config.RBACEnabled and the setRBACEnabled helper no
+// longer exist), so there is no "RBAC off" state left for this gate to
+// short-circuit through. Scope checks are now unconditional. The invariant it
+// guarded — a non-admin OU is refused — is still covered by
+// TestRequirePlatformAdminOU_DeniesOtherOU above, which must keep passing
+// independently of any scope the caller holds.
 
 // TestRequirePlatformAdminOU_DeniesWhenUnconfigured pins the fail-closed
 // reading of an empty PLATFORM_ADMIN_OU_ID. An unset value must not mean "no

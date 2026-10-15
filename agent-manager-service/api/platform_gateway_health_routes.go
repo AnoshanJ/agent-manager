@@ -32,11 +32,13 @@ import (
 // startup on an org-scoped pattern.
 //
 // rbac.GatewayRead is declared because the route needs a permission for its
-// audit action label and for the route-table invariants. It is not the control
-// here: scope checks short-circuit entirely when RBAC_ENABLED is false, which is
-// the default and how cloud runs, so the platform-admin OU check is what
-// actually guards this. See middleware.RequirePlatformAdminOU.
+// audit action label and for the route-table invariants, and the scope check it
+// implies always runs. It is not the tenant boundary, though: gateway:read is
+// an ordinary org-level grant that any tenant's admin holds, so the
+// platform-admin OU check is what actually keeps other tenants out. See
+// middleware.RequirePlatformAdminOU.
 func RegisterPlatformGatewayHealthRoutes(rr *middleware.RouteRegistrar, ctrl controllers.GatewayController) {
 	rr.HandleFuncWithValidationAndPlatformAdminAuthz(
-		"GET /platform/gateways/failure-summary", rbac.GatewayRead, ctrl.GetPlatformGatewayFailureSummary)
+		"GET /platform/gateways/failure-summary", rbac.GatewayRead, ctrl.GetPlatformGatewayFailureSummary,
+	)
 }

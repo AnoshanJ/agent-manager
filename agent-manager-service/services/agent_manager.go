@@ -95,11 +95,11 @@ type agentManagerService struct {
 	monitorManagerService     MonitorManagerService
 	agentIdentityInjection    AgentIdentityInjectionService
 	identityClient            thundersvc.IdentityClient
+	buildSecretProvisioner    BuildSecretProvisioner
 	a2aPublicationRepo        repositories.A2APublicationRepository
 	a2aCardRepo               repositories.A2AAgentCardRepository
 	deploymentRepo            repositories.DeploymentRepository
 	gatewayEventsService      *GatewayEventsService
-	buildSecretProvisioner    BuildSecretProvisioner
 	logger                    *slog.Logger
 }
 
@@ -119,11 +119,11 @@ func NewAgentManagerService(
 	monitorManagerService MonitorManagerService,
 	agentIdentityInjection AgentIdentityInjectionService,
 	identityClient thundersvc.IdentityClient,
+	buildSecretProvisioner BuildSecretProvisioner,
 	a2aPublicationRepo repositories.A2APublicationRepository,
 	a2aCardRepo repositories.A2AAgentCardRepository,
 	deploymentRepo repositories.DeploymentRepository,
 	gatewayEventsService *GatewayEventsService,
-	buildSecretProvisioner BuildSecretProvisioner,
 	logger *slog.Logger,
 ) AgentManagerService {
 	return &agentManagerService{
@@ -139,11 +139,11 @@ func NewAgentManagerService(
 		monitorManagerService:     monitorManagerService,
 		agentIdentityInjection:    agentIdentityInjection,
 		identityClient:            identityClient,
+		buildSecretProvisioner:    buildSecretProvisioner,
 		a2aPublicationRepo:        a2aPublicationRepo,
 		a2aCardRepo:               a2aCardRepo,
 		deploymentRepo:            deploymentRepo,
 		gatewayEventsService:      gatewayEventsService,
-		buildSecretProvisioner:    buildSecretProvisioner,
 		artifactRepo:              artifactRepo,
 		aiApplicationService:      aiApplicationService,
 		gatewayRepo:               gatewayRepo,

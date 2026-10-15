@@ -66,11 +66,13 @@ func insertFailureFixture(
 
 	require.NoError(t, gormDB.Exec(
 		"UPDATE gateways SET is_active = ?, updated_at = ? WHERE uuid = ?",
-		isActive, updatedAt, id).Error, "pin liveness columns for %s", name)
+		isActive, updatedAt, id,
+	).Error, "pin liveness columns for %s", name)
 
 	if softDeleted {
 		require.NoError(t, gormDB.Exec(
-			"UPDATE gateways SET deleted_at = ? WHERE uuid = ?", time.Now(), id).Error,
+			"UPDATE gateways SET deleted_at = ? WHERE uuid = ?", time.Now(), id,
+		).Error,
 			"soft-delete %s", name)
 	}
 	return id
