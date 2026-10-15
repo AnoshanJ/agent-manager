@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -52,6 +53,34 @@ const (
 	// would leak the goroutine indefinitely.
 	mcpBindingReconcileTimeout = 2 * time.Minute
 )
+
+// reconcileMCPBindingsInBackground runs an MCP binding reconcile off the request path, on a
+// context detached from the request and bounded by mcpBindingReconcileTimeout.
+//
+// The triggering write is already committed and the reconcile writes real resources —
+// mapping rows, API keys, injected variables — so a client disconnect must not tear it off
+// halfway. It also must not hold the response: across many agents it can outlast the
+// server's HTTP write timeout, and a response dropped after the write committed shows the
+// client an error for something that succeeded. Its result is only ever logged.
+//
+// A panic is recovered and logged: the panic-recovery middleware guards only the request
+// goroutine, so one escaping here would take the whole service down.
+func reconcileMCPBindingsInBackground(
+	ctx context.Context, log *slog.Logger, op string, reconcile func(context.Context) error, attrs ...any,
+) {
+	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mcpBindingReconcileTimeout)
+	go func() {
+		defer cancel()
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error(op+": MCP binding reconcile panicked", append(attrs, "panic", rec)...)
+			}
+		}()
+		if err := reconcile(reconcileCtx); err != nil {
+			log.Warn(op+": failed to reconcile agent MCP bindings", append(attrs, "error", err)...)
+		}
+	}()
+}
 
 // GatewayController defines interface for gateway HTTP handlers
 type GatewayController interface {
@@ -459,10 +488,9 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 	// makes those environments bindable, and it is the only signal that says so: the proxy
 	// itself did not change, so no proxy update will follow to trigger the reconcile.
 	//
-	// Best-effort and inline: it performs no remote calls until an environment is genuinely
-	// bindable, and running it before the response means the caller can immediately read
-	// back a bound agent. A failure leaves the assignment intact — promotion self-heals the
-	// same state per agent, so a missed reconcile costs a retry, not a stuck agent.
+	// Best-effort: a failure leaves the assignment intact — promotion self-heals the same
+	// state per agent, so a missed reconcile costs a retry, not a stuck agent.
+	//
 	// Runs in the background on a context detached from the request. The assignment is
 	// already committed, and the reconcile writes real resources — mapping rows, API keys,
 	// injected variables — so a client disconnect must not tear it off halfway. It also must
@@ -476,14 +504,11 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 			log.Warn("AssignGatewayToEnvironment: skipping MCP binding reconcile; unparseable environment id",
 				"envID", resolvedEnvID, "error", parseErr)
 		} else {
-			reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mcpBindingReconcileTimeout)
-			go func() {
-				defer cancel()
-				if err := c.agentConfigService.ReconcileMCPBindingsForEnvironment(reconcileCtx, ouID, envUUID); err != nil {
-					log.Warn("AssignGatewayToEnvironment: failed to reconcile agent MCP bindings",
-						"ouID", ouID, "envID", resolvedEnvID, "error", err)
-				}
-			}()
+			reconcileMCPBindingsInBackground(ctx, log, "AssignGatewayToEnvironment",
+				func(reconcileCtx context.Context) error {
+					return c.agentConfigService.ReconcileMCPBindingsForEnvironment(reconcileCtx, ouID, envUUID)
+				},
+				"ouID", ouID, "envID", resolvedEnvID)
 		}
 	}
 

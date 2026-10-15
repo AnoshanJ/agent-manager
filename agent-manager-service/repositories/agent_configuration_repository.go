@@ -58,11 +58,11 @@ type AgentConfigurationRepository interface {
 	ListMCPConfigsByAgent(ctx context.Context, ouID, projectName, agentID string) ([]models.AgentConfiguration, error)
 
 	// ListMCPConfigsByProxy returns every MCP-type AgentConfiguration row in the
-	// organization whose mcp_proxy_uuid is proxyUUID, preloaded with the mapping and
-	// env var rows a binding reconcile reads.
+	// organization whose agent_mcp_config_proxy reference names proxyUUID, preloaded with
+	// the mapping and env var rows a binding reconcile reads.
 	//
 	// This is the proxy-side counterpart to ListMCPConfigsByAgent, and deliberately
-	// keys off the configuration's own proxy column rather than its mapping rows: a
+	// keys off the configuration's proxy reference rather than its mapping rows: a
 	// connection with no mapping in some (or any) environment is exactly the one a
 	// reconcile needs to find, and a mapping-row join cannot see it.
 	ListMCPConfigsByProxy(ctx context.Context, ouID string, proxyUUID uuid.UUID) ([]models.AgentConfiguration, error)
