@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration048 records the environments an agent's MCP connection was deliberately
+// migration049 records the environments an agent's MCP connection was deliberately
 // removed from.
 //
 // Until now a connection's environment scope was inferred from its env var rows: an
@@ -35,17 +35,27 @@ import (
 // Recording the removal itself breaks the tie: a connection is in scope in every
 // environment of its project's pipeline except the ones listed here.
 //
-// Same shape as agent_mcp_config_proxy (migration047): the composite foreign key onto
+// Same shape as agent_mcp_config_proxy (migration048): the composite foreign key onto
 // agent_configurations (uuid, type_id), with type_id pinned to MCP, makes it the
 // database's rule that only an MCP configuration can carry an exclusion, and ON DELETE
 // CASCADE drops them with the configuration.
 //
-// No backfill. Pre-migration, a deliberate removal left no trace beyond missing rows, so
-// there is nothing to reconstruct one from; existing connections start with an empty
-// exclusion set. An environment unset before this migration could therefore be re-bound
-// by the reconcile once its proxy serves it — re-run the unset to record it.
-var migration048 = migration{
-	ID: 48,
+// agent_mcp_config_scope marks the connections whose scope is recorded this way. Exclusions
+// can only be trusted for a connection that was created or updated by code that writes them;
+// before this migration nothing did, so an empty exclusion set on an existing connection
+// means "never recorded", not "in scope everywhere". Those connections were deliberately
+// narrow under the old rule — `amctl agent mcp set --env dev`, and every agent created with
+// mcpConfig, bound the first environment only — and treating them as pipeline-wide would let
+// the first reconcile after upgrade bind them into stage and production, minting API keys
+// nobody asked for. A connection without a marker therefore keeps the old rule (in scope only
+// where it has env var rows) until its next create or update records its scope and sets the
+// marker.
+//
+// No backfill for either table, deliberately. The pipeline lives in OpenChoreo, so SQL cannot
+// compute exclusions, and leaving every existing connection unmarked is exactly what preserves
+// its pre-upgrade behaviour.
+var migration049 = migration{
+	ID: 49,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
 			return runSQL(
@@ -58,6 +68,16 @@ var migration048 = migration{
 
 					PRIMARY KEY (config_uuid, environment_uuid),
 					CONSTRAINT fk_mcp_env_exclusion_config
+						FOREIGN KEY (config_uuid, type_id)
+						REFERENCES agent_configurations (uuid, type_id)
+						ON DELETE CASCADE
+				)`,
+				`CREATE TABLE IF NOT EXISTS agent_mcp_config_scope (
+					config_uuid UUID PRIMARY KEY,
+					type_id INTEGER NOT NULL DEFAULT 2 CHECK (type_id = 2),
+					recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+					CONSTRAINT fk_mcp_scope_config
 						FOREIGN KEY (config_uuid, type_id)
 						REFERENCES agent_configurations (uuid, type_id)
 						ON DELETE CASCADE

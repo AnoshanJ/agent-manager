@@ -26,6 +26,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
+	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
 // mcpVarRows builds the pair of env var rows (url + apikey) that configuring an MCP
@@ -194,7 +195,7 @@ func TestMCPConfigTargetsProxy_UnanimousMappingsOutrankStaleReference(t *testing
 		"the proxy only the stale reference names must not also claim it")
 }
 
-// A configuration migration047 gave no reference — its environments named different proxies — falls back to
+// A configuration migration048 gave no reference — its environments named different proxies — falls back to
 // the mapping rows, and is claimed only when they unanimously name this proxy.
 func TestMCPConfigTargetsProxy_FallsBackToUnanimousMappings(t *testing.T) {
 	proxyUUID := uuid.New()
@@ -438,7 +439,7 @@ func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByColumn(t *testing.T) 
 	require.Equal(t, []uuid.UUID{configUUID}, got)
 }
 
-// The mapping-row side stays live for configurations migration047 gave no reference (divergent per-environment
+// The mapping-row side stays live for configurations migration048 gave no reference (divergent per-environment
 // proxies). Dropping it would silently orphan every legacy connection the column cannot
 // describe.
 func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByMappingRow(t *testing.T) {
@@ -563,36 +564,34 @@ func TestConfigMCPProxyUUID_FallsBackToReferenceThenNothing(t *testing.T) {
 	require.Equal(t, uuid.Nil, got)
 }
 
-// The update path's exclusion rule, which is what makes `amctl agent mcp unset --env`
-// durable: the CLI sends the existing environment set minus one, and exactly that one must
-// be recorded as excluded — not the environments the request still names, and not one the
-// connection was never in.
-func TestMCPScopeExclusions_ExcludesOnlyEnvironmentsTheRequestDrops(t *testing.T) {
+// An update excludes a BOUND environment the request drops — the CLI's `unset --env prod`
+// re-sends GET's set minus prod, and prod must stay removed.
+func TestMCPScopeExclusions_UpdateExcludesDroppedBoundEnvironment(t *testing.T) {
 	configUUID := uuid.New()
-	devEnv, stageEnv, prodEnv, neverEnv := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	devEnv, prodEnv := uuid.New(), uuid.New()
+	bound := []models.EnvAgentMCPMapping{
+		{ConfigUUID: configUUID, EnvironmentUUID: devEnv},
+		{ConfigUUID: configUUID, EnvironmentUUID: prodEnv},
+	}
 
-	mappings := []models.EnvAgentMCPMapping{{ConfigUUID: configUUID, EnvironmentUUID: devEnv}}
-	// stage was configured (rows) but not bound; prod was configured and gets unset.
-	vars := mcpVarRows(configUUID, devEnv, stageEnv, prodEnv)
-	requested := map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}}
-
-	got := mcpScopeExclusions(mappings, vars, nil, requested)
+	got := mcpScopeExclusions(bound, nil, map[uuid.UUID]struct{}{devEnv: {}})
 
 	require.Equal(t, []uuid.UUID{prodEnv}, got)
-	require.NotContains(t, got, neverEnv, "an environment the connection was never in is not an exclusion")
 }
 
-// Adding environments must exclude nothing: a request that is a superset of the existing
-// scope is the console re-mapping a connection onto a grown pipeline.
-func TestMCPScopeExclusions_GrowingTheScopeExcludesNothing(t *testing.T) {
+// T8 regression: GET lists bound environments only, so a GET-then-PUT round trip (every CLI
+// `set` and `unset`) never names an environment that is configured but not yet bound. Its
+// absence is not a choice, and excluding it would stop it from ever being bound — the exact
+// bug this design fixes.
+func TestMCPScopeExclusions_UpdateKeepsConfiguredButUnboundEnvironments(t *testing.T) {
 	configUUID := uuid.New()
-	devEnv, stageEnv := uuid.New(), uuid.New()
+	devEnv := uuid.New() // only dev is bound; stage and prod are var-rows-only and absent from GET
 
-	got := mcpScopeExclusions(nil, mcpVarRows(configUUID, devEnv),
-		map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}},
-		map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}})
+	got := mcpScopeExclusions(
+		[]models.EnvAgentMCPMapping{{ConfigUUID: configUUID, EnvironmentUUID: devEnv}},
+		nil, map[uuid.UUID]struct{}{devEnv: {}})
 
-	require.Empty(t, got)
+	require.Empty(t, got, "unbound environments the client never saw must stay in scope")
 }
 
 // A per-environment create (`amctl agent mcp set --env dev` on a new connection) must stay
@@ -602,7 +601,7 @@ func TestMCPScopeExclusions_SingleEnvCreateExcludesRestOfPipeline(t *testing.T) 
 	devEnv, stageEnv, prodEnv := uuid.New(), uuid.New(), uuid.New()
 	pipeline := map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}, prodEnv: {}}
 
-	got := mcpScopeExclusions(nil, nil, pipeline, map[uuid.UUID]struct{}{devEnv: {}})
+	got := mcpScopeExclusions(nil, pipeline, map[uuid.UUID]struct{}{devEnv: {}})
 
 	require.ElementsMatch(t, []uuid.UUID{stageEnv, prodEnv}, got)
 }
@@ -613,9 +612,60 @@ func TestMCPScopeExclusions_SingleEnvCreateExcludesRestOfPipeline(t *testing.T) 
 func TestMCPScopeExclusions_EnvironmentsAddedLaterAreNotExcluded(t *testing.T) {
 	defaultEnv := uuid.New()
 
-	got := mcpScopeExclusions(nil, nil,
+	got := mcpScopeExclusions(nil,
 		map[uuid.UUID]struct{}{defaultEnv: {}},
 		map[uuid.UUID]struct{}{defaultEnv: {}})
 
 	require.Empty(t, got, "stage did not exist yet, so nothing may be recorded against it")
+}
+
+// One connection, one proxy. Mixed proxies across environments left nothing to record as
+// the connection's reference, and the reconcile then bound the dissenting environment to
+// whichever proxy the existing mapping rows named — overriding an explicit choice.
+func TestRequireSingleMCPProxy_RejectsMixedProxies(t *testing.T) {
+	p1 := &models.MCPProxy{UUID: uuid.New(), Configuration: models.MCPProxyConfig{Name: "kb-dev"}}
+	p2 := &models.MCPProxy{UUID: uuid.New(), Configuration: models.MCPProxyConfig{Name: "kb-prod"}}
+
+	err := requireSingleMCPProxy(map[string]*models.MCPProxy{"dev": p1, "prod": p2})
+
+	require.ErrorIs(t, err, utils.ErrInvalidInput, "must surface as a 400, not a 500")
+}
+
+func TestRequireSingleMCPProxy_AcceptsOneProxyEverywhere(t *testing.T) {
+	p1 := &models.MCPProxy{UUID: uuid.New()}
+
+	require.NoError(t, requireSingleMCPProxy(map[string]*models.MCPProxy{"dev": p1, "stage": p1, "prod": p1}))
+	require.NoError(t, requireSingleMCPProxy(map[string]*models.MCPProxy{"dev": p1}))
+	require.NoError(t, requireSingleMCPProxy(nil))
+}
+
+// T9 regression: a connection from before exclusions existed has no scope marker. Its empty
+// exclusion set must not read as "in scope everywhere", or the first reconcile after upgrade
+// binds a deliberately dev-only connection into stage and production. It keeps the old rule.
+func TestBoundMCPScope_UnrecordedConnectionKeepsVarRowRule(t *testing.T) {
+	configUUID := uuid.New()
+	devEnv, stageEnv, prodEnv := uuid.New(), uuid.New(), uuid.New()
+	legacy := &models.AgentConfiguration{UUID: configUUID, EnvVariables: mcpVarRows(configUUID, devEnv)}
+	pipeline := mcpPipelineEnvs{envs: map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}, prodEnv: {}}, restrict: true}
+
+	got := boundMCPScope([]uuid.UUID{stageEnv, prodEnv}, legacy, pipeline)
+
+	require.Empty(t, got, "an unmarked connection must not widen past where it has env var rows")
+}
+
+// Once the scope is recorded, the pipeline (minus exclusions, applied earlier) is the scope,
+// so an environment added after attach is bindable even with no env var rows there.
+func TestBoundMCPScope_RecordedConnectionUsesPipeline(t *testing.T) {
+	configUUID := uuid.New()
+	devEnv, stageEnv := uuid.New(), uuid.New()
+	recorded := &models.AgentConfiguration{
+		UUID:         configUUID,
+		EnvVariables: mcpVarRows(configUUID, devEnv),
+		MCPScope:     &models.AgentMCPConfigScope{ConfigUUID: configUUID},
+	}
+	pipeline := mcpPipelineEnvs{envs: map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}}, restrict: true}
+
+	got := boundMCPScope([]uuid.UUID{stageEnv}, recorded, pipeline)
+
+	require.Equal(t, []uuid.UUID{stageEnv}, got)
 }

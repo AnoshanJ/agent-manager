@@ -138,6 +138,7 @@ func (r *agentConfigurationRepository) GetByUUID(ctx context.Context, configUUID
 		Preload("EnvMCPMappings").
 		Preload("MCPProxyRef").
 		Preload("MCPEnvExclusions").
+		Preload("MCPScope").
 		Preload("EnvMCPMappings.Artifact").
 		Preload("EnvMCPMappings.MCPProxy").
 		Preload("EnvMCPMappings.MCPProxy.Artifact").
@@ -158,6 +159,7 @@ func (r *agentConfigurationRepository) GetByAgentID(ctx context.Context, agentID
 		Preload("EnvMCPMappings").
 		Preload("MCPProxyRef").
 		Preload("MCPEnvExclusions").
+		Preload("MCPScope").
 		Preload("EnvMCPMappings.Artifact").
 		Preload("EnvMCPMappings.MCPProxy").
 		Preload("EnvMCPMappings.MCPProxy.Artifact").
@@ -176,6 +178,7 @@ func (r *agentConfigurationRepository) ListMCPConfigsByAgent(ctx context.Context
 		Preload("EnvMCPMappings").
 		Preload("MCPProxyRef").
 		Preload("MCPEnvExclusions").
+		Preload("MCPScope").
 		Preload("EnvMCPMappings.Artifact").
 		Preload("EnvMCPMappings.MCPProxy").
 		Preload("EnvMCPMappings.MCPProxy.Artifact").
@@ -190,6 +193,7 @@ func (r *agentConfigurationRepository) ListMCPConfigsByProxy(ctx context.Context
 		Preload("EnvMCPMappings").
 		Preload("MCPProxyRef").
 		Preload("MCPEnvExclusions").
+		Preload("MCPScope").
 		Preload("EnvMCPMappings.Artifact").
 		Preload("EnvMCPMappings.MCPProxy").
 		Preload("EnvMCPMappings.MCPProxy.Artifact").
@@ -218,10 +222,17 @@ func (r *agentConfigurationRepository) SetMCPProxyRef(ctx context.Context, tx *g
 		Create(&ref).Error
 }
 
-// SetMCPEnvScope adds exclude as exclusions and removes include from them. Idempotent:
-// excluding an already-excluded environment and including a never-excluded one are no-ops.
+// SetMCPEnvScope adds exclude as exclusions and removes include from them, and marks the
+// connection's scope as recorded so the reconcile trusts those exclusions from now on.
+// Idempotent: excluding an already-excluded environment, including a never-excluded one and
+// re-marking a marked connection are all no-ops.
 func (r *agentConfigurationRepository) SetMCPEnvScope(ctx context.Context, tx *gorm.DB, configUUID uuid.UUID, exclude, include []uuid.UUID) error {
 	db := tx.WithContext(ctx)
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.AgentMCPConfigScope{
+		ConfigUUID: configUUID, TypeID: models.AgentConfigTypeIDMCP,
+	}).Error; err != nil {
+		return err
+	}
 	if len(include) > 0 {
 		if err := db.Where("config_uuid = ? AND environment_uuid IN ?", configUUID, include).
 			Delete(&models.AgentMCPConfigEnvExclusion{}).Error; err != nil {

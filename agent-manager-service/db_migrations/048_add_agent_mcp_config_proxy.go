@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration047 records the MCP proxy an agent's MCP connection references, in a side table
+// migration048 records the MCP proxy an agent's MCP connection references, in a side table
 // keyed by the configuration.
 //
 // Until now the only link from an agent configuration to an org-level MCP proxy was the
@@ -58,18 +58,30 @@ import (
 //
 // ON DELETE CASCADE on the configuration side: the reference means nothing without the
 // configuration it describes.
-var migration047 = migration{
-	ID: 47,
+var migration048 = migration{
+	ID: 48,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
 			if err := runSQL(
 				tx,
 				// uuid is already the primary key, so this adds no uniqueness. It exists
 				// only as the target the composite foreign key below must reference.
-				`ALTER TABLE agent_configurations
-					DROP CONSTRAINT IF EXISTS uq_agent_config_uuid_type`,
-				`ALTER TABLE agent_configurations
-					ADD CONSTRAINT uq_agent_config_uuid_type UNIQUE (uuid, type_id)`,
+				//
+				// Added only when missing, never dropped and re-added: once the composite
+				// foreign keys here and in migration049 reference it, Postgres refuses the
+				// drop (2BP01), so a drop-then-add would make this migration fail on any
+				// re-run. Postgres has no ADD CONSTRAINT IF NOT EXISTS, hence the guard.
+				`DO $$
+				BEGIN
+					IF NOT EXISTS (
+						SELECT 1 FROM pg_constraint
+						WHERE conname = 'uq_agent_config_uuid_type'
+						  AND conrelid = 'agent_configurations'::regclass
+					) THEN
+						ALTER TABLE agent_configurations
+							ADD CONSTRAINT uq_agent_config_uuid_type UNIQUE (uuid, type_id);
+					END IF;
+				END $$`,
 				`CREATE TABLE IF NOT EXISTS agent_mcp_config_proxy (
 					config_uuid UUID PRIMARY KEY,
 					type_id INTEGER NOT NULL DEFAULT 2 CHECK (type_id = 2),

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -29,6 +30,10 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
+
+// mcpActivationCleanupTimeout bounds the rollback of a half-built MCP binding. It runs on a
+// context detached from the activation's own, which may already have expired.
+const mcpActivationCleanupTimeout = 30 * time.Second
 
 // mcpActivationInputs holds the per-config invariants every environment activation needs.
 // Assembling them costs two remote calls and a template rebuild, so they are gathered once
@@ -59,6 +64,41 @@ func soleMCPProxyUUID(proxiesByEnv map[string]*models.MCPProxy) *uuid.UUID {
 		}
 	}
 	return sole
+}
+
+// requireSingleMCPProxy rejects a create or update whose environments name different MCP
+// proxies. A connection references exactly one proxy, recorded in agent_mcp_config_proxy;
+// letting environments diverge left no single reference to record, and the reconcile then
+// fell back to whichever proxy the existing mapping rows named — so `amctl agent mcp set
+// --env prod --proxy P2` on a dev:P1 connection could end up bound to P1 in prod once P1
+// gained a prod endpoint, silently overriding the explicit choice. A different proxy per
+// environment is a second connection, not a second value on this one.
+func requireSingleMCPProxy(proxiesByEnv map[string]*models.MCPProxy) error {
+	var firstEnv string
+	var first *models.MCPProxy
+	for envName, proxy := range proxiesByEnv {
+		if proxy == nil {
+			continue
+		}
+		if first == nil {
+			firstEnv, first = envName, proxy
+			continue
+		}
+		if proxy.UUID != first.UUID {
+			return fmt.Errorf("%w: an MCP connection uses one MCP proxy in every environment, but environment %s "+
+				"names %q while %s names %q — attach the other proxy as a separate MCP connection",
+				utils.ErrInvalidInput, firstEnv, mcpProxyHandle(first), envName, mcpProxyHandle(proxy))
+		}
+	}
+	return nil
+}
+
+// mcpProxyHandle names a proxy for an error message, preferring its handle.
+func mcpProxyHandle(proxy *models.MCPProxy) string {
+	if proxy.Artifact != nil && proxy.Artifact.Handle != "" {
+		return proxy.Artifact.Handle
+	}
+	return proxy.Configuration.Name
 }
 
 // setConfigMCPProxy persists a change to the config's environment-agnostic proxy
@@ -172,26 +212,31 @@ func envsWithVarRows(vars []models.AgentEnvConfigVariable) map[uuid.UUID]struct{
 }
 
 // mcpScopeExclusions returns the environments a create or update leaves a connection out
-// of. The request names the scope: every environment it does not name is excluded, among
-// those the connection could otherwise be bound in — the project's pipeline, plus anything
-// it was already in (bound, or configured with env var rows).
+// of: every candidate the request does not name. What counts as a candidate depends on the
+// request kind, and getting it wrong in either direction breaks a real flow.
 //
-// The pipeline half is what keeps a per-environment request narrow. `amctl agent mcp set
-// --env dev` creates a connection with only dev in its request; without excluding the rest
-// of the pipeline, the binding reconcile would later bind it everywhere its proxy is served,
-// minting API keys in environments the user deliberately left out. The previously-in-scope
-// half is what makes `amctl agent mcp unset --env` durable: the CLI re-sends the existing set
-// minus one, and that one must be recorded.
+// On create, the candidates are the project's pipeline. `amctl agent mcp set --env dev`
+// creates a connection with only dev in its request; without excluding the rest of the
+// pipeline, the binding reconcile would later bind it everywhere its proxy is served,
+// minting API keys in environments the user deliberately left out.
+//
+// On update, the candidates are only the environments the connection is BOUND in (has a
+// mapping row). Clients update by GET-then-PUT — the CLI's `set` and `unset --env` both re-send
+// what GET returned — and GET lists bound environments only. An environment configured but
+// not yet bound (var rows, no mapping, because its proxy wasn't deployable there yet) is
+// therefore missing from every round-tripped request through no choice of the user's.
+// Treating its absence as a removal excluded it permanently, which is exactly the
+// "connection never binds in a higher environment" bug this design exists to fix. A bound
+// environment, by contrast, is visible to the client, so leaving it out IS a choice.
 //
 // An environment that joins the pipeline later was never omitted by any request, so it stays
 // in scope — the case a connection attached before its environments existed depends on.
 func mcpScopeExclusions(
-	mappings []models.EnvAgentMCPMapping, vars []models.AgentEnvConfigVariable,
-	pipeline, requested map[uuid.UUID]struct{},
+	boundMappings []models.EnvAgentMCPMapping, pipeline, requested map[uuid.UUID]struct{},
 ) []uuid.UUID {
-	candidates := envsWithVarRows(vars)
-	for i := range mappings {
-		candidates[mappings[i].EnvironmentUUID] = struct{}{}
+	candidates := make(map[uuid.UUID]struct{}, len(boundMappings)+len(pipeline))
+	for i := range boundMappings {
+		candidates[boundMappings[i].EnvironmentUUID] = struct{}{}
 	}
 	for envUUID := range pipeline {
 		candidates[envUUID] = struct{}{}
@@ -205,15 +250,26 @@ func mcpScopeExclusions(
 	return excluded
 }
 
+// mcpScopeRequest distinguishes the two entry points recordMCPRequestScope serves; see
+// mcpScopeExclusions for why they draw their candidates differently.
+type mcpScopeRequest int
+
+const (
+	mcpScopeCreate mcpScopeRequest = iota
+	mcpScopeUpdate
+)
+
 // recordMCPRequestScope persists the scope a create or update request expresses: its named
-// environments are included (clearing earlier exclusions), the rest of the pipeline and of
-// the connection's previous scope is excluded. snapshot must be the configuration as it was
-// before the request was applied, so a removal is still visible in it.
+// environments are included (clearing earlier exclusions) and the candidates it omits are
+// excluded — the rest of the pipeline on create, dropped bound environments on update.
+// snapshot must be the configuration as it was before the request was applied, so a removal
+// is still visible in it.
 //
-// A pipeline lookup failure narrows rather than fails: it falls back to excluding only what
-// the connection was previously in, which is the pre-pipeline behaviour and never widens it.
+// On create, a pipeline lookup failure narrows nothing rather than failing the request: a
+// new connection has no bound environments, so it is simply recorded with no exclusions —
+// the same as one attached before its pipeline grew.
 func (s *agentConfigurationService) recordMCPRequestScope(
-	ctx context.Context, snapshot *models.AgentConfiguration, ouID, projectName string,
+	ctx context.Context, kind mcpScopeRequest, snapshot *models.AgentConfiguration, ouID, projectName string,
 	envMap map[string]*models.EnvironmentResponse, reqEnvs map[string]models.EnvModelConfigRequest,
 ) error {
 	requested := make(map[uuid.UUID]struct{}, len(reqEnvs))
@@ -230,23 +286,25 @@ func (s *agentConfigurationService) recordMCPRequestScope(
 	}
 
 	pipeline := map[uuid.UUID]struct{}{}
-	if p, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); err != nil {
-		if !errors.Is(err, utils.ErrProjectNotFound) && !errors.Is(err, utils.ErrDeploymentPipelineNotFound) {
-			s.logger.Warn("Failed to read deployment pipeline while recording MCP connection scope; "+
-				"excluding only environments the connection was previously in",
-				"configUUID", snapshot.UUID, "projectName", projectName, "error", err)
-		}
-	} else if p != nil {
-		for _, name := range client.PipelineEnvironments(p.PromotionPaths) {
-			if env, ok := envMap[name]; ok {
-				if envUUID, parseErr := uuid.Parse(env.UUID); parseErr == nil {
-					pipeline[envUUID] = struct{}{}
+	if kind == mcpScopeCreate {
+		if p, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); err != nil {
+			if !errors.Is(err, utils.ErrProjectNotFound) && !errors.Is(err, utils.ErrDeploymentPipelineNotFound) {
+				s.logger.Warn("Failed to read deployment pipeline while recording MCP connection scope; "+
+					"recording no exclusions for this new connection",
+					"configUUID", snapshot.UUID, "projectName", projectName, "error", err)
+			}
+		} else if p != nil {
+			for _, name := range client.PipelineEnvironments(p.PromotionPaths) {
+				if env, ok := envMap[name]; ok {
+					if envUUID, parseErr := uuid.Parse(env.UUID); parseErr == nil {
+						pipeline[envUUID] = struct{}{}
+					}
 				}
 			}
 		}
 	}
 
-	exclude := mcpScopeExclusions(snapshot.EnvMCPMappings, snapshot.EnvVariables, pipeline, requested)
+	exclude := mcpScopeExclusions(snapshot.EnvMCPMappings, pipeline, requested)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		return s.agentConfigRepo.SetMCPEnvScope(ctx, tx, snapshot.UUID, exclude, include)
 	}); err != nil {
@@ -561,7 +619,7 @@ func (s *agentConfigurationService) reconcileProxyBindings(
 
 // mcpConfigUUIDsForProxy returns every configuration that references proxy, from both
 // directions: the configuration's own environment-agnostic proxy reference, and — for
-// configurations with none, such as divergent ones migration047 skipped — the mapping rows.
+// configurations with none, such as divergent ones migration048 skipped — the mapping rows.
 // The reference is what reaches a connection with no mapping in ANY environment, which the
 // mapping-row query by construction cannot see.
 func (s *agentConfigurationService) mcpConfigUUIDsForProxy(
@@ -674,11 +732,7 @@ func (s *agentConfigurationService) reconcileConfigMCPBindings(
 	if err != nil {
 		return err
 	}
-	if pipelineEnvs.restrict {
-		candidates = retainEnvs(candidates, pipelineEnvs.envs)
-	} else {
-		candidates = retainEnvs(candidates, envsWithVarRows(config.EnvVariables))
-	}
+	candidates = boundMCPScope(candidates, config, pipelineEnvs)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -716,6 +770,29 @@ func (s *agentConfigurationService) reconcileConfigMCPBindings(
 	// just created change them too.
 	s.refreshTouchedMCPEnvironments(ctx, scope.ouID, config.ProjectName, config.AgentID, boundEnvNames)
 	return errors.Join(errs...)
+}
+
+// boundMCPScope narrows candidates to the connection's scope.
+//
+// The project's pipeline bounds every connection: an environment the proxy serves but the
+// agent never deploys to would otherwise get a mapping, an API key and env var rows it can
+// never use. With no pipeline to bound by (an external agent's project has none), the
+// connection's own env var rows stand in.
+//
+// A connection whose scope was never recorded (no MCPScope marker) predates exclusions, so its
+// empty exclusion set means "unknown", not "everywhere". It keeps the rule it was created
+// under — in scope only where it has env var rows — so an upgrade cannot widen a deliberately
+// narrow connection into stage or production. Its next create or update records the scope.
+func boundMCPScope(candidates []uuid.UUID, config *models.AgentConfiguration, pipeline mcpPipelineEnvs) []uuid.UUID {
+	if pipeline.restrict {
+		candidates = retainEnvs(candidates, pipeline.envs)
+	} else {
+		candidates = retainEnvs(candidates, envsWithVarRows(config.EnvVariables))
+	}
+	if config.MCPScope == nil {
+		candidates = retainEnvs(candidates, envsWithVarRows(config.EnvVariables))
+	}
+	return candidates
 }
 
 func retainEnvs(envUUIDs []uuid.UUID, keep map[uuid.UUID]struct{}) []uuid.UUID {
@@ -882,9 +959,17 @@ func (s *agentConfigurationService) activateMCPMappingForEnv(
 	}
 	// The mapping row opens the rollback window: every failure past this point tears the
 	// half-built binding back down so a retry starts clean.
+	//
+	// The rollback runs on its own short context, detached from ctx. The most likely reason
+	// to be rolling back is that ctx itself expired mid-activation (a bounded reconcile hitting
+	// its deadline); reusing it made the cleanup transaction fail immediately and left the
+	// mapping row behind without its key, secret or variables. mcpEnvsNeedingActivation then
+	// skipped that environment as already bound, so it was never retried.
 	defer func() {
 		if err != nil {
-			s.cleanupNewMCPMapping(ctx, config, mapping, envName, ouID, envVarsCreatedHere)
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mcpActivationCleanupTimeout)
+			defer cancel()
+			s.cleanupNewMCPMapping(cleanupCtx, config, mapping, envName, ouID, envVarsCreatedHere)
 		}
 	}()
 

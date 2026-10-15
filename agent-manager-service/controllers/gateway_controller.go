@@ -46,9 +46,10 @@ const (
 	defaultOffset = 0
 
 	// mcpBindingReconcileTimeout bounds the post-assignment MCP binding reconcile, which
-	// runs detached from the request context (see AssignGatewayToEnvironment). Detaching
-	// removes the caller's cancellation as a stop condition, so the work needs one of its
-	// own or a wedged gateway or database call would hold the handler open indefinitely.
+	// runs in the background detached from the request context (see
+	// AssignGatewayToEnvironment). Detaching removes the caller's cancellation as a stop
+	// condition, so the work needs one of its own or a wedged gateway or database call
+	// would leak the goroutine indefinitely.
 	mcpBindingReconcileTimeout = 2 * time.Minute
 )
 
@@ -462,24 +463,27 @@ func (c *gatewayController) AssignGatewayToEnvironment(w http.ResponseWriter, r 
 	// bindable, and running it before the response means the caller can immediately read
 	// back a bound agent. A failure leaves the assignment intact — promotion self-heals the
 	// same state per agent, so a missed reconcile costs a retry, not a stuck agent.
-	// Runs on a context detached from the request. The assignment is already committed by
-	// this point, and the reconcile writes real resources — mapping rows, API keys,
-	// injected variables. A client disconnect must not tear that off halfway and leave
-	// some environments bound and others not, which cancelling the request context would
-	// do. The work is finite (one bounded proxy scan) and idempotent, so it is bounded by
-	// a timeout rather than by the caller.
+	// Runs in the background on a context detached from the request. The assignment is
+	// already committed, and the reconcile writes real resources — mapping rows, API keys,
+	// injected variables — so a client disconnect must not tear it off halfway. It also must
+	// not hold the response: it can take as long as mcpBindingReconcileTimeout, which is past
+	// the server's HTTP write timeout (90s by default), and a response dropped after the
+	// assignment committed leaves the client seeing an error for something that succeeded —
+	// and a retry hits "already assigned" without re-running the reconcile. Its result is only
+	// ever logged, so nothing the caller needs is lost by not waiting for it.
 	if c.agentConfigService != nil {
 		if envUUID, parseErr := uuid.Parse(resolvedEnvID); parseErr != nil {
 			log.Warn("AssignGatewayToEnvironment: skipping MCP binding reconcile; unparseable environment id",
 				"envID", resolvedEnvID, "error", parseErr)
 		} else {
 			reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mcpBindingReconcileTimeout)
-			err := c.agentConfigService.ReconcileMCPBindingsForEnvironment(reconcileCtx, ouID, envUUID)
-			cancel()
-			if err != nil {
-				log.Warn("AssignGatewayToEnvironment: failed to reconcile agent MCP bindings",
-					"ouID", ouID, "envID", resolvedEnvID, "error", err)
-			}
+			go func() {
+				defer cancel()
+				if err := c.agentConfigService.ReconcileMCPBindingsForEnvironment(reconcileCtx, ouID, envUUID); err != nil {
+					log.Warn("AssignGatewayToEnvironment: failed to reconcile agent MCP bindings",
+						"ouID", ouID, "envID", resolvedEnvID, "error", err)
+				}
+			}()
 		}
 	}
 
