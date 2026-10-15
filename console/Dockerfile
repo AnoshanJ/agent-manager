@@ -27,8 +27,8 @@ COPY workspaces/ workspaces/
 # published version at build time.
 RUN pnpm install --frozen-lockfile
 
-# URL path prefix the console is served under ("/" = origin root, "/agm" behind a
-# shared host). Baked into the Vite asset base here and persisted as ENV below so
+# URL path prefix the console is served under ("/" = origin root, e.g. "/console" behind
+# a shared host). Baked into the Vite asset base here and persisted as ENV below so
 # the runtime config (config.js basePath) and nginx rewrite agree with it.
 ARG BASE_PATH=/
 ENV BASE_PATH=${BASE_PATH}

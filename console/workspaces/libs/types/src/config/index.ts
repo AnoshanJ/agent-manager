@@ -22,8 +22,8 @@ import { type Duration, sub } from "date-fns";
 export interface AppConfig {
   authConfig: ThunderIDProviderProps;
   /**
-   * URL path prefix the console is served under, e.g. "/agm" when it sits
-   * behind a shared host like https://cloud.wso2.com/agm. Empty or "/" means
+   * URL path prefix the console is served under, e.g. "/console" when it
+   * sits behind a shared host. Empty or "/" means
    * the origin root. Must match the Vite `base` the bundle was built with
    * (both come from BASE_PATH); the router basename and every hard
    * navigation outside the router go through `withBasePath`.
