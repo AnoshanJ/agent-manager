@@ -173,7 +173,7 @@ func TestMCPConfigTargetsProxy_RejectsDifferentRecordedProxyWithNoMappings(t *te
 		"with no mapping rows the reference is the only record of intent, and it names another proxy")
 }
 
-// Unanimous mapping rows outrank the column, because they are the actual resource state
+// Unanimous mapping rows outrank the stored reference, because they are the actual resource state
 // while the reference only records an intent. This is the shape updateMCPConfig leaves when
 // it re-points every environment and then fails to persist the reference: letting the stale
 // reference win made the configuration unreachable from both proxies' reconciles at once.
@@ -245,8 +245,8 @@ func TestSoleMCPProxyUUID_RecordsUnanimousProxy(t *testing.T) {
 	require.Equal(t, proxyUUID, *got)
 }
 
-// Divergent environments express no single environment-agnostic proxy, so the column stays
-// NULL rather than recording one of them.
+// Divergent environments express no single environment-agnostic proxy, so no reference row is
+// written rather than recording one of them.
 func TestSoleMCPProxyUUID_NilWhenEnvironmentsDisagree(t *testing.T) {
 	got := soleMCPProxyUUID(map[string]*models.MCPProxy{
 		"dev":  {UUID: uuid.New()},
@@ -366,7 +366,7 @@ func TestMCPProxiesBoundToEnvironment_SelectsOnlyProxiesServingTheEnvironment(t 
 		mcpProxyRepo: &repomocks.MCPProxyRepositoryMock{
 			ListFunc: func(_ context.Context, _ string, _, offset int) ([]*models.MCPProxy, error) {
 				if offset > 0 {
-					return nil, nil
+					return []*models.MCPProxy{}, nil
 				}
 				return []*models.MCPProxy{serving, notServing}, nil
 			},
@@ -412,7 +412,7 @@ func TestMCPProxiesBoundToEnvironment_PagesUntilExhausted(t *testing.T) {
 }
 
 // mcpConfigUUIDsForProxy is the discovery step Change 3b turns on: it must reach a
-// connection that references the proxy by column even when no mapping row does, because
+// connection that references the proxy by its reference row even when no mapping row does, because
 // that is the state a proxy deployable in no environment leaves behind — and the state the
 // old mapping-row-only query could never see.
 func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByColumn(t *testing.T) {
@@ -428,7 +428,7 @@ func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByColumn(t *testing.T) 
 		},
 		envMCPMappingRepo: &repomocks.EnvAgentMCPMappingRepositoryMock{
 			ListByMCPProxyFunc: func(_ context.Context, _ uuid.UUID) ([]models.EnvAgentMCPMapping, error) {
-				return nil, nil // no mapping anywhere — the whole point of this case
+				return []models.EnvAgentMCPMapping{}, nil // no mapping anywhere — the whole point of this case
 			},
 		},
 	}
@@ -440,7 +440,7 @@ func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByColumn(t *testing.T) 
 }
 
 // The mapping-row side stays live for configurations migration048 gave no reference (divergent per-environment
-// proxies). Dropping it would silently orphan every legacy connection the column cannot
+// proxies). Dropping it would silently orphan every legacy connection the reference table cannot
 // describe.
 func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByMappingRow(t *testing.T) {
 	proxyUUID := uuid.New()
@@ -449,7 +449,7 @@ func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByMappingRow(t *testing
 	svc := &agentConfigurationService{
 		agentConfigRepo: &repomocks.AgentConfigurationRepositoryMock{
 			ListMCPConfigsByProxyFunc: func(_ context.Context, _ string, _ uuid.UUID) ([]models.AgentConfiguration, error) {
-				return nil, nil // column is NULL, so the column query cannot see it
+				return []models.AgentConfiguration{}, nil // no proxy reference row, so the reference query cannot see it
 			},
 		},
 		envMCPMappingRepo: &repomocks.EnvAgentMCPMappingRepositoryMock{

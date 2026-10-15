@@ -2640,7 +2640,7 @@ func (s *agentConfigurationService) updateMCPConfig(ctx context.Context, existin
 	}
 
 	// Re-pointed only once every environment above has been dealt with. Writing it earlier
-	// would leave a half-applied proxy switch permanently unrepairable: the column would
+	// would leave a half-applied proxy switch permanently unrepairable: the reference would
 	// name the new proxy while the environments the loop never reached still had mapping
 	// rows to the old one, and neither side's reconcile would claim them — the new proxy's
 	// sees those environments as already mapped, and the old proxy's no longer recognises

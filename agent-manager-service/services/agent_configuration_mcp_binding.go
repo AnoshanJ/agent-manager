@@ -45,8 +45,8 @@ type mcpActivationInputs struct {
 }
 
 // soleMCPProxyUUID returns the one proxy every requested environment maps to, or nil when
-// the environments disagree (or none were requested). It is what AgentConfiguration.
-// MCPProxyUUID stores: the environment-agnostic proxy reference, recorded only when the
+// the environments disagree (or none were requested). It is what the
+// agent_mcp_config_proxy row stores: the environment-agnostic proxy reference, recorded only when the
 // request actually expresses one.
 func soleMCPProxyUUID(proxiesByEnv map[string]*models.MCPProxy) *uuid.UUID {
 	var sole *uuid.UUID

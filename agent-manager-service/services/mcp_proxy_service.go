@@ -651,7 +651,7 @@ func (s *MCPProxyService) Delete(ctx context.Context, orgUUID, orgName, proxyID 
 	}
 
 	// An agent's MCP connection references a proxy in two places: a mapping row per
-	// environment it is bound in, and AgentConfiguration.MCPProxyUUID, which is
+	// environment it is bound in, and a row in agent_mcp_config_proxy, which is
 	// environment-independent. A connection can hold the second with none of the first —
 	// that is the state a proxy deployable in no environment leaves behind, and the state
 	// the binding reconcile exists to complete once one becomes available.
@@ -661,9 +661,10 @@ func (s *MCPProxyService) Delete(ctx context.Context, orgUUID, orgName, proxyID 
 	// proxy to claim it for, and promotion refuses it with nothing left to self-heal from.
 	//
 	// This read sits outside the delete transaction, so it is a fast path that returns a
-	// clean error rather than the invariant itself: fk_agent_config_mcp_proxy is ON DELETE
-	// RESTRICT, and MCPProxyRepo.Delete maps its 23503 violation onto the same error, which
-	// is what actually closes the window against a reference committed after this read.
+	// clean error rather than the invariant itself: agent_mcp_config_proxy.mcp_proxy_uuid
+	// is ON DELETE RESTRICT, and MCPProxyRepo.Delete maps its 23503 violation onto the same
+	// error, which is what actually closes the window against a reference committed after
+	// this read.
 	if s.agentConfigRepo != nil {
 		configs, cfgErr := s.agentConfigRepo.ListMCPConfigsByProxy(ctx, orgUUID, proxy.UUID)
 		if cfgErr != nil {
