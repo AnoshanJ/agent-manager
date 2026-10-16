@@ -17,12 +17,14 @@
 
 import { type ReactNode, useState } from "react";
 import {
+  generatePath,
   Navigate,
   Route,
   Routes,
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { absoluteRouteMap } from "@agent-management-platform/types";
 import { PageLayout } from "@agent-management-platform/views";
 import { DeploymentPipelineTable } from "./subComponents/DeploymentPipelineTable";
 import { CreateDeploymentPipelineDrawer } from "./subComponents/CreateDeploymentPipelineDrawer";
@@ -33,10 +35,16 @@ function LegacyEditRedirect({ children }: { children: ReactNode }) {
   const { orgId } = useParams<{ orgId: string }>();
   const [searchParams] = useSearchParams();
   const editParam = searchParams.get("edit");
-  if (editParam) {
+  if (editParam && orgId) {
     return (
       <Navigate
-        to={`/org/${orgId}/deployment-pipelines/${encodeURIComponent(editParam)}`}
+        to={generatePath(
+          absoluteRouteMap.children.org.children.deploymentPipelines.children
+            .view.path,
+          // generatePath only stringifies params, and this one arrives raw
+          // from the query string.
+          { orgId, pipelineName: encodeURIComponent(editParam) },
+        )}
         replace
       />
     );
@@ -47,6 +55,13 @@ function LegacyEditRedirect({ children }: { children: ReactNode }) {
 export function DeploymentPipelinesOrganization() {
   const { orgId } = useParams<{ orgId: string }>();
   const [createOpen, setCreateOpen] = useState(false);
+
+  const listHref = orgId
+    ? generatePath(
+        absoluteRouteMap.children.org.children.deploymentPipelines.path,
+        { orgId },
+      )
+    : "/";
 
   return (
     <>
@@ -64,12 +79,7 @@ export function DeploymentPipelinesOrganization() {
           }
         />
         <Route path=":pipelineName" element={<DeploymentPipelineEditPage />} />
-        <Route
-          path="*"
-          element={
-            <Navigate to={`/org/${orgId}/deployment-pipelines`} replace />
-          }
-        />
+        <Route path="*" element={<Navigate to={listHref} replace />} />
       </Routes>
 
       {orgId && (
