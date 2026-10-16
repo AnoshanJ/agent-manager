@@ -280,7 +280,7 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	mcpProxyScopeRepository := repositories.NewMCPProxyScopeRepository(db)
 	envThunderURLRepository := ProvideEnvThunderURLRepository(db)
 	readThunderURLFunc := ProvideEnvThunderURLReader(envThunderURLRepository)
-	envThunderEndpointResolver := ProvideDefaultEnvThunderEndpointResolver()
+	envThunderEndpointResolver := ProvideNilEnvThunderEndpointResolver()
 	agentIdentityInjectionService := ProvideAgentIdentityInjectionServiceWithEndpointResolver(agentThunderClientRepository, agentConfigurationRepository, mcpProxyScopeRepository, openChoreoClient, readThunderURLFunc, envThunderEndpointResolver, configConfig, logger)
 	envThunderSystemClientRepository := ProvideEnvThunderSystemClientRepository(db)
 	readSystemClientFunc := ProvideEnvThunderSecretReader(envThunderSystemClientRepository, v)
@@ -872,8 +872,12 @@ func ProvideEnvThunderResolverWithEndpoints(readSystemClient thundersvc.ReadSyst
 	return thundersvc.NewEnvThunderResolverWithEndpoints(readSystemClient, readThunderURL, endpointResolver)
 }
 
-func ProvideDefaultEnvThunderEndpointResolver() thundersvc.EnvThunderEndpointResolver {
-	return thundersvc.DefaultEnvThunderEndpointResolver()
+// ProvideNilEnvThunderEndpointResolver supplies the nil endpoint resolver that
+// on-premises deployments run with (app.Options leaves it unset), so wiring paths
+// that do not inject one (e.g. tests) exercise the same identity-injection path
+// as production: the in-cluster token endpoint, with no env-Thunder URL lookup.
+func ProvideNilEnvThunderEndpointResolver() thundersvc.EnvThunderEndpointResolver {
+	return nil
 }
 
 // ProvideAgentIdentityInjectionService creates the Gateway Binding service that

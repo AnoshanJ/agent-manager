@@ -585,8 +585,12 @@ func ProvideEnvThunderResolverWithEndpoints(readSystemClient thundersvc.ReadSyst
 	return thundersvc.NewEnvThunderResolverWithEndpoints(readSystemClient, readThunderURL, endpointResolver)
 }
 
-func ProvideDefaultEnvThunderEndpointResolver() thundersvc.EnvThunderEndpointResolver {
-	return thundersvc.DefaultEnvThunderEndpointResolver()
+// ProvideNilEnvThunderEndpointResolver supplies the nil endpoint resolver that
+// on-premises deployments run with (app.Options leaves it unset), so wiring paths
+// that do not inject one (e.g. tests) exercise the same identity-injection path
+// as production: the in-cluster token endpoint, with no env-Thunder URL lookup.
+func ProvideNilEnvThunderEndpointResolver() thundersvc.EnvThunderEndpointResolver {
+	return nil
 }
 
 // ProvideAgentIdentityInjectionService creates the Gateway Binding service that
@@ -687,7 +691,7 @@ func InitializeTestAppParamsWithClientMocks(
 		configProviderSet,
 		ProvideJWTSigningConfig,
 		ProvideNilBuildSecretProvisioner,
-		ProvideDefaultEnvThunderEndpointResolver,
+		ProvideNilEnvThunderEndpointResolver,
 		wire.Struct(new(AppParams), "*"),
 	)
 	return &AppParams{}, nil
