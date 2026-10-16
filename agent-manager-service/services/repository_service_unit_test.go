@@ -42,6 +42,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -341,3 +342,117 @@ func TestRepositoryService_ListCommits(t *testing.T) {
 // exercise without a live remote (or an injectable provider). Its behaviour
 // (latest-SHA extraction and the empty-result -> gitprovider.ErrNotFound mapping)
 // belongs in integration tests.
+
+// pagedCommitSource serves numbered commits c1..cTotal in pages of perPage, the way a
+// page-based provider does, and records which pages were requested.
+func pagedCommitSource(total int) (*commitProviderStub, *[]int) {
+	var pages []int
+	return &commitProviderStub{
+		ListCommitsFunc: func(_ context.Context, _, _ string, opts gitprovider.ListCommitsOptions) (*gitprovider.ListCommitsResponse, bool, error) {
+			pages = append(pages, opts.Page)
+			start := (opts.Page - 1) * opts.PerPage
+			end := min(start+opts.PerPage, total)
+			var commits []gitprovider.Commit
+			for i := start; i < end; i++ {
+				commits = append(commits, gitprovider.Commit{SHA: fmt.Sprintf("c%d", i+1)})
+			}
+			return &gitprovider.ListCommitsResponse{Commits: commits, HasMore: end < total}, true, nil
+		},
+	}, &pages
+}
+
+func commitSHAs(response *spec.ListCommitsResponse) []string {
+	shas := make([]string, 0, len(response.Commits))
+	for _, c := range response.Commits {
+		shas = append(shas, c.Sha)
+	}
+	return shas
+}
+
+func componentCommitReq() spec.ListCommitsRequest {
+	return spec.ListCommitsRequest{
+		Owner:         "acme",
+		Repo:          "private-repo",
+		ProjectName:   strPtr("default"),
+		ComponentName: strPtr("private-agent"),
+	}
+}
+
+func TestRepositoryService_ListCommitsProviderHonoursUnalignedOffset(t *testing.T) {
+	t.Run("a window spanning two pages fetches both and slices it", func(t *testing.T) {
+		provider, pages := pagedCommitSource(25)
+		svc := newRepoService(&gitCredsStub{})
+		svc.SetCommitProvider(provider)
+
+		response, err := svc.ListCommits(context.Background(), componentCommitReq(), "acme", gitprovider.ProviderGitHub, 10, 5)
+
+		require.NoError(t, err)
+		assert.Equal(t, []int{1, 2}, *pages)
+		assert.Equal(t, []string{"c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14", "c15"}, commitSHAs(response))
+		assert.Equal(t, int32(5), response.Offset)
+		require.NotNil(t, response.NextOffset)
+		assert.Equal(t, int32(15), *response.NextOffset)
+	})
+
+	t.Run("a window starting in the last page fetches it once and reports no more", func(t *testing.T) {
+		provider, pages := pagedCommitSource(8)
+		svc := newRepoService(&gitCredsStub{})
+		svc.SetCommitProvider(provider)
+
+		response, err := svc.ListCommits(context.Background(), componentCommitReq(), "acme", gitprovider.ProviderGitHub, 10, 5)
+
+		require.NoError(t, err)
+		assert.Equal(t, []int{1}, *pages)
+		assert.Equal(t, []string{"c6", "c7", "c8"}, commitSHAs(response))
+		assert.Nil(t, response.NextOffset)
+	})
+
+	t.Run("an aligned offset still fetches a single page", func(t *testing.T) {
+		provider, pages := pagedCommitSource(25)
+		svc := newRepoService(&gitCredsStub{})
+		svc.SetCommitProvider(provider)
+
+		response, err := svc.ListCommits(context.Background(), componentCommitReq(), "acme", gitprovider.ProviderGitHub, 10, 20)
+
+		require.NoError(t, err)
+		assert.Equal(t, []int{3}, *pages)
+		assert.Equal(t, []string{"c21", "c22", "c23", "c24", "c25"}, commitSHAs(response))
+		assert.Nil(t, response.NextOffset)
+	})
+}
+
+func TestListCommitsWindow(t *testing.T) {
+	t.Run("an error on the second page is returned", func(t *testing.T) {
+		boom := errors.New("boom")
+		_, _, err := listCommitsWindow(10, 5, func(page int) (*gitprovider.ListCommitsResponse, bool, error) {
+			if page == 2 {
+				return nil, false, boom
+			}
+			return &gitprovider.ListCommitsResponse{
+				Commits: make([]gitprovider.Commit, 10),
+				HasMore: true,
+			}, true, nil
+		})
+		assert.ErrorIs(t, err, boom)
+	})
+
+	t.Run("an unbound component is passed through as unhandled", func(t *testing.T) {
+		calls := 0
+		result, handled, err := listCommitsWindow(10, 5, func(int) (*gitprovider.ListCommitsResponse, bool, error) {
+			calls++
+			return nil, false, nil
+		})
+		require.NoError(t, err)
+		assert.False(t, handled)
+		assert.Nil(t, result)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("a non-positive limit is rejected rather than dividing by zero", func(t *testing.T) {
+		_, _, err := listCommitsWindow(0, 0, func(int) (*gitprovider.ListCommitsResponse, bool, error) {
+			t.Fatal("must not fetch")
+			return nil, false, nil
+		})
+		assert.Error(t, err)
+	})
+}
