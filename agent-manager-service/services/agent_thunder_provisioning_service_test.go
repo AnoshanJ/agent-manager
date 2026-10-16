@@ -36,10 +36,33 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/thundersvc"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
+	"github.com/wso2/agent-manager/agent-manager-service/orgctx"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
+
+type endpointResolverStub struct {
+	managementURL string
+}
+
+func (r endpointResolverStub) ResolveEndpoints(context.Context, string, string, string, string, bool) (thundersvc.EnvThunderEndpoints, error) {
+	return thundersvc.EnvThunderEndpoints{
+		ManagementURL:    r.managementURL,
+		TokenURL:         "https://token.example.com/oauth2/token",
+		SystemTokenScope: "tenant_instance:system",
+	}, nil
+}
+
+func TestAgentThunderEndpointResolverCanBeConfiguredAfterFactoryConstruction(t *testing.T) {
+	holder := &agentThunderEndpointResolver{}
+	service := &agentThunderProvisioningService{endpointResolver: holder}
+	service.SetEnvThunderEndpointResolver(endpointResolverStub{managementURL: "http://internal.example.com"})
+
+	endpoints, err := holder.ResolveEndpoints(context.Background(), "ou-id", "org", "dev-eu", "https://public.example.com", true)
+	require.NoError(t, err)
+	require.Equal(t, "http://internal.example.com", endpoints.ManagementURL)
+}
 
 // testOCClientResolvingSecretRefs returns an OpenChoreoClientMock whose
 // GetSecretReference resolves ANY secret ref name to a "resolved/<name>" KV
@@ -2030,12 +2053,15 @@ func TestAttemptProvision_Success_InternalAgent_InjectsWorkloadCredentials(t *te
 
 	reconciledCalls := 0
 	injector := &agentIdentityInjectorStub{
-		ReconcileForEnvironmentFunc: func(_ context.Context, orgName, projectName, agentName, envName string) error {
+		ReconcileForEnvironmentFunc: func(ctx context.Context, orgName, projectName, agentName, envName string) error {
 			reconciledCalls++
 			assert.Equal(t, "acme", orgName)
 			assert.Equal(t, "proj1", projectName)
 			assert.Equal(t, "my-agent", agentName)
 			assert.Equal(t, "staging", envName)
+			resolvedOrg, ok := orgctx.GetResolvedOrg(ctx)
+			require.True(t, ok, "workload reconciliation must carry an organization context")
+			assert.Equal(t, "acme", resolvedOrg.OUID)
 			return nil
 		},
 	}
