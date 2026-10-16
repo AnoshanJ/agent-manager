@@ -38,13 +38,16 @@ import {
   Trash,
 } from "@wso2/oxygen-ui-icons-react";
 import { formatDistanceToNow } from "date-fns";
-import { useParams } from "react-router-dom";
+import { generatePath, useNavigate, useParams } from "react-router-dom";
 import {
   useDeleteDeploymentPipeline,
   useListDeploymentPipelines,
   useListEnvironments,
 } from "@agent-management-platform/api-client";
-import type { DeploymentPipelineResponse } from "@agent-management-platform/types";
+import {
+  absoluteRouteMap,
+  type DeploymentPipelineResponse,
+} from "@agent-management-platform/types";
 import {
   getIsolationTierMeta,
   ResourceListShell,
@@ -54,7 +57,6 @@ import { FadeIn } from "@agent-management-platform/views";
 import { validatePromotionChain } from "../utils/validatePromotionChain";
 
 interface DeploymentPipelineTableProps {
-  onEditPipeline?: (pipeline: DeploymentPipelineResponse) => void;
   onCreatePipeline?: () => void;
 }
 
@@ -137,14 +139,23 @@ function PromotionChainCell({
 }
 
 export function DeploymentPipelineTable({
-  onEditPipeline,
   onCreatePipeline,
 }: DeploymentPipelineTableProps) {
   const { orgId } = useParams<{ orgId: string }>();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  const pipelineHref = (pipelineName: string) =>
+    orgId
+      ? generatePath(
+          absoluteRouteMap.children.org.children.deploymentPipelines.children
+            .view.path,
+          { orgId, pipelineName },
+        )
+      : "#";
 
   const { data, isLoading, error } = useListDeploymentPipelines({
     orgName: orgId,
@@ -295,6 +306,8 @@ export function DeploymentPipelineTable({
               key={pipeline.name}
               variant="card"
               hover
+              clickable
+              onClick={() => navigate(pipelineHref(pipeline.name))}
               onMouseEnter={() => setHoveredId(pipeline.name)}
               onMouseLeave={() => setHoveredId(null)}
               onFocus={() => setHoveredId(pipeline.name)}
@@ -340,7 +353,9 @@ export function DeploymentPipelineTable({
                         <Tooltip title="Edit pipeline">
                           <IconButton
                             size="small"
-                            onClick={() => onEditPipeline?.(pipeline)}
+                            onClick={() =>
+                              navigate(pipelineHref(pipeline.name))
+                            }
                           >
                             <Edit size={16} />
                           </IconButton>
