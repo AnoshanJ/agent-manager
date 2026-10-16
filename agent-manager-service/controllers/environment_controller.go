@@ -411,9 +411,9 @@ func (c *environmentController) SetThunderSystemClient(w http.ResponseWriter, r 
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
-	// Header wins over the token; the context is rewritten too. Same pattern
-	// as ListGateways: WSO2 Cloud's control-plane token carries no org
-	// identity of its own, so it names the target via X-Impersonate-Org.
+	// A trusted control-plane caller may act on a tenant's behalf (see
+	// impersonatedOUID); its override wins over the token, and the context is
+	// rewritten too. Without a deployment-installed resolver this never fires.
 	if impersonated, ok := impersonatedOUID(r); ok && impersonated != ouID {
 		log.Warn("SetThunderSystemClient: org impersonation header overrides token org",
 			"tokenOuID", ouID, "impersonatedOuID", impersonated)
@@ -508,9 +508,9 @@ func (c *environmentController) SetThunderURL(w http.ResponseWriter, r *http.Req
 	ouID := middleware.OUIDFromRequest(r)
 	envName := r.PathValue("envID")
 
-	// Header wins over the token; the context is rewritten too. Same pattern
-	// as ListGateways: WSO2 Cloud's control-plane token carries no org
-	// identity of its own, so it names the target via X-Impersonate-Org.
+	// A trusted control-plane caller may act on a tenant's behalf (see
+	// impersonatedOUID); its override wins over the token, and the context is
+	// rewritten too. Without a deployment-installed resolver this never fires.
 	if impersonated, ok := impersonatedOUID(r); ok && impersonated != ouID {
 		log.Warn("SetThunderURL: org impersonation header overrides token org",
 			"tokenOuID", ouID, "impersonatedOuID", impersonated)

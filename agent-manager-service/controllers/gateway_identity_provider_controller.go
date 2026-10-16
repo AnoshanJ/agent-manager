@@ -141,10 +141,10 @@ func (c *gatewayController) UpsertGatewayIdentityProvider(w http.ResponseWriter,
 	gatewayID := strings.TrimSpace(r.PathValue("gatewayID"))
 	name := strings.TrimSpace(r.PathValue("name"))
 
-	// WSO2 Cloud provisions the environment Thunder identity provider with a
-	// control-plane M2M token, so the tenant OU is carried in
-	// X-Impersonate-Org. Keep ordinary user-token requests unchanged when the
-	// header is absent, matching the Thunder URL and system-client endpoints.
+	// A deployment's control plane may provision the environment Thunder
+	// identity provider on a tenant's behalf (see impersonatedOUID); its
+	// override wins over the token, matching the Thunder URL and system-client
+	// endpoints. Without a deployment-installed resolver this never fires.
 	if impersonated, ok := impersonatedOUID(r); ok && impersonated != ouID {
 		log.Warn("UpsertGatewayIdentityProvider: org impersonation header overrides token org",
 			"tokenOuID", ouID, "impersonatedOuID", impersonated)

@@ -18,6 +18,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -1072,5 +1073,29 @@ func TestGrowthAnalyticsAuthMode(t *testing.T) {
 	}
 	if got := growthAnalyticsAuthMode(GrowthAnalyticsConfig{}); got != "caller-jwt" {
 		t.Errorf("without ID = %q, want caller-jwt", got)
+	}
+}
+
+func TestValidateOpenChoreoBuildWorkflowKind(t *testing.T) {
+	for _, tc := range []struct {
+		kind    string
+		wantErr bool
+	}{
+		{kind: "", wantErr: false},
+		{kind: "Workflow", wantErr: false},
+		{kind: "ClusterWorkflow", wantErr: false},
+		{kind: "workflow", wantErr: true},
+		{kind: "Pipeline", wantErr: true},
+	} {
+		t.Run(fmt.Sprintf("kind=%q", tc.kind), func(t *testing.T) {
+			r := &configReader{}
+			validateOpenChoreoBuildWorkflowKind(&Config{OpenChoreo: OpenChoreoConfig{BuildWorkflowKind: tc.kind}}, r)
+			if tc.wantErr && len(r.errors) == 0 {
+				t.Fatalf("expected an error for %q", tc.kind)
+			}
+			if !tc.wantErr && len(r.errors) != 0 {
+				t.Fatalf("unexpected errors for %q: %v", tc.kind, r.errors)
+			}
+		})
 	}
 }

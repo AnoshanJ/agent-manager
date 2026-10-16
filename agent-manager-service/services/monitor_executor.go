@@ -31,6 +31,7 @@ import (
 
 	"github.com/wso2/agent-manager/agent-manager-service/catalog"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 )
@@ -251,8 +252,10 @@ func (e *monitorExecutor) resolveLLMProxyConfig(ctx context.Context, monitor *mo
 // the proxy is actually deployed to in this environment. Anchoring matters here more than
 // anywhere else: this runs on every scheduled monitor execution, on resources nobody
 // touched, so re-selecting from the environment would break every pre-existing monitor
-// the moment a second egress gateway appears. Cloud evaluation jobs run in a separate
-// workflow-plane cluster, so they must use the gateway's public vhost.
+// the moment a second egress gateway appears. The consumer is the evaluation job: on-premises it
+// runs in the gateway's cluster, so the address is the gateway's internal one. Deployments whose
+// evaluation jobs run in a separate workflow-plane cluster (WSO2 Cloud) set
+// config.EvalJobsUsePublicGatewayURL to hand them the public vhost instead.
 func (e *monitorExecutor) resolveProxyURL(ctx context.Context, ouID, environmentID string, proxy *models.LLMProxy) (string, error) {
 	_ = ctx
 	if proxy == nil {
@@ -275,7 +278,10 @@ func (e *monitorExecutor) resolveProxyURL(ctx context.Context, ouID, environment
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve gateway for environment %s: %w", environmentID, err)
 	}
-	return buildPublicProxyURL(gateway, proxy.Configuration.Context), nil
+	if config.GetConfig().EvalJobsUsePublicGatewayURL {
+		return buildPublicProxyURL(gateway, proxy.Configuration.Context), nil
+	}
+	return buildInternalProxyURL(gateway, proxy.Configuration.Context)
 }
 
 // buildWorkflowRunRequest constructs the workflow run request for a monitor.

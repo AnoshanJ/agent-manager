@@ -17,25 +17,29 @@
 package client
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/gen"
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
-// A Component must record kind=Workflow on its workflow reference. A
-// ClusterWorkflow pins workflowPlaneRef to the single cluster-wide
-// ClusterWorkflowPlane, so its builds always run on that one plane; a namespaced
-// Workflow resolves the WorkflowPlane inside the org's own namespace, which is
-// what lets the org build on the data centre it belongs to.
+// The workflow kind recorded on a Component comes from
+// OPEN_CHOREO_BUILD_WORKFLOW_KIND. A ClusterWorkflow pins workflowPlaneRef to the
+// single cluster-wide ClusterWorkflowPlane, so its builds always run on that one
+// plane; a namespaced Workflow resolves the WorkflowPlane inside the org's own
+// namespace, which is what lets the org build on the data centre it belongs to.
 //
 // The kind has to be recorded here, at creation, because builds.go reads it from
-// the Component and only falls back to ClusterWorkflow when it is absent.
-func TestBuildComponentRequest_RecordsNamespacedWorkflowKind(t *testing.T) {
-	for _, tc := range []struct {
+// the Component and only falls back to ClusterWorkflow when it is absent. Left
+// unset (the on-premises default) nothing is recorded, exactly as before the
+// setting existed.
+func TestBuildComponentRequest_RecordsConfiguredWorkflowKind(t *testing.T) {
+	builds := []struct {
 		name         string
 		build        *BuildConfig
 		wantWorkflow string
@@ -55,26 +59,42 @@ func TestBuildComponentRequest_RecordsNamespacedWorkflowKind(t *testing.T) {
 			build:        &BuildConfig{Type: BuildTypeBuildpack, Buildpack: &BuildpackConfig{Language: "ballerina"}},
 			wantWorkflow: WorkflowNameBallerinaBuilpack,
 		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			body, err := buildInternalAgentFromSourceComponentRequestBody("default", "proj1", CreateComponentRequest{
-				Name:             "my-agent",
-				DisplayName:      "My Agent",
-				ProvisioningType: ProvisioningInternal,
-				AgentType:        AgentTypeConfig{Type: string(utils.AgentTypeAPI), SubType: "custom-api"},
-				Build:            tc.build,
-				Repository:       &RepositoryConfig{},
+	}
+	kinds := []struct {
+		setting  string
+		wantKind *gen.ComponentWorkflowConfigKind
+	}{
+		{setting: "", wantKind: nil},
+		{setting: "Workflow", wantKind: ptrKind(gen.ComponentWorkflowConfigKindWorkflow)},
+		{setting: "ClusterWorkflow", wantKind: ptrKind(gen.ComponentWorkflowConfigKindClusterWorkflow)},
+	}
+
+	cfg := config.GetConfig()
+	orig := cfg.OpenChoreo.BuildWorkflowKind
+	t.Cleanup(func() { cfg.OpenChoreo.BuildWorkflowKind = orig })
+
+	for _, k := range kinds {
+		for _, tc := range builds {
+			t.Run(fmt.Sprintf("kind=%q/%s", k.setting, tc.name), func(t *testing.T) {
+				cfg.OpenChoreo.BuildWorkflowKind = k.setting
+				body, err := buildInternalAgentFromSourceComponentRequestBody("default", "proj1", CreateComponentRequest{
+					Name:             "my-agent",
+					DisplayName:      "My Agent",
+					ProvisioningType: ProvisioningInternal,
+					AgentType:        AgentTypeConfig{Type: string(utils.AgentTypeAPI), SubType: "custom-api"},
+					Build:            tc.build,
+					Repository:       &RepositoryConfig{},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, body.Spec)
+				require.NotNil(t, body.Spec.Workflow)
+				assert.Equal(t, k.wantKind, body.Spec.Workflow.Kind)
+				assert.Equal(t, tc.wantWorkflow, body.Spec.Workflow.Name,
+					"the workflow name is unchanged by the kind — the namespaced "+
+						"workflows are provisioned under the same names")
 			})
-			require.NoError(t, err)
-			require.NotNil(t, body.Spec)
-			require.NotNil(t, body.Spec.Workflow)
-			require.NotNil(t, body.Spec.Workflow.Kind,
-				"kind must be recorded, otherwise builds.go falls back to ClusterWorkflow")
-			assert.Equal(t, gen.ComponentWorkflowConfigKindWorkflow, *body.Spec.Workflow.Kind,
-				"must be the namespaced Workflow, not the cluster-scoped ClusterWorkflow")
-			assert.Equal(t, tc.wantWorkflow, body.Spec.Workflow.Name,
-				"the workflow name is unchanged by the kind switch — the namespaced "+
-					"workflows are provisioned under the same names")
-		})
+		}
 	}
 }
+
+func ptrKind(k gen.ComponentWorkflowConfigKind) *gen.ComponentWorkflowConfigKind { return &k }

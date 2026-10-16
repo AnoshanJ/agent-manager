@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 )
@@ -186,9 +187,47 @@ func TestAnchoring_MonitorRunAgainstDeployedProxy(t *testing.T) {
 		}
 		url, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
 		require.NoError(t, err)
-		// Vhosts are per-gateway in the fixture, so asserting this one rules out the
-		// other gateway. A bare vhost gets the default HTTPS scheme.
-		require.Equal(t, "https://"+both.Vhost, url)
+		// Runtime URLs are per-gateway in the fixture, so asserting this one rules out the
+		// other gateway. The monitor's evaluation job runs in-cluster and gets the runtime
+		// address verbatim — no scheme defaulting, and never the public vhost.
+		require.Equal(t, both.RuntimeURL, url)
+	})
+
+	t.Run("fails when the anchored gateway has no runtimeUrl", func(t *testing.T) {
+		unregistered := newGateway(t, models.GatewayRoleBoth, true)
+		unregistered.RuntimeURL = ""
+		exec := &monitorExecutor{
+			gatewayRepo: gatewayFixtureRepo(t, env.String(), []*models.Gateway{unregistered}),
+			deploymentRepo: &repomocks.DeploymentRepositoryMock{
+				GetDeployedGatewaysByProviderFunc: func(uuid.UUID, string) ([]string, error) {
+					return []string{unregistered.UUID.String()}, nil
+				},
+			},
+		}
+		_, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
+		require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
+	})
+
+	t.Run("uses the public vhost when evaluation jobs run outside the cluster", func(t *testing.T) {
+		cfg := config.GetConfig()
+		orig := cfg.EvalJobsUsePublicGatewayURL
+		cfg.EvalJobsUsePublicGatewayURL = true
+		t.Cleanup(func() { cfg.EvalJobsUsePublicGatewayURL = orig })
+
+		exec := &monitorExecutor{
+			gatewayRepo: gatewayFixtureRepo(t, env.String(), []*models.Gateway{both, egress}),
+			deploymentRepo: &repomocks.DeploymentRepositoryMock{
+				GetDeployedGatewaysByProviderFunc: func(uuid.UUID, string) ([]string, error) {
+					return []string{both.UUID.String()}, nil
+				},
+			},
+		}
+		url, err := exec.resolveProxyURL(context.Background(), "org", env.String(), proxy)
+		require.NoError(t, err)
+		// Still anchored to the deployed gateway, but its public address: a job in another
+		// cluster cannot route to the in-cluster runtime URL.
+		require.Equal(t, buildPublicProxyURL(both, proxy.Configuration.Context), url)
+		require.NotEqual(t, both.RuntimeURL, url)
 	})
 
 	t.Run("ambiguity fires only with no deployment", func(t *testing.T) {

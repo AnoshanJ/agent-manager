@@ -39,6 +39,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/db"
 	dbmigrations "github.com/wso2/agent-manager/agent-manager-service/db_migrations"
+	"github.com/wso2/agent-manager/agent-manager-service/middleware"
 	"github.com/wso2/agent-manager/agent-manager-service/resources"
 	"github.com/wso2/agent-manager/agent-manager-service/server"
 	"github.com/wso2/agent-manager/agent-manager-service/services"
@@ -96,6 +97,13 @@ type Options struct {
 	// cloud deployments inject their own, e.g. the product label WSO2 Cloud's
 	// product-scoped suspension selects ReleaseBindings by.
 	ResourceLabels map[string]string
+	// OrgOverrideResolver lets a deployment's control plane act on a tenant's
+	// behalf on the few routes it drives (gateway listing, environment Thunder
+	// registration, gateway identity providers), typically by trusting an
+	// X-Impersonate-Org header from its own service token. nil (the open-source
+	// default) ignores any such header: the token is the sole source of org
+	// identity. See middleware.OrgOverrideResolver.
+	OrgOverrideResolver middleware.OrgOverrideResolver
 }
 
 // Run starts the application with the provided providers and options.
@@ -108,6 +116,8 @@ func Run(authProvider occlient.AuthProvider, secretProvider secretmanagersvc.Pro
 	cfg := config.GetConfig()
 	// Set before anything builds an OpenChoreo client, which all read it from config.
 	cfg.OpenChoreo.ResourceLabels = maps.Clone(opts.ResourceLabels)
+	// Installed before the HTTP server starts, so no request sees it change.
+	middleware.SetOrgOverrideResolver(opts.OrgOverrideResolver)
 
 	setupLogger(cfg)
 

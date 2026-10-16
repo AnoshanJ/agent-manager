@@ -177,10 +177,23 @@ func TestSystemManagedLLMURLUsesGatewayRuntimeURL(t *testing.T) {
 	require.Equal(t, "http://api-platform-acme-dev-gw-gateway-gateway-runtime.acme-dev:22893/llm/proxy", url)
 }
 
-// TestSystemManagedLLMURLFallsBackToVhostWithoutRuntimeURL covers the cloud gateway: nothing
-// registers a runtimeUrl there, and the pod reaches the gateway over the public vhost, so the
-// injection must resolve rather than abort.
-func TestSystemManagedLLMURLFallsBackToVhostWithoutRuntimeURL(t *testing.T) {
+// TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL guards the fallback: a gateway with no
+// in-cluster address must abort the injection rather than hand the pod a vhost it cannot reach.
+func TestSystemManagedLLMURLFailsClosedWithoutRuntimeURL(t *testing.T) {
+	gateway := newGateway(t, models.GatewayRoleEgress, true)
+	gateway.Vhost = "https://gateway.example.com"
+	gateway.RuntimeURL = ""
+
+	_, err := callSystemManagedLLMURL(t, gateway, "/llm/proxy")
+
+	require.ErrorIs(t, err, errGatewayRuntimeURLUnregistered)
+}
+
+// TestSystemManagedLLMURLFallsBackToVhostWhenEnabled covers the cloud gateway: nothing
+// registers a runtimeUrl there, and the pod reaches the gateway over the public vhost, so
+// with the fallback enabled the injection must resolve rather than abort.
+func TestSystemManagedLLMURLFallsBackToVhostWhenEnabled(t *testing.T) {
+	enableGatewayPublicVhostFallback(t)
 	gateway := newGateway(t, models.GatewayRoleEgress, true)
 	gateway.Vhost = "https://gateway.example.com"
 	gateway.RuntimeURL = ""
