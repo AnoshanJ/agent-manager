@@ -12276,6 +12276,7 @@ components:
         - status
         - lastError
         - upstreamAuthHeader
+        - gatewayUrl
       properties:
         status:
           type: string
@@ -12289,6 +12290,12 @@ components:
           description: >-
             The header the gateway adds upstream; empty when none. A non-empty header means a
             secret is stored. The secret itself is never returned.
+        gatewayUrl:
+          type: string
+          description: >-
+            The agent's base URL on the environment's ingress gateway, where its card is served at
+            /.well-known/agent-card.json once published. Empty while no ingress gateway is mapped to
+            the environment.
     SetA2AProxyRequest:
       type: object
       properties:

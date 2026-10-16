@@ -53,7 +53,7 @@ func (c *a2aProxyController) GetA2AProxy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	utils.WriteSuccessResponse(w, http.StatusOK,
-		spec.NewA2AProxyResponse(string(status.Status), status.LastError, status.UpstreamAuthHeader))
+		spec.NewA2AProxyResponse(string(status.Status), status.LastError, status.UpstreamAuthHeader, status.GatewayURL))
 }
 
 func (c *a2aProxyController) SetA2AProxy(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +110,7 @@ func writeA2AProxyError(w http.ResponseWriter, r *http.Request, err error, fallb
 	case errors.Is(err, utils.ErrAgentNotA2A),
 		errors.Is(err, utils.ErrA2AProxyAgentNotExternal),
 		errors.Is(err, utils.ErrInvalidUpstreamAuth),
+		errors.Is(err, utils.ErrA2AProxyUpstreamAuthNeedsHTTPS),
 		errors.Is(err, utils.ErrA2ACardURLNotProxyable):
 		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 	default:

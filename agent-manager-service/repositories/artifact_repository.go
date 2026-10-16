@@ -17,6 +17,7 @@
 package repositories
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -37,8 +38,7 @@ type ArtifactRepository interface {
 	Exists(kind, handle, orgUUID string) (bool, error)
 	GetByHandle(handle, orgUUID string) (*models.Artifact, error)
 	GetByUUID(artifactUUID, orgUUID string) (*models.Artifact, error)
-	ListByHandlePrefix(kind, handlePrefix, orgUUID string) ([]*models.Artifact, error)
-	ListByHandleSuffix(kind, handleSuffix, orgUUID string) ([]*models.Artifact, error)
+	ListByHandlePrefix(ctx context.Context, kind, handlePrefix, orgUUID string) ([]*models.Artifact, error)
 	CountByKindAndOrg(kind, orgUUID string) (int, error)
 }
 
@@ -140,17 +140,10 @@ func (r *ArtifactRepo) GetByUUID(artifactUUID, orgUUID string) (*models.Artifact
 }
 
 // ListByHandlePrefix returns the org's artifacts of a kind whose handle starts with handlePrefix.
-func (r *ArtifactRepo) ListByHandlePrefix(kind, handlePrefix, orgUUID string) ([]*models.Artifact, error) {
+func (r *ArtifactRepo) ListByHandlePrefix(ctx context.Context, kind, handlePrefix, orgUUID string) ([]*models.Artifact, error) {
 	var artifacts []*models.Artifact
-	err := r.db.Where(`kind = ? AND ou_id = ? AND handle LIKE ? ESCAPE '\'`, kind, orgUUID, escapeLikeWildcards(handlePrefix)+"%").
-		Find(&artifacts).Error
-	return artifacts, err
-}
-
-// ListByHandleSuffix returns the org's artifacts of a kind whose handle ends with handleSuffix.
-func (r *ArtifactRepo) ListByHandleSuffix(kind, handleSuffix, orgUUID string) ([]*models.Artifact, error) {
-	var artifacts []*models.Artifact
-	err := r.db.Where(`kind = ? AND ou_id = ? AND handle LIKE ? ESCAPE '\'`, kind, orgUUID, "%"+escapeLikeWildcards(handleSuffix)).
+	err := r.db.WithContext(ctx).
+		Where(`kind = ? AND ou_id = ? AND handle LIKE ? ESCAPE '\'`, kind, orgUUID, escapeLikeWildcards(handlePrefix)+"%").
 		Find(&artifacts).Error
 	return artifacts, err
 }

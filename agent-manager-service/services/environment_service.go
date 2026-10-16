@@ -465,17 +465,17 @@ func (s *environmentService) a2aEnvironmentUUIDs(ctx context.Context, ouID, name
 	return ids, errors.Join(errs...)
 }
 
-// tearDownA2AEnvironment drops cards, then withdraws publications and proxies; both are idempotent.
+// tearDownA2AEnvironment withdraws publications and proxies, then drops the cards that named their agents; both are idempotent.
 func (s *environmentService) tearDownA2AEnvironment(ctx context.Context, ouID string, envUUID uuid.UUID) error {
 	var errs []error
-	if s.a2aCardRepo != nil {
-		if err := s.a2aCardRepo.DeleteForEnvironment(ctx, ouID, envUUID); err != nil {
-			errs = append(errs, fmt.Errorf("failed to delete A2A agent cards: %w", err))
-		}
-	}
 	if s.a2aPublisher != nil {
 		if err := s.a2aPublisher.TeardownEnvironment(ctx, ouID, envUUID); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	if s.a2aCardRepo != nil {
+		if err := s.a2aCardRepo.DeleteForEnvironment(ctx, ouID, envUUID); err != nil {
+			errs = append(errs, fmt.Errorf("failed to delete A2A agent cards: %w", err))
 		}
 	}
 	return errors.Join(errs...)

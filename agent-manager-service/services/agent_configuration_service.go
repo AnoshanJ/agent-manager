@@ -34,6 +34,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/secretmanagersvc"
+	"github.com/wso2/agent-manager/agent-manager-service/config"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/repositories"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -351,14 +352,22 @@ func buildPublicProxyURL(gateway *models.Gateway, contextPath *string) string {
 
 // errGatewayRuntimeURLUnregistered means the gateway has no in-cluster address recorded, so
 // no internal caller can reach it. Falling back to the public vhost would hairpin the caller
-// out through an ingress its NetworkPolicy denies, so this fails closed.
+// out through an ingress its NetworkPolicy denies, so this fails closed unless the deployment
+// opts into the fallback (config.GatewayPublicVhostFallback).
 var errGatewayRuntimeURLUnregistered = errors.New("gateway has no runtimeUrl registered")
 
 // buildInternalProxyURL constructs the proxy base URL from the gateway's in-cluster runtime
 // address, for callers that run inside the cluster.
+//
+// A gateway with no runtimeUrl fails closed by default. When the deployment enables
+// config.GatewayPublicVhostFallback (its gateways register a vhost only, as WSO2 Cloud's do),
+// it falls back to the public vhost instead — the address the agent's MCP proxies already use.
 func buildInternalProxyURL(gateway *models.Gateway, contextPath *string) (string, error) {
 	base := strings.TrimSpace(gateway.RuntimeURL)
 	if base == "" {
+		if config.GetConfig().GatewayPublicVhostFallback {
+			return buildPublicProxyURL(gateway, contextPath), nil
+		}
 		return "", fmt.Errorf("%w: %s", errGatewayRuntimeURLUnregistered, gateway.UUID)
 	}
 	if contextPath != nil {

@@ -196,6 +196,23 @@ type Config struct {
 	// cache lives. The default in-memory backend is process-local and therefore
 	// inconsistent across replicas — set Backend to "redis" in HA deployments.
 	GatewayManifestCache GatewayManifestCacheConfig
+
+	// GatewayPublicVhostFallback hands a platform-hosted agent the gateway's
+	// public vhost for its LLM proxy URL when the gateway registered no
+	// in-cluster runtimeUrl. Off by default: on-premises gateways always
+	// register one, and an in-cluster caller sent out through the public
+	// ingress is usually blocked by its NetworkPolicy, so a missing runtimeUrl
+	// fails closed. Deployments whose gateways register only a vhost (WSO2
+	// Cloud) turn it on. GATEWAY_PUBLIC_VHOST_FALLBACK.
+	GatewayPublicVhostFallback bool
+
+	// EvalJobsUsePublicGatewayURL points scheduled evaluation jobs at the LLM
+	// proxy's public gateway vhost instead of the gateway's in-cluster address.
+	// Off by default: on-premises evaluation jobs run in the same cluster as the
+	// gateway, and the public vhost may not be trusted there (self-signed TLS).
+	// Deployments that run evaluation jobs in a separate workflow-plane cluster
+	// (WSO2 Cloud) turn it on. EVAL_JOBS_USE_PUBLIC_GATEWAY_URL.
+	EvalJobsUsePublicGatewayURL bool
 }
 
 // GatewayManifestCacheConfig selects and configures the backend for the
@@ -293,6 +310,14 @@ type OpenChoreoConfig struct {
 	// through app.Options.ResourceLabels. Their keys are treated as system
 	// labels, so they are never surfaced or replaced as user labels.
 	ResourceLabels map[string]string
+	// BuildWorkflowKind is the kind recorded on a new source-built agent's
+	// Component workflow reference: "Workflow" (namespaced, resolves the
+	// WorkflowPlane in the organization's own namespace) or "ClusterWorkflow".
+	// Empty (the default) records no kind, which OpenChoreo and builds.go both
+	// treat as ClusterWorkflow — the single cluster-wide workflow plane every
+	// on-premises install uses. Existing agents keep the kind they were created
+	// with.
+	BuildWorkflowKind string
 }
 
 // GitHubConfig holds GitHub API configuration

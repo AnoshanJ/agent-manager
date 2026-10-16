@@ -149,6 +149,8 @@ type agentArtifactDeletionFixture struct {
 	deletedUUIDs []string
 	queueDeletes int
 	cardDeletes  int
+	// failDelete makes the artifact delete of that UUID fail with the error.
+	failDelete map[string]error
 }
 
 // newAgentArtifactDeletionFixture stores an Agent artifact per environment UUID in artifacts,
@@ -165,7 +167,7 @@ func newAgentArtifactDeletionFixture(t *testing.T, artifacts map[string]uuid.UUI
 		stored = append(stored, &models.Artifact{UUID: id, Handle: agentEnvAPIArtifactHandle("proj", "agent", envUUID), Kind: models.KindAgent})
 	}
 	artifactRepo := &repomocks.ArtifactRepositoryMock{
-		ListByHandlePrefixFunc: func(kind, prefix, _ string) ([]*models.Artifact, error) {
+		ListByHandlePrefixFunc: func(_ context.Context, kind, prefix, _ string) ([]*models.Artifact, error) {
 			require.Equal(t, models.KindAgent, kind)
 			var found []*models.Artifact
 			for _, a := range stored {
@@ -176,6 +178,9 @@ func newAgentArtifactDeletionFixture(t *testing.T, artifacts map[string]uuid.UUI
 			return found, nil
 		},
 		DeleteFunc: func(_ *gorm.DB, id string) error {
+			if err := f.failDelete[id]; err != nil {
+				return err
+			}
 			f.steps = append(f.steps, "delete-artifact")
 			f.deletedUUIDs = append(f.deletedUUIDs, id)
 			return nil
@@ -213,7 +218,7 @@ func newAgentArtifactDeletionFixture(t *testing.T, artifacts map[string]uuid.UUI
 		},
 	}
 	events := NewGatewayEventsService(f.hub)
-	publisher := NewA2APublisher(nil, pubRepo, proxyRepo, artifactRepo, deploymentRepo, gatewayRepo, events, testLogger())
+	publisher := NewA2APublisher(nil, pubRepo, proxyRepo, cardRepo, artifactRepo, deploymentRepo, gatewayRepo, events, testLogger())
 	f.svc = NewAgentManagerService(nil, oc, nil, nil, nil, nil, nil, nil, artifactRepo, nil, gatewayRepo, nil, nil, nil, nil, nil,
 		publisher, cardRepo, deploymentRepo, events, testLogger()).(*agentManagerService)
 	return f
@@ -227,7 +232,7 @@ func TestDeleteAgentAPIArtifactClearsEveryEnvironmentArtifact(t *testing.T) {
 		map[string]uuid.UUID{"env-dev": devID, "env-qa": qaID},
 		map[uuid.UUID][]string{devID: {"gw-dev"}, qaID: {"gw-qa"}})
 
-	f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", true)
+	require.NoError(t, f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", true))
 
 	assert.ElementsMatch(t, []string{devID.String(), qaID.String()}, f.deletedUUIDs)
 	assert.Equal(t, 1, f.queueDeletes, "queue rows are cleared once per agent")
@@ -247,7 +252,7 @@ func TestDeleteAgentAPIArtifactBroadcastsLast(t *testing.T) {
 		map[string]uuid.UUID{"env-dev": devID},
 		map[uuid.UUID][]string{devID: {"gw-dev"}})
 
-	f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", true)
+	require.NoError(t, f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", true))
 
 	assert.Equal(t, []string{"delete-queue", "delete-proxies", "delete-cards", "collect", "delete-artifact", "broadcast"}, f.steps)
 }
@@ -258,26 +263,46 @@ func TestDeleteAgentAPIArtifactSendsNothingForARESTAgent(t *testing.T) {
 	f := newAgentArtifactDeletionFixture(t, map[string]uuid.UUID{"env-dev": devID}, nil)
 	f.svc.gatewayRepo = &repomocks.GatewayRepositoryMock{} // listing gateways would panic
 
-	f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false)
+	require.NoError(t, f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false))
 
 	assert.Equal(t, []string{devID.String()}, f.deletedUUIDs)
 	assert.Empty(t, f.hub.published)
 }
 
 // A failed artifact lookup leaves nothing deleted or broadcast, and the rows already gone.
-func TestDeleteAgentAPIArtifactSurvivesAListFailure(t *testing.T) {
+// A listing failure leaves the artifacts and their gateway Agents behind, so the delete must say so:
+// the component is gone by then and only another delete reaches this cleanup again.
+func TestDeleteAgentAPIArtifactReportsAListFailure(t *testing.T) {
 	devID := uuid.New()
 	f := newAgentArtifactDeletionFixture(t, map[string]uuid.UUID{"env-dev": devID}, nil)
 	repo, ok := f.svc.artifactRepo.(*repomocks.ArtifactRepositoryMock)
 	require.True(t, ok)
-	repo.ListByHandlePrefixFunc = func(string, string, string) ([]*models.Artifact, error) {
-		return nil, errors.New("db unavailable")
+	boom := errors.New("db unavailable")
+	repo.ListByHandlePrefixFunc = func(context.Context, string, string, string) ([]*models.Artifact, error) {
+		return nil, boom
 	}
 
-	f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false)
+	err := f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false)
 
+	assert.ErrorIs(t, err, boom)
 	assert.Empty(t, f.deletedUUIDs)
 	assert.Empty(t, f.hub.published)
+}
+
+// One artifact that will not delete is reported, while the others are still removed and withdrawn.
+func TestDeleteAgentAPIArtifactReportsADeleteFailureAfterTheRest(t *testing.T) {
+	devID, qaID := uuid.New(), uuid.New()
+	f := newAgentArtifactDeletionFixture(t, map[string]uuid.UUID{"env-dev": devID, "env-qa": qaID},
+		map[uuid.UUID][]string{devID: {"gw-1"}, qaID: {"gw-1"}})
+	boom := errors.New("db unavailable")
+	f.failDelete = map[string]error{qaID.String(): boom}
+
+	err := f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", true)
+
+	assert.ErrorIs(t, err, boom)
+	assert.Equal(t, []string{devID.String()}, f.deletedUUIDs)
+	require.Len(t, f.hub.published, 1, "only the removed artifact is withdrawn; the other still exists")
+	assert.Equal(t, devID.String(), deletedAgentID(t, f.hub.published[0]))
 }
 
 // Card rows go with the agent, external A2A agents included, so a same-named agent starts clean.
@@ -286,7 +311,7 @@ func TestDeleteAgentAPIArtifactClearsCardRowsOnce(t *testing.T) {
 	f := newAgentArtifactDeletionFixture(t, map[string]uuid.UUID{"env-dev": devID}, nil)
 	f.svc.gatewayRepo = &repomocks.GatewayRepositoryMock{}
 
-	f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false)
+	require.NoError(t, f.svc.deleteAgentAPIArtifact(context.Background(), "org-1", "proj", "agent", false))
 
 	assert.Equal(t, 1, f.cardDeletes)
 }

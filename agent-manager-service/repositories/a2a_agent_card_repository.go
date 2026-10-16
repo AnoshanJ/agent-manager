@@ -78,6 +78,8 @@ type A2AAgentCardRepository interface {
 	DeleteIfUnchanged(ctx context.Context, read models.A2AAgentCard) error
 	// DeleteForEnvironment drops every agent's row in a deleted environment.
 	DeleteForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) error
+	// ListForEnvironment returns every agent's row for the environment, ordered by project and agent name.
+	ListForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2AAgentCard, error)
 	// ListEnvironmentUUIDs returns the distinct environment UUIDs with rows recorded under environmentName.
 	ListEnvironmentUUIDs(ctx context.Context, ouID, environmentName string) ([]uuid.UUID, error)
 }
@@ -360,6 +362,10 @@ func (r *a2aAgentCardRepository) DeleteForEnvironment(ctx context.Context, ouID 
 	return deleteForEnvironment[models.A2AAgentCard](ctx, r.db, ouID, environmentUUID)
 }
 
+func (r *a2aAgentCardRepository) ListForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2AAgentCard, error) {
+	return listForEnvironment[models.A2AAgentCard](ctx, r.db, ouID, environmentUUID, "project_name ASC, agent_name ASC")
+}
+
 func (r *a2aAgentCardRepository) ListEnvironmentUUIDs(ctx context.Context, ouID, environmentName string) ([]uuid.UUID, error) {
 	return listEnvironmentUUIDs[models.A2AAgentCard](ctx, r.db, ouID, environmentName)
 }
@@ -369,6 +375,19 @@ func deleteForEnvironment[T any](ctx context.Context, db *gorm.DB, ouID string, 
 	return db.WithContext(ctx).
 		Where("ou_id = ? AND environment_uuid = ?", ouID, environmentUUID).
 		Delete(new(T)).Error
+}
+
+// listForEnvironment lists the T rows of one environment in the given order.
+func listForEnvironment[T any](ctx context.Context, db *gorm.DB, ouID string, environmentUUID uuid.UUID, order string) ([]T, error) {
+	var rows []T
+	err := db.WithContext(ctx).
+		Where("ou_id = ? AND environment_uuid = ?", ouID, environmentUUID).
+		Order(order).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // listEnvironmentUUIDs lists the distinct environment UUIDs of the T rows recorded under environmentName.

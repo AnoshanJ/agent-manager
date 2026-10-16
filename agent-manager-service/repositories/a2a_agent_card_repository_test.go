@@ -462,6 +462,31 @@ func TestA2AAgentCardListForAgentOrdersByEnvironment(t *testing.T) {
 	assert.Empty(t, none, "rows are org-scoped")
 }
 
+func TestA2AAgentCardListForEnvironmentNamesEveryAgentInIt(t *testing.T) {
+	repo := NewA2AAgentCardRepository(db.GetDB())
+	ctx := context.Background()
+	first := newTestCard("env-a-"+uuid.New().String()[:8], models.A2AAgentCardSourceExternal)
+	second := newTestCard("env-b-"+uuid.New().String()[:8], models.A2AAgentCardSourcePlatform)
+	second.OUID, second.EnvironmentUUID = first.OUID, first.EnvironmentUUID
+	elsewhere := inEnv(newTestCard(first.AgentName, models.A2AAgentCardSourcePlatform), "Production")
+	elsewhere.OUID = first.OUID
+	cleanupCard(t, repo, first)
+	cleanupCard(t, repo, second)
+	require.NoError(t, repo.Enqueue(ctx, second))
+	require.NoError(t, repo.Enqueue(ctx, first))
+	require.NoError(t, repo.Enqueue(ctx, elsewhere))
+
+	rows, err := repo.ListForEnvironment(ctx, first.OUID, first.EnvironmentUUID)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, first.AgentName, rows[0].AgentName)
+	assert.Equal(t, second.AgentName, rows[1].AgentName)
+
+	none, err := repo.ListForEnvironment(ctx, "other-org", first.EnvironmentUUID)
+	require.NoError(t, err)
+	assert.Empty(t, none, "rows are org-scoped")
+}
+
 func TestA2AAgentCardGetAndDelete(t *testing.T) {
 	repo := NewA2AAgentCardRepository(db.GetDB())
 	ctx := context.Background()

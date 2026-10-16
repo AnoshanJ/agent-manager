@@ -411,6 +411,45 @@ func TestA2APublicationMarkWaitingDoesNotCountAnAttempt(t *testing.T) {
 	assert.True(t, row.NextAttemptAt.After(time.Now()), "the next check is backed off")
 }
 
+// Pods from before the external source existed claim and fail external rows during a rolling upgrade; a new
+// pod gives those rows their budget back at start, leaving platform rows and pending rows as they were.
+func TestA2APublicationRequeueFailedExternalResetsOnlyFailedExternalRows(t *testing.T) {
+	repo := NewA2APublicationRepository(db.GetDB())
+	ctx := context.Background()
+	failedExternal := newTestPublication("ext-failed-" + uuid.New().String()[:8])
+	failedExternal.Source = models.A2APublicationSourceExternal
+	failedPlatform := newTestPublication("plat-failed-" + uuid.New().String()[:8])
+	pendingExternal := newTestPublication("ext-pending-" + uuid.New().String()[:8])
+	pendingExternal.Source = models.A2APublicationSourceExternal
+	for _, pub := range []*models.A2APublication{failedExternal, failedPlatform, pendingExternal} {
+		cleanupPublication(t, repo, pub)
+		require.NoError(t, repo.Enqueue(ctx, pub))
+	}
+	// One claim leases every due row, so both failures come from the same batch.
+	due, err := repo.ClaimDue(ctx, time.Now(), 100)
+	require.NoError(t, err)
+	failed := 0
+	for _, row := range due {
+		if row.AgentName == failedExternal.AgentName || row.AgentName == failedPlatform.AgentName {
+			require.NoError(t, repo.MarkFailed(ctx, row, "old pod: no release binding"))
+			failed++
+		}
+	}
+	require.Equal(t, 2, failed)
+
+	n, err := repo.RequeueFailedExternal(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, n)
+
+	got := statusOf(t, failedExternal)
+	assert.Equal(t, models.A2APublicationStatusPending, got.Status)
+	assert.Zero(t, got.AttemptCount)
+	assert.Empty(t, got.LastError)
+	require.NotNil(t, got.NextAttemptAt)
+	assert.Equal(t, models.A2APublicationStatusFailed, statusOf(t, failedPlatform).Status, "platform rows are not touched")
+	assert.Equal(t, models.A2APublicationStatusPending, statusOf(t, pendingExternal).Status)
+}
+
 // A drifted published row goes back on the queue with a fresh budget.
 func TestA2APublicationRequeueMakesAPublishedRowDue(t *testing.T) {
 	repo := NewA2APublicationRepository(db.GetDB())

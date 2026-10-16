@@ -25,17 +25,20 @@ type A2AProxyResponse struct {
 	LastError string `json:"lastError"`
 	// The header the gateway adds upstream; empty when none. A non-empty header means a secret is stored. The secret itself is never returned.
 	UpstreamAuthHeader string `json:"upstreamAuthHeader"`
+	// The agent's base URL on the environment's ingress gateway, where its card is served at /.well-known/agent-card.json once published. Empty while no ingress gateway is mapped to the environment.
+	GatewayUrl string `json:"gatewayUrl"`
 }
 
 // NewA2AProxyResponse instantiates a new A2AProxyResponse object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewA2AProxyResponse(status string, lastError string, upstreamAuthHeader string) *A2AProxyResponse {
+func NewA2AProxyResponse(status string, lastError string, upstreamAuthHeader string, gatewayUrl string) *A2AProxyResponse {
 	this := A2AProxyResponse{}
 	this.Status = status
 	this.LastError = lastError
 	this.UpstreamAuthHeader = upstreamAuthHeader
+	this.GatewayUrl = gatewayUrl
 	return &this
 }
 
@@ -119,6 +122,30 @@ func (o *A2AProxyResponse) SetUpstreamAuthHeader(v string) {
 	o.UpstreamAuthHeader = v
 }
 
+// GetGatewayUrl returns the GatewayUrl field value
+func (o *A2AProxyResponse) GetGatewayUrl() string {
+	if o == nil {
+		var ret string
+		return ret
+	}
+
+	return o.GatewayUrl
+}
+
+// GetGatewayUrlOk returns a tuple with the GatewayUrl field value
+// and a boolean to check if the value has been set.
+func (o *A2AProxyResponse) GetGatewayUrlOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.GatewayUrl, true
+}
+
+// SetGatewayUrl sets field value
+func (o *A2AProxyResponse) SetGatewayUrl(v string) {
+	o.GatewayUrl = v
+}
+
 func (o A2AProxyResponse) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -132,6 +159,7 @@ func (o A2AProxyResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["status"] = o.Status
 	toSerialize["lastError"] = o.LastError
 	toSerialize["upstreamAuthHeader"] = o.UpstreamAuthHeader
+	toSerialize["gatewayUrl"] = o.GatewayUrl
 	return toSerialize, nil
 }
 

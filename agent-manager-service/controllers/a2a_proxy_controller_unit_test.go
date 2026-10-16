@@ -71,7 +71,9 @@ func agentEnvRequest(method, resource, body string) *http.Request {
 // The response has no field the secret could leak through.
 func TestGetA2AProxyReturnsTheHeaderButNoSecret(t *testing.T) {
 	stub := &proxyServiceStub{GetFunc: func(context.Context, string, string, string, string) (*models.A2AProxyStatus, error) {
-		return &models.A2AProxyStatus{Status: models.A2APublicationStatusPublished, UpstreamAuthHeader: "X-Key"}, nil
+		return &models.A2AProxyStatus{
+			Status: models.A2APublicationStatusPublished, UpstreamAuthHeader: "X-Key", GatewayURL: "https://agents.example.com/weather",
+		}, nil
 	}}
 	rec := httptest.NewRecorder()
 
@@ -80,7 +82,9 @@ func TestGetA2AProxyReturnsTheHeaderButNoSecret(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, map[string]interface{}{"status": "published", "lastError": "", "upstreamAuthHeader": "X-Key"}, body)
+	assert.Equal(t, map[string]interface{}{
+		"status": "published", "lastError": "", "upstreamAuthHeader": "X-Key", "gatewayUrl": "https://agents.example.com/weather",
+	}, body)
 }
 
 func TestSetA2AProxyKeepsTheThreeAuthCasesApart(t *testing.T) {
@@ -110,14 +114,15 @@ func TestSetA2AProxyKeepsTheThreeAuthCasesApart(t *testing.T) {
 
 func TestA2AProxyErrorsMapToStatusCodes(t *testing.T) {
 	for sentinel, code := range map[error]int{
-		utils.ErrEnvironmentNotProxied:    http.StatusNotFound,
-		utils.ErrA2AProxyNeedsCardSource:  http.StatusConflict,
-		utils.ErrA2ACardURLNotProxyable:   http.StatusBadRequest,
-		utils.ErrInvalidUpstreamAuth:      http.StatusBadRequest,
-		utils.ErrA2AProxyAgentNotExternal: http.StatusBadRequest,
-		utils.ErrAgentNotA2A:              http.StatusBadRequest,
-		utils.ErrForbidden:                http.StatusForbidden,
-		audit.ErrRecorderUnavailable:      http.StatusServiceUnavailable,
+		utils.ErrEnvironmentNotProxied:          http.StatusNotFound,
+		utils.ErrA2AProxyNeedsCardSource:        http.StatusConflict,
+		utils.ErrA2ACardURLNotProxyable:         http.StatusBadRequest,
+		utils.ErrA2AProxyUpstreamAuthNeedsHTTPS: http.StatusBadRequest,
+		utils.ErrInvalidUpstreamAuth:            http.StatusBadRequest,
+		utils.ErrA2AProxyAgentNotExternal:       http.StatusBadRequest,
+		utils.ErrAgentNotA2A:                    http.StatusBadRequest,
+		utils.ErrForbidden:                      http.StatusForbidden,
+		audit.ErrRecorderUnavailable:            http.StatusServiceUnavailable,
 	} {
 		t.Run(sentinel.Error(), func(t *testing.T) {
 			stub := &proxyServiceStub{SetFunc: func(context.Context, string, string, string, string, *models.A2AProxyAuthUpdate) error {
