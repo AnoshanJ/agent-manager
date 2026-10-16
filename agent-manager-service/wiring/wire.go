@@ -86,6 +86,10 @@ var serviceProviderSet = wire.NewSet(
 	services.NewA2ACardFetcher,
 	services.NewA2ACardReconcilerService,
 	services.NewA2AAgentCardService,
+	ProvideTxRunner,
+	services.NewA2APublisher,
+	services.NewA2AProxyService,
+	ProvideA2AProxyHooks,
 	services.NewEvaluatorManagerService,
 	services.NewEnvironmentService,
 	services.NewPlatformGatewayService,
@@ -134,6 +138,7 @@ var controllerProviderSet = wire.NewSet(
 	controllers.NewLLMProxyAPIKeyController,
 	controllers.NewAgentAPIKeyController,
 	controllers.NewA2AAgentCardController,
+	controllers.NewA2AProxyController,
 	controllers.NewLLMProxyDeploymentController,
 	controllers.NewMCPProxyController,
 	ProvideWebSocketController,
@@ -380,6 +385,7 @@ var repositoryProviderSet = wire.NewSet(
 	ProvideDeploymentRepository,
 	ProvideA2APublicationRepository,
 	ProvideA2AAgentCardRepository,
+	ProvideA2AProxyRepository,
 	ProvideArtifactRepository,
 	ProvideScoreRepository,
 	ProvideCatalogRepository,
@@ -495,6 +501,22 @@ func ProvideDeploymentRepository(db *gorm.DB) repositories.DeploymentRepository 
 
 func ProvideA2AAgentCardRepository(db *gorm.DB) repositories.A2AAgentCardRepository {
 	return repositories.NewA2AAgentCardRepository(db)
+}
+
+func ProvideA2AProxyRepository(db *gorm.DB) repositories.A2AProxyRepository {
+	return repositories.NewA2AProxyRepository(db)
+}
+
+// ProvideA2AProxyHooks gives the card service the proxy hooks only, not the whole proxy service.
+func ProvideA2AProxyHooks(svc services.A2AProxyService) services.A2AProxyHooks {
+	return svc
+}
+
+// ProvideTxRunner opens database transactions for the services that hold no *gorm.DB.
+func ProvideTxRunner(db *gorm.DB) services.TxRunner {
+	return func(ctx context.Context, fn func(tx *gorm.DB) error) error {
+		return db.WithContext(ctx).Transaction(fn)
+	}
 }
 
 func ProvideA2APublicationRepository(db *gorm.DB) repositories.A2APublicationRepository {
