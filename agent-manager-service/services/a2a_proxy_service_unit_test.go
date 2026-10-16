@@ -194,6 +194,7 @@ func TestSetA2AProxySwitchesADirectEnvironmentToProxied(t *testing.T) {
 	assert.True(t, configs[0].Config.EnableApiKeySecurity, "inbound auth defaults on")
 	assert.Contains(t, configs[0].Config.CORSAllowHeaders, "A2A-Version")
 	assert.Nil(t, configs[0].Config.CardCORSEnabled, "the card inherits the agent's CORS")
+	assert.False(t, configs[0].Config.OAuthForwardToken, "a caller's token is not forwarded to a third-party origin")
 
 	require.Len(t, h.txCards.ClearCardCalls(), 1, "the card is parked")
 	assert.Empty(t, h.txCards.RequeueCalls(), "and not made due before the gateway has the Agent")

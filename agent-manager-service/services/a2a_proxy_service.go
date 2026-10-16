@@ -613,9 +613,11 @@ func (s *a2aProxyService) beginAudit(
 	return nil, fmt.Errorf("%w: %w", audit.ErrRecorderUnavailable, err)
 }
 
-// ensureDefaultAgentConfig gives a newly proxied environment a platform A2A agent's inbound defaults; a saved config wins.
+// ensureDefaultAgentConfig gives a newly proxied environment a platform A2A agent's inbound defaults, minus forwarding the
+// caller's token to the third-party origin; a saved config wins.
 func ensureDefaultAgentConfig(ctx context.Context, configs repositories.AgentConfigRepository, key a2aPublicationKey) error {
 	api := withA2AVersionHeader(resolveAPIConfig(nil, nil, nil, nil, nil, true))
+	api.OAuthForwardToken = false
 	err := configs.CreateIfAbsent(ctx, agentConfigFromAPIConfig(key.OUID, key.ProjectName, key.AgentName, key.EnvironmentName, api))
 	if err != nil {
 		return fmt.Errorf("failed to write the default agent config: %w", err)

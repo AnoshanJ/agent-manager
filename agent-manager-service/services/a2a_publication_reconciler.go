@@ -571,7 +571,12 @@ func (s *a2aPublicationReconcilerService) attemptPublish(ctx context.Context, pu
 			return a2aPublishResult{}, err
 		}
 	}
-	policies := buildPolicies(withA2AVersionHeader(resolveAPIConfig(cfg, nil, nil, nil, nil, false)))
+	apiCfg := withA2AVersionHeader(resolveAPIConfig(cfg, nil, nil, nil, nil, false))
+	if origin != nil {
+		// A third-party origin never receives the caller's token, whatever the saved config says.
+		apiCfg.OAuthForwardToken = false
+	}
+	policies := buildPolicies(apiCfg)
 
 	yamlStr, err := generateA2AAgentDeploymentYAML(A2AAgentDeploymentInput{
 		ArtifactName: a2aAgentEnvArtifactName(pub.ProjectName, pub.AgentName, pub.EnvironmentUUID.String()),

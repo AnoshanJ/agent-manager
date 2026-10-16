@@ -707,6 +707,55 @@ func TestReconcilerPublishesAnExternalAgentFromItsOriginCard(t *testing.T) {
 	assert.Equal(t, pub.EnvironmentName, requeued[0].EnvironmentName)
 }
 
+// oauthForwardingConfig is an environment config with OAuth on and the caller's token forwarded upstream.
+func oauthForwardingConfig() *models.AgentConfig {
+	return &models.AgentConfig{EnableOAuthSecurity: true, OAuthIssuers: []string{"idp"}, OAuthForwardToken: true}
+}
+
+// publishedJWTAuthParams returns the params of the jwt-auth policy in the one Agent the harness published.
+func publishedJWTAuthParams(t *testing.T, h *a2aReconcilerHarness) map[string]interface{} {
+	t.Helper()
+	created := h.deploymentRepo.CreateWithLimitEnforcementCalls()
+	require.Len(t, created, 1)
+	var doc A2AAgentDeploymentYAML
+	require.NoError(t, yaml.Unmarshal(created[0].Deployment.Content, &doc))
+	for _, p := range doc.Spec.A2A.OperationConfigs.Policies {
+		if p["name"] == client.OAuthPolicyName {
+			return p["params"].(map[string]interface{})
+		}
+	}
+	require.FailNow(t, "no jwt-auth policy was published")
+	return nil
+}
+
+func TestReconcilerNeverForwardsTheCallersTokenToAnExternalOrigin(t *testing.T) {
+	h := newA2AReconcilerHarness("")
+	pub := pendingPublication()
+	h.withExternalOrigin(&pub)
+	h.svc.agentConfigRepo = &repomocks.AgentConfigRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentConfig, error) {
+			return oauthForwardingConfig(), nil
+		},
+	}
+
+	h.svc.publishOne(context.Background(), pub)
+
+	assert.Equal(t, false, publishedJWTAuthParams(t, h)["forwardToken"], "a third-party origin never sees the caller's token")
+}
+
+func TestReconcilerForwardsTheCallersTokenToAPlatformAgentWhenConfigured(t *testing.T) {
+	h := newA2AReconcilerHarness("http://trip-planner.dp-default:9099")
+	h.svc.agentConfigRepo = &repomocks.AgentConfigRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentConfig, error) {
+			return oauthForwardingConfig(), nil
+		},
+	}
+
+	h.svc.publishOne(context.Background(), pendingPublication())
+
+	assert.Equal(t, true, publishedJWTAuthParams(t, h)["forwardToken"])
+}
+
 func TestReconcilerFailsAnUnproxyableExternalRowAtOnce(t *testing.T) {
 	h := newA2AReconcilerHarness("")
 	pub := pendingPublication()
