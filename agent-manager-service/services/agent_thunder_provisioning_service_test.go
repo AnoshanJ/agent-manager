@@ -757,7 +757,7 @@ func TestRegenerateSecret_Internal_CreateSecretErrorPropagatesDirectly_NoInjecto
 	store := &clientmocks.SecretManagementClientMock{
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
 			createCalls++
-			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
+			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w: %w", secretmanagersvc.ErrReferenceNameTaken, utils.ErrNotFound)
 		},
 	}
 	repo := &repomocks.AgentThunderClientRepositoryMock{
@@ -2432,14 +2432,14 @@ func TestAttemptProvision_SerializesWithRegenerateSecret(t *testing.T) {
 	}
 }
 
-// TestStoreCredential_ConflictMarker_CleansUpAndRetries guards the upgrade path
-// storeCredential's createSecretConflictRetryMarker exists for: a binding provisioned before the provider owned
+// TestStoreCredential_ReferenceNameTaken_CleansUpAndRetries guards the upgrade path
+// secretmanagersvc.ErrReferenceNameTaken exists for: a binding provisioned before the provider owned
 // its SecretReference still has a legacy one created by
 // AgentIdentityInjectionService, which collides with a fresh CreateSecret. With
 // a workload injector configured, storeCredential clears that legacy reference
 // and retries once, succeeding on a now-unobstructed create, and persists the
 // provider-managed SecretReference name.
-func TestStoreCredential_ConflictMarker_CleansUpAndRetries(t *testing.T) {
+func TestStoreCredential_ReferenceNameTaken_CleansUpAndRetries(t *testing.T) {
 	tc := fakeThunderClientMock()
 	tc.RegenerateAgentSecretFunc = func(context.Context, string) (string, error) {
 		return "new-secret", nil
@@ -2452,7 +2452,7 @@ func TestStoreCredential_ConflictMarker_CleansUpAndRetries(t *testing.T) {
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
 			createCalls++
 			if createCalls == 1 {
-				return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
+				return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w: %w", secretmanagersvc.ErrReferenceNameTaken, utils.ErrNotFound)
 			}
 			return "ref", nil
 		},
@@ -2491,12 +2491,11 @@ func TestStoreCredential_ConflictMarker_CleansUpAndRetries(t *testing.T) {
 	assert.Equal(t, "ref", updatedPath, "the provider-managed SecretReference name is stored as-is")
 }
 
-// TestStoreCredential_ConflictMarker_CleanupFails_WrapsBothErrors guards the
-// double-failure case: if the stray SecretReference can't even be cleaned up,
-// the original CreateSecret error must not be silently dropped — both are
-// wrapped together so the real cause (the cleanup failure blocking recovery)
-// is visible alongside what triggered the recovery attempt in the first place.
-func TestStoreCredential_ConflictMarker_CleanupFails_WrapsBothErrors(t *testing.T) {
+// TestStoreCredential_PlainNotFound_IsNotRetried guards that recovery keys off
+// the provider's sentinel, not off error text: a not-found error without
+// secretmanagersvc.ErrReferenceNameTaken propagates on the first attempt and
+// never deletes a SecretReference, even if its message reads the same.
+func TestStoreCredential_PlainNotFound_IsNotRetried(t *testing.T) {
 	tc := fakeThunderClientMock()
 	tc.RegenerateAgentSecretFunc = func(context.Context, string) (string, error) {
 		return "new-secret", nil
@@ -2509,6 +2508,49 @@ func TestStoreCredential_ConflictMarker_CleanupFails_WrapsBothErrors(t *testing.
 		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
 			createCalls++
 			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w", utils.ErrNotFound)
+		},
+	}
+	injector := &agentIdentityInjectorStub{
+		CleanupForEnvironmentFunc: func(context.Context, string, string, string) error {
+			t.Fatal("a plain not-found must not delete any SecretReference")
+			return nil
+		},
+	}
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		GetFunc: func(context.Context, string, string, string, string) (*models.AgentThunderClient, error) {
+			return &models.AgentThunderClient{
+				ID: uuid.New(), ThunderAgentID: "thunder-agent-1", ThunderClientID: "client-abc",
+				ProvisioningType: models.AgentProvisioningTypeInternal,
+			}, nil
+		},
+	}
+
+	svc := newTestProvisioningServiceWithInjector(repo, resolver, store, injector)
+	_, _, _, err := svc.RegenerateSecret(context.Background(), "acme", "proj1", "my-agent", "staging")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrNotFound)
+	assert.Equal(t, 1, createCalls, "no retry without the provider's sentinel")
+}
+
+// TestStoreCredential_ReferenceNameTaken_CleanupFails_WrapsBothErrors guards the
+// double-failure case: if the stray SecretReference can't even be cleaned up,
+// the original CreateSecret error must not be silently dropped — both are
+// wrapped together so the real cause (the cleanup failure blocking recovery)
+// is visible alongside what triggered the recovery attempt in the first place.
+func TestStoreCredential_ReferenceNameTaken_CleanupFails_WrapsBothErrors(t *testing.T) {
+	tc := fakeThunderClientMock()
+	tc.RegenerateAgentSecretFunc = func(context.Context, string) (string, error) {
+		return "new-secret", nil
+	}
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, _ string) (thundersvc.ThunderClient, error) { return tc, nil },
+	}
+	var createCalls int
+	store := &clientmocks.SecretManagementClientMock{
+		CreateSecretFunc: func(context.Context, secretmanagersvc.SecretLocation, map[string]string) (string, error) {
+			createCalls++
+			return "", fmt.Errorf("failed to upsert secret: failed to update secret after create conflict: %w: %w", secretmanagersvc.ErrReferenceNameTaken, utils.ErrNotFound)
 		},
 	}
 	cleanupErr := errors.New("cleanup boom")
