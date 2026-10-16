@@ -57,6 +57,9 @@ import (
 //			ListForAgentFunc: func(ctx context.Context, ouID string, projectName string, agentName string) ([]models.A2AAgentCard, error) {
 //				panic("mock out the ListForAgent method")
 //			},
+//			ListForEnvironmentFunc: func(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2AAgentCard, error) {
+//				panic("mock out the ListForEnvironment method")
+//			},
 //			MarkAttemptFailedFunc: func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string, nextAttemptAt time.Time) error {
 //				panic("mock out the MarkAttemptFailed method")
 //			},
@@ -114,6 +117,9 @@ type A2AAgentCardRepositoryMock struct {
 
 	// ListForAgentFunc mocks the ListForAgent method.
 	ListForAgentFunc func(ctx context.Context, ouID string, projectName string, agentName string) ([]models.A2AAgentCard, error)
+
+	// ListForEnvironmentFunc mocks the ListForEnvironment method.
+	ListForEnvironmentFunc func(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2AAgentCard, error)
 
 	// MarkAttemptFailedFunc mocks the MarkAttemptFailed method.
 	MarkAttemptFailedFunc func(ctx context.Context, read models.A2AAgentCard, lastErr string, releaseName string, nextAttemptAt time.Time) error
@@ -262,6 +268,15 @@ type A2AAgentCardRepositoryMock struct {
 			// AgentName is the agentName argument value.
 			AgentName string
 		}
+		// ListForEnvironment holds details about calls to the ListForEnvironment method.
+		ListForEnvironment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// OuID is the ouID argument value.
+			OuID string
+			// EnvironmentUUID is the environmentUUID argument value.
+			EnvironmentUUID uuid.UUID
+		}
 		// MarkAttemptFailed holds details about calls to the MarkAttemptFailed method.
 		MarkAttemptFailed []struct {
 			// Ctx is the ctx argument value.
@@ -332,6 +347,7 @@ type A2AAgentCardRepositoryMock struct {
 	lockGet                       sync.RWMutex
 	lockListEnvironmentUUIDs      sync.RWMutex
 	lockListForAgent              sync.RWMutex
+	lockListForEnvironment        sync.RWMutex
 	lockMarkAttemptFailed         sync.RWMutex
 	lockMarkFailed                sync.RWMutex
 	lockMarkFetched               sync.RWMutex
@@ -860,6 +876,46 @@ func (mock *A2AAgentCardRepositoryMock) ListForAgentCalls() []struct {
 	mock.lockListForAgent.RLock()
 	calls = mock.calls.ListForAgent
 	mock.lockListForAgent.RUnlock()
+	return calls
+}
+
+// ListForEnvironment calls ListForEnvironmentFunc.
+func (mock *A2AAgentCardRepositoryMock) ListForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2AAgentCard, error) {
+	if mock.ListForEnvironmentFunc == nil {
+		panic("A2AAgentCardRepositoryMock.ListForEnvironmentFunc: method is nil but A2AAgentCardRepository.ListForEnvironment was just called")
+	}
+	callInfo := struct {
+		Ctx             context.Context
+		OuID            string
+		EnvironmentUUID uuid.UUID
+	}{
+		Ctx:             ctx,
+		OuID:            ouID,
+		EnvironmentUUID: environmentUUID,
+	}
+	mock.lockListForEnvironment.Lock()
+	mock.calls.ListForEnvironment = append(mock.calls.ListForEnvironment, callInfo)
+	mock.lockListForEnvironment.Unlock()
+	return mock.ListForEnvironmentFunc(ctx, ouID, environmentUUID)
+}
+
+// ListForEnvironmentCalls gets all the calls that were made to ListForEnvironment.
+// Check the length with:
+//
+//	len(mockedA2AAgentCardRepository.ListForEnvironmentCalls())
+func (mock *A2AAgentCardRepositoryMock) ListForEnvironmentCalls() []struct {
+	Ctx             context.Context
+	OuID            string
+	EnvironmentUUID uuid.UUID
+} {
+	var calls []struct {
+		Ctx             context.Context
+		OuID            string
+		EnvironmentUUID uuid.UUID
+	}
+	mock.lockListForEnvironment.RLock()
+	calls = mock.calls.ListForEnvironment
+	mock.lockListForEnvironment.RUnlock()
 	return calls
 }
 

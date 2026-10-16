@@ -35,6 +35,20 @@ func agentAPIArtifactHandlePrefix(projectName, agentName string) string {
 	return fmt.Sprintf("%s/%s/", projectName, agentName)
 }
 
+// agentEnvAPIArtifact reads the agent's API artifact for the environment; a missing or wrong-kind row is utils.ErrArtifactNotFound.
+func agentEnvAPIArtifact(
+	artifactRepo repositories.ArtifactRepository, ouID, projectName, agentName, environmentID string,
+) (*models.Artifact, error) {
+	artifact, err := artifactRepo.GetByHandle(agentEnvAPIArtifactHandle(projectName, agentName, environmentID), ouID)
+	if err != nil {
+		return nil, err
+	}
+	if artifact.Kind != models.KindAgent {
+		return nil, utils.ErrArtifactNotFound
+	}
+	return artifact, nil
+}
+
 func ensureAgentEnvAPIArtifact(
 	db *gorm.DB,
 	artifactRepo repositories.ArtifactRepository,

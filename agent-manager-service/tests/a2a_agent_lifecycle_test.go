@@ -178,6 +178,7 @@ func TestA2AAgentLifecycle(t *testing.T) {
 
 	hub := &lifecycleEventHub{}
 	reconciler := services.NewA2APublicationReconcilerService(
+		wiring.ProvideTxRunner(gdb),
 		pubRepo, cardRepo, repositories.NewA2AProxyRepository(gdb), deploymentRepo, gatewayRepo,
 		repositories.NewAgentConfigRepo(gdb),
 		openChoreoClient,

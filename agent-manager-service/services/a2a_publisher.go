@@ -57,6 +57,7 @@ type A2APublisher struct {
 	tx             TxRunner
 	pubRepo        repositories.A2APublicationRepository
 	proxyRepo      repositories.A2AProxyRepository
+	cardRepo       repositories.A2AAgentCardRepository
 	artifactRepo   repositories.ArtifactRepository
 	deploymentRepo repositories.DeploymentRepository
 	gatewayRepo    repositories.GatewayRepository
@@ -69,6 +70,7 @@ func NewA2APublisher(
 	tx TxRunner,
 	pubRepo repositories.A2APublicationRepository,
 	proxyRepo repositories.A2AProxyRepository,
+	cardRepo repositories.A2AAgentCardRepository,
 	artifactRepo repositories.ArtifactRepository,
 	deploymentRepo repositories.DeploymentRepository,
 	gatewayRepo repositories.GatewayRepository,
@@ -79,6 +81,7 @@ func NewA2APublisher(
 		tx:             tx,
 		pubRepo:        pubRepo,
 		proxyRepo:      proxyRepo,
+		cardRepo:       cardRepo,
 		artifactRepo:   artifactRepo,
 		deploymentRepo: deploymentRepo,
 		gatewayRepo:    gatewayRepo,
@@ -115,9 +118,10 @@ func (p *A2APublisher) Enqueue(
 	return nil
 }
 
-// ShouldPublish is true for every internal A2A agent, and for an external one only while its environment is proxied.
+// ShouldPublish is true for every internal A2A agent, and for an external one only while its environment is
+// proxied; a non-nil tx reads the proxy row inside the caller's transaction.
 func (p *A2APublisher) ShouldPublish(
-	ctx context.Context, agent *models.AgentResponse, ouID, projectName string, envUUID uuid.UUID,
+	ctx context.Context, tx *gorm.DB, agent *models.AgentResponse, ouID, projectName string, envUUID uuid.UUID,
 ) (bool, error) {
 	if !utils.IsA2AAgentSubType(agent.Type.SubType) {
 		return false, nil
@@ -125,7 +129,7 @@ func (p *A2APublisher) ShouldPublish(
 	if !isExternalProvisioned(agent) {
 		return true, nil
 	}
-	_, err := p.proxyRepo.GetByEnvUUID(ctx, ouID, projectName, agent.Name, envUUID)
+	_, err := p.proxies(tx).GetByEnvUUID(ctx, ouID, projectName, agent.Name, envUUID)
 	switch {
 	case errors.Is(err, repositories.ErrA2AProxyNotFound):
 		return false, nil
@@ -133,6 +137,41 @@ func (p *A2APublisher) ShouldPublish(
 		return false, fmt.Errorf("failed to read the A2A proxy: %w", err)
 	}
 	return true, nil
+}
+
+// SaveAndRepublish runs save in one transaction with the republish the agent's environment is owed afterwards, if
+// any. An external agent is decided under its environment's transition lock, so a concurrent switch to direct cannot
+// leave an external publication behind, and a save whose republish cannot be queued is rolled back whole.
+func (p *A2APublisher) SaveAndRepublish(
+	ctx context.Context, agent *models.AgentResponse, key a2aPublicationKey, artifactUUID uuid.UUID, save func(tx *gorm.DB) error,
+) error {
+	return p.tx(ctx, func(tx *gorm.DB) error {
+		if isExternalProvisioned(agent) {
+			if err := lockA2AProxyEnv(ctx, p.proxies(tx), key); err != nil {
+				return err
+			}
+		}
+		publish, err := p.ShouldPublish(ctx, tx, agent, key.OUID, key.ProjectName, key.EnvironmentUUID)
+		if err != nil {
+			return err
+		}
+		if err := save(tx); err != nil {
+			return err
+		}
+		if !publish {
+			return nil
+		}
+		return p.Enqueue(ctx, tx, key, a2aPublicationSourceFor(agent), artifactUUID)
+	})
+}
+
+// GatewayURL is where the environment's ingress gateway serves the agent, or "" while none is mapped to it yet.
+func (p *A2APublisher) GatewayURL(ouID string, envUUID uuid.UUID, agentName string) (string, error) {
+	gateway, err := findIngressGateway(p.gatewayRepo, ouID, envUUID)
+	if err != nil || gateway == nil {
+		return "", err
+	}
+	return a2aGatewayURL(gateway, agentName), nil
 }
 
 // Publication returns the environment's publication row.
@@ -194,7 +233,8 @@ func (p *A2APublisher) DeleteForAgent(ctx context.Context, ouID, projectName, ag
 	return errors.Join(errs...)
 }
 
-// TeardownEnvironment removes a deleted environment's A2A rows, deployments and agent artifacts, then tells the gateways; one failure does not stop the rest.
+// TeardownEnvironment removes a deleted environment's A2A rows, deployments and A2A agent artifacts, then tells the
+// gateways; one failure does not stop the rest. Call it before the environment's card rows go: they name the agents.
 func (p *A2APublisher) TeardownEnvironment(ctx context.Context, ouID string, envUUID uuid.UUID) error {
 	pubs, err := p.pubRepo.ListForEnvironment(ctx, ouID, envUUID)
 	if err != nil {
@@ -209,7 +249,7 @@ func (p *A2APublisher) TeardownEnvironment(ctx context.Context, ouID string, env
 		}
 		teardowns = append(teardowns, teardown)
 	}
-	// A switch to direct drops the publication but keeps the artifact, so find the rest by handle.
+	// A switch to direct drops the publication but keeps the artifact, so find the rest through the card rows.
 	swept, err := p.dropLeftoverArtifacts(ctx, ouID, envUUID, teardowns)
 	if err != nil {
 		errs = append(errs, err)
@@ -266,11 +306,12 @@ func (p *A2APublisher) teardownDeletedEnv(ctx context.Context, pub models.A2APub
 	return teardown, nil
 }
 
-// dropLeftoverArtifacts deletes the environment's agent artifacts that no publication teardown covered.
+// dropLeftoverArtifacts deletes the artifacts of the environment's A2A agents that no publication teardown covered.
+// The card rows name those agents; a REST or chat agent's artifact for the environment is not touched.
 func (p *A2APublisher) dropLeftoverArtifacts(ctx context.Context, ouID string, envUUID uuid.UUID, done []a2aTeardown) ([]a2aTeardown, error) {
-	artifacts, err := p.artifactRepo.ListByHandleSuffix(models.KindAgent, "/"+envUUID.String(), ouID)
+	cards, err := p.cardRepo.ListForEnvironment(ctx, ouID, envUUID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list the environment's agent artifacts: %w", err)
+		return nil, fmt.Errorf("failed to list the environment's A2A agent cards: %w", err)
 	}
 	covered := make(map[uuid.UUID]struct{}, len(done))
 	for _, t := range done {
@@ -278,13 +319,21 @@ func (p *A2APublisher) dropLeftoverArtifacts(ctx context.Context, ouID string, e
 	}
 	var errs []error
 	var teardowns []a2aTeardown
-	for _, artifact := range artifacts {
+	for _, card := range cards {
+		artifact, err := agentEnvAPIArtifact(p.artifactRepo, ouID, card.ProjectName, card.AgentName, envUUID.String())
+		if errors.Is(err, utils.ErrArtifactNotFound) {
+			continue
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to read agent %s's artifact: %w", card.AgentName, err))
+			continue
+		}
 		if _, ok := covered[artifact.UUID]; ok {
 			continue
 		}
 		// Read before the delete: the deployment rows cascade with the artifact.
 		gatewayIDs := collectA2AAgentDeletionTargets(p.deploymentRepo, p.gatewayRepo, artifact.UUID, ouID, true, p.logger)
-		err := p.tx(ctx, func(tx *gorm.DB) error { return p.artifactRepo.Delete(tx, artifact.UUID.String()) })
+		err = p.tx(ctx, func(tx *gorm.DB) error { return p.artifactRepo.Delete(tx, artifact.UUID.String()) })
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			errs = append(errs, fmt.Errorf("failed to delete agent artifact %s: %w", artifact.Handle, err))
 			continue
@@ -299,4 +348,34 @@ func (p *A2APublisher) publications(tx *gorm.DB) repositories.A2APublicationRepo
 		return p.pubRepo
 	}
 	return p.pubRepo.WithTx(tx)
+}
+
+func (p *A2APublisher) proxies(tx *gorm.DB) repositories.A2AProxyRepository {
+	if tx == nil {
+		return p.proxyRepo
+	}
+	return p.proxyRepo.WithTx(tx)
+}
+
+// lockA2AProxyEnv takes the environment's transition lock on proxies, which must be bound to the transaction that holds it.
+func lockA2AProxyEnv(ctx context.Context, proxies repositories.A2AProxyRepository, key a2aPublicationKey) error {
+	if err := proxies.LockAgentEnv(ctx, key.OUID, key.ProjectName, key.AgentName, key.EnvironmentUUID); err != nil {
+		return fmt.Errorf("failed to lock the A2A proxy: %w", err)
+	}
+	return nil
+}
+
+// lockedA2AProxy takes the environment's transition lock and reads its proxy row under it; nil while direct.
+func lockedA2AProxy(ctx context.Context, proxies repositories.A2AProxyRepository, key a2aPublicationKey) (*models.A2AProxy, error) {
+	if err := lockA2AProxyEnv(ctx, proxies, key); err != nil {
+		return nil, err
+	}
+	proxy, err := proxies.GetByEnvUUID(ctx, key.OUID, key.ProjectName, key.AgentName, key.EnvironmentUUID)
+	if errors.Is(err, repositories.ErrA2AProxyNotFound) {
+		return nil, nil //nolint:nilnil // No row means the environment is direct.
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the A2A proxy: %w", err)
+	}
+	return proxy, nil
 }

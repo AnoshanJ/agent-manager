@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -69,6 +70,7 @@ type A2APublicationReconcilerService interface {
 }
 
 type a2aPublicationReconcilerService struct {
+	tx              TxRunner
 	pubRepo         repositories.A2APublicationRepository
 	cardRepo        repositories.A2AAgentCardRepository
 	proxyRepo       repositories.A2AProxyRepository
@@ -90,6 +92,7 @@ type a2aPublicationReconcilerService struct {
 
 // NewA2APublicationReconcilerService creates an A2APublicationReconcilerService.
 func NewA2APublicationReconcilerService(
+	tx TxRunner,
 	pubRepo repositories.A2APublicationRepository,
 	cardRepo repositories.A2AAgentCardRepository,
 	proxyRepo repositories.A2AProxyRepository,
@@ -103,6 +106,7 @@ func NewA2APublicationReconcilerService(
 	logger *slog.Logger,
 ) A2APublicationReconcilerService {
 	return &a2aPublicationReconcilerService{
+		tx:              tx,
 		pubRepo:         pubRepo,
 		cardRepo:        cardRepo,
 		proxyRepo:       proxyRepo,
@@ -123,9 +127,29 @@ func NewA2APublicationReconcilerService(
 }
 
 func (s *a2aPublicationReconcilerService) Start(ctx context.Context) error {
-	go s.runLoop(ctx)
+	go func() {
+		s.requeueFailedExternal(ctx)
+		s.runLoop(ctx)
+	}()
 	s.logger.Info("A2A publication reconciler started")
 	return nil
+}
+
+// requeueFailedExternal gives every failed external row its budget back before the first tick, off the startup path.
+// It is deliberately blanket: during a rolling upgrade, pods from before the external source existed claim those rows,
+// find no release binding and fail them with nothing to tell them apart, and a restart retrying a proxied agent's
+// exhausted publication is what a refresh would do anyway.
+func (s *a2aPublicationReconcilerService) requeueFailedExternal(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, s.attemptTimeout)
+	defer cancel()
+	n, err := s.pubRepo.RequeueFailedExternal(ctx)
+	if err != nil {
+		s.logger.Error("Failed to requeue failed external A2A publications at start; refresh their proxies to retry", "error", err)
+		return
+	}
+	if n > 0 {
+		s.logger.Info("Requeued failed external A2A publications at start", "count", n)
+	}
 }
 
 func (s *a2aPublicationReconcilerService) Stop() error {
@@ -457,19 +481,9 @@ func (s *a2aPublicationReconcilerService) resolveUpstream(ctx context.Context, p
 
 // resolveExternalOrigin reads the proxy and the registered card URL, refusing one the gateway cannot front.
 func (s *a2aPublicationReconcilerService) resolveExternalOrigin(ctx context.Context, pub models.A2APublication) (*a2aOrigin, error) {
-	proxy, err := s.proxyRepo.GetByEnvUUID(ctx, pub.OUID, pub.ProjectName, pub.AgentName, pub.EnvironmentUUID)
-	if errors.Is(err, repositories.ErrA2AProxyNotFound) {
-		return nil, fmt.Errorf("%w: the environment is no longer proxied", errA2ANotProxyable)
-	}
+	proxy, card, err := s.lockedProxyAndCard(ctx, pub)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read the A2A proxy: %w", err)
-	}
-	card, err := s.cardRepo.Get(ctx, pub.OUID, pub.ProjectName, pub.AgentName, pub.EnvironmentName)
-	if errors.Is(err, repositories.ErrA2AAgentCardNotFound) {
-		return nil, fmt.Errorf("%w: no card URL is registered for the environment", errA2ANotProxyable)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the agent card: %w", err)
+		return nil, err
 	}
 	if _, err := a2aProxyUpstream(card.SourceURL); err != nil {
 		return nil, err
@@ -479,6 +493,35 @@ func (s *a2aPublicationReconcilerService) resolveExternalOrigin(ctx context.Cont
 		return nil, err
 	}
 	return &a2aOrigin{cardURL: card.SourceURL, header: header, auth: proxy.UpstreamAuth()}, nil
+}
+
+// lockedProxyAndCard reads both rows under the environment's transition lock, so a credential reset and a card URL
+// move cannot interleave the reads and pair the old secret with the new origin.
+func (s *a2aPublicationReconcilerService) lockedProxyAndCard(
+	ctx context.Context, pub models.A2APublication,
+) (proxy *models.A2AProxy, card *models.A2AAgentCard, err error) {
+	key := a2aPublicationKey{
+		OUID: pub.OUID, ProjectName: pub.ProjectName, AgentName: pub.AgentName,
+		EnvironmentName: pub.EnvironmentName, EnvironmentUUID: pub.EnvironmentUUID,
+	}
+	err = s.tx(ctx, func(tx *gorm.DB) error {
+		proxy, err = lockedA2AProxy(ctx, s.proxyRepo.WithTx(tx), key)
+		if err != nil {
+			return err
+		}
+		if proxy == nil {
+			return fmt.Errorf("%w: the environment is no longer proxied", errA2ANotProxyable)
+		}
+		card, err = s.cardRepo.WithTx(tx).Get(ctx, pub.OUID, pub.ProjectName, pub.AgentName, pub.EnvironmentName)
+		if errors.Is(err, repositories.ErrA2AAgentCardNotFound) {
+			return fmt.Errorf("%w: no card URL is registered for the environment", errA2ANotProxyable)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read the agent card: %w", err)
+		}
+		return nil
+	})
+	return proxy, card, err
 }
 
 // fetchExternalUpstream re-derives the routes from the origin card at every publish, fetched SSRF-guarded as its host may resolve elsewhere now.

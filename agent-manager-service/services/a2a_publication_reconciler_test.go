@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
@@ -58,6 +59,9 @@ func pendingPublication() models.A2APublication {
 		UpdatedAt:       time.Date(2026, 9, 24, 10, 0, 0, 123456000, time.UTC),
 	}
 }
+
+// sentinelTx hands fn the shared transaction sentinel; publisherMocks.tx adds a counter and an injected failure on top.
+func sentinelTx(_ context.Context, fn func(tx *gorm.DB) error) error { return fn(txSentinel) }
 
 // a2aReconcilerHarness holds the reconciler and the mocks behind it, so each
 // test can assert on what the publication attempt did rather than only on what
@@ -129,7 +133,12 @@ func newA2AReconcilerHarness(serviceURL string) *a2aReconcilerHarness {
 		},
 	}
 
-	proxyRepo := &repomocks.A2AProxyRepositoryMock{}
+	proxyRepo := &repomocks.A2AProxyRepositoryMock{
+		LockAgentEnvFunc: func(context.Context, string, string, string, uuid.UUID) error { return nil },
+	}
+	// The reads happen inside the transaction; the tx-bound repositories are the mocks themselves.
+	proxyRepo.WithTxFunc = func(tx *gorm.DB) repositories.A2AProxyRepository { return proxyRepo }
+	cardRepo.WithTxFunc = func(tx *gorm.DB) repositories.A2AAgentCardRepository { return cardRepo }
 	fetcher := &fakeA2ACardFetcher{}
 
 	return &a2aReconcilerHarness{
@@ -141,7 +150,7 @@ func newA2AReconcilerHarness(serviceURL string) *a2aReconcilerHarness {
 		ocClient:       ocClient,
 		proxyRepo:      proxyRepo,
 		fetcher:        fetcher,
-		svc: NewA2APublicationReconcilerService(pubRepo, cardRepo, proxyRepo, deploymentRepo, gatewayRepo,
+		svc: NewA2APublicationReconcilerService(sentinelTx, pubRepo, cardRepo, proxyRepo, deploymentRepo, gatewayRepo,
 			agentConfigRepo, ocClient, fetcher, proxyTestKey, NewGatewayEventsService(hub), testLogger()).(*a2aPublicationReconcilerService),
 	}
 }
@@ -719,6 +728,69 @@ func TestReconcilerFailsAnUnproxyableExternalRowAtOnce(t *testing.T) {
 	assert.Contains(t, cardFailed[0].LastErr, "/.well-known/agent-card.json")
 	assert.Equal(t, pub.EnvironmentUUID, cardFailed[0].EnvironmentUUID)
 	assert.Empty(t, h.cardRepo.RequeueCalls())
+}
+
+// A pod from before the external source claims external rows during a rolling upgrade and fails them; the
+// new reconciler makes them due again before its first tick, within one attempt's timeout, and a failure to
+// do so is logged rather than stopping the loop.
+func TestReconcilerRequeuesFailedExternalRowsBeforeTheFirstTick(t *testing.T) {
+	for name, requeueErr := range map[string]error{"requeued": nil, "requeue failed": assert.AnError} {
+		t.Run(name, func(t *testing.T) {
+			h := newA2AReconcilerHarness("")
+			var deadlineSet bool
+			h.pubRepo.RequeueFailedExternalFunc = func(ctx context.Context) (int64, error) {
+				_, deadlineSet = ctx.Deadline()
+				return 2, requeueErr
+			}
+
+			h.svc.requeueFailedExternal(context.Background())
+
+			assert.Len(t, h.pubRepo.RequeueFailedExternalCalls(), 1)
+			assert.True(t, deadlineSet, "the update is bounded like an attempt")
+		})
+	}
+}
+
+// The proxy service clears a credential and moves a card URL under the environment's lock, in separate
+// transactions; reading the two rows under that same lock keeps an attempt from pairing the old secret
+// with the new origin.
+func TestReconcilerReadsTheProxyAndTheCardUnderTheEnvironmentLock(t *testing.T) {
+	h := newA2AReconcilerHarness("")
+	pub := pendingPublication()
+	h.withExternalOrigin(&pub)
+	var steps []string
+	h.proxyRepo.LockAgentEnvFunc = func(_ context.Context, _, _, _ string, envUUID uuid.UUID) error {
+		assert.Equal(t, pub.EnvironmentUUID, envUUID)
+		steps = append(steps, "lock")
+		return nil
+	}
+	h.proxyRepo.WithTxFunc = func(tx *gorm.DB) repositories.A2AProxyRepository {
+		assert.Same(t, txSentinel, tx)
+		steps = append(steps, "proxies-in-tx")
+		return h.proxyRepo
+	}
+	h.cardRepo.WithTxFunc = func(tx *gorm.DB) repositories.A2AAgentCardRepository {
+		assert.Same(t, txSentinel, tx)
+		steps = append(steps, "cards-in-tx")
+		return h.cardRepo
+	}
+
+	h.svc.publishOne(context.Background(), pub)
+
+	assert.Equal(t, []string{"proxies-in-tx", "lock", "cards-in-tx"}, steps)
+	require.Len(t, h.fetcher.calls, 1, "the fetch happens after the transaction released the lock")
+}
+
+func TestReconcilerFailsWhenTheEnvironmentLockCannotBeTaken(t *testing.T) {
+	h := newA2AReconcilerHarness("")
+	pub := pendingPublication()
+	h.withExternalOrigin(&pub)
+	h.proxyRepo.LockAgentEnvFunc = func(context.Context, string, string, string, uuid.UUID) error { return assert.AnError }
+
+	h.svc.publishOne(context.Background(), pub)
+
+	assert.Empty(t, h.fetcher.calls)
+	require.Len(t, h.pubRepo.MarkAttemptFailedCalls(), 1)
 }
 
 func TestReconcilerFailsAnExternalRowWhoseProxyIsGone(t *testing.T) {

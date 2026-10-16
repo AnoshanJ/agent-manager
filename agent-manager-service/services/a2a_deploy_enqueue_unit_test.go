@@ -32,7 +32,7 @@ import (
 
 // a2aPublishingAgentService is an agentManagerService whose only A2A collaborator is the publisher.
 func a2aPublishingAgentService(pubs *repomocks.A2APublicationRepositoryMock, proxies *repomocks.A2AProxyRepositoryMock) *agentManagerService {
-	publisher := NewA2APublisher(nil, pubs, proxies, nil, nil, nil, nil, testLogger())
+	publisher := NewA2APublisher(nil, pubs, proxies, nil, nil, nil, nil, nil, testLogger())
 	return NewAgentManagerService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		publisher, nil, nil, nil, testLogger()).(*agentManagerService)
 }

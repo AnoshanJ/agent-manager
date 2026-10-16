@@ -2830,12 +2830,12 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 			if configErr := s.agentConfigRepo.DeleteAllByAgent(ctx, ouID, projectName, agentName); configErr != nil {
 				s.logger.Warn("Failed to delete agent configs from database", "agentName", agentName, "error", configErr)
 			}
-			s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName, isA2AAgent)
+			artifactErr := s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName, isA2AAgent)
 			if s.agentThunderProvisioning != nil {
 				go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, agentName)
 			}
 			s.cleanupAgentMonitors(ctx, ouID, projectName, agentName)
-			return nil
+			return artifactErr
 		}
 		s.logger.Error("Failed to delete oc agent", "agentName", agentName, "error", err)
 		return translatedErr
@@ -2863,13 +2863,13 @@ func (s *agentManagerService) DeleteAgent(ctx context.Context, ouID string, proj
 	}
 
 	// Cleanup env-scoped API artifact record.
-	s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName, isA2AAgent)
+	artifactErr := s.deleteAgentAPIArtifact(ctx, ouID, projectName, agentName, isA2AAgent)
 
 	// Cleanup monitors owned by this agent so they are not orphaned after deletion.
 	s.cleanupAgentMonitors(ctx, ouID, projectName, agentName)
 
 	s.logger.Debug("Agent deleted from OpenChoreo successfully", "ouID", ouID, "agentName", agentName)
-	return nil
+	return artifactErr
 }
 
 // cleanupGitHubAppSource removes the injected provider's source binding after the component is
@@ -2973,32 +2973,41 @@ func (s *agentManagerService) cleanupAgentMonitors(ctx context.Context, ouID, pr
 }
 
 // deleteAgentAPIArtifact removes the agent's per-environment API artifacts and
-// tells gateways holding an A2A Agent for them to drop it.
+// tells gateways holding an A2A Agent for them to drop it. It returns what it
+// could not remove; the component is already gone by then, so deleting the
+// agent again re-runs this cleanup.
 //
 // Order matters: publication and proxy rows go first so the reconciler cannot re-publish,
 // gateway targets are read before the artifact delete cascades the deployment
 // rows away, and the broadcast goes last so a gateway re-fetching the Agent
 // finds nothing left to serve. isA2AAgent is false when the subtype is unknown;
 // deployment rows then stand in for it.
-func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, projectName, agentName string, isA2AAgent bool) {
+func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, projectName, agentName string, isA2AAgent bool) error {
+	err := s.cleanUpAgentAPIArtifacts(ctx, ouID, projectName, agentName, isA2AAgent)
+	if err != nil {
+		return fmt.Errorf("the agent was deleted but its A2A state was not fully removed; delete the agent again to retry: %w", err)
+	}
+	return nil
+}
+
+// cleanUpAgentAPIArtifacts is deleteAgentAPIArtifact's work, reporting every step that failed.
+func (s *agentManagerService) cleanUpAgentAPIArtifacts(ctx context.Context, ouID, projectName, agentName string, isA2AAgent bool) error {
+	var errs []error
 	if s.a2aPublisher != nil {
 		if err := s.a2aPublisher.DeleteForAgent(ctx, ouID, projectName, agentName); err != nil {
-			s.logger.Warn("Failed to clear A2A publication and proxy rows for deleted agent",
-				"agentName", agentName, "error", err)
+			errs = append(errs, err)
 		}
 	}
 	if s.a2aCardRepo != nil {
-		if cardErr := s.a2aCardRepo.DeleteForAgent(ctx, ouID, projectName, agentName); cardErr != nil {
-			s.logger.Warn("Failed to clear A2A agent card rows for deleted agent",
-				"agentName", agentName, "error", cardErr)
+		if err := s.a2aCardRepo.DeleteForAgent(ctx, ouID, projectName, agentName); err != nil {
+			errs = append(errs, fmt.Errorf("failed to delete A2A agent card rows: %w", err))
 		}
 	}
 
 	// Listed by handle, not by pipeline: routing can put an artifact in any org environment.
-	artifacts, err := s.artifactRepo.ListByHandlePrefix(models.KindAgent, agentAPIArtifactHandlePrefix(projectName, agentName), ouID)
+	artifacts, err := s.artifactRepo.ListByHandlePrefix(ctx, models.KindAgent, agentAPIArtifactHandlePrefix(projectName, agentName), ouID)
 	if err != nil {
-		s.logger.Error("Failed to list agent API artifacts for cleanup; deleting the agent again retries it", "agentName", agentName, "error", err)
-		return
+		return errors.Join(append(errs, fmt.Errorf("failed to list agent API artifacts for cleanup: %w", err))...)
 	}
 
 	type deletedArtifact struct {
@@ -3009,7 +3018,8 @@ func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, 
 	for _, artifact := range artifacts {
 		gatewayIDs := collectA2AAgentDeletionTargets(s.deploymentRepo, s.gatewayRepo, artifact.UUID, ouID, isA2AAgent, s.logger)
 		if delErr := s.artifactRepo.Delete(s.db, artifact.UUID.String()); delErr != nil {
-			s.logger.Warn("Failed to delete agent API artifact record", "agentName", agentName, "handle", artifact.Handle, "error", delErr)
+			errs = append(errs, fmt.Errorf("failed to delete agent API artifact %s: %w", artifact.Handle, delErr))
+			continue
 		}
 		deleted = append(deleted, deletedArtifact{uuid: artifact.UUID, gatewayIDs: gatewayIDs})
 	}
@@ -3017,6 +3027,7 @@ func (s *agentManagerService) deleteAgentAPIArtifact(ctx context.Context, ouID, 
 	for _, d := range deleted {
 		sendA2AAgentWithdrawal(ctx, s.gatewayEventsService, d.uuid, d.gatewayIDs, false, s.logger)
 	}
+	return errors.Join(errs...)
 }
 
 // checkNoOrphanedConfigs refuses to create an agent whose name still has agent_configurations
@@ -5211,15 +5222,9 @@ func (s *agentManagerService) UpdateAgentDeploySettings(ctx context.Context, ouI
 	agentConfig.InstrumentationVersion = resolvedInstrumentationVersion
 	agentConfig.ResilienceTimeoutSeconds = settingsResilienceTimeoutSeconds
 	agentConfig.SetCardCORSOverride(cardCORSOverride)
-	if upsertErr := s.agentConfigRepo.Upsert(ctx, agentConfig); upsertErr != nil {
-		s.logger.Error("Failed to persist agent deploy settings", "agentName", agentName, "environment", req.EnvironmentName, "error", upsertErr)
-		return fmt.Errorf("failed to persist agent deploy settings: %w", upsertErr)
-	}
-
-	if publishes {
-		if err := s.a2aPublisher.Enqueue(ctx, nil, pubKey, a2aPublicationSourceFor(agent), artifact.UUID); err != nil {
-			return fmt.Errorf("deploy settings saved but the gateway was not updated; save them again to retry: %w", err)
-		}
+	if err := s.saveDeploySettings(ctx, agent, pubKey, artifact.UUID, agentConfig); err != nil {
+		s.logger.Error("Failed to persist agent deploy settings", "agentName", agentName, "environment", req.EnvironmentName, "error", err)
+		return fmt.Errorf("failed to persist agent deploy settings: %w", err)
 	}
 
 	s.logger.Info("Agent deploy settings updated successfully", "agentName", agentName, "environment", req.EnvironmentName)
@@ -6373,6 +6378,19 @@ func parseAgentUUID(raw string) *uuid.UUID {
 	return &id
 }
 
+// saveDeploySettings persists the environment's config; an A2A agent's republish, which the gateway reads the new
+// settings from, is queued in the same transaction so neither can land without the other.
+func (s *agentManagerService) saveDeploySettings(
+	ctx context.Context, agent *models.AgentResponse, key a2aPublicationKey, artifactUUID uuid.UUID, cfg *models.AgentConfig,
+) error {
+	if s.a2aPublisher == nil {
+		return s.agentConfigRepo.Upsert(ctx, cfg)
+	}
+	return s.a2aPublisher.SaveAndRepublish(ctx, agent, key, artifactUUID, func(tx *gorm.DB) error {
+		return s.agentConfigRepo.WithTx(tx).Upsert(ctx, cfg)
+	})
+}
+
 // republishA2AAgent re-queues an A2A agent's gateway resource after the config
 // it is built from changed. Call it only after that config is persisted: the
 // reconciler builds from the stored row, so queueing first can publish the old
@@ -6405,7 +6423,7 @@ func (s *agentManagerService) a2aRepublicationKey(
 	if err != nil {
 		return a2aPublicationKey{}, false, fmt.Errorf("environment %q has an unparseable UUID %q: %w", environmentName, environmentUUID, err)
 	}
-	publish, err := s.a2aPublisher.ShouldPublish(ctx, agent, ouID, projectName, envUUID)
+	publish, err := s.a2aPublisher.ShouldPublish(ctx, nil, agent, ouID, projectName, envUUID)
 	if err != nil || !publish {
 		return a2aPublicationKey{}, false, err
 	}

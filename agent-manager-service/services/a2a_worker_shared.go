@@ -130,8 +130,9 @@ func a2aAttemptContexts(ctx context.Context, timeout time.Duration) (attempt, re
 	return attempt, context.WithoutCancel(ctx), cancel
 }
 
-// resolveIngressGateway picks the environment's INGRESS gateway, where inbound A2A traffic belongs; egress gateways host outbound LLM/MCP artifacts.
-func resolveIngressGateway(gatewayRepo repositories.GatewayRepository, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
+// findIngressGateway is the environment's INGRESS gateway, where inbound A2A traffic belongs, or nil while none is
+// mapped; egress gateways host outbound LLM/MCP artifacts.
+func findIngressGateway(gatewayRepo repositories.GatewayRepository, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
 	envID := envUUID.String()
 	gateways, err := gatewayRepo.ListWithFilters(repositories.GatewayFilterOptions{
 		OrganizationID:      ouID,
@@ -146,6 +147,23 @@ func resolveIngressGateway(gatewayRepo repositories.GatewayRepository, ouID stri
 			return gw, nil
 		}
 	}
-	// The bootstrap job registers the environment's ingress gateway, so absence is a timing condition: retry.
-	return nil, newA2APublicError("no ingress gateway is mapped to this environment yet", nil)
+	return nil, nil //nolint:nilnil // No ingress gateway is mapped yet; the caller decides whether that is an error.
+}
+
+// resolveIngressGateway is findIngressGateway for a worker: the bootstrap job registers the gateway after the
+// environment exists, so absence is a timing condition the attempt retries on.
+func resolveIngressGateway(gatewayRepo repositories.GatewayRepository, ouID string, envUUID uuid.UUID) (*models.Gateway, error) {
+	gateway, err := findIngressGateway(gatewayRepo, ouID, envUUID)
+	if err != nil {
+		return nil, err
+	}
+	if gateway == nil {
+		return nil, newA2APublicError("no ingress gateway is mapped to this environment yet", nil)
+	}
+	return gateway, nil
+}
+
+// a2aGatewayURL is where gateway serves the agent: its public vhost plus the agent's context path.
+func a2aGatewayURL(gateway *models.Gateway, agentName string) string {
+	return strings.TrimRight(buildPublicProxyURL(gateway, nil), "/") + a2aAgentContext(agentName)
 }

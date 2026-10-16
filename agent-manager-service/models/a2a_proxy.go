@@ -61,4 +61,6 @@ type A2AProxyStatus struct {
 	Status             A2APublicationStatus
 	LastError          string
 	UpstreamAuthHeader string
+	// GatewayURL is where the environment's ingress gateway serves the agent; empty until one is mapped.
+	GatewayURL string
 }

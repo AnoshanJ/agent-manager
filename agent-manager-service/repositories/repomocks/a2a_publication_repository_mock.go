@@ -62,6 +62,9 @@ import (
 //			RequeueFunc: func(ctx context.Context, read models.A2APublication) error {
 //				panic("mock out the Requeue method")
 //			},
+//			RequeueFailedExternalFunc: func(ctx context.Context) (int64, error) {
+//				panic("mock out the RequeueFailedExternal method")
+//			},
 //			WithTxFunc: func(tx *gorm.DB) repositories.A2APublicationRepository {
 //				panic("mock out the WithTx method")
 //			},
@@ -113,6 +116,9 @@ type A2APublicationRepositoryMock struct {
 
 	// RequeueFunc mocks the Requeue method.
 	RequeueFunc func(ctx context.Context, read models.A2APublication) error
+
+	// RequeueFailedExternalFunc mocks the RequeueFailedExternal method.
+	RequeueFailedExternalFunc func(ctx context.Context) (int64, error)
 
 	// WithTxFunc mocks the WithTx method.
 	WithTxFunc func(tx *gorm.DB) repositories.A2APublicationRepository
@@ -255,27 +261,33 @@ type A2APublicationRepositoryMock struct {
 			// Read is the read argument value.
 			Read models.A2APublication
 		}
+		// RequeueFailedExternal holds details about calls to the RequeueFailedExternal method.
+		RequeueFailedExternal []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// WithTx holds details about calls to the WithTx method.
 		WithTx []struct {
 			// Tx is the tx argument value.
 			Tx *gorm.DB
 		}
 	}
-	lockClaimDue             sync.RWMutex
-	lockDeleteForAgent       sync.RWMutex
-	lockDeleteForAgentEnv    sync.RWMutex
-	lockDeleteForEnvironment sync.RWMutex
-	lockEnqueue              sync.RWMutex
-	lockFindPublished        sync.RWMutex
-	lockGet                  sync.RWMutex
-	lockListEnvironmentUUIDs sync.RWMutex
-	lockListForEnvironment   sync.RWMutex
-	lockMarkAttemptFailed    sync.RWMutex
-	lockMarkFailed           sync.RWMutex
-	lockMarkPublished        sync.RWMutex
-	lockMarkWaiting          sync.RWMutex
-	lockRequeue              sync.RWMutex
-	lockWithTx               sync.RWMutex
+	lockClaimDue              sync.RWMutex
+	lockDeleteForAgent        sync.RWMutex
+	lockDeleteForAgentEnv     sync.RWMutex
+	lockDeleteForEnvironment  sync.RWMutex
+	lockEnqueue               sync.RWMutex
+	lockFindPublished         sync.RWMutex
+	lockGet                   sync.RWMutex
+	lockListEnvironmentUUIDs  sync.RWMutex
+	lockListForEnvironment    sync.RWMutex
+	lockMarkAttemptFailed     sync.RWMutex
+	lockMarkFailed            sync.RWMutex
+	lockMarkPublished         sync.RWMutex
+	lockMarkWaiting           sync.RWMutex
+	lockRequeue               sync.RWMutex
+	lockRequeueFailedExternal sync.RWMutex
+	lockWithTx                sync.RWMutex
 }
 
 // ClaimDue calls ClaimDueFunc.
@@ -855,6 +867,38 @@ func (mock *A2APublicationRepositoryMock) RequeueCalls() []struct {
 	mock.lockRequeue.RLock()
 	calls = mock.calls.Requeue
 	mock.lockRequeue.RUnlock()
+	return calls
+}
+
+// RequeueFailedExternal calls RequeueFailedExternalFunc.
+func (mock *A2APublicationRepositoryMock) RequeueFailedExternal(ctx context.Context) (int64, error) {
+	if mock.RequeueFailedExternalFunc == nil {
+		panic("A2APublicationRepositoryMock.RequeueFailedExternalFunc: method is nil but A2APublicationRepository.RequeueFailedExternal was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockRequeueFailedExternal.Lock()
+	mock.calls.RequeueFailedExternal = append(mock.calls.RequeueFailedExternal, callInfo)
+	mock.lockRequeueFailedExternal.Unlock()
+	return mock.RequeueFailedExternalFunc(ctx)
+}
+
+// RequeueFailedExternalCalls gets all the calls that were made to RequeueFailedExternal.
+// Check the length with:
+//
+//	len(mockedA2APublicationRepository.RequeueFailedExternalCalls())
+func (mock *A2APublicationRepositoryMock) RequeueFailedExternalCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockRequeueFailedExternal.RLock()
+	calls = mock.calls.RequeueFailedExternal
+	mock.lockRequeueFailedExternal.RUnlock()
 	return calls
 }
 

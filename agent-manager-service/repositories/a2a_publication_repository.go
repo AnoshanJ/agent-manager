@@ -85,6 +85,9 @@ type A2APublicationRepository interface {
 
 	// Requeue resets a published row to pending with a fresh attempt budget.
 	Requeue(ctx context.Context, read models.A2APublication) error
+	// RequeueFailedExternal makes every failed external row due again and reports how many; a rolling upgrade's
+	// old pods fail those rows, as they publish nothing but release bindings.
+	RequeueFailedExternal(ctx context.Context) (int64, error)
 
 	// FindPublished pages through published platform rows in id order, starting after afterID. External origins are never drift-checked.
 	FindPublished(ctx context.Context, afterID uuid.UUID, limit int) ([]models.A2APublication, error)
@@ -188,12 +191,24 @@ func (r *a2aPublicationRepository) MarkWaiting(ctx context.Context, read models.
 }
 
 func (r *a2aPublicationRepository) Requeue(ctx context.Context, read models.A2APublication) error {
-	return r.updateIfUnchanged(ctx, read, map[string]interface{}{
+	return r.updateIfUnchanged(ctx, read, dueWithFreshBudget())
+}
+
+// dueWithFreshBudget makes a row pending now with its attempts and last error cleared.
+func dueWithFreshBudget() map[string]interface{} {
+	return map[string]interface{}{
 		"status":          models.A2APublicationStatusPending,
 		"attempt_count":   0,
 		"last_error":      "",
 		"next_attempt_at": time.Now(),
-	})
+	}
+}
+
+func (r *a2aPublicationRepository) RequeueFailedExternal(ctx context.Context) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&models.A2APublication{}).
+		Where("source = ? AND status = ?", models.A2APublicationSourceExternal, models.A2APublicationStatusFailed).
+		Updates(dueWithFreshBudget())
+	return res.RowsAffected, res.Error
 }
 
 func (r *a2aPublicationRepository) FindPublished(ctx context.Context, afterID uuid.UUID, limit int) ([]models.A2APublication, error) {
@@ -226,15 +241,7 @@ func (r *a2aPublicationRepository) Get(ctx context.Context, ouID, projectName, a
 }
 
 func (r *a2aPublicationRepository) ListForEnvironment(ctx context.Context, ouID string, environmentUUID uuid.UUID) ([]models.A2APublication, error) {
-	var rows []models.A2APublication
-	err := r.db.WithContext(ctx).
-		Where("ou_id = ? AND environment_uuid = ?", ouID, environmentUUID).
-		Order("agent_name ASC").
-		Find(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return listForEnvironment[models.A2APublication](ctx, r.db, ouID, environmentUUID, "agent_name ASC")
 }
 
 func (r *a2aPublicationRepository) DeleteForAgentEnv(ctx context.Context, ouID, projectName, agentName string, environmentUUID uuid.UUID) error {
