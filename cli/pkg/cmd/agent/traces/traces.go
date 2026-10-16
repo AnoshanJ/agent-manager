@@ -73,7 +73,7 @@ func NewTracesCmd(f *cmdutil.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fromURL != "" {
 				var err error
-				if args, err = applyFromURL(cmd, fromURL, args, opts.Condition); err != nil {
+				if args, err = applyFromURL(cmd, opts.IO.ErrOut, fromURL, args, opts.Condition); err != nil {
 					return render.Error(opts.IO, render.Scope{}, err)
 				}
 			}

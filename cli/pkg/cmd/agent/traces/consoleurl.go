@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"regexp"
@@ -79,10 +80,8 @@ var consoleParams = []consoleParam{
 		value: func(o *ListTracesOptions) string { return ifSet(o.NoConversation, "conversationId") }, flagValue: missingField},
 	{param: "tool", flag: "tool", filter: true,
 		value: func(o *ListTracesOptions) string { return o.Tool }, flagValue: text},
-	{param: "toolError", flag: "tool-error", filter: true, condition: conditionToolCallFails,
-		value: func(o *ListTracesOptions) string {
-			return ifSet(o.ToolError || o.Condition == conditionToolCallFails, "true")
-		}, flagValue: oneOf("true")},
+	{param: "toolError", flag: "tool-error", filter: true,
+		value: func(o *ListTracesOptions) string { return ifSet(o.ToolError, "true") }, flagValue: oneOf("true")},
 	{param: "mcpServer", flag: "mcp-server", filter: true,
 		value: func(o *ListTracesOptions) string { return o.MCPServer }, flagValue: text},
 	{param: "timeRange", flag: "since", window: true, def: "1h",
@@ -331,6 +330,21 @@ func checkCustomRange(start, end string) error {
 	return nil
 }
 
+// warnUnknown prints the URL params the CLI doesn't read, so a dropped filter isn't silent.
+func (u *consoleURL) warnUnknown(w io.Writer) {
+	var unknown []string
+	for param := range u.query {
+		known := param == selectedTraceParam || slices.ContainsFunc(consoleParams, func(p consoleParam) bool { return p.param == param })
+		if !known {
+			unknown = append(unknown, param)
+		}
+	}
+	if len(unknown) > 0 {
+		slices.Sort(unknown)
+		fmt.Fprintf(w, "Warning: --from-url ignored params the CLI doesn't support: %s\n", strings.Join(unknown, ", "))
+	}
+}
+
 // get returns the param's first value, trimmed.
 func (u *consoleURL) get(param string) string {
 	return strings.TrimSpace(u.query.Get(param))
@@ -418,7 +432,7 @@ func formatInt(v *int64) string {
 }
 
 // applyFromURL sets the list's scope and flags from a console URL and returns args with its agent.
-func applyFromURL(cmd *cobra.Command, raw string, args []string, condition string) ([]string, error) {
+func applyFromURL(cmd *cobra.Command, errOut io.Writer, raw string, args []string, condition string) ([]string, error) {
 	u, err := parseConsoleURL(raw)
 	if err != nil {
 		return nil, err
@@ -429,6 +443,7 @@ func applyFromURL(cmd *cobra.Command, raw string, args []string, condition strin
 	if args, err = u.agentArg(args); err != nil {
 		return nil, err
 	}
+	u.warnUnknown(errOut)
 	return args, u.applyQuery(cmd.Flags(), consoleParams, condition)
 }
 

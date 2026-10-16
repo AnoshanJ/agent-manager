@@ -208,6 +208,7 @@ func runListTraces(ctx context.Context, o *ListTracesOptions) error {
 // isInvalidCursor reports whether the server rejected the request's cursor.
 func isInvalidCursor(err error) bool {
 	var herr *observersvc.HTTPError
+	// Must match the message in agent-manager-observer/handlers/handlers.go.
 	return errors.As(err, &herr) && herr.StatusCode == http.StatusBadRequest &&
 		herr.Body != nil && herr.Body.Message == "invalid cursor"
 }

@@ -230,14 +230,14 @@ func TestFromURL_Window(t *testing.T) {
 	}
 }
 
-// Each --condition writes the server param it stands for; tool_call_fails is the Tool failed filter.
+// Each --condition writes the server param it stands for; tool_call_fails has none, so it writes no toolError.
 func TestConsoleURL_Conditions(t *testing.T) {
 	for condition, want := range map[string][2]string{
 		conditionErrorStatus:    {"status", "error"},
 		conditionHighLatency:    {"minDurationMs", "30001"},
 		conditionHighTokenUsage: {"minTokens", "10001"},
 		conditionExcessiveSteps: {"minSpanCount", "41"},
-		conditionToolCallFails:  {"toolError", "true"},
+		conditionToolCallFails:  {"toolError", ""},
 	} {
 		run := mustRun(t, append(slices.Clone(listArgs), "--condition", condition, "--console-url")...)
 		if got := linkQuery(t, consoleLinkOf(t, run)).Get(want[0]); got != want[1] {
@@ -261,7 +261,7 @@ func TestFromURL_Rejects(t *testing.T) {
 		{"other env", []string{"traces", "--env", "prod", "--from-url", full}, "--env"},
 		{"filter set twice", []string{"traces", "--tool", "b", "--from-url", consolePath + "?tool=a"}, "--tool"},
 		{"condition sets the URL's filter", []string{"traces", "--condition", "error_status", "--from-url", full}, "status"},
-		{"tool_call_fails with toolError", []string{"traces", "--condition", "tool_call_fails", "--from-url", consolePath + "?toolError=true"}, "toolError"},
+		{"tool_call_fails with toolError", []string{"traces", "--condition", "tool_call_fails", "--from-url", consolePath + "?toolError=true"}, "--tool-error"},
 		{"not the trace list", []string{"traces", "--from-url", "/org/acme/project/triage/agents/my-agent/environment/dev/observability/logs"}, "trace list"},
 		{"start without end", []string{"traces", "--from-url", consolePath + "?startTime=" + testStart}, "endTime"},
 		{"start after end", []string{"traces", "--from-url", consolePath + "?startTime=" + testEnd + "&endTime=" + testStart}, "startTime"},

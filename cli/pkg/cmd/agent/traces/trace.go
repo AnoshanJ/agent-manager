@@ -109,6 +109,7 @@ func NewTraceCmd(f *cmdutil.Factory) *cobra.Command {
 				if err != nil {
 					return render.Error(opts.IO, render.Scope{}, err)
 				}
+				u.warnUnknown(opts.IO.ErrOut)
 				selected = u.get(selectedTraceParam)
 			}
 			org, proj, err := opts.ResolveScope(cmd, true, true)
@@ -144,14 +145,12 @@ func NewTraceCmd(f *cmdutil.Factory) *cobra.Command {
 				return render.Error(opts.IO, scope, err)
 			}
 
-			if window.start == "" && window.end == "" {
-				opts.StartTime, opts.EndTime, err = cmdutil.ResolveSinceWindow(window.since)
-				if err != nil {
-					return render.Error(opts.IO, scope, cmdutil.FlagErrorf("--since: %v", err))
-				}
-				opts.Since = window.since
-			} else if opts.StartTime, opts.EndTime, err = resolveWindow(&window, cmd.Flags().Changed("since")); err != nil {
+			opts.StartTime, opts.EndTime, err = resolveWindow(&window, cmd.Flags().Changed("since"))
+			if err != nil {
 				return render.Error(opts.IO, scope, err)
+			}
+			if window.start == "" {
+				opts.Since = window.since
 			}
 
 			if spanID != "" {
