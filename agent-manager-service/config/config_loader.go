@@ -208,6 +208,9 @@ func loadEnvs() {
 	// Gateway manifest cache backend. "memory" (default) is process-local and only
 	// safe for a single replica; HA deployments must set this to "redis" so every
 	// replica reads and writes the same cached manifest.
+	config.GatewayPublicVhostFallback = r.readOptionalBool("GATEWAY_PUBLIC_VHOST_FALLBACK", false)
+	config.EvalJobsUsePublicGatewayURL = r.readOptionalBool("EVAL_JOBS_USE_PUBLIC_GATEWAY_URL", false)
+
 	config.GatewayManifestCache = GatewayManifestCacheConfig{
 		Backend: r.readOptionalString("GATEWAY_MANIFEST_CACHE_BACKEND", "memory"),
 		Redis: GatewayManifestCacheRedisConfig{
@@ -224,7 +227,9 @@ func loadEnvs() {
 		SystemLabelKeyPrefixes: r.readOptionalStringList(
 			"OPEN_CHOREO_SYSTEM_LABEL_KEY_PREFIXES", "openchoreo.dev/",
 		),
+		BuildWorkflowKind: strings.TrimSpace(r.readOptionalString("OPEN_CHOREO_BUILD_WORKFLOW_KIND", "")),
 	}
+	validateOpenChoreoBuildWorkflowKind(config, r)
 
 	// Internal Server configuration (for WebSocket and gateway internal APIs)
 	config.InternalServer = InternalServerConfig{
@@ -536,6 +541,20 @@ func validateThunderConfig(cfg *Config, r *configReader) {
 	if (u.Scheme == "http" || u.Scheme == "https") && u.Host == "" {
 		r.errors = append(r.errors, fmt.Errorf(
 			"AMP_THUNDER_SYSTEM_RESOURCE_IDENTIFIER %q must have a non-empty host", thunder.SystemResourceIdentifier,
+		))
+	}
+}
+
+// validateOpenChoreoBuildWorkflowKind accepts only the kinds OpenChoreo knows, or
+// empty for "record none". A typo would otherwise reach every new Component's
+// workflow reference and fail its builds rather than the service's startup.
+func validateOpenChoreoBuildWorkflowKind(cfg *Config, r *configReader) {
+	switch cfg.OpenChoreo.BuildWorkflowKind {
+	case "", "Workflow", "ClusterWorkflow":
+	default:
+		r.errors = append(r.errors, fmt.Errorf(
+			"OPEN_CHOREO_BUILD_WORKFLOW_KIND must be empty, \"Workflow\" or \"ClusterWorkflow\", got %q",
+			cfg.OpenChoreo.BuildWorkflowKind,
 		))
 	}
 }
