@@ -1141,13 +1141,23 @@ func (s *agentThunderProvisioningService) DeleteAllBindings(ctx context.Context,
 		func() {
 			defer releases[i]()
 
-			// The AgentID SecretReference CR is independent of whether the identity
-			// ever landed in Thunder — clean it up for every internal binding, even
-			// ones that never completed (a crash between storeCredential creating it
-			// and UpdateAfterAttempt persisting ThunderAgentID/SecretRefPath would
+			// The AgentID credential is independent of whether the identity ever
+			// landed in Thunder — clean it up for every internal binding, even ones
+			// that never completed (a crash between storeCredential creating it and
+			// UpdateAfterAttempt persisting ThunderAgentID/SecretRefPath would
 			// otherwise leave it permanently orphaned, since it precedes the
 			// early-return below).
+			//
+			// The secret provider deletes first: it owns the SecretReference and
+			// its stored value, and finds them through the secret API. Deleting the
+			// SecretReference directly before that would hide it from the provider,
+			// which then skips the delete and leaves the stored value behind. The
+			// direct cleanup runs after, for a legacy SecretReference the identity
+			// injection service created itself, which the secret API cannot see.
 			if b.ProvisioningType == models.AgentProvisioningTypeInternal {
+				if err := s.deleteCredential(ctx, ouID, projectName, agentName, b.EnvironmentName); err != nil {
+					s.logger.Warn("Failed to delete stored agent secret", "ouID", ouID, "bindingID", b.ID, "agentName", agentName, "env", b.EnvironmentName, "error", err)
+				}
 				if injector == nil {
 					s.logger.Warn("Skipping agent identity SecretReference cleanup: no workload injector configured",
 						"ouID", ouID, "bindingID", b.ID, "agentName", agentName, "env", b.EnvironmentName)
@@ -1165,11 +1175,6 @@ func (s *agentThunderProvisioningService) DeleteAllBindings(ctx context.Context,
 			}
 			if _, err := thunderClient.DeleteAgentIdentity(ctx, b.ThunderAgentID); err != nil {
 				s.logger.Warn("Failed to delete Thunder agent identity", "ouID", ouID, "bindingID", b.ID, "agentName", agentName, "env", b.EnvironmentName, "error", err)
-			}
-			if b.SecretRefPath != "" {
-				if err := s.deleteCredential(ctx, ouID, projectName, agentName, b.EnvironmentName); err != nil {
-					s.logger.Warn("Failed to delete stored agent secret", "ouID", ouID, "bindingID", b.ID, "agentName", agentName, "env", b.EnvironmentName, "error", err)
-				}
 			}
 		}()
 	}

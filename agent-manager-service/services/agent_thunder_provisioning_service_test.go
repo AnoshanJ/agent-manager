@@ -1243,9 +1243,9 @@ func TestDeleteAllBindings_DeletesThunderIdentitiesSecretsAndRows(t *testing.T) 
 	}
 	devID, prodID, neverProvisionedID := uuid.New(), uuid.New(), uuid.New()
 	seed := []models.AgentThunderClient{
-		{ID: devID, ThunderAgentID: "agent-in-dev", EnvironmentName: "dev", SecretRefPath: "path/dev"},
-		{ID: prodID, ThunderAgentID: "agent-in-prod", EnvironmentName: "prod", SecretRefPath: "path/prod"},
-		{ID: neverProvisionedID, ThunderAgentID: "", EnvironmentName: "never-provisioned"}, // never made it to Thunder — nothing to delete there
+		{ID: devID, ThunderAgentID: "agent-in-dev", EnvironmentName: "dev", SecretRefPath: "path/dev", ProvisioningType: models.AgentProvisioningTypeInternal},
+		{ID: prodID, ThunderAgentID: "agent-in-prod", EnvironmentName: "prod", SecretRefPath: "path/prod", ProvisioningType: models.AgentProvisioningTypeInternal},
+		{ID: neverProvisionedID, ThunderAgentID: "", EnvironmentName: "never-provisioned", ProvisioningType: models.AgentProvisioningTypeExternal}, // never made it to Thunder, and stores no secret — nothing to delete there
 	}
 	var deletedIDs []uuid.UUID
 	repo := &repomocks.AgentThunderClientRepositoryMock{
@@ -1350,7 +1350,7 @@ func TestDeleteAllBindings_ContinuesExternalCleanupOnDeleteByIDsFailure(t *testi
 		},
 	}
 	bindingID := uuid.New()
-	seed := models.AgentThunderClient{ID: bindingID, ThunderAgentID: "agent-1", EnvironmentName: "dev", SecretRefPath: "path/dev"}
+	seed := models.AgentThunderClient{ID: bindingID, ThunderAgentID: "agent-1", EnvironmentName: "dev", SecretRefPath: "path/dev", ProvisioningType: models.AgentProvisioningTypeInternal}
 	var clearedSecretRefIDs []uuid.UUID
 	repo := &repomocks.AgentThunderClientRepositoryMock{
 		FindByAgentFunc: func(_ context.Context, _, _, _ string) ([]models.AgentThunderClient, error) {
@@ -1862,6 +1862,81 @@ func TestKeyedMutex_EvictsEntryAfterCtxCancelWhileWaiting(t *testing.T) {
 // in-package AgentIdentityInjectionService interface (no moq mock — see the
 // service-unit-test conventions). A nil func field panics when called, so
 // tests can prove a path is never reached, mirroring moq semantics.
+// TestDeleteAllBindings_ProviderDeletesCredentialBeforeDirectCleanup guards the
+// cleanup order for internal bindings. The secret provider owns the
+// SecretReference and its stored value and finds them through the secret API;
+// deleting the SecretReference directly first hides it from the provider, which
+// then skips the delete and leaves the stored value behind. The direct cleanup
+// still runs afterwards for a legacy SecretReference the provider cannot see,
+// and both run even for a binding that never reached Thunder, since
+// storeCredential may already have written its credential.
+func TestDeleteAllBindings_ProviderDeletesCredentialBeforeDirectCleanup(t *testing.T) {
+	tc := fakeThunderClientMock()
+	tc.DeleteAgentIdentityFunc = func(context.Context, string) (bool, error) { return true, nil }
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, _ string) (thundersvc.ThunderClient, error) { return tc, nil },
+	}
+	var mu sync.Mutex
+	var calls []string
+	record := func(call string) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, call)
+	}
+	store := &clientmocks.SecretManagementClientMock{
+		DeleteSecretFunc: func(_ context.Context, location secretmanagersvc.SecretLocation, _ string) error {
+			record("provider-delete:" + location.EnvironmentName)
+			return nil
+		},
+	}
+	injector := &agentIdentityInjectorStub{
+		CleanupForEnvironmentFunc: func(_ context.Context, _, _, envName string) error {
+			record("direct-cleanup:" + envName)
+			return nil
+		},
+	}
+	seed := []models.AgentThunderClient{
+		{ID: uuid.New(), ThunderAgentID: "agent-in-dev", EnvironmentName: "dev", SecretRefPath: "my-agent-agent-identity-dev-secrets", ProvisioningType: models.AgentProvisioningTypeInternal},
+		{ID: uuid.New(), ThunderAgentID: "", EnvironmentName: "half-provisioned", ProvisioningType: models.AgentProvisioningTypeInternal},
+	}
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		FindByAgentFunc: func(context.Context, string, string, string) ([]models.AgentThunderClient, error) {
+			return seed, nil
+		},
+		GetFunc: func(_ context.Context, _, _, _, envName string) (*models.AgentThunderClient, error) {
+			for _, b := range seed {
+				if b.EnvironmentName == envName {
+					return &b, nil
+				}
+			}
+			return nil, repositories.ErrAgentThunderClientNotFound
+		},
+		UpdateSecretRefFunc: func(context.Context, uuid.UUID, string) error { return nil },
+		DeleteByIDsFunc:     func(context.Context, []uuid.UUID) error { return nil },
+	}
+
+	svc := newTestProvisioningServiceWithInjector(repo, resolver, store, injector)
+	svc.DeleteAllBindings(context.Background(), "acme", "proj1", "my-agent")
+
+	for _, env := range []string{"dev", "half-provisioned"} {
+		provider := indexOf(calls, "provider-delete:"+env)
+		direct := indexOf(calls, "direct-cleanup:"+env)
+		require.NotEqual(t, -1, provider, "the provider must delete %s's credential", env)
+		require.NotEqual(t, -1, direct, "the direct cleanup must still run for %s", env)
+		assert.Less(t, provider, direct, "the provider must delete %s's credential before the direct cleanup hides it", env)
+	}
+	assert.Len(t, calls, 4, "one provider delete and one direct cleanup per internal binding, no duplicates")
+}
+
+func indexOf(items []string, want string) int {
+	for i, item := range items {
+		if item == want {
+			return i
+		}
+	}
+	return -1
+}
+
 type agentIdentityInjectorStub struct {
 	EnvVarsForEnvironmentFunc   func(ctx context.Context, orgName, projectName, agentName, envName string) ([]client.EnvVar, error)
 	InjectForEnvironmentFunc    func(ctx context.Context, orgName, projectName, agentName, envName string) error
