@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -259,11 +260,39 @@ func (s *agentThunderProvisioningService) storeCredential(ctx context.Context, o
 	}
 	refName, err := s.secretMgmtClient.CreateSecret(ctx, location, data)
 	if err != nil {
-		return "", err
+		if !errors.Is(err, utils.ErrNotFound) || !strings.Contains(err.Error(), createSecretConflictRetryMarker) {
+			return "", err
+		}
+		// A binding provisioned before the provider owned this SecretReference
+		// still has one created directly by the identity injection service, not
+		// through the secret API. The API reports it missing, yet its name is
+		// taken, so the create conflicts and the fallback update fails. Delete
+		// that legacy SecretReference and create again: the retry is then a plain
+		// create, and from here on the provider owns it like any new binding's.
+		injector := s.getWorkloadInjector()
+		if injector == nil {
+			return "", err
+		}
+		if cleanupErr := injector.CleanupForEnvironment(ctx, ouID, agentName, envName); cleanupErr != nil {
+			return "", fmt.Errorf("clear legacy SecretReference before retry: %w: %w", cleanupErr, err)
+		}
+		refName, err = s.secretMgmtClient.CreateSecret(ctx, location, data)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	return refName, nil
 }
+
+// createSecretConflictRetryMarker is the exact substring secretmanagersvc's
+// OpenChoreo provider includes only when a create conflict's own fallback
+// update then also fails (PushSecret's "failed to update secret after create
+// conflict" wrap in clients/secretmanagersvc/providers/openchoreo/client.go).
+// That is the signature of a legacy, injection-created SecretReference the
+// secret API cannot see. The secret manager exposes no distinct sentinel for
+// it, so this is the only way to tell it apart from unrelated not-found errors.
+const createSecretConflictRetryMarker = "after create conflict"
 
 // deleteCredential permanently removes the stored credential (and its
 // SecretReference CR) for one binding. agentIdentitySecretLocation is a pure
