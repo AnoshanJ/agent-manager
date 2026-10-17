@@ -49,10 +49,12 @@ export function ProxySecurityDrawer({
   const agent = { orgName, projName, agentName };
   const { data: configurations } = useGetAgentConfigurations(agent, { environment });
   const { mutate: updateDeploySettings, isPending } = useUpdateAgentDeploySettings();
+  // Until it loads, the form shows defaults, and applying them would overwrite the stored settings.
+  const canApply = valid && !isPending && !!configurations;
 
   const apply = () => {
     const security = securityRef.current;
-    if (!security?.validate()) return;
+    if (!canApply || !security?.validate()) return;
     updateDeploySettings(
       { params: agent, body: { environmentName: environment, ...security.buildBody() } },
       { onSuccess: onClose },
@@ -79,7 +81,7 @@ export function ProxySecurityDrawer({
             <Button variant="outlined" onClick={onClose} disabled={isPending}>
               Cancel
             </Button>
-            <Button variant="contained" onClick={apply} disabled={!valid || isPending}>
+            <Button variant="contained" onClick={apply} disabled={!canApply}>
               Apply
             </Button>
           </Box>
