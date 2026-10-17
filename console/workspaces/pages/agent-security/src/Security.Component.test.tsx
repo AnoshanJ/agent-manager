@@ -92,6 +92,16 @@ describe("SecurityComponent", () => {
     expect(screen.getByRole("link", { name: "Go to A2A settings" })).toHaveAttribute("href", A2A_SETTINGS_HREF);
   });
 
+  it("reports a failed routing lookup instead of calling the agent direct", () => {
+    externalA2A();
+    vi.mocked(useGetA2AProxy).mockReturnValue({
+      data: undefined, isLoading: false, isError: true, error: new Error("boom"),
+    } as unknown as ReturnType<typeof useGetA2AProxy>);
+    renderPage();
+    expect(screen.getByText(/could not load gateway routing/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not routed through the gateway/i)).not.toBeInTheDocument();
+  });
+
   const securityDisabled = () =>
     vi.mocked(useGetAgentConfigurations).mockReturnValue({
       data: { enableApiKeySecurity: false, enableOAuthSecurity: false }, isLoading: false,

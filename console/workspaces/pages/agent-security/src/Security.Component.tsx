@@ -19,7 +19,7 @@
 import React from "react";
 import { Link, generatePath, useParams } from "react-router-dom";
 import { Alert, Button, ListingTable, Skeleton } from "@wso2/oxygen-ui";
-import { KeyRound, Rocket, ShieldOff } from "@wso2/oxygen-ui-icons-react";
+import { AlertTriangle, KeyRound, Rocket, ShieldOff } from "@wso2/oxygen-ui-icons-react";
 import {
   useCreateAgentAPIKey,
   useGetA2AProxy,
@@ -65,7 +65,11 @@ export const SecurityComponent: React.FC = () => {
   });
   const isExternalA2A = isExternalA2AAgent(agent);
   // Null while the environment is direct.
-  const { data: proxy, isLoading: isLoadingProxy } = useGetA2AProxy(
+  const {
+    data: proxy,
+    isLoading: isLoadingProxy,
+    isError: isProxyLookupFailed,
+  } = useGetA2AProxy(
     { orgName: orgId, projName: projectId, agentName: agentId, envId },
     { enabled: isExternalA2A },
   );
@@ -144,7 +148,13 @@ export const SecurityComponent: React.FC = () => {
     </Button>
   ) : undefined;
 
-  const emptyState = !servedByGateway
+  const emptyState = isExternalA2A && isProxyLookupFailed
+    ? {
+        illustration: <AlertTriangle size={48} />,
+        title: "Could not load gateway routing",
+        description: "Reload the page to try again.",
+      }
+    : !servedByGateway
     ? isExternalA2A
       ? {
           illustration: <Rocket size={48} />,
