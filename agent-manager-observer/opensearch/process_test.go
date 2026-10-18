@@ -395,9 +395,9 @@ func TestDetermineSpanType(t *testing.T) {
 			expected: SpanTypeAgent,
 		},
 		{
-			name: "OpenClaw context assembled",
+			name: "OpenClaw context assembled with trailing whitespace",
 			span: Span{
-				Name: "openclaw.context.assembled",
+				Name: "openclaw.context.assembled ",
 				Attributes: map[string]interface{}{
 					"openclaw.agent": "main",
 				},
@@ -1798,6 +1798,7 @@ func TestDetermineSpanKindFromName(t *testing.T) {
 		{"Traceloop LangGraph.workflow", "LangGraph.workflow", SpanTypeChain},
 		{"OpenClaw harness run", "openclaw.harness.run", SpanTypeAgent},
 		{"OpenClaw run", "openclaw.run", SpanTypeAgent},
+		{"OpenClaw run with whitespace", " openclaw.run ", SpanTypeAgent},
 		{"OpenClaw model usage", "openclaw.model.usage", SpanTypeLLM},
 		{"OpenClaw model call", "openclaw.model.call", SpanTypeLLM},
 		{"OpenClaw tool execution", "openclaw.tool.execution", SpanTypeTool},

@@ -2114,7 +2114,7 @@ func determineSpanTypeFromName(name string) SpanType {
 		return SpanTypeUnknown
 	}
 
-	if kind, ok := openClawSpanKinds[strings.ToLower(name)]; ok {
+	if kind, ok := openClawSpanKinds[strings.ToLower(strings.TrimSpace(name))]; ok {
 		return kind
 	}
 
@@ -2224,6 +2224,9 @@ func ToolNameFromSpanName(name string) (tool string, ok bool) {
 		return "", false
 	}
 	trimmed := strings.TrimSpace(name)
+	if _, fixed := openClawSpanKinds[strings.ToLower(trimmed)]; fixed {
+		return "", true
+	}
 	const prefix = "execute_tool"
 	if len(trimmed) >= len(prefix) && strings.EqualFold(trimmed[:len(prefix)], prefix) {
 		rest := trimmed[len(prefix):]
