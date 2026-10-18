@@ -93,7 +93,7 @@ def classify_span(span: dict[str, Any]) -> str:
     if name.startswith("execute_event_loop_cycle"):
         return "chain"
 
-    return _OPENCLAW_SPAN_KINDS.get(name, "unknown")
+    return _OPENCLAW_SPAN_KINDS.get(name.strip(), "unknown")
 
 
 # OTel GenAI semconv lets a tool call ride on the assistant LLM span as an
