@@ -2097,11 +2097,25 @@ func DetermineSpanType(span Span) SpanType {
 	return SpanTypeUnknown
 }
 
+// openClawSpanKinds maps OpenClaw diagnostics-otel span names, whose last segments match no generic rule.
+var openClawSpanKinds = map[string]SpanType{
+	"openclaw.harness.run":       SpanTypeAgent,
+	"openclaw.run":               SpanTypeAgent,
+	"openclaw.model.usage":       SpanTypeLLM,
+	"openclaw.model.call":        SpanTypeLLM,
+	"openclaw.tool.execution":    SpanTypeTool,
+	"openclaw.context.assembled": SpanTypeChain,
+}
+
 // determineSpanTypeFromName infers span type from the span name
 // Checks the last segment after splitting by "." for type hints
 func determineSpanTypeFromName(name string) SpanType {
 	if name == "" {
 		return SpanTypeUnknown
+	}
+
+	if kind, ok := openClawSpanKinds[strings.ToLower(name)]; ok {
+		return kind
 	}
 
 	// Strands opens one of these per agent reasoning iteration. Matched before the
@@ -2147,6 +2161,10 @@ func DetermineSpanKindFromName(name string) SpanType {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if lower == "" {
 		return SpanTypeUnknown
+	}
+
+	if kind, ok := openClawSpanKinds[lower]; ok {
+		return kind
 	}
 
 	// Traceloop / LangGraph action prefixes (e.g. "invoke_agent LangGraph").
