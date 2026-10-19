@@ -612,6 +612,58 @@ func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kin
 	return ""
 }
 
+// requireImageOwnedByAgent rejects a deploy whose image this agent has no claim
+// to. Without it, a caller with deploy rights in their own org could run another
+// tenant's image (secrets, prompts and code baked in) or any image the cluster's
+// pull credentials reach, bypassing the build pipeline.
+//
+// An image is the agent's when any one of these holds:
+//   - a published version of the agent's kind carries it. A kind-sourced agent
+//     never builds; its image was built by the kind's source agent, and a deploy
+//     may move it to another version of the same kind;
+//   - one of the agent's own builds produced it;
+//   - it is already deployed for the agent in some environment, so a redeploy
+//     still works after the build that produced it has been cleaned up.
+//
+// Matching is exact: a looser comparison (tag vs digest, prefixes) is the hole
+// this closes. Lookup failures reject rather than allow — a check that passes
+// whenever OpenChoreo is unreachable is not a check.
+func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID, projectName, pipelineName, agentName, kindName, imageID string) error {
+	if kindName != "" && s.kindVersionForImage(ctx, ouID, kindName, imageID) != "" {
+		return nil
+	}
+
+	builds, err := s.ocClient.ListBuilds(ctx, ouID, projectName, agentName)
+	if err != nil {
+		s.logger.Error("Failed to list builds while checking deploy image ownership",
+			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
+		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+	}
+	for _, b := range builds {
+		if b != nil && b.ImageId == imageID {
+			return nil
+		}
+	}
+
+	deployments, err := s.ocClient.GetDeployments(ctx, ouID, pipelineName, projectName, agentName)
+	if err != nil {
+		s.logger.Error("Failed to read deployments while checking deploy image ownership",
+			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
+		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+	}
+	for _, d := range deployments {
+		if d != nil && d.ImageId == imageID {
+			return nil
+		}
+	}
+
+	s.logger.Warn("Rejected deploy of an image not owned by the agent",
+		"agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", imageID)
+	return utils.NewInvalidInputError(
+		"The image does not belong to this agent. Deploy an image from one of the agent's builds.",
+		fmt.Sprintf("imageId %q is not a build, kind version or current deployment of agent %q", imageID, agentName))
+}
+
 // kindVersionInputInterface reads the input interface a kind version was published
 // with, off the build (workflow run) that produced its image.
 //
@@ -3221,6 +3273,13 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 	// lookup is now fail-closed and its result is reused below.
 	targetEnv, err := s.requireEnvTier(ctx, ouID, lowestEnv)
 	if err != nil {
+		return "", err
+	}
+
+	// imageId is client-supplied and goes straight onto the Workload, so it has to
+	// be one this agent may run. Checked after the tier (an unauthorised caller
+	// learns nothing about which images exist) and before any write.
+	if err := s.requireImageOwnedByAgent(ctx, ouID, projectName, pipeline.Name, agentName, agent.KindName, req.ImageId); err != nil {
 		return "", err
 	}
 
