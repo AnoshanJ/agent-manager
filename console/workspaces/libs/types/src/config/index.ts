@@ -191,11 +191,14 @@ export const getBasePath = (): string => {
  * Prefix a router-relative path ("/org/x") with the base path for use in
  * `window.location.assign`, `window.open`, `href` and anything else that
  * bypasses react-router (which already applies the basename).
+ *
+ * The prefix is always applied: the input is a router route, never a browser
+ * pathname, so a route that happens to start with the base path (base `/login`,
+ * route `/login`) is still prefixed. `stripBasePath` is the inverse.
  */
 export const withBasePath = (path: string): string => {
   const base = getBasePath();
   if (!base) return path;
-  if (path === base || path.startsWith(`${base}/`)) return path;
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 };
 

@@ -50,12 +50,18 @@ ARG BASE_PATH=/
 ENV BASE_PATH=${BASE_PATH}
 
 # Copy custom nginx configuration, expanding the base-path rewrite marker when
-# BASE_PATH is not the root (see nginx.conf).
+# BASE_PATH is not the root (see nginx.conf). The prefix is escaped for the
+# regex side of each rewrite (so "/amp.v1" does not also match "/ampXv1") and
+# inserted through awk's ENVIRON, which copies the snippet literally.
 COPY --chown=nginx-app:nginx-app nginx.conf /etc/nginx/nginx.conf
 RUN set -eu; \
     bp="$(printf '%s' "${BASE_PATH}" | sed -e 's#^/*#/#' -e 's#/*$##')"; \
     if [ "${bp}" != "/" ] && [ -n "${bp}" ]; then \
-      sed -i "s|# __BASE_PATH_REWRITE__|rewrite ^${bp}\$ ${bp}/ permanent;\n        rewrite ^${bp}/(.*)\$ /\$1 last;|" /etc/nginx/nginx.conf; \
+      bp_re="$(printf '%s' "${bp}" | sed -e 's/[][\.*^$+?(){}|]/\\&/g')"; \
+      SNIPPET="$(printf 'rewrite ^%s$ %s/ permanent;\n        rewrite ^%s/(.*)$ /$1 last;' "${bp_re}" "${bp}" "${bp_re}")" \
+        awk '{ if (index($0, "# __BASE_PATH_REWRITE__")) { print "        " ENVIRON["SNIPPET"] } else { print } }' \
+        /etc/nginx/nginx.conf > /tmp/nginx.conf.expanded; \
+      mv /tmp/nginx.conf.expanded /etc/nginx/nginx.conf; \
     fi
 
 # Copy built application from builder stage
