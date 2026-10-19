@@ -55,6 +55,7 @@ func IsAPIURL(raw string) bool {
 	return path == APIPath || strings.HasPrefix(path, APIPath+"/")
 }
 
+// tells a user who passed cloud URL raw to --url to use --cloud; releasesURL is where to get an amctl that has it.
 func LoginHint(raw, releasesURL string) string {
 	return fmt.Sprintf("%s is a WSO2 Cloud URL; log in with --cloud instead: export %s=%s && amctl login --cloud (if --cloud is unknown, download the latest amctl from %s)",
 		raw, GatewayURLEnv, gatewayOf(raw), releasesURL)
