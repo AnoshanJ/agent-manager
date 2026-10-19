@@ -150,11 +150,13 @@ Follow [Add gateway guardrails](BEDROCK-GATEWAY.md#add-gateway-guardrails). Send
 policy-list request and `Write a poem about space travel`, each with a new session
 ID, before and after attaching the guardrails. To check PII masking, include a
 synthetic email address in a request and inspect the payload gateway-side.
+Agent spans record the prompt before the gateway, so traces still show the email.
 
 ## 7. Evaluate and monitor
 
 Compare two monitors with the same evaluators: one over traffic before a change
-and one after.
+and one after. Sections 5 and 7 assume `USE_MCP=false`; the MCP extension has
+no claim tools and uses its own inline prompt.
 
 1. Send a mixed batch of synthetic requests with distinct session IDs: list
    policies, look up `OZ-AUTO-4417` and `OZ-UNKNOWN`, and ask about `CLM-10432`
@@ -165,17 +167,28 @@ and one after.
 
    | Evaluator | Type | Level | Suggested setting |
    |---|---|---|---|
-   | Accuracy | LLM judge | trace | `model`: `claude-sonnet-4-6` |
-   | Clarity | LLM judge | trace | `model`: `claude-sonnet-4-6` |
-   | Safety | LLM judge | llm | `model`: `claude-sonnet-4-6`, `context`: `insurance customer support` |
-   | Latency Performance | rule-based | trace | `max_latency_ms`: `10000` |
+   | Accuracy | LLM judge | trace | `model`: judge model |
+   | Clarity | LLM judge | trace | `model`: judge model |
+   | Safety | LLM judge | llm | `model`: judge model, `context`: `insurance customer support` |
+   | Latency Performance | rule-based | trace | `max_latency_ms`: `30000` |
    | Length Compliance | rule-based | trace | `max_length`: `2000` |
 
    Select or create the **LLM Provider** the judges use, then choose
-   **Create Monitor**.
-3. Make one change, for example to the system prompt in `system_prompt.py`.
-   Rebuild, register a new task revision, and replace the task. Send the same
-   batch again.
+   **Create Monitor**. Set `model` to an ID that provider accepts.
+3. Make one change, for example to the system prompt in `agent/system_prompt.py`.
+   Build and push with a new tag, register a revision with that image, and
+   replace the task:
+
+   ```bash
+   export IMAGE_TAG=prompt-v2
+   docker build --platform linux/amd64 -f agent/Dockerfile.ecs \
+     -t "$ECR_REGISTRY/insurance-agent:$IMAGE_TAG" agent
+   docker push "$ECR_REGISTRY/insurance-agent:$IMAGE_TAG"
+   ```
+
+   Update the image in `agent-task-definition.json`, then rerun the section 4
+   commands. The new task has a new private IP, so update `AGENT_URL` before
+   sending the same batch again.
 4. Create `Production Readiness v2` with the same evaluators over the new window.
 5. Open `Production Readiness v2`, choose **Compare**, and select
    `Production Readiness v1`. The radar chart shows each evaluator's score, and
