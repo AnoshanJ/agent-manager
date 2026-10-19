@@ -23,6 +23,8 @@ export type A2AProxyStatus = 'pending' | 'published' | 'failed';
 export interface A2AProxyResponse {
   status: A2AProxyStatus;
   lastError: string;
+  /** Base URL on the ingress gateway, serving the card once published. Empty with no gateway. */
+  gatewayUrl: string;
   /** The header the gateway adds upstream; empty when none. Non-empty means a secret is stored. */
   upstreamAuthHeader: string;
 }

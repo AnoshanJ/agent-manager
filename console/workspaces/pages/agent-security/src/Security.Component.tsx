@@ -58,7 +58,11 @@ export const SecurityComponent: React.FC = () => {
         environment: envId ?? "",
       },
     );
-  const { data: agent, isLoading: isLoadingAgent } = useGetAgent({
+  const {
+    data: agent,
+    isLoading: isLoadingAgent,
+    isError: isAgentLookupFailed,
+  } = useGetAgent({
     orgName: orgId,
     projName: projectId,
     agentName: agentId,
@@ -148,7 +152,13 @@ export const SecurityComponent: React.FC = () => {
     </Button>
   ) : undefined;
 
-  const emptyState = isExternalA2A && isProxyLookupFailed
+  const emptyState = isAgentLookupFailed
+    ? {
+        illustration: <AlertTriangle size={48} />,
+        title: "Could not load the agent",
+        description: "Reload the page to try again.",
+      }
+    : isExternalA2A && isProxyLookupFailed
     ? {
         illustration: <AlertTriangle size={48} />,
         title: "Could not load gateway routing",

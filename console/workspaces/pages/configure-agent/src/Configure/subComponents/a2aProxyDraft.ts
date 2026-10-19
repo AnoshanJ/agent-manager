@@ -41,6 +41,9 @@ const isReservedHeader = (header: string) => {
   return name.startsWith("proxy-") || RESERVED_HEADERS.has(name);
 };
 
+export const KEEP_ORIGIN_HINT =
+  "A header value is stored for this agent. To move the card to another origin, clear the stored value first.";
+
 /** A non-empty header means the server stores a secret for it. */
 export const hasStoredSecret = (proxy?: A2AProxyResponse) => !!proxy?.upstreamAuthHeader;
 
@@ -53,6 +56,15 @@ export function draftFromProxy(proxy?: A2AProxyResponse): A2AProxyDraft {
   };
 }
 
+/** Scheme, host and effective port, as the server compares them; undefined if unparsable. */
+export function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 /** C0, DEL and C1, as Go's unicode.IsControl sees them. */
 function hasControlCharacter(value: string): boolean {
   return [...value].some((c) => {
@@ -61,10 +73,16 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
-/** Mirrors the server: the gateway pastes into quoted YAML, doubles '%' and renders {{ }}. */
-export function upstreamAuthError(draft: A2AProxyDraft, proxy?: A2AProxyResponse): string | null {
+/**
+ * Mirrors the server: the gateway pastes into quoted YAML, doubles '%' and renders {{ }},
+ * and a new secret is stored only for an https card URL.
+ */
+export function upstreamAuthError(
+  draft: A2AProxyDraft, proxy?: A2AProxyResponse, cardUrl?: string,
+): string | null {
   const header = draft.header.trim();
   if (!draft.enabled || draft.secret === "clear" || (header === "" && draft.value === "")) return null;
+  if (header === "") return "Enter a header name";
   if (!HEADER_PATTERN.test(header)) return "Use only letters, digits, '-' and '_' in the header name";
   if (header.length > UPSTREAM_HEADER_MAX) return `The header name can be at most ${UPSTREAM_HEADER_MAX} characters`;
   if (isReservedHeader(header)) return `The ${header} header cannot be set`;
@@ -77,6 +95,10 @@ export function upstreamAuthError(draft: A2AProxyDraft, proxy?: A2AProxyResponse
   if (draft.value.includes("%")) return "The value cannot contain '%'";
   if (hasControlCharacter(draft.value)) return "The value cannot contain control characters";
   if (draft.value.includes("{{")) return "The value cannot contain '{{'";
+  const cardOrigin = originOf(cardUrl ?? "");
+  if (cardOrigin !== undefined && !cardOrigin.startsWith("https:")) {
+    return "The card URL must use https to send a header value";
+  }
   return null;
 }
 

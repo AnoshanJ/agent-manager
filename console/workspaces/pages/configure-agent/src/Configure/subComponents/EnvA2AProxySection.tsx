@@ -17,10 +17,10 @@
  */
 
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, Typography } from "@wso2/oxygen-ui";
-import { ShieldCheck, Trash } from "@wso2/oxygen-ui-icons-react";
+import { Alert, Box, Button, Chip, IconButton, Tooltip, Typography } from "@wso2/oxygen-ui";
+import { Copy, ShieldCheck, Trash } from "@wso2/oxygen-ui-icons-react";
 import { useDeleteA2AProxy, useRefreshA2AProxy, useSetA2AProxy } from "@agent-management-platform/api-client";
-import { useConfirmationDialog } from "@agent-management-platform/shared-component";
+import { copyToClipboard, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import type { A2AProxyResponse, A2AProxyStatus, AgentCardPathParams } from "@agent-management-platform/types";
 import { A2AProxyFields } from "./A2AProxyFields";
 import {
@@ -44,6 +44,8 @@ const PROXY_CHIP: Record<A2AProxyStatus, { label: string; color: "warning" | "su
 
 interface EnvA2AProxySectionProps {
   params: AgentCardPathParams;
+  /** The registered card URL, which a new upstream secret requires to be https. */
+  cardUrl: string;
   /** Undefined while the environment is direct; render only once that is known. */
   proxy?: A2AProxyResponse;
   /** A routing save for this environment is in flight, from this section or another form. */
@@ -59,8 +61,39 @@ export function A2AProxyUnknown({ failed }: { failed: boolean }) {
   );
 }
 
+function GatewayUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!url) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        No ingress gateway is mapped to this environment.
+      </Typography>
+    );
+  }
+
+  const copy = () => void copyToClipboard(url).then((succeeded) => {
+    if (!succeeded) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  });
+
+  return (
+    <Box display="flex" alignItems="center" gap={0.5} sx={{ mb: 1, minWidth: 0 }}>
+      <Typography variant="body2" sx={{ fontFamily: "monospace", wordBreak: "break-all" }}>{url}</Typography>
+      <Tooltip title={copied ? "Copied!" : "Copy gateway URL"}>
+        <IconButton size="small" onClick={copy} aria-label="Copy gateway URL">
+          <Copy size={14} />
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
+
 /** Gateway routing for one environment of an external A2A agent that has a registered card URL. */
-export function EnvA2AProxySection({ params, proxy, saving = false }: EnvA2AProxySectionProps) {
+export function EnvA2AProxySection({
+  params, cardUrl, proxy, saving = false,
+}: EnvA2AProxySectionProps) {
   const [draft, setDraft] = useState(() => draftFromProxy(proxy));
   const [securityOpen, setSecurityOpen] = useState(false);
   const { mutate: saveProxy, isPending: isSaving } = useSetA2AProxy();
@@ -74,7 +107,7 @@ export function EnvA2AProxySection({ params, proxy, saving = false }: EnvA2AProx
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setDraft(draftFromProxy(proxy)), [proxied, savedHeader]);
 
-  const error = upstreamAuthError(draft, proxy);
+  const error = upstreamAuthError(draft, proxy, cardUrl);
   const busy = isSaving || isRemoving || saving;
   const canSave = draftChanged(draft, proxy) && !error && !busy;
 
@@ -128,6 +161,7 @@ export function EnvA2AProxySection({ params, proxy, saving = false }: EnvA2AProx
           </Button>
         )}
       </Box>
+      {proxy?.status === "published" && <GatewayUrl url={proxy.gatewayUrl} />}
       {proxy?.status === "failed" && (
         <Alert
           severity="error"

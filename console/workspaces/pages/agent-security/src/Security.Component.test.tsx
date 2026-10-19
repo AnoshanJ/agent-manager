@@ -46,6 +46,7 @@ import {
   useGetAgent,
   useGetAgentConfigurations,
   useListAgentDeployments,
+  useListAgentAPIKeys,
 } from "@agent-management-platform/api-client";
 import { SecurityComponent } from "./Security.Component";
 
@@ -72,7 +73,7 @@ describe("SecurityComponent", () => {
   it("manages API keys of an external A2A agent routed through the gateway", () => {
     externalA2A();
     vi.mocked(useGetA2AProxy).mockReturnValue({
-      data: { status: "published", lastError: "", upstreamAuthHeader: "" }, isLoading: false, isError: false, error: null,
+      data: { status: "published", lastError: "", gatewayUrl: "https://gw.example/agent", upstreamAuthHeader: "" }, isLoading: false, isError: false, error: null,
     } as unknown as ReturnType<typeof useGetA2AProxy>);
     renderPage();
     expect(screen.getByText("api keys manager")).toBeInTheDocument();
@@ -102,6 +103,21 @@ describe("SecurityComponent", () => {
     expect(screen.queryByText(/not routed through the gateway/i)).not.toBeInTheDocument();
   });
 
+  it("reports a failed agent lookup instead of saying the agent is not deployed", () => {
+    vi.mocked(useGetAgent).mockReturnValue({
+      data: undefined, isLoading: false, isError: true, error: new Error("boom"),
+    } as unknown as ReturnType<typeof useGetAgent>);
+    vi.mocked(useGetA2AProxy).mockReturnValue({
+      data: undefined, isLoading: false, isError: false, error: null,
+    } as unknown as ReturnType<typeof useGetA2AProxy>);
+    renderPage();
+    expect(screen.getByText(/could not load the agent/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not deployed/i)).not.toBeInTheDocument();
+    expect(vi.mocked(useListAgentAPIKeys)).toHaveBeenCalledWith(
+      expect.objectContaining({ orgName: undefined }),
+    );
+  });
+
   const securityDisabled = () =>
     vi.mocked(useGetAgentConfigurations).mockReturnValue({
       data: { enableApiKeySecurity: false, enableOAuthSecurity: false }, isLoading: false,
@@ -111,7 +127,7 @@ describe("SecurityComponent", () => {
     externalA2A();
     securityDisabled();
     vi.mocked(useGetA2AProxy).mockReturnValue({
-      data: { status: "published", lastError: "", upstreamAuthHeader: "" }, isLoading: false, isError: false, error: null,
+      data: { status: "published", lastError: "", gatewayUrl: "https://gw.example/agent", upstreamAuthHeader: "" }, isLoading: false, isError: false, error: null,
     } as unknown as ReturnType<typeof useGetA2AProxy>);
     renderPage();
     expect(screen.getByText(/gateway security settings under Configure → A2A/)).toBeInTheDocument();

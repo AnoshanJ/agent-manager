@@ -24,7 +24,7 @@ import { INPUT_LIMITS, type AgentCardPathParams } from "@agent-management-platfo
 import { validateEndpointUrl } from "@agent-management-platform/shared-component";
 import { TextInput } from "@agent-management-platform/views";
 import { A2AProxyFields } from "./A2AProxyFields";
-import { draftFromProxy, proxyRequestOf, upstreamAuthError } from "./a2aProxyDraft";
+import { draftFromProxy, KEEP_ORIGIN_HINT, originOf, proxyRequestOf, upstreamAuthError } from "./a2aProxyDraft";
 
 interface AgentCardSourceFormProps {
   params: AgentCardPathParams;
@@ -35,6 +35,8 @@ interface AgentCardSourceFormProps {
   onDone?: () => void;
   /** Offers gateway routing with the new URL; only once the environment is known to be direct. */
   offerRouting?: boolean;
+  /** A stored upstream secret pins the card to the origin of currentUrl. */
+  keepOrigin?: boolean;
 }
 
 const INVALID_HINT = "Enter a public http(s) URL";
@@ -44,19 +46,22 @@ const alreadyReported = () => undefined;
 
 /** Card URL for an external A2A agent in one environment. */
 export function AgentCardSourceForm({
-  params, currentUrl, inline, onDone, offerRouting = false,
+  params, currentUrl, inline, onDone, offerRouting = false, keepOrigin = false,
 }: AgentCardSourceFormProps) {
   const [url, setUrl] = useState(currentUrl ?? "");
   const { mutateAsync: saveSource, isPending: isSaving } = useSetAgentCardSource();
   const { mutateAsync: saveProxy, isPending: isRouting } = useSetA2AProxy();
   const [proxyDraft, setProxyDraft] = useState(() => draftFromProxy(undefined));
   const routes = !inline && offerRouting && proxyDraft.enabled;
-  const proxyError = routes ? upstreamAuthError(proxyDraft) : null;
 
   const trimmed = url.trim();
+  const proxyError = routes ? upstreamAuthError(proxyDraft, undefined, trimmed) : null;
   const invalid = trimmed !== "" && validateEndpointUrl(trimmed) !== null;
+  const leavesOrigin =
+    keepOrigin && trimmed !== "" && !invalid && originOf(trimmed) !== originOf(currentUrl ?? "");
   const busy = isSaving || isRouting;
-  const canSave = !!trimmed && !invalid && trimmed !== currentUrl && !busy && !proxyError;
+  const canSave =
+    !!trimmed && !invalid && !leavesOrigin && trimmed !== currentUrl && !busy && !proxyError;
   // Awaited rather than chained on mutate callbacks: saving the URL unmounts this form.
   const submit = async () => {
     if (!canSave) return;
@@ -90,7 +95,7 @@ export function AgentCardSourceForm({
             style: { fontFamily: "monospace" },
           }}
         />
-        <Tooltip title={invalid ? INVALID_HINT : "Save"}>
+        <Tooltip title={invalid ? INVALID_HINT : leavesOrigin ? KEEP_ORIGIN_HINT : "Save"}>
           <span>
             <IconButton
               size="small"

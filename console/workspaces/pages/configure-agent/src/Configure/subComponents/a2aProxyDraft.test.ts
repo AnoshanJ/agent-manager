@@ -23,11 +23,12 @@ import {
   draftChanged,
   draftFromProxy,
   dropsStoredSecret,
+  originOf,
   proxyRequestOf,
   upstreamAuthError,
 } from "./a2aProxyDraft";
 
-const stored: A2AProxyResponse = { status: "published", lastError: "", upstreamAuthHeader: "X-Key" };
+const stored: A2AProxyResponse = { status: "published", lastError: "", gatewayUrl: "https://gw.example/agent", upstreamAuthHeader: "X-Key" };
 const fresh = (header: string, value: string): A2AProxyDraft => ({ enabled: true, header, value, secret: "replace" });
 
 describe("a2aProxyDraft", () => {
@@ -63,6 +64,28 @@ describe("a2aProxyDraft", () => {
     expect(upstreamAuthError(fresh("X-Key", "a".repeat(8192)))).toBeNull();
     expect(upstreamAuthError(fresh("", ""))).toBeNull();
     expect(upstreamAuthError(draftFromProxy(stored), stored)).toBeNull();
+  });
+
+  it("asks for a header name before a value can be sent", () => {
+    expect(upstreamAuthError(fresh("", "v"))).toBe("Enter a header name");
+    expect(upstreamAuthError(fresh(" ", "v"))).toBe("Enter a header name");
+  });
+
+  it("sends a new value only to an https card URL", () => {
+    const needsHttps = "The card URL must use https to send a header value";
+    expect(upstreamAuthError(fresh("X-Key", "v"), undefined, "http://agent.example/card")).toBe(needsHttps);
+    expect(upstreamAuthError(fresh("X-Key", "v"), undefined, "https://agent.example/card")).toBeNull();
+    expect(upstreamAuthError({ ...draftFromProxy(stored), secret: "replace", value: "v" }, stored,
+      "http://agent.example/card")).toBe(needsHttps);
+    expect(upstreamAuthError(draftFromProxy(stored), stored, "https://agent.example/card")).toBeNull();
+    expect(upstreamAuthError(fresh("", ""), undefined, "http://agent.example/card")).toBeNull();
+  });
+
+  it("compares origins by scheme, host and effective port", () => {
+    expect(originOf("https://A.example:443/x")).toBe(originOf("https://a.example/y"));
+    expect(originOf("https://a.example:8443/x")).not.toBe(originOf("https://a.example/x"));
+    expect(originOf("http://a.example/x")).not.toBe(originOf("https://a.example/x"));
+    expect(originOf("not a url")).toBeUndefined();
   });
 
   it("names the character the gateway cannot carry", () => {

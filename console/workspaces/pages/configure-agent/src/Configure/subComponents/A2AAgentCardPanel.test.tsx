@@ -205,7 +205,7 @@ describe("A2AAgentCardPanel", () => {
     mockCard({ data: { source: "external", status: "pending", sourceUrl: "https://agent.example/.well-known/agent-card.json", lastError: "" } });
     mockProxy({
       isSuccess: true,
-      data: { status: "failed", lastError: "the agent cannot be proxied through the gateway", upstreamAuthHeader: "" },
+      data: { status: "failed", lastError: "the agent cannot be proxied through the gateway", gatewayUrl: "", upstreamAuthHeader: "" },
     });
     renderPanel(true);
     expect(screen.getByText("Gateway publish failed")).toBeInTheDocument();
@@ -242,7 +242,7 @@ describe("A2AAgentCardPanel", () => {
   it("keeps the routing section mounted when a background refetch fails", () => {
     mockCard({ data: registeredCard });
     mockProxy({
-      data: { status: "published", lastError: "", upstreamAuthHeader: "" },
+      data: { status: "published", lastError: "", gatewayUrl: "https://gw.example/agent", upstreamAuthHeader: "" },
       isSuccess: false,
       isError: true,
       error: { status: 500 },
@@ -364,5 +364,46 @@ describe("A2AAgentCardPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit URL" }));
     expect(screen.getByRole("textbox", { name: "Agent card URL" })).toHaveAttribute("maxLength", "2048");
   });
-});
 
+  const editStoredSecretUrl = () => {
+    mockCard({ data: registeredCard });
+    mockProxy({ isSuccess: true, data: { status: "published", lastError: "", gatewayUrl: "", upstreamAuthHeader: "X-Key" } });
+    renderPanel(true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit URL" }));
+    return screen.getByRole("textbox", { name: "Agent card URL" });
+  };
+
+  it("keeps a card with a stored header value on its origin", () => {
+    const input = editStoredSecretUrl();
+    expect(screen.getByText(/clear the stored value first/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "https://other.example/.well-known/agent-card.json" } });
+    expect(screen.getByRole("button", { name: "Save agent card URL" })).toBeDisabled();
+    fireEvent.change(input, { target: { value: "https://agent.example:443/v2/agent-card.json" } });
+    expect(screen.getByRole("button", { name: "Save agent card URL" })).toBeEnabled();
+  });
+
+  it("lets a card with no stored header value move to another origin", () => {
+    mockCard({ data: registeredCard });
+    mockProxy({ isSuccess: true, data: { status: "published", lastError: "", gatewayUrl: "", upstreamAuthHeader: "" } });
+    renderPanel(true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit URL" }));
+    expect(screen.queryByText(/clear the stored value first/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent card URL" }), {
+      target: { value: "https://other.example/.well-known/agent-card.json" },
+    });
+    expect(screen.getByRole("button", { name: "Save agent card URL" })).toBeEnabled();
+  });
+
+  it("refuses to send a header value to an http card URL", () => {
+    mockCard(noSource);
+    renderPanel(true);
+    fireEvent.change(screen.getByPlaceholderText(/agent-card\.json/), {
+      target: { value: "http://agent.example/.well-known/agent-card.json" },
+    });
+    fireEvent.click(screen.getByLabelText("Route through gateway"));
+    fireEvent.change(screen.getByLabelText("Upstream header"), { target: { value: "X-Key" } });
+    fireEvent.change(screen.getByLabelText("Header value"), { target: { value: "secret" } });
+    expect(screen.getByText("The card URL must use https to send a header value")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
+  });
+});

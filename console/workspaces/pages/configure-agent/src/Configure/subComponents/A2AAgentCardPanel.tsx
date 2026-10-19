@@ -29,6 +29,7 @@ import {
 import { CodeBlock, OverviewSectionCard, useConfirmationDialog } from "@agent-management-platform/shared-component";
 import { TextInput } from "@agent-management-platform/views";
 import type { AgentCardStatus } from "@agent-management-platform/types";
+import { hasStoredSecret, KEEP_ORIGIN_HINT } from "./a2aProxyDraft";
 import { AgentCardSourceForm } from "./AgentCardSourceForm";
 import { A2AProxyUnknown, EnvA2AProxySection } from "./EnvA2AProxySection";
 
@@ -84,6 +85,7 @@ export function A2AAgentCardPanel({
   const version = asString(cardJson.version)?.replace(/^v/i, "");
   const sourceUrl = card?.sourceUrl;
   const showUrlForm = external && noSource;
+  const secretPinsOrigin = hasStoredSecret(proxy);
 
   const confirmRemove = () => addConfirmation({
     analytics: { entity: "agent-card-source", action: "remove" },
@@ -104,6 +106,7 @@ export function A2AAgentCardPanel({
             inline
             params={params}
             currentUrl={sourceUrl}
+            keepOrigin={secretPinsOrigin}
             onDone={() => setEditingUrl(false)}
           />
         ) : (
@@ -135,6 +138,9 @@ export function A2AAgentCardPanel({
         )
       }
     >
+      {editingUrl && secretPinsOrigin && (
+        <Alert severity="info" sx={{ mb: 1 }}>{KEEP_ORIGIN_HINT}</Alert>
+      )}
       {showUrlForm && (
         <>
           <AgentCardSourceForm
@@ -146,7 +152,14 @@ export function A2AAgentCardPanel({
         </>
       )}
       {external && sourceUrl && (proxyKnown
-        ? <EnvA2AProxySection params={params} proxy={proxy} saving={proxySaving} />
+        ? (
+          <EnvA2AProxySection
+            params={params}
+            cardUrl={sourceUrl}
+            proxy={proxy}
+            saving={proxySaving}
+          />
+        )
         : <A2AProxyUnknown failed={proxyIsError} />)}
       {isLoading && <CircularProgress size={16} />}
       {noSource && (
