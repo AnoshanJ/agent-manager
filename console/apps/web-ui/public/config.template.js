@@ -66,8 +66,8 @@ window.__RUNTIME_CONFIG__ = {
     storage: 'localStorage',
   },
   disableAuth: '$DISABLE_AUTH' === 'true',
-  // Set from the same BASE_PATH the image was built with (Dockerfile ARG ->
-  // ENV), so the router basename always matches the Vite asset base.
+  // Pinned at image build to the BASE_PATH the assets were built with (see the
+  // Dockerfile), so the router basename always matches the Vite asset base.
   basePath: '$BASE_PATH',
   apiBaseUrl: '$API_BASE_URL',
   configDiscoveryBaseUrl: '$CONFIG_DISCOVERY_BASE_URL',

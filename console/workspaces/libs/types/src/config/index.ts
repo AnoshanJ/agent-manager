@@ -182,9 +182,8 @@ export const globalConfig: AppConfig = window.__RUNTIME_CONFIG__;
  * "" when the console is served from the origin root.
  */
 export const getBasePath = (): string => {
-  const raw = (globalConfig?.basePath ?? "").trim();
-  if (!raw || raw === "/") return "";
-  return `/${raw.replace(/^\/+|\/+$/g, "")}`;
+  const trimmed = (globalConfig?.basePath ?? "").trim().replace(/^\/+|\/+$/g, "");
+  return trimmed ? `/${trimmed}` : "";
 };
 
 /**

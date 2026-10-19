@@ -28,10 +28,14 @@ COPY workspaces/ workspaces/
 RUN pnpm install --frozen-lockfile
 
 # URL path prefix the console is served under ("/" = origin root, e.g. "/console" behind
-# a shared host). Baked into the Vite asset base here and persisted as ENV below so
-# the runtime config (config.js basePath) and nginx rewrite agree with it.
+# a shared host). Build-time only: baked into the Vite asset base here, and into
+# config.js basePath and the nginx rewrite below, so a runtime env cannot make them
+# disagree. Restricted to URL-path-safe characters so it is safe in every one of them.
 ARG BASE_PATH=/
 ENV BASE_PATH=${BASE_PATH}
+RUN case "${BASE_PATH}" in \
+      *[!A-Za-z0-9._~/-]*) echo "BASE_PATH may only contain A-Z a-z 0-9 . _ ~ / - (got '${BASE_PATH}')" >&2; exit 1 ;; \
+    esac
 
 # Build all projects (pnpm walks the workspace graph topologically)
 RUN pnpm build
@@ -47,7 +51,6 @@ RUN addgroup -g 1001 -S nginx-app && \
     adduser -S -D -H -u 1001 -h /var/cache/nginx -s /sbin/nologin -G nginx-app -g nginx-app nginx-app
 
 ARG BASE_PATH=/
-ENV BASE_PATH=${BASE_PATH}
 
 # Copy custom nginx configuration, expanding the base-path rewrite marker when
 # BASE_PATH is not the root (see nginx.conf). The prefix is escaped for the
@@ -64,11 +67,17 @@ RUN set -eu; \
       mv /tmp/nginx.conf.expanded /etc/nginx/nginx.conf; \
     fi
 
-# Copy built application from builder stage
+# Copy built application from builder stage, and pin config.js basePath to the
+# base the assets were built with (40-config-setup.sh envsubst leaves it alone).
 COPY --from=builder --chown=nginx-app:nginx-app /app/apps/web-ui/dist /usr/share/nginx/html
+RUN set -eu; \
+    bp="$(printf '%s' "${BASE_PATH}" | sed -e 's#^/*##' -e 's#/*$##')"; \
+    sed -i "s#'\$BASE_PATH'#'/${bp}'#" /usr/share/nginx/html/config.template.js; \
+    grep -q "basePath: '/${bp}'" /usr/share/nginx/html/config.template.js
 
 # Fix permissions for nginx directories and create necessary directories
 RUN mkdir -p /var/cache/nginx /var/log/nginx /tmp && \
+    nginx -t && rm -f /tmp/nginx.pid && \
     chown -R nginx-app:nginx-app /etc/nginx /var/cache/nginx /var/log/nginx /tmp /usr/share/nginx && \
     chmod -R 755 /var/cache/nginx /var/log/nginx /tmp
 
