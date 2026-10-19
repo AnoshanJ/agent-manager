@@ -55,10 +55,13 @@ cli (amctl) ──HTTP──▶ agent-manager-service   (same API as the console
 ```bash
 make tools        # pinned Go dev tools (codegen, linters, ginkgo) into .tools/bin; versions in tools.mk
 make setup        # first-time: tools + Colima + k3d + OpenChoreo + platform + console
-make dev-up       # start all services
-make dev-down     # stop
-make dev-logs     # tail logs
-make dev-rebuild  # full rebuild
+make dev-up       # start service + db (compose) and the console (native, background, :3000)
+make dev-down     # stop them
+make dev-logs     # tail compose logs (service, db)
+make dev-rebuild  # full image rebuild
+make console      # (re)start the console dev server; BACKGROUND=true to detach
+make stop-console # stop the console dev server
+make console-logs # tail the background console's log (.make/console.log)
 make dev-migrate  # run DB migrations
 make e2e-test     # run the e2e suite against the local stack
 ```

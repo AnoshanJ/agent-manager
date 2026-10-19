@@ -48,38 +48,37 @@ This command will:
 
 ### 2. Start Development Server
 
+From the repo root:
+
 ```bash
-make dev
+make console                  # foreground; Ctrl+C to stop
+make console BACKGROUND=true  # background; logs in .make/console.log, stop with make stop-console
 ```
 
 This will:
+- Render the runtime `config.js` (see [Environment Configuration](#3-environment-configuration))
 - Launch the Vite dev server at `http://localhost:3000`
 - Hot-reload on edits to any workspace package, not just the app
+
+`make dev` in `console/` starts the same dev server without rendering `config.js`,
+so run `make console` at least once first.
 
 No separate build step is needed for development — Vite resolves
 `@agent-management-platform/*` imports straight to each package's `src/`, so there are
 no library watchers to run. Run `make build` only to produce production output.
 
-Press `Ctrl+C` to stop.
-
 ### 3. Environment Configuration
 
-Copy the configuration template and customize it:
+`make console` from the repo root renders `apps/web-ui/public/config.js` from
+`config.template.js` on every start, with defaults for the local stack
+(`deployments/setup/console.sh`). Override any value with an env var:
 
 ```bash
-cp apps/web-ui/public/config.template.js apps/web-ui/public/config.js
+DISABLE_AUTH=true make console
 ```
 
-The template is written for env-var substitution at deploy time, so a local `config.js`
-needs the `$PLACEHOLDER` values replaced with real ones. At minimum, point
-`apiBaseUrl` at your backend:
-
-```javascript
-window.__RUNTIME_CONFIG__ = {
-  // ...the rest of the template
-  apiBaseUrl: 'http://localhost:8080',
-};
-```
+`config.js` is generated and gitignored, so don't edit it by hand: the next start
+overwrites it.
 
 ## Available Commands
 

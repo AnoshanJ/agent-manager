@@ -20,6 +20,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // Login only works on :3000 (Thunder redirect URIs), so fail instead of moving to 3001.
+    strictPort: true,
   },
   build: {
     // The main app chunk sits at ~5 MB; PR builds bundle the branch merged with

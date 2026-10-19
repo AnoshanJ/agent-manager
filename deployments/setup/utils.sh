@@ -107,10 +107,15 @@ get_version() {
 
 # Util: Suggest how to install a missing command on the current platform.
 install_hint() {
+    local pkg="$1"
+    case "$1" in
+        pnpm)     echo "corepack enable"; return ;;
+        envsubst) pkg="gettext" ;;
+    esac
     if [ "$(uname -s)" = "Darwin" ]; then
-        echo "brew install $1"
+        echo "brew install $pkg"
     else
-        echo "install '$1' with your distribution's package manager"
+        echo "install '$pkg' with your distribution's package manager"
     fi
 }
 
