@@ -216,7 +216,7 @@ class MCPIntegrationTests(unittest.TestCase):
             cfg = replace(
                 self.cfg,
                 model_provider="bedrock-gateway",
-                bedrock_model_id="amazon.nova-micro-v1:0",
+                bedrock_model_id="us.anthropic.claude-sonnet-4-6",
                 llm_gateway_url=f"http://127.0.0.1:{model.server_port}",
                 llm_gateway_api_key="test-gateway",
             )

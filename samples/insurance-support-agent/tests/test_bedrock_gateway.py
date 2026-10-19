@@ -53,7 +53,7 @@ env = {
     "MODEL_PROVIDER": "bedrock-gateway",
     "LLM_GATEWAY_URL": f"http://127.0.0.1:{server.server_port}/insurance-bedrock",
     "LLM_GATEWAY_API_KEY": "test-gateway-key",
-    "BEDROCK_MODEL_ID": "amazon.nova-micro-v1:0",
+    "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-6",
     "AWS_BEARER_TOKEN_BEDROCK": "ambient-must-not-leak",
 }
 with patch.dict(os.environ, env, clear=True):
@@ -63,7 +63,7 @@ with patch.dict(os.environ, env, clear=True):
     assert "OZ-AUTO-4417" in result and len(calls) == 2
     for path, headers, body in calls:
         headers = {k.lower(): v for k, v in headers.items()}
-        assert path == "/insurance-bedrock/model/amazon.nova-micro-v1%3A0/converse", (
+        assert path == "/insurance-bedrock/model/us.anthropic.claude-sonnet-4-6/converse", (
             path
         )
         assert headers["api-key"] == "test-gateway-key"

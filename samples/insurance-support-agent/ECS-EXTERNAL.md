@@ -76,7 +76,7 @@ The agent Dockerfile runs as a non-root user and starts
 Copy [ecs/agent-task-definition.json](ecs/agent-task-definition.json) into the
 sample directory and replace every `<...>` placeholder: execution-role ARN, full
 image URI, Region, gateway/telemetry URLs, and secret ARN. Keep Region/model consistent with
-the provider. The template uses `amazon.nova-micro-v1:0` in `us-east-1`, 0.5 vCPU,
+the provider. The template uses `us.anthropic.claude-sonnet-4-6` in `us-east-1`, 0.5 vCPU,
 1 GiB RAM, and `X86_64` to match the image. Do not commit the filled file.
 
 ```bash

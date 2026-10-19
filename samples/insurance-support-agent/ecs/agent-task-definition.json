@@ -33,7 +33,7 @@
         },
         {
           "name": "BEDROCK_MODEL_ID",
-          "value": "amazon.nova-micro-v1:0"
+          "value": "us.anthropic.claude-sonnet-4-6"
         },
         {
           "name": "LLM_GATEWAY_URL",

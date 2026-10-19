@@ -26,7 +26,7 @@ WSO2 AI gateway's native Converse route. The default remains OpenAI.
 ```text
 MODEL_PROVIDER=bedrock-gateway
 BEDROCK_REGION=us-east-1
-BEDROCK_MODEL_ID=amazon.nova-micro-v1:0
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
 LLM_GATEWAY_URL=https://<gateway-host>/insurance-bedrock
 LLM_GATEWAY_API_KEY=<injected gateway key>
 COMPANY_NAME=AnyCompany Insurance
@@ -45,9 +45,12 @@ responses are limited to 600 tokens and the model temperature is zero.
 The Bedrock template does not imply OpenAI-to-Bedrock API translation. Use the
 Bedrock adapter, rather than pointing `OpenAIModel` at this endpoint.
 
-Confirm `amazon.nova-micro-v1:0` is available to your account in `us-east-1`,
-with upstream `bedrock:InvokeModel` permission for non-streaming Converse.
-A different model may require an inference profile and additional permissions.
+`us.anthropic.claude-sonnet-4-6` is the US cross-Region inference profile for
+Claude Sonnet 4.6; the base model ID is not accepted for on-demand calls.
+Submit the Anthropic use-case form in the Amazon Bedrock console if your account
+has not used Anthropic models before. The principal behind the upstream key needs
+`bedrock:InvokeModel` on the inference profile and on the underlying foundation
+model in each US Region the profile routes to.
 Short-term keys inherit the generating principal's permissions and expire within
 12 hours. Keep this demo's key refreshed in the provider.
 
