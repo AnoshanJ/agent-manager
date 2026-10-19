@@ -629,8 +629,21 @@ func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kin
 // this closes. Lookup failures reject rather than allow — a check that passes
 // whenever OpenChoreo is unreachable is not a check.
 func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID, projectName, pipelineName, agentName, kindName, imageID string) error {
-	if kindName != "" && s.kindVersionForImage(ctx, ouID, kindName, imageID) != "" {
-		return nil
+	// Read the kind directly rather than through kindVersionForImage, which maps a
+	// lookup failure to "no match" — here that would reject a valid kind image as
+	// the caller's fault.
+	if kindName != "" {
+		kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
+		if err != nil {
+			s.logger.Error("Failed to read agent kind while checking deploy image ownership",
+				"agentName", agentName, "kindName", kindName, "ouID", ouID, "error", err)
+			return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+		}
+		for _, v := range kind.Versions {
+			if v.ImageId == imageID {
+				return nil
+			}
+		}
 	}
 
 	builds, err := s.ocClient.ListBuilds(ctx, ouID, projectName, agentName)

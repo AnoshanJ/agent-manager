@@ -169,6 +169,20 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 		assert.False(t, *f.bindingReached)
 	})
 
+	t.Run("kind", func(t *testing.T) {
+		f := newOwnershipFixture("my-kind")
+		f.svc.agentKindService = newKindService(&repomocks.AgentKindRepositoryMock{
+			GetKindFunc: func(context.Context, string, string) (*models.AgentKind, error) {
+				return nil, boom
+			},
+		}, f.oc)
+		err := f.deploy(t, kindVersionImage)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, utils.ErrInvalidInput, "a failed lookup is not the caller's fault")
+		assert.False(t, *f.bindingReached)
+		assert.Empty(t, f.oc.ListBuildsCalls(), "a failed kind lookup must stop the check, not fall through")
+	})
+
 	t.Run("deployments", func(t *testing.T) {
 		f := newOwnershipFixture("")
 		f.oc.GetDeploymentsFunc = func(context.Context, string, string, string, string) ([]*models.DeploymentResponse, error) {
