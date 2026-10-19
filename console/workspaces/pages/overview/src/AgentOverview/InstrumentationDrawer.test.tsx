@@ -58,9 +58,9 @@ describe("InstrumentationDrawer", () => {
     expect(screen.getByText("OpenTelemetry Export Guide")).toBeInTheDocument();
     expect(screen.getByTestId("token-step")).toHaveTextContent("1");
     const text = document.body.textContent ?? "";
-    expect(text).toContain(`OTEL_EXPORTER_OTLP_ENDPOINT="${ENDPOINT}"`);
-    expect(text).toContain('OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"');
-    expect(text).toContain('OTEL_EXPORTER_OTLP_HEADERS="x-amp-api-key=test-key"');
+    expect(text).toContain(`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${ENDPOINT}/v1/traces"`);
+    expect(text).toContain('OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf"');
+    expect(text).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-amp-api-key=test-key"');
     expect(text).not.toContain("amp-instrument");
   });
 });

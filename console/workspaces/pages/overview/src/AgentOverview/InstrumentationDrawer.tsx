@@ -201,9 +201,9 @@ export BAL_CONFIG_VAR_BALLERINAX_AMP_APIKEY="${effectiveApiKey}"`}
               <SetupStep
                 stepNumber={2}
                 title="Configure Your OTLP Exporter"
-                code={`export OTEL_EXPORTER_OTLP_ENDPOINT="${instrumentationUrl}"
-export OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
-export OTEL_EXPORTER_OTLP_HEADERS="x-amp-api-key=${effectiveApiKey}"`}
+                code={`export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${instrumentationUrl}/v1/traces"
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL="http/protobuf"
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS="x-amp-api-key=${effectiveApiKey}"`}
                 language="bash"
                 fieldId="otlp-env"
                 description="Point any OpenTelemetry OTLP/HTTP exporter at this endpoint with the x-amp-api-key header. Emit spans using the OpenTelemetry GenAI semantic conventions."
