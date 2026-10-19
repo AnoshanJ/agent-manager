@@ -34,6 +34,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/middleware/jwtassertion"
+	"github.com/wso2/agent-manager/agent-manager-service/models"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/tests/apitestutils"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
@@ -293,6 +294,28 @@ func TestDeployAgent(t *testing.T) {
 				mock := apitestutils.CreateMockOpenChoreoClient()
 				mock.ComponentExistsFunc = func(ctx context.Context, orgName string, projName string, agentName string) (bool, error) {
 					return true, nil
+				}
+				return mock
+			},
+		},
+		{
+			name:           "return 400 on an image the agent does not own",
+			authMiddleware: authMiddleware,
+			orgName:        deployTestOrgName,
+			projName:       deployTestProjName,
+			agentName:      deployTestAgentName,
+			payload: map[string]interface{}{
+				"imageId": "registry.example.com/other-org/their-agent:v1",
+			},
+			wantStatus: 400,
+			wantErrMsg: "The image does not belong to this agent",
+			setupMock: func() *clientmocks.OpenChoreoClientMock {
+				mock := apitestutils.CreateMockOpenChoreoClient()
+				mock.ComponentExistsFunc = func(ctx context.Context, orgName string, projName string, agentName string) (bool, error) {
+					return true, nil
+				}
+				mock.GetDeploymentsFunc = func(context.Context, string, string, string, string) ([]*models.DeploymentResponse, error) {
+					return nil, nil
 				}
 				return mock
 			},
