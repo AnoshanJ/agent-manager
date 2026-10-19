@@ -65,7 +65,7 @@ services:
       - JWT_SIGNING_ISSUER=agent-manager-service
       - JWT_SIGNING_DEFAULT_ENVIRONMENT=default
       # Byte caps on inline file-mount content. Keep FILE_MOUNT_MAX_FILE_BYTES
-      # in sync with the console's value in deployments/setup/console.sh.
+      # in sync with the console's value in console/apps/web-ui/.env.development.
       - FILE_MOUNT_MAX_FILE_BYTES=1000000
       - FILE_MOUNT_MAX_TOTAL_BYTES=1000000
       # Optional: External Service URLs (add when needed)

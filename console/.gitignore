@@ -103,5 +103,6 @@ jspm_packages/
 dist/
 dist-storybook/
 
-# Runtime config, rendered from config.template.js by deployments/setup/console.sh
+# Runtime config: the dev server serves it from config.template.js (vite.config.ts), so a
+# local copy is only ever a stale leftover from the old dev container
 apps/web-ui/public/config.js

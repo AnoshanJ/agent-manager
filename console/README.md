@@ -48,20 +48,18 @@ This command will:
 
 ### 2. Start Development Server
 
-From the repo root:
-
 ```bash
-make console                  # foreground; Ctrl+C to stop
-make console BACKGROUND=true  # background; logs in .make/console.log, stop with make stop-console
+make dev   # or: pnpm dev
 ```
 
 This will:
-- Render the runtime `config.js` (see [Environment Configuration](#3-environment-configuration))
-- Launch the Vite dev server at `http://localhost:3000`
+- Launch the Vite dev server at `http://localhost:3000`, serving the runtime `config.js`
+  (see [Environment Configuration](#3-environment-configuration))
 - Hot-reload on edits to any workspace package, not just the app
 
-`make dev` in `console/` starts the same dev server without rendering `config.js`,
-so run `make console` at least once first.
+From the repo root, `make console` starts the same server (`make console BACKGROUND=true`
+detaches it, logging to `.make/console.log`; stop it with `make stop-console`). `make setup`
+starts it in the background for you.
 
 No separate build step is needed for development — Vite resolves
 `@agent-management-platform/*` imports straight to each package's `src/`, so there are
@@ -69,16 +67,16 @@ no library watchers to run. Run `make build` only to produce production output.
 
 ### 3. Environment Configuration
 
-`make console` from the repo root renders `apps/web-ui/public/config.js` from
-`config.template.js` on every start, with defaults for the local stack
-(`deployments/setup/console.sh`). Override any value with an env var:
+The dev server serves `config.js` by filling `apps/web-ui/public/config.template.js`
+from `apps/web-ui/.env.development`, which holds the defaults for the local stack.
+Override any value with an env var, or in a gitignored `.env.development.local`:
 
 ```bash
-DISABLE_AUTH=true make console
+DISABLE_AUTH=true pnpm dev
 ```
 
-`config.js` is generated and gitignored, so don't edit it by hand: the next start
-overwrites it.
+Production builds don't use this: the Docker image renders `config.js` from the same
+template when nginx starts.
 
 ## Available Commands
 

@@ -23,7 +23,7 @@ For the Oxygen UI component library itself (theming, which components exist, imp
 
 ```bash
 make install          # pnpm install (only after package.json / dep changes)
-make dev              # web-ui dev server → http://localhost:3000 (no build needed; needs config.js — run `make console` from the repo root once)
+make dev              # web-ui dev server → http://localhost:3000 (no build needed)
 make build            # pnpm build (pnpm -r run build, all packages)
 make build-webapp     # pnpm build:core-ui (core-ui and its dependencies)
 make clean            # remove dist/ everywhere
@@ -113,7 +113,7 @@ Feature pages are discovered by their exported `metaData` (`{ title, icon, path,
 - `false` → Asgardeo OAuth2 (`AsgardeoProvider`, real tokens/scopes).
 - `true` → no-auth stub (`getToken` → empty string, always authenticated) for local dev.
 
-`globalConfig` = `window.__RUNTIME_CONFIG__`, injected by `apps/web-ui/public/config.js` **before React mounts**. `config.js` is gitignored and rendered from `config.template.js` via env substitution: locally by `deployments/setup/console.sh` (`make console`), in production by the image's `40-config-setup.sh`. To change auth mode you set `DISABLE_AUTH` in that config and reload — it cannot flip at runtime.
+`globalConfig` = `window.__RUNTIME_CONFIG__`, injected by `apps/web-ui/public/config.js` **before React mounts**. It is filled from `config.template.js`: in dev, the Vite server serves it from `apps/web-ui/.env.development` plus the process env (`vite.config.ts`, `runtimeConfig`); in production, the image's `40-config-setup.sh` renders it with envsubst. To change auth mode you set `DISABLE_AUTH` in that config and reload — it cannot flip at runtime.
 
 ## Conventions & gotchas
 
