@@ -479,8 +479,15 @@ jobs:
         with:
           ref: amp/v${{ inputs.target_version }}
 
+      # The target tree can predate setup-cluster-clis. Tooling runs from the
+      # dispatched commit (no ref: = github.sha).
+      - name: Checkout promotion tooling
+        uses: actions/checkout@v6
+        with:
+          path: .promotion-tools
+
       - name: Install Helm (deployments/setup/cluster-tools.env)
-        uses: ./.github/actions/setup-cluster-clis
+        uses: ./.promotion-tools/.github/actions/setup-cluster-clis
         with:
           k3d: "false"
           kubectl: "false"
@@ -524,11 +531,18 @@ jobs:
         with:
           ref: amp/v${{ inputs.target_version }}
 
+      # The target tree can predate setup-cluster-clis. Tooling runs from the
+      # dispatched commit (no ref: = github.sha).
+      - name: Checkout promotion tooling
+        uses: actions/checkout@v6
+        with:
+          path: .promotion-tools
+
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
       - name: Install cluster CLIs (deployments/setup/cluster-tools.env)
-        uses: ./.github/actions/setup-cluster-clis
+        uses: ./.promotion-tools/.github/actions/setup-cluster-clis
 
       - name: Install yq
         run: |

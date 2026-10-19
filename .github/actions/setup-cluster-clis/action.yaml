@@ -18,10 +18,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # Relative to the action, not the workspace: release jobs check out an
+    # older release tree and run this action from a tooling checkout.
     - name: Read pinned versions
       id: versions
       shell: bash
-      run: grep -E '^[A-Z0-9_]+=' "$GITHUB_WORKSPACE/deployments/setup/cluster-tools.env" >> "$GITHUB_OUTPUT"
+      run: grep -E '^[A-Z0-9_]+=' "$GITHUB_ACTION_PATH/../../../deployments/setup/cluster-tools.env" >> "$GITHUB_OUTPUT"
 
     - name: Install k3d
       if: inputs.k3d == 'true'
