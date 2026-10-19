@@ -10,8 +10,8 @@ WSO2 AI gateway's native Converse route. The default remains OpenAI.
    template, the regional runtime endpoint, and an upstream Bedrock API key.
    Generate a short-term key in the Amazon Bedrock console under **API keys**.
    Keep it in the provider and renew it before expiry; never put it in the agent image.
-2. Use context `/insurance-bedrock`, version `v1.0`, and upstream endpoint
-   `https://bedrock-runtime.us-east-1.amazonaws.com`. The current console calls
+2. Name it `Bedrock Model Provider`. Use context `/insurance-bedrock`, version
+   `v1.0`, and upstream endpoint `https://bedrock-runtime.us-east-1.amazonaws.com`. The current console calls
    the template **AWS Bedrock**; the AWS service name is **Amazon Bedrock**.
    Its upstream Authorization header carries the Bedrock bearer key.
 3. On the external agent, choose **Configure → Add LLM Configuration**, select
@@ -54,9 +54,29 @@ model in each US Region the profile routes to.
 Short-term keys inherit the generating principal's permissions and expire within
 12 hours. Keep this demo's key refreshed in the provider.
 
-## Add a prompt policy
+## Add gateway guardrails
 
-On **Guardrails**, add **Prompt Decorator**. For the v1.0.2 policy schema:
+On the provider's **Guardrails** tab, add both policies under **Global Guardrails**
+and choose **Save**.
+
+**PII Masking Regex** (v1.0.4):
+
+```json
+{
+  "email": true,
+  "phone": true,
+  "jsonPath": "",
+  "redactPII": true
+}
+```
+
+An empty `jsonPath` scans the whole Converse request. The default
+`$.messages[-1].content` points at a Converse content array, which the policy
+skips without masking. Redaction is used because v1.0.4 restores masked
+placeholders only in OpenAI-format responses.
+See the [policy definition](https://github.com/wso2/gateway-controllers/blob/c3fb6c56b2e3734df27ed9b24a4e65adc3db1081/policies/pii-masking-regex/policy-definition.yaml).
+
+**Prompt Decorator** (v1.0.2):
 
 ```json
 {

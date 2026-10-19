@@ -130,30 +130,61 @@ and customer-level authorization before allowing production callers.
    every token count.
 4. With a new session ID, ask for policy `OZ-UNKNOWN`. The lookup returns an
    `error` field as data, not a span error, so inspect the content too.
+5. Trace a claim follow-up. In one session, ask about `CLM-10432`, then about
+   `CLM-10876`:
 
-## 6. Add a gateway policy
+   ```bash
+   for msg in "What's the status of claim CLM-10432?" "And CLM-10876?"; do
+     curl --fail "$AGENT_URL/chat" -H 'Content-Type: application/json' \
+       -d "{\"session_id\":\"claim-followup-1\",\"message\":\"$msg\"}"
+   done
+   ```
 
-Follow [Add a prompt policy](BEDROCK-GATEWAY.md#add-a-prompt-policy). Send a
+   In the second trace, the first `execute_event_loop_cycle` calls the model,
+   which requests `execute_tool get_claim_status`. The second cycle writes the
+   answer. The LLM span's **Overview** shows the earlier turn as history.
+
+## 6. Add gateway guardrails
+
+Follow [Add gateway guardrails](BEDROCK-GATEWAY.md#add-gateway-guardrails). Send a
 policy-list request and `Write a poem about space travel`, each with a new session
-ID, before and after attaching the policy.
+ID, before and after attaching the guardrails. To check PII masking, include a
+synthetic email address in a request and inspect the payload gateway-side.
 
 ## 7. Evaluate and monitor
 
-1. Send three requests with distinct session IDs: list all policies, look up
-   `OZ-UNKNOWN`, and file a claim for `OZ-AUTO-4417`. With local tools, the claim
-   request calls `file_claim` against in-memory data. With `USE_MCP=true`, the
-   agent has no claim tool. Record the trace IDs.
-2. Choose **Evaluation**, then choose **Add Monitor**. Select **Past Traces**, set the
-   request window, add **Step Success Rate** with `min_success_rate=1.0`, and
-   choose **Create Monitor**.
-3. For a window containing only policy-list requests, create a second monitor
-   with **Content Coverage** and `required_strings` set to
-   `["OZ-AUTO-4417", "OZ-HOME-2280", "OZ-TRAV-9153"]`.
-4. Review each score and explanation. Executions with no tool steps are skipped,
-   not scored as zero, and the `OZ-UNKNOWN` lookup can still score as successful.
-5. After one prompt, policy, model, or tool change, repeat the same requests and
-   compare runs. For new traffic, create a **Future Traces** monitor with a
-   five-minute interval.
+Compare two monitors with the same evaluators: one over traffic before a change
+and one after.
+
+1. Send a mixed batch of synthetic requests with distinct session IDs: list
+   policies, look up `OZ-AUTO-4417` and `OZ-UNKNOWN`, and ask about `CLM-10432`
+   and `CLM-10876`. About 15 requests gives stable averages.
+2. Choose **Evaluation**, then choose **Add Monitor**. Name it
+   `Production Readiness v1`, select **Past Traces**, and set the window to
+   cover that batch. Add these evaluators:
+
+   | Evaluator | Type | Level | Suggested setting |
+   |---|---|---|---|
+   | Accuracy | LLM judge | trace | `model`: `claude-sonnet-4-6` |
+   | Clarity | LLM judge | trace | `model`: `claude-sonnet-4-6` |
+   | Safety | LLM judge | llm | `model`: `claude-sonnet-4-6`, `context`: `insurance customer support` |
+   | Latency Performance | rule-based | trace | `max_latency_ms`: `10000` |
+   | Length Compliance | rule-based | trace | `max_length`: `2000` |
+
+   Select or create the **LLM Provider** the judges use, then choose
+   **Create Monitor**.
+3. Make one change, for example to the system prompt in `system_prompt.py`.
+   Rebuild, register a new task revision, and replace the task. Send the same
+   batch again.
+4. Create `Production Readiness v2` with the same evaluators over the new window.
+5. Open `Production Readiness v2`, choose **Compare**, and select
+   `Production Readiness v1`. The radar chart shows each evaluator's score, and
+   the summaries show the average score, trace count, and LLM invocations.
+6. Safety scores each LLM call's text. It skips calls that return only a tool
+   request, such as `get_claim_status`, so expect a high skipped percentage on
+   the LLM row. Skips are not scored as zero.
+
+For new traffic, create a **Future Traces** monitor with a five-minute interval.
 
 ## 8. Deploy the MCP extension
 
