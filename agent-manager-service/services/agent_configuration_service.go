@@ -1570,7 +1570,12 @@ func (s *agentConfigurationService) createMCPConfig(ctx context.Context, ouID, p
 			// next promotion binds it once the gateway is sorted out; deployableMCPEnvs treats
 			// the same errors the same way. The entry environment stays strict: the agent
 			// deploys there immediately, so a binding that cannot be made is a real failure.
-			strict := firstEnvName != "" && envName == firstEnvName
+			//
+			// Only agent creation opts into this (DeferUnbindableMCPEnvs). A direct create
+			// names the environments it wants, so it stays strict everywhere: deferring there
+			// would answer "success" with a connection that cannot bind until the gateway is
+			// fixed, and an external agent would get no credentials for it at all.
+			strict := !req.DeferUnbindableMCPEnvs || (firstEnvName != "" && envName == firstEnvName)
 			if !errors.Is(gwErr, errMCPEnvNotDeployable) && strict {
 				s.cleanupMCPConfig(ctx, config.UUID, ouID)
 				return nil, fmt.Errorf("failed to resolve gateway for MCP environment %s: %w", envName, gwErr)

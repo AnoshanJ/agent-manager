@@ -669,3 +669,42 @@ func TestBoundMCPScope_RecordedConnectionUsesPipeline(t *testing.T) {
 
 	require.Equal(t, []uuid.UUID{stageEnv}, got)
 }
+
+// CodeRabbit regression: the first update of a connection that predates migration049 sets its
+// scope marker, so it must also write down the old var-row rule as exclusions. Without them a
+// dev-only connection edited once (CLI set re-sends {dev}) would read as "whole pipeline" and
+// be bound, with keys minted, into stage and production by the next reconcile.
+func TestRecordScope_LegacyUpdateExcludesPipelineEnvsWithoutVarRows(t *testing.T) {
+	configUUID := uuid.New()
+	devEnv, stageEnv, prodEnv := uuid.New(), uuid.New(), uuid.New()
+	legacy := &models.AgentConfiguration{
+		UUID:           configUUID,
+		EnvMCPMappings: []models.EnvAgentMCPMapping{{ConfigUUID: configUUID, EnvironmentUUID: devEnv}},
+		EnvVariables:   mcpVarRows(configUUID, devEnv),
+	}
+	pipeline := map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}, prodEnv: {}}
+	requested := map[uuid.UUID]struct{}{devEnv: {}}
+
+	got := mcpScopeExclusions(legacy.EnvMCPMappings, envsOutsideVarRows(pipeline, legacy.EnvVariables), requested)
+
+	require.ElementsMatch(t, []uuid.UUID{stageEnv, prodEnv}, got)
+}
+
+// An environment the legacy connection was configured for but never bound (var rows, no
+// mapping) was in scope under the old rule, so recording the scope must keep it in — even
+// though the GET-then-PUT request cannot name it.
+func TestRecordScope_LegacyUpdateKeepsConfiguredButUnboundEnvs(t *testing.T) {
+	configUUID := uuid.New()
+	devEnv, stageEnv, prodEnv := uuid.New(), uuid.New(), uuid.New()
+	legacy := &models.AgentConfiguration{
+		UUID:           configUUID,
+		EnvMCPMappings: []models.EnvAgentMCPMapping{{ConfigUUID: configUUID, EnvironmentUUID: devEnv}},
+		EnvVariables:   mcpVarRows(configUUID, devEnv, stageEnv),
+	}
+	pipeline := map[uuid.UUID]struct{}{devEnv: {}, stageEnv: {}, prodEnv: {}}
+	requested := map[uuid.UUID]struct{}{devEnv: {}}
+
+	got := mcpScopeExclusions(legacy.EnvMCPMappings, envsOutsideVarRows(pipeline, legacy.EnvVariables), requested)
+
+	require.Equal(t, []uuid.UUID{prodEnv}, got)
+}

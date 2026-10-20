@@ -1925,6 +1925,9 @@ func (s *agentManagerService) createAgentMCPConfigs(
 			Type:                 models.AgentConfigTypeMCP,
 			EnvMappings:          envMappings,
 			EnvironmentVariables: convertEnvVars(mc.EnvironmentVariables),
+			// Every pipeline environment is configured at once, so one misconfigured higher
+			// environment must not roll back the whole agent; see createMCPConfig.
+			DeferUnbindableMCPEnvs: true,
 		}
 		if _, err := s.agentConfigurationService.Create(ctx, ouID, projectName, req.Name, createReq, "system"); err != nil {
 			return fmt.Errorf("failed to create MCP configuration %d: %w", i+1, err)

@@ -93,6 +93,9 @@ func TestCreateAgentMCPConfigs_KeysUnderEveryPipelineEnvironment(t *testing.T) {
 		// createMCPConfig reads the MCP proxy handle from ProviderName.
 		require.Equal(t, "booking", got.ProviderName)
 	}
+	// Agent creation is the only caller allowed to defer a broken higher environment; a
+	// direct MCP create stays strict (see createMCPConfig).
+	require.True(t, spy.lastReq.DeferUnbindableMCPEnvs, "agent creation must opt into deferred binding")
 }
 
 // TestMergeKindWorkloadSystemEnvVars_InjectsLLMEnvVars verifies that for a kind-sourced agent

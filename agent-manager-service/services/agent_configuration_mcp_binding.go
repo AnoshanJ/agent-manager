@@ -211,6 +211,20 @@ func envsWithVarRows(vars []models.AgentEnvConfigVariable) map[uuid.UUID]struct{
 	return envs
 }
 
+// envsOutsideVarRows returns the environments of envs the connection has no env var rows
+// in. For a connection still under the var-row rule those are exactly the environments it is
+// out of scope for, so they become exclusion candidates when its scope is first recorded.
+func envsOutsideVarRows(envs map[uuid.UUID]struct{}, vars []models.AgentEnvConfigVariable) map[uuid.UUID]struct{} {
+	configured := envsWithVarRows(vars)
+	outside := make(map[uuid.UUID]struct{}, len(envs))
+	for envUUID := range envs {
+		if _, ok := configured[envUUID]; !ok {
+			outside[envUUID] = struct{}{}
+		}
+	}
+	return outside
+}
+
 // mcpScopeExclusions returns the environments a create or update leaves a connection out
 // of: every candidate the request does not name. What counts as a candidate depends on the
 // request kind, and getting it wrong in either direction breaks a real flow.
@@ -285,10 +299,27 @@ func (s *agentConfigurationService) recordMCPRequestScope(
 		}
 	}
 
+	// A connection updated for the first time since migration049 has no scope marker. Its
+	// scope until now was the var-row rule (in scope only where it has env var rows), and
+	// writing the marker switches it to "pipeline minus exclusions". Recording only the
+	// dropped bound environments would therefore widen it: a dev-only connection edited once
+	// would be bound, and keyed, into every other pipeline environment by the next reconcile.
+	// So the old rule is written down as exclusions first: every pipeline environment it has
+	// no var rows in and the request does not name.
+	legacyUpdate := kind == mcpScopeUpdate && snapshot.MCPScope == nil
+
 	pipeline := map[uuid.UUID]struct{}{}
-	if kind == mcpScopeCreate {
+	if kind == mcpScopeCreate || legacyUpdate {
 		if p, err := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); err != nil {
-			if !errors.Is(err, utils.ErrProjectNotFound) && !errors.Is(err, utils.ErrDeploymentPipelineNotFound) {
+			notFound := errors.Is(err, utils.ErrProjectNotFound) || errors.Is(err, utils.ErrDeploymentPipelineNotFound)
+			// Marking a legacy connection without its exclusions is exactly the widening
+			// above, so a lookup failure there fails the update rather than guessing. With no
+			// pipeline at all there is nothing to widen into: the reconcile bounds such a
+			// connection by its var rows anyway.
+			if legacyUpdate && !notFound {
+				return fmt.Errorf("failed to read deployment pipeline while recording MCP connection scope: %w", err)
+			}
+			if !notFound {
 				s.logger.Warn("Failed to read deployment pipeline while recording MCP connection scope; "+
 					"recording no exclusions for this new connection",
 					"configUUID", snapshot.UUID, "projectName", projectName, "error", err)
@@ -302,6 +333,10 @@ func (s *agentConfigurationService) recordMCPRequestScope(
 				}
 			}
 		}
+	}
+
+	if legacyUpdate {
+		pipeline = envsOutsideVarRows(pipeline, snapshot.EnvVariables)
 	}
 
 	exclude := mcpScopeExclusions(snapshot.EnvMCPMappings, pipeline, requested)
