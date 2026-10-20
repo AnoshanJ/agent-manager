@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration049 records the environments an agent's MCP connection was deliberately
+// migration050 records the environments an agent's MCP connection was deliberately
 // removed from.
 //
 // Until now a connection's environment scope was inferred from its env var rows: an
@@ -35,7 +35,7 @@ import (
 // Recording the removal itself breaks the tie: a connection is in scope in every
 // environment of its project's pipeline except the ones listed here.
 //
-// Same shape as agent_mcp_config_proxy (migration048): the composite foreign key onto
+// Same shape as agent_mcp_config_proxy (migration049): the composite foreign key onto
 // agent_configurations (uuid, type_id), with type_id pinned to MCP, makes it the
 // database's rule that only an MCP configuration can carry an exclusion, and ON DELETE
 // CASCADE drops them with the configuration.
@@ -54,8 +54,8 @@ import (
 // No backfill for either table, deliberately. The pipeline lives in OpenChoreo, so SQL cannot
 // compute exclusions, and leaving every existing connection unmarked is exactly what preserves
 // its pre-upgrade behaviour.
-var migration049 = migration{
-	ID: 49,
+var migration050 = migration{
+	ID: 50,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
 			return runSQL(

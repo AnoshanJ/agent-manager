@@ -303,11 +303,33 @@ func buildInternalAgentFromSourceComponentRequestBody(namespaceName, projectName
 			AutoDeploy: &autoDeploy,
 			Parameters: &parameters,
 			Workflow: &gen.ComponentWorkflowConfig{
+				Kind:       componentWorkflowKind(),
 				Name:       componentWorkflowName,
 				Parameters: &componentWorkflowParameters,
 			},
 		},
 	}, nil
+}
+
+// componentWorkflowKind is the kind recorded on a Component's workflow reference,
+// from config.OpenChoreo.BuildWorkflowKind (OPEN_CHOREO_BUILD_WORKFLOW_KIND).
+//
+// A ClusterWorkflow pins workflowPlaneRef to the single cluster-wide
+// ClusterWorkflowPlane, so its builds always run on that one plane. A namespaced
+// Workflow resolves the WorkflowPlane inside the organization's own namespace,
+// which is what lets an org build on the data centre it actually belongs to — how
+// WSO2 Cloud runs. Empty records no kind at all, the on-premises default, which
+// builds.go and OpenChoreo both read as ClusterWorkflow.
+//
+// Recorded on the Component so each agent keeps the kind it was created with:
+// builds.go reads this and only falls back to ClusterWorkflow when it is unset.
+func componentWorkflowKind() *gen.ComponentWorkflowConfigKind {
+	kind := config.GetConfig().OpenChoreo.BuildWorkflowKind
+	if kind == "" {
+		return nil
+	}
+	k := gen.ComponentWorkflowConfigKind(kind)
+	return &k
 }
 
 func getOpenChoreoComponentType(provisioningType string, agentType string) (string, error) {

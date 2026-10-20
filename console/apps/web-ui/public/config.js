@@ -66,6 +66,9 @@ window.__RUNTIME_CONFIG__ = {
     storage: 'localStorage',
   },
   disableAuth: 'false' === 'true',
+  // Local dev serves the app at the origin root; the Docker image sets this from
+  // the BASE_PATH it was built with.
+  basePath: '/',
   rbacEnabled: 'true' === 'true',
   apiBaseUrl: 'http://localhost:9000',
   configDiscoveryBaseUrl: '',

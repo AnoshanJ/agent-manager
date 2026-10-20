@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration048 records the MCP proxy an agent's MCP connection references, in a side table
+// migration049 records the MCP proxy an agent's MCP connection references, in a side table
 // keyed by the configuration.
 //
 // Until now the only link from an agent configuration to an org-level MCP proxy was the
@@ -58,8 +58,8 @@ import (
 //
 // ON DELETE CASCADE on the configuration side: the reference means nothing without the
 // configuration it describes.
-var migration048 = migration{
-	ID: 48,
+var migration049 = migration{
+	ID: 49,
 	Migrate: func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
 			if err := runSQL(
@@ -68,7 +68,7 @@ var migration048 = migration{
 				// only as the target the composite foreign key below must reference.
 				//
 				// Added only when missing, never dropped and re-added: once the composite
-				// foreign keys here and in migration049 reference it, Postgres refuses the
+				// foreign keys here and in migration050 reference it, Postgres refuses the
 				// drop (2BP01), so a drop-then-add would make this migration fail on any
 				// re-run. Postgres has no ADD CONSTRAINT IF NOT EXISTS, hence the guard.
 				`DO $$

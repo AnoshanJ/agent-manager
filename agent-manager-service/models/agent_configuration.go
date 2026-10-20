@@ -72,17 +72,17 @@ type AgentConfiguration struct {
 	// back to the per-environment mapping rows.
 	//
 	// Lives in its own table rather than as a column here because this row is polymorphic
-	// across LLM, MCP and agent configurations — see migration048.
+	// across LLM, MCP and agent configurations — see migration049.
 	MCPProxyRef *AgentMCPConfigProxy `gorm:"foreignKey:ConfigUUID;references:UUID" json:"mcpProxyRef,omitempty"`
 
 	// MCPEnvExclusions lists the environments an MCP connection was deliberately removed
 	// from. Its scope is every environment of the project's pipeline except these — see
-	// migration049 for why that is recorded rather than inferred from missing env var rows.
+	// migration050 for why that is recorded rather than inferred from missing env var rows.
 	MCPEnvExclusions []AgentMCPConfigEnvExclusion `gorm:"foreignKey:ConfigUUID;references:UUID" json:"-"`
 
 	// MCPScope is present once an MCP connection's scope has been recorded through
 	// MCPEnvExclusions. Without it the exclusions cannot be trusted — the connection predates
-	// them — and its scope is still the environments it has env var rows in (migration049).
+	// them — and its scope is still the environments it has env var rows in (migration050).
 	MCPScope *AgentMCPConfigScope `gorm:"foreignKey:ConfigUUID;references:UUID" json:"-"`
 }
 

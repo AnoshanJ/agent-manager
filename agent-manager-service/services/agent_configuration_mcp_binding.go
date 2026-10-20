@@ -299,7 +299,7 @@ func (s *agentConfigurationService) recordMCPRequestScope(
 		}
 	}
 
-	// A connection updated for the first time since migration049 has no scope marker. Its
+	// A connection updated for the first time since migration050 has no scope marker. Its
 	// scope until now was the var-row rule (in scope only where it has env var rows), and
 	// writing the marker switches it to "pipeline minus exclusions". Recording only the
 	// dropped bound environments would therefore widen it: a dev-only connection edited once
@@ -654,7 +654,7 @@ func (s *agentConfigurationService) reconcileProxyBindings(
 
 // mcpConfigUUIDsForProxy returns every configuration that references proxy, from both
 // directions: the configuration's own environment-agnostic proxy reference, and — for
-// configurations with none, such as divergent ones migration048 skipped — the mapping rows.
+// configurations with none, such as divergent ones migration049 skipped — the mapping rows.
 // The reference is what reaches a connection with no mapping in ANY environment, which the
 // mapping-row query by construction cannot see.
 func (s *agentConfigurationService) mcpConfigUUIDsForProxy(

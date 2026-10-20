@@ -84,6 +84,7 @@ include tools.mk
 setup: tools setup-colima setup-k3d setup-openchoreo setup-console-local setup-platform setup-sandbox
 	@$(MAKE) dev-migrate
 	@cd deployments/setup && ./port-forward.sh --platform --background
+	@$(MAKE) wait-ams-healthy
 	@$(MAKE) setup-default-env-thunder
 	@$(MAKE) setup-gateway
 	@cd deployments/setup && ./port-forward.sh --background

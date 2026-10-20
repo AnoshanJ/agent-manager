@@ -195,7 +195,7 @@ func TestMCPConfigTargetsProxy_UnanimousMappingsOutrankStaleReference(t *testing
 		"the proxy only the stale reference names must not also claim it")
 }
 
-// A configuration migration048 gave no reference — its environments named different proxies — falls back to
+// A configuration migration049 gave no reference — its environments named different proxies — falls back to
 // the mapping rows, and is claimed only when they unanimously name this proxy.
 func TestMCPConfigTargetsProxy_FallsBackToUnanimousMappings(t *testing.T) {
 	proxyUUID := uuid.New()
@@ -439,7 +439,7 @@ func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByColumn(t *testing.T) 
 	require.Equal(t, []uuid.UUID{configUUID}, got)
 }
 
-// The mapping-row side stays live for configurations migration048 gave no reference (divergent per-environment
+// The mapping-row side stays live for configurations migration049 gave no reference (divergent per-environment
 // proxies). Dropping it would silently orphan every legacy connection the reference table cannot
 // describe.
 func TestMCPConfigUUIDsForProxy_FindsConfigReferencedOnlyByMappingRow(t *testing.T) {
@@ -670,7 +670,7 @@ func TestBoundMCPScope_RecordedConnectionUsesPipeline(t *testing.T) {
 	require.Equal(t, []uuid.UUID{stageEnv}, got)
 }
 
-// CodeRabbit regression: the first update of a connection that predates migration049 sets its
+// CodeRabbit regression: the first update of a connection that predates migration050 sets its
 // scope marker, so it must also write down the old var-row rule as exclusions. Without them a
 // dev-only connection edited once (CLI set re-sends {dev}) would read as "whole pipeline" and
 // be bound, with keys minted, into stage and production by the next reconcile.
