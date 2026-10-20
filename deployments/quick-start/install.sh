@@ -1343,6 +1343,7 @@ if helm upgrade --install observability-metrics-prometheus \
     --create-namespace \
     --namespace openchoreo-observability-plane \
     --version "${OBSERVABILITY_METRICS_PROMETHEUS_VERSION}" \
+    --values "${DEPLOYMENTS_DIR}/values/observability-metrics-prometheus.yaml" \
     --timeout 10m; then
     log_success "observability-metrics-prometheus installed successfully"
 else
