@@ -46,7 +46,7 @@
   "description": "A page component for environment-scoped Thunder identity provider management",
   "dependencies": {
     "react-dom": "19.2.3",
-    "react-router-dom": "6.30.4",
+    "react-router-dom": "6.30.6",
     "@mui/material": "7.0.0",
     "@mui/icons-material": "7.0.0",
     "@emotion/react": "11.13.5",

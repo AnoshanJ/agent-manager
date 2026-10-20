@@ -30,7 +30,7 @@
   "description": "A page component for MCP Proxy management",
   "dependencies": {
     "react-dom": "19.2.3",
-    "react-router-dom": "6.30.4",
+    "react-router-dom": "6.30.6",
     "@mui/material": "7.0.0",
     "@emotion/react": "11.13.5",
     "@emotion/styled": "11.13.5",
