@@ -394,7 +394,9 @@ func agentThunderBindingOrgContext(ctx context.Context, binding models.AgentThun
 // git/build-pipeline agent, or a kind-sourced one) would never get its AgentID
 // env vars — neither path calls InjectForEnvironment itself.
 func DBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
-	return func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, ocClient client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
+	// The OpenChoreo client parameter is part of app.Options.AgentThunderProvisioning's
+	// factory signature, which deployments implement; this implementation does not use it.
+	return func(db *gorm.DB, secretMgmtClient secretmanagersvc.SecretManagementClient, _ client.OpenChoreoClient, encryptionKey []byte) AgentThunderProvisioningService {
 		envThunderRepo := repositories.NewEnvThunderSystemClientRepo(db)
 		envThunderURLRepo := repositories.NewEnvThunderURLRepo(db)
 		endpointResolver := &agentThunderEndpointResolver{}
@@ -406,7 +408,6 @@ func DBBackedAgentThunderProvisioning() func(db *gorm.DB, secretMgmtClient secre
 				endpointResolver,
 			),
 			secretMgmtClient,
-			ocClient,
 			nil, // workload injector — see doc comment above
 			slog.Default(),
 		)
@@ -421,7 +422,6 @@ func NewAgentThunderProvisioningService(
 	repo repositories.AgentThunderClientRepository,
 	envResolver thundersvc.EnvThunderResolver,
 	secretMgmtClient secretmanagersvc.SecretManagementClient,
-	_ client.OpenChoreoClient, // retained for deployment-constructor compatibility
 	workloadInjector AgentIdentityInjectionService,
 	logger *slog.Logger,
 ) AgentThunderProvisioningService {

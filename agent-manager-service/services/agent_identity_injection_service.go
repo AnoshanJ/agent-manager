@@ -167,7 +167,11 @@ type AgentIdentityInjectionService interface {
 
 	// RemoveForEnvironment removes the identity env vars from the agent's
 	// workload for one environment — used after a revoke, so the pod does not keep
-	// serving a credential that can no longer mint tokens.
+	// serving a credential that can no longer mint tokens. It also deletes the
+	// binding's SecretReference directly: the secret provider owns and deletes
+	// the ones it created, but a legacy SecretReference the identity injection
+	// service created itself is invisible to the provider, and this is the only
+	// path that removes it. Not-found is success.
 	// includeWorkloadLevel additionally removes the vars from the shared
 	// Workload CR; callers set it only when envName is the pipeline's lowest
 	// environment (the deploy flow writes that environment's vars at Workload
@@ -176,8 +180,12 @@ type AgentIdentityInjectionService interface {
 	// pod).
 	RemoveForEnvironment(ctx context.Context, ouID, projectName, agentName, envName string, includeWorkloadLevel bool) error
 
-	// CleanupForEnvironment removes any injection-owned resources. The backing
-	// SecretReference is owned and deleted by the secret management provider.
+	// CleanupForEnvironment deletes the binding's SecretReference directly —
+	// used on agent deletion, after the secret provider has deleted the
+	// credential it owns, and before re-storing a credential whose name is held
+	// by a legacy SecretReference. The provider cannot see a legacy
+	// SecretReference the identity injection service created itself, so this
+	// direct delete is what removes it. Best-effort: not-found is success.
 	CleanupForEnvironment(ctx context.Context, ouID, agentName, envName string) error
 }
 
@@ -276,8 +284,9 @@ func (s *agentIdentityInjectionService) currentShutdownContext() context.Context
 // invalid — defensive only, should not normally trigger.
 const defaultSecretSyncWait = 30 * time.Second
 
-// secretSyncWaitDuration parses the SecretReference refresh cadence
-// (refreshInterval) into a wait duration for RefreshAfterRotation.
+// secretSyncWaitDuration parses refreshInterval — how long the workload's
+// secret-env ExternalSecret takes to pick up a rotated value — into the wait
+// RefreshAfterRotation observes before rolling the pod.
 func secretSyncWaitDuration(refreshInterval string) time.Duration {
 	d, err := time.ParseDuration(refreshInterval)
 	if err != nil || d <= 0 {
@@ -398,7 +407,10 @@ func (s *agentIdentityInjectionService) injectableBinding(ctx context.Context, o
 }
 
 // deleteSecretReference deletes the data-plane SecretReference for one
-// binding. Best-effort by convention of every caller: not-found is success.
+// binding directly. Still needed after the secret provider took ownership: it
+// is the only way to remove a legacy SecretReference this service created
+// itself, which the provider cannot see (see CleanupForEnvironment).
+// Best-effort by convention of every caller: not-found is success.
 func (s *agentIdentityInjectionService) deleteSecretReference(ctx context.Context, ouID, projectName, agentName, envName string) error {
 	refName := agentIdentitySecretLocation(ouID, projectName, agentName, envName).SecretRefName()
 	if err := s.ocClient.DeleteSecretReference(ctx, ouID, refName); err != nil && !errors.Is(err, utils.ErrNotFound) {
@@ -544,16 +556,19 @@ func identityEnvVarsInSync(desired []client.EnvVar, current []models.EnvVars) bo
 	return true
 }
 
-// RefreshAfterRotation re-asserts a rotated internal agent's credential and
-// rolls its pod so it picks up the new value.
+// RefreshAfterRotation rolls a rotated internal agent's pod so it picks up the
+// new credential. It does not touch the SecretReference: the secret provider
+// has already stored the rotated value under the same SecretReference name.
 //
-// The SecretReference update runs synchronously and its error is returned.
-// The pod roll is deferred: it waits out refreshInterval first, because the
-// secret-store sync only re-fetches a rotated value on its own cadence, not
-// immediately when the SecretReference's spec changes. Rolling immediately
-// used to lose that race — the new pod started before the sync caught up and
-// kept the stale, already-invalidated secret for its whole lifetime
-// (secretKeyRef env vars resolve once at container start, never hot-reload).
+// Building the env vars runs synchronously and its error is returned. The pod
+// roll is deferred: it waits out refreshInterval first, because the pod reads
+// the credential through the workload's own secret-env ExternalSecret, which
+// re-fetches from the secret store on its own cadence (15s in the agent
+// component types), independent of the SecretReference's refresh interval.
+// Rolling immediately loses that race — the new pod starts before the sync
+// catches up and keeps the stale, already-invalidated secret for its whole
+// lifetime (secretKeyRef env vars resolve once at container start, never
+// hot-reload). So refreshInterval must cover that ExternalSecret's interval.
 // The roll itself runs detached so a manual regenerate call never blocks on
 // the wait; a roll failure is only logged, not returned. The wait, and the
 // roll itself once started, both stop early if the app starts shutting down

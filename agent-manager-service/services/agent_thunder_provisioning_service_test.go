@@ -64,37 +64,12 @@ func TestAgentThunderEndpointResolverCanBeConfiguredAfterFactoryConstruction(t *
 	require.Equal(t, "http://internal.example.com", endpoints.ManagementURL)
 }
 
-// testOCClientResolvingSecretRefs returns an OpenChoreoClientMock whose
-// GetSecretReference resolves ANY secret ref name to a "resolved/<name>" KV
-// key holding the agent-identity client-secret data source — standing in for
-// whatever path the real secret manager provider would have assigned when it
-// created the SecretReference (see storeCredential: that path is never
-// computed locally, only ever read back). Deliberately a different shape
-// than agentIdentitySecretLocation(...).KVPath() would produce, so a test
-// asserting a locally-guessed path would fail loudly instead of passing by
-// coincidence.
-func testOCClientResolvingSecretRefs() *clientmocks.OpenChoreoClientMock {
-	return &clientmocks.OpenChoreoClientMock{
-		GetSecretReferenceFunc: func(_ context.Context, _ string, secretRefName string) (*client.SecretReferenceInfo, error) {
-			return &client.SecretReferenceInfo{
-				Name: secretRefName,
-				Data: []client.SecretDataSourceInfo{
-					{
-						SecretKey: thundersvc.AgentSecretKeyClientSecret,
-						RemoteRef: client.RemoteRefInfo{Key: "resolved/" + secretRefName},
-					},
-				},
-			}, nil
-		},
-	}
-}
-
 func newTestProvisioningService(
 	repo *repomocks.AgentThunderClientRepositoryMock,
 	resolver *clientmocks.EnvThunderResolverMock,
 	store *clientmocks.SecretManagementClientMock,
 ) AgentThunderProvisioningService {
-	return NewAgentThunderProvisioningService(repo, resolver, store, testOCClientResolvingSecretRefs(), nil, slog.Default())
+	return NewAgentThunderProvisioningService(repo, resolver, store, nil, slog.Default())
 }
 
 // newTestProvisioningServiceWithInjector is newTestProvisioningService plus a
@@ -105,7 +80,7 @@ func newTestProvisioningServiceWithInjector(
 	store *clientmocks.SecretManagementClientMock,
 	injector AgentIdentityInjectionService,
 ) AgentThunderProvisioningService {
-	return NewAgentThunderProvisioningService(repo, resolver, store, testOCClientResolvingSecretRefs(), injector, slog.Default())
+	return NewAgentThunderProvisioningService(repo, resolver, store, injector, slog.Default())
 }
 
 func fakeThunderClientMock() *clientmocks.ThunderClientMock {
@@ -545,7 +520,7 @@ func TestAttemptProvision_Failure_LogsRawCauseButSanitizesLastError(t *testing.T
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	svc := NewAgentThunderProvisioningService(repo, resolver, store, testOCClientResolvingSecretRefs(), nil, logger)
+	svc := NewAgentThunderProvisioningService(repo, resolver, store, nil, logger)
 
 	svc.AttemptProvision(context.Background(), models.AgentThunderClient{
 		ID: uuid.New(), OUID: "acme", ProjectName: "proj1", AgentName: "my-agent", EnvironmentName: "default",

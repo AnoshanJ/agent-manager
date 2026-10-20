@@ -296,7 +296,7 @@ func InitializeTestAppParamsWithClientMocks(cfg *config.Config, db *gorm.DB, aut
 	agentKindRepository := ProvideAgentKindRepository(db)
 	agentKindService := services.NewAgentKindService(agentKindRepository, openChoreoClient)
 	artifactRepository := ProvideArtifactRepository(db)
-	agentThunderProvisioningService := services.NewAgentThunderProvisioningService(agentThunderClientRepository, envThunderResolver, secretManagementClient, openChoreoClient, agentIdentityInjectionService, logger)
+	agentThunderProvisioningService := services.NewAgentThunderProvisioningService(agentThunderClientRepository, envThunderResolver, secretManagementClient, agentIdentityInjectionService, logger)
 	observerSvcClient := ProvideTestObserverClient(testClients)
 	monitorRepository := ProvideMonitorRepository(db)
 	customEvaluatorRepository := ProvideCustomEvaluatorRepository(db)
