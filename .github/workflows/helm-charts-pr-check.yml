@@ -40,7 +40,12 @@ jobs:
           # If shared helm tooling changed, test all charts. deployments/helm-charts/tests/
           # holds assertions applied to every chart, so a change there is shared tooling
           # and not a change to one chart.
-          SHARED_CHANGES=$(echo "$ALL_CHANGED_FILES" | grep -E '^(\.github/(actions/(setup-helm-chart|setup-cluster-clis)/|workflows/helm-charts-pr-check\.yml)|deployments/(helm-charts/tests/|setup/cluster-tools\.env))' || true)
+          SHARED_CHANGES=$(echo "$ALL_CHANGED_FILES" | grep -E \
+            -e '^\.github/actions/setup-helm-chart/' \
+            -e '^\.github/actions/setup-cluster-clis/' \
+            -e '^\.github/workflows/helm-charts-pr-check\.yml$' \
+            -e '^deployments/helm-charts/tests/' \
+            -e '^deployments/setup/cluster-tools\.env$' || true)
 
           if [ -n "$SHARED_CHANGES" ]; then
             echo "Shared Helm tooling changed, testing all charts"
