@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -316,6 +317,30 @@ func TestDeployAgent(t *testing.T) {
 				}
 				mock.GetDeploymentsFunc = func(context.Context, string, string, string, string) ([]*models.DeploymentResponse, error) {
 					return nil, nil
+				}
+				return mock
+			},
+		},
+		{
+			// The ownership check could not run, which is not the caller's fault:
+			// a 5xx, never a 400 and never a deploy.
+			name:           "return 500 when the image ownership lookup fails",
+			authMiddleware: authMiddleware,
+			orgName:        deployTestOrgName,
+			projName:       deployTestProjName,
+			agentName:      deployTestAgentName,
+			payload: map[string]interface{}{
+				"imageId": "registry.example.com/myapp:v1.0.0",
+			},
+			wantStatus: 500,
+			wantErrMsg: "Failed to deploy agent",
+			setupMock: func() *clientmocks.OpenChoreoClientMock {
+				mock := apitestutils.CreateMockOpenChoreoClient()
+				mock.ComponentExistsFunc = func(ctx context.Context, orgName string, projName string, agentName string) (bool, error) {
+					return true, nil
+				}
+				mock.ListBuildsFunc = func(context.Context, string, string, string) ([]*models.BuildResponse, error) {
+					return nil, errors.New("openchoreo unavailable")
 				}
 				return mock
 			},

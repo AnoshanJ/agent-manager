@@ -35,6 +35,7 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/repositories/repomocks"
 	"github.com/wso2/agent-manager/agent-manager-service/spec"
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
+	"gorm.io/gorm"
 )
 
 // buildsProducing stubs ListBuilds with one build per image, so a deploy test can
@@ -120,6 +121,9 @@ func TestDeployAgent_AcceptsImagesTheAgentOwns(t *testing.T) {
 		{"an image one of its builds produced", "", ownBuildImage},
 		{"the image it already runs", "", deployedImage},
 		{"a version of its kind other than the one it was created from", "my-kind", kindVersionImage},
+		// A kind agent's image need not be a kind version: the check must fall
+		// through to its builds and deployments rather than stop at the kind.
+		{"a kind agent redeploying the image it already runs", "my-kind", deployedImage},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,6 +146,7 @@ func TestDeployAgent_RejectsImagesTheAgentDoesNotOwn(t *testing.T) {
 		{"an arbitrary public image", "", "docker.io/library/nginx:latest"},
 		{"the same repository at a different tag", "", "registry.example.com/acme/my-agent:build-1-evil"},
 		{"a kind image when the agent has no kind", "", kindVersionImage},
+		{"a foreign image on a kind agent", "my-kind", "docker.io/library/nginx:latest"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,7 +171,9 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 		}
 		err := f.deploy(t, deployedImage)
 		require.ErrorIs(t, err, boom)
+		assert.Nil(t, utils.IsValidationError(err), "a failed lookup is not the caller's fault")
 		assert.False(t, *f.bindingReached)
+		assert.Empty(t, f.oc.DeployCalls())
 	})
 
 	t.Run("kind", func(t *testing.T) {
@@ -177,10 +184,23 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 			},
 		}, f.oc)
 		err := f.deploy(t, kindVersionImage)
-		require.Error(t, err)
-		assert.NotErrorIs(t, err, utils.ErrInvalidInput, "a failed lookup is not the caller's fault")
+		require.ErrorIs(t, err, boom)
+		assert.Nil(t, utils.IsValidationError(err), "a failed lookup is not the caller's fault")
 		assert.False(t, *f.bindingReached)
-		assert.Empty(t, f.oc.ListBuildsCalls(), "a failed kind lookup must stop the check, not fall through")
+	})
+
+	// The builds and deployments can still prove ownership without the kind.
+	t.Run("kind, but a build owns the image", func(t *testing.T) {
+		f := newOwnershipFixture("my-kind")
+		f.svc.agentKindService = newKindService(&repomocks.AgentKindRepositoryMock{
+			GetKindFunc: func(context.Context, string, string) (*models.AgentKind, error) {
+				return nil, boom
+			},
+		}, f.oc)
+		err := f.deploy(t, ownBuildImage)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, boom)
+		assert.True(t, *f.bindingReached)
 	})
 
 	t.Run("deployments", func(t *testing.T) {
@@ -190,6 +210,51 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 		}
 		err := f.deploy(t, deployedImage)
 		require.ErrorIs(t, err, boom)
+		assert.Nil(t, utils.IsValidationError(err), "a failed lookup is not the caller's fault")
+		assert.False(t, *f.bindingReached)
+		assert.Empty(t, f.oc.DeployCalls())
+	})
+}
+
+// A kind row that no longer exists has no versions to offer. It must not turn
+// every deploy of the agent into a 404 — the agent's own builds and deployments
+// still decide.
+func TestDeployAgent_MissingKindFallsThroughToBuildsAndDeployments(t *testing.T) {
+	f := newOwnershipFixture("deleted-kind")
+	f.svc.agentKindService = newKindService(&repomocks.AgentKindRepositoryMock{
+		GetKindFunc: func(context.Context, string, string) (*models.AgentKind, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+	}, f.oc)
+
+	t.Run("its current image is still accepted", func(t *testing.T) {
+		*f.bindingReached = false
+		err := f.deploy(t, deployedImage)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, utils.ErrAgentKindNotFound)
+		assert.True(t, *f.bindingReached)
+	})
+
+	t.Run("a foreign image is still rejected as invalid input", func(t *testing.T) {
+		*f.bindingReached = false
+		err := f.deploy(t, "docker.io/library/nginx:latest")
+		require.ErrorIs(t, err, utils.ErrInvalidInput)
 		assert.False(t, *f.bindingReached)
 	})
+}
+
+// A build or deployment record with no image must never authorise an empty imageId.
+func TestDeployAgent_EmptyImageNeverMatchesAnImagelessRecord(t *testing.T) {
+	f := newOwnershipFixture("")
+	f.oc.ListBuildsFunc = func(context.Context, string, string, string) ([]*models.BuildResponse, error) {
+		return []*models.BuildResponse{nil, {ImageId: ""}}, nil
+	}
+	f.oc.GetDeploymentsFunc = func(context.Context, string, string, string, string) ([]*models.DeploymentResponse, error) {
+		return []*models.DeploymentResponse{nil, {ImageId: ""}}, nil
+	}
+
+	err := f.deploy(t, "")
+
+	require.ErrorIs(t, err, utils.ErrInvalidInput)
+	assert.False(t, *f.bindingReached)
 }

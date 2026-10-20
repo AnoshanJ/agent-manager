@@ -629,19 +629,30 @@ func (s *agentManagerService) kindVersionForImage(ctx context.Context, ouID, kin
 // this closes. Lookup failures reject rather than allow — a check that passes
 // whenever OpenChoreo is unreachable is not a check.
 func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID, projectName, pipelineName, agentName, kindName, imageID string) error {
+	// Request validation already rejects an empty imageId; this keeps a build or
+	// deployment record with no image from ever matching one.
+	if imageID == "" {
+		return utils.NewInvalidInputError("imageId is required", "imageId is empty")
+	}
+
 	// Read the kind directly rather than through kindVersionForImage, which maps a
-	// lookup failure to "no match" — here that would reject a valid kind image as
-	// the caller's fault.
+	// lookup failure to "no match" — that would reject a valid kind image as the
+	// caller's fault. A kind that no longer exists has no versions to match. Any
+	// other failure is held until the builds and deployments have had their say:
+	// they may still prove ownership, and only if they don't is it reported.
+	var kindErr error
 	if kindName != "" {
 		kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
-		if err != nil {
+		if err != nil && !errors.Is(err, utils.ErrAgentKindNotFound) {
 			s.logger.Error("Failed to read agent kind while checking deploy image ownership",
 				"agentName", agentName, "kindName", kindName, "ouID", ouID, "error", err)
-			return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+			kindErr = err
 		}
-		for _, v := range kind.Versions {
-			if v.ImageId == imageID {
-				return nil
+		if err == nil && kind != nil {
+			for _, v := range kind.Versions {
+				if v.ImageId == imageID {
+					return nil
+				}
 			}
 		}
 	}
@@ -668,6 +679,10 @@ func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID
 		if d != nil && d.ImageId == imageID {
 			return nil
 		}
+	}
+
+	if kindErr != nil {
+		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, kindErr)
 	}
 
 	s.logger.Warn("Rejected deploy of an image not owned by the agent",
