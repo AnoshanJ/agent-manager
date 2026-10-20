@@ -341,6 +341,7 @@ service-shell:
 	@docker exec -it agent-manager-service sh
 
 console-logs:
+	@test -f .make/console.log || { echo "ℹ️  No console log: logs are only written by 'make console BACKGROUND=true'"; exit 1; }
 	@tail -f .make/console.log
 
 # amctl CLI client codegen (oapi-codegen against local OpenAPI spec)

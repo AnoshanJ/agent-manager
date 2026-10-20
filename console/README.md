@@ -75,6 +75,10 @@ Override any value with an env var, or in a gitignored `.env.development.local`:
 DISABLE_AUTH=true pnpm dev
 ```
 
+Because the process env wins, a generic variable already exported in your shell
+(`TLS_ENABLED`, `AMP_VERSION`, `API_BASE_URL`, `BASE_PATH`, ...) also changes the dev
+config. If `config.js` shows a value you didn't expect, check `env` first.
+
 Production builds don't use this: the Docker image renders `config.js` from the same
 template when nginx starts.
 
