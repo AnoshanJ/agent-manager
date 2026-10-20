@@ -1,5 +1,8 @@
 .PHONY: help build run stop clean test docker-build docker-run docker-stop docker-clean mock-traces gen-instrumentation-contract
 
+# Pinned dev tools (`make tools` at the repo root); puts ../.tools/bin first on PATH.
+include $(dir $(lastword $(MAKEFILE_LIST)))../tools.mk
+
 # Variables
 TAG=0.0.0-dev
 APP_NAME=agent-manager-observer
@@ -11,8 +14,6 @@ IMAGE_NAME=amp-observer
 DOCKER_IMAGE=$(IMAGE_NAME):$(TAG)
 CONTAINER_NAME=$(APP_NAME)
 
-# Pinned dev tools (`make tools` at the repo root); puts ../.tools/bin first on PATH.
-include ../tools.mk
 PORT=9098
 KIND_CLUSTER_NAME=openchoreo-local
 K3D_CLUSTER_NAME=openchoreo-local-setup

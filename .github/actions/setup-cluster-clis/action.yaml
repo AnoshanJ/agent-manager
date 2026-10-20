@@ -23,7 +23,8 @@ runs:
     - name: Read pinned versions
       id: versions
       shell: bash
-      run: grep -E '^[A-Z0-9_]+=' "$GITHUB_ACTION_PATH/../../../deployments/setup/cluster-tools.env" >> "$GITHUB_OUTPUT"
+      # A value ends at the first space or '#', so inline notes and CRLF stay out of it.
+      run: grep -oE '^[A-Z0-9_]+=[^[:space:]#]*' "$GITHUB_ACTION_PATH/../../../deployments/setup/cluster-tools.env" >> "$GITHUB_OUTPUT"
 
     - name: Install k3d
       if: inputs.k3d == 'true'

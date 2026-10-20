@@ -5,6 +5,8 @@ on:
     paths:
       - "deployments/helm-charts/**"
       - ".github/actions/setup-helm-chart/**"
+      - ".github/actions/setup-cluster-clis/**"
+      - "deployments/setup/cluster-tools.env"
       - ".github/workflows/helm-charts-pr-check.yml"
 
 # These jobs render and lint PR-authored charts, so the token they run with is
@@ -38,7 +40,7 @@ jobs:
           # If shared helm tooling changed, test all charts. deployments/helm-charts/tests/
           # holds assertions applied to every chart, so a change there is shared tooling
           # and not a change to one chart.
-          SHARED_CHANGES=$(echo "$ALL_CHANGED_FILES" | grep -E '^(\.github/(actions/setup-helm-chart/|workflows/helm-charts-pr-check\.yml)|deployments/helm-charts/tests/)' || true)
+          SHARED_CHANGES=$(echo "$ALL_CHANGED_FILES" | grep -E '^(\.github/(actions/(setup-helm-chart|setup-cluster-clis)/|workflows/helm-charts-pr-check\.yml)|deployments/(helm-charts/tests/|setup/cluster-tools\.env))' || true)
 
           if [ -n "$SHARED_CHANGES" ]; then
             echo "Shared Helm tooling changed, testing all charts"
