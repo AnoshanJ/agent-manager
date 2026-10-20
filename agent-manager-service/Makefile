@@ -2,7 +2,7 @@ export GOBIN := $(abspath ./.bin)
 export PATH := $(GOBIN):$(PATH)
 
 # Pinned dev tools (`make tools` at the repo root); puts ../.tools/bin first on PATH.
-include ../tools.mk
+include $(dir $(lastword $(MAKEFILE_LIST)))../tools.mk
 
 PROJECT_ROOT := $(shell pwd)
 GO_VERSION := 1.25
