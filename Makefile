@@ -229,11 +229,7 @@ dev-rebuild:
 	@cd deployments && docker compose down
 	@echo "🔨 Rebuilding Docker images..."
 	@cd deployments && docker compose build --no-cache
-	@echo "🔄 Starting services..."
-	@cd deployments/setup && ./ensure-k3d-running.sh
-	@cd deployments && docker compose up -d
-	@echo "✅ Rebuild complete!"
-	@echo "   API:     http://localhost:8080"
+	@$(MAKE) dev-up
 
 dev-logs:
 	@cd deployments && docker compose logs -f

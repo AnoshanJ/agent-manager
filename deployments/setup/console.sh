@@ -27,17 +27,30 @@ if is_port_in_use 3000; then
     exit 1
 fi
 
-check_command pnpm
-
 cd "$REPO_ROOT/console"
 if $BACKGROUND; then
     mkdir -p "$(dirname "$LOG")"
     # stdin must not be the terminal: a background Vite reading it gets SIGTTIN and stops
     pnpm dev </dev/null >"$LOG" 2>&1 &
-    echo "✅ Console starting at http://localhost:3000"
-    echo "   Logs: $LOG"
-    echo ""
-    echo "💡 Running in background — use 'make stop-console' to stop"
+    pid=$!
+    # Vite binds :3000 within a few seconds or exits (strictPort), so wait for one or the other
+    for _ in $(seq 300); do
+        if is_port_in_use 3000; then
+            echo "✅ Console running at http://localhost:3000"
+            echo "   Logs: $LOG"
+            echo ""
+            echo "💡 Running in background — use 'make stop-console' to stop"
+            exit 0
+        fi
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "❌ Console dev server exited during startup. Last log lines:"
+            tail -n 20 "$LOG"
+            exit 1
+        fi
+        sleep 0.1
+    done
+    echo "❌ Console dev server did not listen on :3000 within 30s. Logs: $LOG"
+    exit 1
 else
     exec pnpm dev
 fi

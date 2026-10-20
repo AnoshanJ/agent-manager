@@ -107,9 +107,7 @@ get_version() {
 
 # Util: Suggest how to install a missing command on the current platform.
 install_hint() {
-    if [ "$1" = "pnpm" ]; then
-        echo "corepack enable"
-    elif [ "$(uname -s)" = "Darwin" ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
         echo "brew install $1"
     else
         echo "install '$1' with your distribution's package manager"
