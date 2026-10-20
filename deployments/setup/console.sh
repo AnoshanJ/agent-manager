@@ -49,6 +49,9 @@ if $BACKGROUND; then
         fi
         sleep 0.1
     done
+    # Don't leave a server running that this script reported as failed
+    "$SCRIPT_DIR/stop-console.sh" >/dev/null
+    kill "$pid" 2>/dev/null || true
     echo "❌ Console dev server did not listen on :3000 within 30s. Logs: $LOG"
     exit 1
 else
