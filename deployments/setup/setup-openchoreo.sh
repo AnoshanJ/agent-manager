@@ -282,6 +282,10 @@ install_logs_module() {
 
 install_traces_module() {
     echo "Enabling opensearch based tracing module..."
+    # This module reuses the OpenSearch that the logs module deploys
+    # (openSearch.enabled=false). Its opensearch-setup-tracing hook polls for
+    # that OpenSearch, so the two modules can install side by side, but the
+    # poll outlasts helm's default 5m timeout when OpenSearch starts slowly.
     helm upgrade --install observability-traces-opensearch \
     oci://ghcr.io/openchoreo/helm-charts/observability-tracing-opensearch \
         --create-namespace \
@@ -289,7 +293,8 @@ install_traces_module() {
         --version "${OBSERVABILITY_TRACING_OPENSEARCH_VERSION}" \
         --set openSearch.enabled=false \
         --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
-        --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config"
+        --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config" \
+        --timeout 10m
 }
 
 install_metrics_module() {
@@ -360,9 +365,9 @@ install_observability_plane() {
     --timeout 25m
     echo "✅ OpenChoreo Observability Plane installed/upgraded successfully"
 
-    # The logs, traces and metrics modules share only the base chart above, so
-    # they install side by side. Each one's post-install hook blocks until
-    # OpenSearch or Prometheus is up, which is where the time goes.
+    # The logs, traces and metrics modules install side by side. Each one's
+    # post-install hook blocks until OpenSearch (deployed by the logs module,
+    # shared by traces) or Prometheus is up, which is where the time goes.
     run_parallel_tasks \
         "Logs module:install_logs_module" \
         "Traces module:install_traces_module" \

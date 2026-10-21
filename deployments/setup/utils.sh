@@ -481,7 +481,9 @@ create_plane_cert_resources() {
 # captured; collect_tasks waits for every task forked so far, prints each one's
 # output and fails if any failed. run_parallel_tasks is the common case of
 # forking several and collecting at once. Forking one, doing other work in the
-# foreground, then collecting is the same two calls spread apart.
+# foreground, then collecting is the same two calls spread apart; that
+# foreground work may itself call run_parallel_tasks, which collects only the
+# tasks it forked and leaves the earlier ones outstanding.
 #
 # While tasks are outstanding the script's EXIT trap belongs to abandon_tasks,
 # so a script that fails before collecting stops the tasks (and everything they
@@ -528,11 +530,13 @@ abandon_tasks() {
     TASK_LOGS=()
 }
 
+# Usage: collect_tasks [first]
+# Collects the tasks forked since index `first` (every task by default).
 collect_tasks() {
-    trap - EXIT
+    local first="${1:-0}"
     local failed=0
     local i status
-    for i in "${!TASK_PIDS[@]}"; do
+    for ((i = first; i < ${#TASK_PIDS[@]}; i++)); do
         wait "${TASK_PIDS[$i]}" && status=0 || status=$?
         echo ""
         echo "========== ${TASK_NAMES[$i]} =========="
@@ -544,19 +548,23 @@ collect_tasks() {
             failed=1
         fi
     done
-    TASK_NAMES=()
-    TASK_PIDS=()
-    TASK_LOGS=()
+    TASK_NAMES=("${TASK_NAMES[@]:0:$first}")
+    TASK_PIDS=("${TASK_PIDS[@]:0:$first}")
+    TASK_LOGS=("${TASK_LOGS[@]:0:$first}")
+    if [ "${#TASK_PIDS[@]}" -eq 0 ]; then
+        trap - EXIT
+    fi
     return $failed
 }
 
 # Usage: run_parallel_tasks "task1_name:task1_cmd" "task2_name:task2_cmd" ...
 run_parallel_tasks() {
+    local first="${#TASK_PIDS[@]}"
     local task
     for task in "$@"; do
         start_task "${task%%:*}" "${task#*:}"
     done
-    collect_tasks
+    collect_tasks "$first"
 }
 
 # Util: Wait for all deployments in a namespace to be ready
