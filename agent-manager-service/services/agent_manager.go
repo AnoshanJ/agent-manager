@@ -637,16 +637,19 @@ func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID
 
 	// Read the kind directly rather than through kindVersionForImage, which maps a
 	// lookup failure to "no match" — that would reject a valid kind image as the
-	// caller's fault. A kind that no longer exists has no versions to match. Any
-	// other failure is held until the builds and deployments have had their say:
-	// they may still prove ownership, and only if they don't is it reported.
-	var kindErr error
+	// caller's fault. A kind that no longer exists has no versions to match.
+	//
+	// Any one source is enough to prove ownership, so a failed lookup is held
+	// rather than returned: the remaining sources may still prove it. Only when
+	// none does is a held failure reported, as a failure to verify rather than an
+	// unowned image.
+	var lookupErr error
 	if kindName != "" {
 		kind, err := s.agentKindService.GetKind(ctx, ouID, kindName)
 		if err != nil && !errors.Is(err, utils.ErrAgentKindNotFound) {
 			s.logger.Error("Failed to read agent kind while checking deploy image ownership",
 				"agentName", agentName, "kindName", kindName, "ouID", ouID, "error", err)
-			kindErr = err
+			lookupErr = errors.Join(lookupErr, err)
 		}
 		if err == nil && kind != nil {
 			for _, v := range kind.Versions {
@@ -661,7 +664,7 @@ func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID
 	if err != nil {
 		s.logger.Error("Failed to list builds while checking deploy image ownership",
 			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
-		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+		lookupErr = errors.Join(lookupErr, err)
 	}
 	for _, b := range builds {
 		if b != nil && b.ImageId == imageID {
@@ -673,7 +676,7 @@ func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID
 	if err != nil {
 		s.logger.Error("Failed to read deployments while checking deploy image ownership",
 			"agentName", agentName, "ouID", ouID, "projectName", projectName, "error", err)
-		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, err)
+		lookupErr = errors.Join(lookupErr, err)
 	}
 	for _, d := range deployments {
 		if d != nil && d.ImageId == imageID {
@@ -681,14 +684,35 @@ func (s *agentManagerService) requireImageOwnedByAgent(ctx context.Context, ouID
 		}
 	}
 
-	if kindErr != nil {
-		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, kindErr)
+	if lookupErr != nil {
+		return fmt.Errorf("failed to verify image for agent %s: %w", agentName, lookupErr)
 	}
 
 	s.logger.Warn("Rejected deploy of an image not owned by the agent",
 		"agentName", agentName, "ouID", ouID, "projectName", projectName, "imageId", imageID)
+	// The deploy's own audit record is only opened after this check, so without
+	// this event a rejected image would reach the trail as a bare failed
+	// agent:deploy with no image on it — and repeated attempts at other tenants'
+	// images are exactly what someone reviewing the trail needs to see.
+	// RecordAncillary keeps the request's envelope, as the tier denial does.
+	audit.RecordAncillary(
+		ctx, audit.ActionAuthzDeny,
+		audit.Org(ouID),
+		audit.Project(projectName),
+		audit.ResourceNamed(audit.ResourceAgent, "", agentName),
+		audit.OutcomeOpt(audit.OutcomeDeny),
+		audit.Detail("reason", "image-not-owned-by-agent"),
+		audit.Detail("imageId", imageID),
+	)
+
+	// A kind-sourced agent never builds, so pointing its caller at builds would
+	// send them looking for something that does not exist.
+	hint := "Deploy an image from one of the agent's builds."
+	if kindName != "" {
+		hint = fmt.Sprintf("Deploy a published version of agent kind %q, or an image from one of the agent's builds.", kindName)
+	}
 	return utils.NewInvalidInputError(
-		"The image does not belong to this agent. Deploy an image from one of the agent's builds.",
+		"The image does not belong to this agent. "+hint,
 		fmt.Sprintf("imageId %q is not a build, kind version or current deployment of agent %q", imageID, agentName))
 }
 

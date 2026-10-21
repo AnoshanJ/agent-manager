@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/agent-manager/agent-manager-service/audit"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/clientmocks"
 	"github.com/wso2/agent-manager/agent-manager-service/clients/openchoreosvc/client"
 	"github.com/wso2/agent-manager/agent-manager-service/models"
@@ -169,7 +170,7 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 		f.oc.ListBuildsFunc = func(context.Context, string, string, string) ([]*models.BuildResponse, error) {
 			return nil, boom
 		}
-		err := f.deploy(t, deployedImage)
+		err := f.deploy(t, ownBuildImage)
 		require.ErrorIs(t, err, boom)
 		assert.Nil(t, utils.IsValidationError(err), "a failed lookup is not the caller's fault")
 		assert.False(t, *f.bindingReached)
@@ -198,6 +199,19 @@ func TestDeployAgent_OwnershipLookupFailureRejects(t *testing.T) {
 			},
 		}, f.oc)
 		err := f.deploy(t, ownBuildImage)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, boom)
+		assert.True(t, *f.bindingReached)
+	})
+
+	// A failed build listing is held like a failed kind lookup, so a redeploy of
+	// what the agent already runs survives a builds outage.
+	t.Run("builds, but a deployment owns the image", func(t *testing.T) {
+		f := newOwnershipFixture("")
+		f.oc.ListBuildsFunc = func(context.Context, string, string, string) ([]*models.BuildResponse, error) {
+			return nil, boom
+		}
+		err := f.deploy(t, deployedImage)
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, boom)
 		assert.True(t, *f.bindingReached)
@@ -257,4 +271,57 @@ func TestDeployAgent_EmptyImageNeverMatchesAnImagelessRecord(t *testing.T) {
 
 	require.ErrorIs(t, err, utils.ErrInvalidInput)
 	assert.False(t, *f.bindingReached)
+}
+
+// A rejected image must reach the audit trail with the image on it: the deploy's
+// own record is only opened after the check, so a warn log would be all there was.
+func TestDeployAgent_RejectedImageIsAudited(t *testing.T) {
+	f := newOwnershipFixture("")
+	ctx, sink, flush := capturingAuditCtx(t)
+	foreign := "registry.example.com/other-org/their-agent:build-7"
+
+	_, err := f.svc.DeployAgent(tierGrantedOn(ctx), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: foreign})
+	require.ErrorIs(t, err, utils.ErrInvalidInput)
+	flush()
+
+	event, found := findEvent(sink.captured(), audit.ActionAuthzDeny)
+	require.True(t, found, "the rejected image was not recorded")
+	assert.Equal(t, audit.OutcomeDeny, event.Outcome)
+	assert.Equal(t, "acme", event.OUID)
+	assert.Equal(t, "proj1", event.ProjectName)
+	assert.Equal(t, "my-agent", event.ResourceName)
+	assert.Equal(t, "image-not-owned-by-agent", event.Details["reason"])
+	assert.Equal(t, foreign, event.Details["imageId"])
+}
+
+// An owned image is not a denial, so it must not leave one in the trail.
+func TestDeployAgent_OwnedImageIsNotAuditedAsDenied(t *testing.T) {
+	f := newOwnershipFixture("")
+	ctx, sink, flush := capturingAuditCtx(t)
+
+	_, err := f.svc.DeployAgent(tierGrantedOn(ctx), "acme", "proj1", "my-agent", &spec.DeployAgentRequest{ImageId: ownBuildImage})
+	require.Error(t, err)
+	flush()
+
+	_, found := findEvent(sink.captured(), audit.ActionAuthzDeny)
+	assert.False(t, found)
+}
+
+// A kind-sourced agent never builds, so its rejection must point at the kind's
+// versions rather than send the caller looking for builds.
+func TestDeployAgent_RejectionHintNamesTheKind(t *testing.T) {
+	t.Run("kind agent", func(t *testing.T) {
+		err := newOwnershipFixture("my-kind").deploy(t, "docker.io/library/nginx:latest")
+		verr := utils.IsValidationError(err)
+		require.NotNil(t, verr)
+		assert.Contains(t, verr.Message, `published version of agent kind "my-kind"`)
+	})
+
+	t.Run("agent with no kind", func(t *testing.T) {
+		err := newOwnershipFixture("").deploy(t, "docker.io/library/nginx:latest")
+		verr := utils.IsValidationError(err)
+		require.NotNil(t, verr)
+		assert.NotContains(t, verr.Message, "agent kind")
+		assert.Contains(t, verr.Message, "one of the agent's builds")
+	})
 }
