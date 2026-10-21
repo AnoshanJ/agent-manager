@@ -96,9 +96,6 @@ export const sampleAgents: SampleAgentDefinition[] = [
     runCommand: "python -m uvicorn app:app --host 0.0.0.0 --port 8000",
     envVars: [
       { key: "OPENAI_API_KEY", isSensitive: true },
-      { key: "PINECONE_API_KEY", isSensitive: true },
-      { key: "PINECONE_SERVICE_URL" },
-      { key: "PINECONE_INDEX_NAME" },
       { key: "HOTEL_API_BASE_URL" },
     ],
   },

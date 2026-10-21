@@ -110,7 +110,12 @@ export const InternalAgentFlow: React.FC = () => {
   const { data: buildOptions } = useAgentBuildOptions({ orgName: orgId ?? "" });
   const baselineFormData = useMemo<CreateAgentFormValues>(() => {
     if (!buildOptions) return initialFormData;
-    const languageVersion = buildOptions.python.defaultVersion;
+    // Mirror the form: keep a supported seeded version (e.g. from a sample).
+    const seeded = initialFormData.languageVersion;
+    const languageVersion =
+      seeded && buildOptions.python.supportedVersions.includes(seeded)
+        ? seeded
+        : buildOptions.python.defaultVersion;
     const defaultInstrumentation = buildOptions.instrumentation.defaultVersion;
     const compat = buildOptions.instrumentation.versions.filter((v) =>
       v.pythonVersions.includes(languageVersion),
