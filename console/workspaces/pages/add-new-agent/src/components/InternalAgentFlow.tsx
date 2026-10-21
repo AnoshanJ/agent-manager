@@ -236,8 +236,11 @@ export const InternalAgentFlow: React.FC = () => {
   ]);
 
 
+  // A sample is picked on Add New Agent, skipping source type selection, so
+  // send the user back to where they actually came from.
+  const newAgentRoute = absoluteRouteMap.children.org.children.projects.children.newAgent;
   const backHref = generatePath(
-    absoluteRouteMap.children.org.children.projects.children.newAgent.children.create.path,
+    selectedSample ? newAgentRoute.path : newAgentRoute.children.create.path,
     { orgId: orgId ?? "", projectId: projectId ?? "default" },
   );
 
@@ -247,7 +250,7 @@ export const InternalAgentFlow: React.FC = () => {
       description="Specify the source repository, select the agent type, and deploy it on the platform."
       disableIcon
       backHref={backHref}
-      backLabel="Back to Source Type Selection"
+      backLabel={selectedSample ? "Back to Add New Agent" : "Back to Source Type Selection"}
     >
       <Form.Stack spacing={3}>
         {selectedSample && (

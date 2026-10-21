@@ -46,11 +46,9 @@ export const NewAgentSampleCard = ({ onSelectSample }: NewAgentSampleCardProps) 
               display: "flex",
               flexDirection: "column",
               alignItems: "flex-start",
-              // Form.CardButton's ButtonBase root defaults to justify-content:
-              // center, which vertically centers each card's content — visible
-              // once the row's align-items:stretch equalizes card heights (e.g.
-              // a sibling with a longer, wrapped description). Anchor to the
-              // top instead so titles line up regardless of content length.
+              // Override ButtonBase's centered content: on equal-height cards,
+              // pin title/description to the top and chips to the bottom so
+              // both line up across cards regardless of description length.
               justifyContent: "space-between",
               gap: 0.5,
               textAlign: "left",

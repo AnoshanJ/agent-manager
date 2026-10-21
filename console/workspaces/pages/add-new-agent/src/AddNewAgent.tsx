@@ -81,12 +81,17 @@ export const AddNewAgent: React.FC = () => {
   // A sample seeds the Platform-Hosted Agent form directly (no separate
   // listing screen) — its repo/env fields arrive via the `sample` query param.
   const handleSampleSelect = useCallback((sampleId: string) => {
+    track(ConsoleAction.WizardStepViewed, {
+      wizard: "create-agent",
+      step: "from-sample",
+      step_index: 1,
+    });
     const sourcePath = generatePath(`${CREATE_PATTERN}/source`, {
       orgId: orgId ?? '',
       projectId: projectId ?? 'default',
     });
     navigate(`${sourcePath}?sample=${encodeURIComponent(sampleId)}`);
-  }, [navigate, orgId, projectId, CREATE_PATTERN]);
+  }, [navigate, orgId, projectId, CREATE_PATTERN, track]);
 
   return (
     <Routes>
