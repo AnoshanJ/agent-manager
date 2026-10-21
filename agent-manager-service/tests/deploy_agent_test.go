@@ -342,6 +342,11 @@ func TestDeployAgent(t *testing.T) {
 				mock.ListBuildsFunc = func(context.Context, string, string, string) ([]*models.BuildResponse, error) {
 					return nil, errors.New("openchoreo unavailable")
 				}
+				// A failed build listing is held while the deployments are read, so
+				// they must not prove ownership either for the failure to surface.
+				mock.GetDeploymentsFunc = func(context.Context, string, string, string, string) ([]*models.DeploymentResponse, error) {
+					return nil, nil
+				}
 				return mock
 			},
 		},
