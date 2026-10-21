@@ -249,34 +249,7 @@ install_workflow_plane() {
     echo "✅ OpenChoreo Workflow Plane ready"
 }
 
-# Function to install Observability Plane
-install_observability_plane() {
-    echo "📦 Installing OpenChoreo Observability Plane..."
-    echo "Setting up OC Observability plane namespace and certificates..."
-    create_plane_cert_resources openchoreo-observability-plane
-
-    echo "Pull Secrets for OpenChoreo Observability Plane..."
-    create_external_secrets_obs_plane
-
-    echo "⏳ Waiting for ExternalSecrets to sync..."
-    kubectl wait -n openchoreo-observability-plane \
-        --for=condition=Ready externalsecret/opensearch-admin-credentials \
-        externalsecret/observer-secret --timeout=60s
-    echo "✅ ExternalSecrets synced"
-
-    echo "   This may take up to 15 minutes..."
-    kubectl apply -f ${PROJECT_ROOT}/deployments/values/oc-collector-configmap.yaml -n openchoreo-observability-plane
-    # Apply CRDs before the upgrade (helm upgrade skips crds/). No-op on first install.
-    sync_chart_crds openchoreo-observability-plane
-    helm upgrade --install openchoreo-observability-plane oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane \
-    --version ${OPENCHOREO_VERSION} \
-    --namespace openchoreo-observability-plane \
-    --create-namespace \
-    --values "${SCRIPT_DIR}/../single-cluster/values-op.yaml" \
-    --timeout 25m
-    echo "✅ OpenChoreo Observability Plane installed/upgraded successfully"
-
-    # Install OpenSearch based logs module
+install_logs_module() {
     echo "Installing OpenSearch based logs module..."
     helm upgrade --install observability-logs-opensearch \
       oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
@@ -305,7 +278,9 @@ install_observability_plane() {
       --set fluent-bit.enabled=true \
       --set "fluent-bit.tolerations[0].operator=Exists"
     echo "✅ OpenSearch Log collection enabled"
+}
 
+install_traces_module() {
     echo "Enabling opensearch based tracing module..."
     helm upgrade --install observability-traces-opensearch \
     oci://ghcr.io/openchoreo/helm-charts/observability-tracing-opensearch \
@@ -315,7 +290,9 @@ install_observability_plane() {
         --set openSearch.enabled=false \
         --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
         --set opentelemetry-collector.configMap.existingName="amp-opentelemetry-collector-config"
+}
 
+install_metrics_module() {
     # Prometheus based metrics module.
     # The values file relabels sandbox-cgroup cAdvisor series (gVisor/Kata
     # isolation tiers) to container="sandbox" so the metrics adapter's
@@ -350,9 +327,51 @@ install_observability_plane() {
         fi
     fi
     echo "✅ Prometheus based metrics module installed"
+}
+
+build_observer_image() {
+    make -C "${PROJECT_ROOT}/agent-manager-observer" docker-load-k3d
+}
+
+# Function to install Observability Plane
+install_observability_plane() {
+    echo "📦 Installing OpenChoreo Observability Plane..."
+    echo "Setting up OC Observability plane namespace and certificates..."
+    create_plane_cert_resources openchoreo-observability-plane
+
+    echo "Pull Secrets for OpenChoreo Observability Plane..."
+    create_external_secrets_obs_plane
+
+    echo "⏳ Waiting for ExternalSecrets to sync..."
+    kubectl wait -n openchoreo-observability-plane \
+        --for=condition=Ready externalsecret/opensearch-admin-credentials \
+        externalsecret/observer-secret --timeout=60s
+    echo "✅ ExternalSecrets synced"
+
+    echo "   This may take up to 15 minutes..."
+    kubectl apply -f ${PROJECT_ROOT}/deployments/values/oc-collector-configmap.yaml -n openchoreo-observability-plane
+    # Apply CRDs before the upgrade (helm upgrade skips crds/). No-op on first install.
+    sync_chart_crds openchoreo-observability-plane
+    helm upgrade --install openchoreo-observability-plane oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane \
+    --version ${OPENCHOREO_VERSION} \
+    --namespace openchoreo-observability-plane \
+    --create-namespace \
+    --values "${SCRIPT_DIR}/../single-cluster/values-op.yaml" \
+    --timeout 25m
+    echo "✅ OpenChoreo Observability Plane installed/upgraded successfully"
+
+    # The logs, traces and metrics modules share only the base chart above, so
+    # they install side by side. Each one's post-install hook blocks until
+    # OpenSearch or Prometheus is up, which is where the time goes.
+    run_parallel_tasks \
+        "Logs module:install_logs_module" \
+        "Traces module:install_traces_module" \
+        "Metrics module:install_metrics_module" \
+        || return 1
 
     echo "⏳ Waiting for Observability Plane pods to be ready..."
-    kubectl wait -n openchoreo-observability-plane --for=condition=available --timeout=300s deployment --all
+    wait_for_deployments_restarting_crashloops openchoreo-observability-plane \
+        "app in (logs-adapter-opensearch, tracing-adapter-opensearch, metrics-adapter-prometheus)" 300
     echo "✅ OpenChoreo Observability Plane deployments ready"
 
     # The observer resolves service accounts from its own config (observer-auth-config),
@@ -422,68 +441,44 @@ echo ""
 
 
 # ============================================================================
-# Step 3: Install Workflow Plane and Observability Plane IN PARALLEL
+# Step 3: Workflow Plane, with the Observability Plane installing alongside
 # ============================================================================
+# The observability plane is the slowest plane (OpenSearch and Prometheus
+# startup) and only the observability integration and extension steps need it,
+# so it installs in the background while the workflow plane, the AMP
+# extensions and the gateway operator go in. The observer image needed by the
+# extension builds alongside for the same reason.
 echo ""
-echo "3️⃣  Workflow Plane + Observability Plane (parallel)"
-echo ""
-
-run_parallel_tasks \
-    "Workflow Plane:install_workflow_plane" \
-    "Observability Plane:install_observability_plane" \
-    || exit 1
-
-echo "✅ Both Workflow Plane and Observability Plane installed successfully"
+echo "3️⃣  Workflow Plane (Observability Plane installing in the background)"
 echo ""
 
-# ============================================================================
-# Step 4: Configure observability integration (requires both planes to be ready)
-# ============================================================================
-echo "4️⃣  Configuring observability integration..."
-# Configure DataPlane observer
-if kubectl get clusterdataplane default -n default &>/dev/null; then
-    kubectl patch clusterdataplane default -n default --type merge -p '{"spec":{"observabilityPlaneRef":{"kind":"ClusterObservabilityPlane","name":"default"}}}' \
-        && echo "   ✅ DataPlane observer configured" \
-        || echo "   ⚠️  DataPlane observer configuration failed (non-fatal)"
-else
-    echo "   ⚠️  DataPlane resource not found yet "
-fi
-
-# Configure WorkflowPlane observer
-if kubectl get clusterworkflowplane default -n default &>/dev/null; then
-    kubectl patch clusterworkflowplane default -n default --type merge -p '{"spec":{"observabilityPlaneRef":{"kind":"ClusterObservabilityPlane","name":"default"}}}' \
-        && echo "   ✅ WorkflowPlane observer configured" \
-        || echo "   ⚠️  WorkflowPlane observer configuration failed (non-fatal)"
-else
-    echo "   ⚠️  WorkflowPlane resource not found yet"
-fi
+start_task "Observability Plane" install_observability_plane
+start_task "Observer image" build_observer_image
+install_workflow_plane
+echo "✅ Workflow Plane installed successfully"
 echo ""
 
-echo "All core OpenChoreo planes are installed and registered!"
-
-
 # ============================================================================
-# Step 5+6: Install AMP Extensions (extracted to setup-amp-extensions.sh so
+# Step 4: Install AMP Extensions (extracted to setup-amp-extensions.sh so
 # `make setup-amp` can reinstall them without redoing the OpenChoreo base).
 # Default-env Thunder provisioning stays in the Makefile's
 # setup-default-env-thunder target: it needs AMS up (store_via_ams).
 # ============================================================================
-echo ""
-echo "5️⃣ +6️⃣  AMP Extensions"
+echo "4️⃣  AMP Extensions"
 "${SCRIPT_DIR}/setup-amp-extensions.sh" "${PROJECT_ROOT}" || exit 1
 echo ""
 
 # ============================================================================
-# Step 7: Install Gateway Operator
+# Step 5: Install Gateway Operator
 # ============================================================================
-echo "7️⃣  Gateway Operator"
+echo "5️⃣  Gateway Operator"
 "${SCRIPT_DIR}/ensure-gateway-operator.sh" || exit 1
 echo ""
 
 # ============================================================================
-# Step 8: Grant RBAC for WSO2 API Platform CRDs
+# Step 6: Grant RBAC for WSO2 API Platform CRDs
 # ============================================================================
-echo "8️⃣  RBAC for WSO2 API Platform CRDs"
+echo "6️⃣  RBAC for WSO2 API Platform CRDs"
 
 kubectl apply -f - <<EOF
 apiVersion: rbac.authorization.k8s.io/v1
@@ -515,10 +510,50 @@ echo "✅ RBAC for WSO2 API Platform CRDs applied"
 echo ""
 
 # ============================================================================
-# Step 9: API Resources (Gateway is installed later by setup-platform.sh
+# Step 7: Collect the Observability Plane install and observer image build
+# ============================================================================
+echo "7️⃣  Observability Plane"
+collect_tasks || exit 1
+echo "✅ Observability Plane installed successfully"
+echo ""
+
+# ============================================================================
+# Step 8: Configure observability integration (requires all planes to be registered)
+# ============================================================================
+echo "8️⃣  Configuring observability integration..."
+# Configure DataPlane observer
+if kubectl get clusterdataplane default -n default &>/dev/null; then
+    kubectl patch clusterdataplane default -n default --type merge -p '{"spec":{"observabilityPlaneRef":{"kind":"ClusterObservabilityPlane","name":"default"}}}' \
+        && echo "   ✅ DataPlane observer configured" \
+        || echo "   ⚠️  DataPlane observer configuration failed (non-fatal)"
+else
+    echo "   ⚠️  DataPlane resource not found yet "
+fi
+
+# Configure WorkflowPlane observer
+if kubectl get clusterworkflowplane default -n default &>/dev/null; then
+    kubectl patch clusterworkflowplane default -n default --type merge -p '{"spec":{"observabilityPlaneRef":{"kind":"ClusterObservabilityPlane","name":"default"}}}' \
+        && echo "   ✅ WorkflowPlane observer configured" \
+        || echo "   ⚠️  WorkflowPlane observer configuration failed (non-fatal)"
+else
+    echo "   ⚠️  WorkflowPlane resource not found yet"
+fi
+echo ""
+
+echo "All core OpenChoreo planes are installed and registered!"
+
+# ============================================================================
+# Step 9: Observability Extension (Agent Manager Observer), into the plane above
+# ============================================================================
+echo "9️⃣  Observability Extension"
+"${SCRIPT_DIR}/setup-amp-observability-extension.sh" "${PROJECT_ROOT}" || exit 1
+echo ""
+
+# ============================================================================
+# Step 10: API Resources (Gateway is installed later by setup-platform.sh
 # after Agent Manager is running on docker-compose)
 # ============================================================================
-echo "9️⃣  API Resources (Gateway installed after Agent Manager is up)"
+echo "🔟  API Resources (Gateway installed after Agent Manager is up)"
 echo "   Gateway chart will be installed by setup-platform.sh"
 echo ""
 

@@ -109,6 +109,8 @@ teardown-amp:
 
 setup-amp:
 	@cd deployments/setup && ./setup-amp-extensions.sh $(CURDIR)
+	@$(MAKE) -C agent-manager-observer docker-load-k3d
+	@cd deployments/setup && ./setup-amp-observability-extension.sh $(CURDIR)
 	@$(MAKE) setup-platform
 	@$(MAKE) dev-migrate
 	@cd deployments/setup && ./port-forward.sh --platform --background
