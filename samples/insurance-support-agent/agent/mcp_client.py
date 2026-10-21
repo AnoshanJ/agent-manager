@@ -19,13 +19,14 @@ class AgentIDAuth(httpx.Auth):
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        self._resource = httpx.URL(cfg.insurance_mcp_url)
         self._token = ""
         self._expires_at = 0.0
         self._lock = anyio.Lock()
 
     async def async_auth_flow(self, request):
         # Do not attach bearer credentials to redirects or a different resource.
-        if str(request.url) != self.cfg.insurance_mcp_url:
+        if request.url != self._resource:
             raise RuntimeError("Unexpected MCP request URL")
         async with self._lock:
             if time.monotonic() >= self._expires_at:

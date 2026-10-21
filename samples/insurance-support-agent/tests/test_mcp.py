@@ -351,6 +351,27 @@ class MCPIntegrationTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_resource_url_comparison_is_normalized(self):
+        async def run():
+            def handle(request):
+                if request.url.path == "/token":
+                    return httpx.Response(
+                        200,
+                        json={"access_token": "t", "token_type": "Bearer", "expires_in": 60},
+                    )
+                return httpx.Response(200)
+
+            cfg = replace(self.cfg, insurance_mcp_url="https://Proxy.Example.com:443/mcp")
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handle), auth=AgentIDAuth(cfg)
+            ) as client:
+                response = await client.post("https://proxy.example.com/mcp")
+                self.assertEqual(response.status_code, 200)
+                with self.assertRaisesRegex(RuntimeError, "Unexpected MCP request URL"):
+                    await client.post("https://proxy.example.com/mcp?extra=1")
+
+        asyncio.run(run())
+
     def test_server_requires_key_at_startup(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(RuntimeError):
