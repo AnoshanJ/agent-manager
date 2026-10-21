@@ -369,7 +369,7 @@ The registry is the source of truth (`audit/actions.go`, `audit/actions_domain.g
 | `api-key:rotate` | credential | 4 critical | `expiresAt`, `gatewayConnected`, `gatewayCount`, `keyName`, `ownerName`, `ownerType` |
 | `api-key:sync` | read | 2 notice | `keyCount` |
 | `authn:failure` | authn | 3 warning | `authHeader`, `reason` |
-| `authz:deny` | authz | 3 warning | `grantedScopes`, `missingScope`, `reason` |
+| `authz:deny` | authz | 3 warning | `grantedScopes`, `imageId`, `missingScope`, `reason` |
 | `authz:root-ou-bypass` | authz | 4 critical | `rootOUBypass` |
 | `environment:read` | read | 1 info | — |
 | `gateway-token:revoke` | credential | 4 critical | `gatewayName`, `tokenId` |
@@ -1309,7 +1309,7 @@ REST edge. The internal gateway server records its own (`controllers/gateway_int
 <details>
 <summary><code>authz:deny</code> — Record · `middleware/authorization.go:51`</summary>
 
-REST scope denial. MCP denials (`mcp/tools/authz.go`) carry `tool` and no `grantedScopes`; environment-tier denials (`requireEnvTier`) carry reason `missing-environment-tier-scope`.
+REST scope denial. MCP denials (`mcp/tools/authz.go`) carry `tool` and no `grantedScopes`; environment-tier denials (`requireEnvTier`) carry reason `missing-environment-tier-scope`. Deploys of an image the agent does not own (`requireImageOwnedByAgent`) carry reason `image-not-owned-by-agent` and the rejected `imageId`.
 
 ```json
 {
