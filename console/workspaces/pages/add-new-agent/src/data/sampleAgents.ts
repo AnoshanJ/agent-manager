@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "@wso2/oxygen-ui-icons-react";
+import { getScriptRef } from "@agent-management-platform/shared-component";
 
 export interface SampleAgentEnvVar {
   key: string;
@@ -60,11 +61,15 @@ export interface SampleAgentDefinition {
 
 const AGENT_MANAGER_REPO = "https://github.com/wso2/agent-manager";
 
+// Pin samples to this console's release tag (amp/vX.Y.Z) so a released console
+// deploys the samples it shipped with; dev builds without ampVersion use main.
+const SAMPLES_REF = getScriptRef();
+
 // Shared by every sample below except where a sample's own README documents
 // a different Start Command.
 const PYTHON_SAMPLE_DEFAULTS = {
   repositoryUrl: AGENT_MANAGER_REPO,
-  branch: "main",
+  branch: SAMPLES_REF,
   language: "python",
   languageVersion: "3.11",
   runCommand: "python main.py",
@@ -91,7 +96,7 @@ export const sampleAgents: SampleAgentDefinition[] = [
     title: "Hotel Booking Agent",
     description: "AI-powered hotel booking assistant",
     icon: Hotel,
-    thirdPartyServices: ["OpenAI", "Pinecone"],
+    thirdPartyServices: ["OpenAI", "Pinecone (Hotel API)"],
     appPath: "/samples/hotel-booking-agent/agent",
     runCommand: "python -m uvicorn app:app --host 0.0.0.0 --port 8000",
     envVars: [
@@ -133,4 +138,4 @@ export const getSampleAgentById = (id: string | null): SampleAgentDefinition | u
 // (samples/<id>/README.md), regardless of where its appPath points within
 // the sample's own folder — see samples/*/README.md in this repo.
 export const getSampleReadmeUrl = (sample: SampleAgentDefinition): string =>
-  `${AGENT_MANAGER_REPO}/blob/main/samples/${sample.id}/README.md`;
+  `${AGENT_MANAGER_REPO}/blob/${SAMPLES_REF}/samples/${sample.id}/README.md`;
