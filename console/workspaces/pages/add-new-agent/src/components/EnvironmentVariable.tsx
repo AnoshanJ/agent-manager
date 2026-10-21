@@ -126,9 +126,10 @@ export const EnvironmentVariable = ({
                 : undefined;
             // A kind-declared secret with a default (isKindSecret) is intentionally
             // left blank to inherit that default server-side — not a missing value.
-            const valueError = showMissingValueError && item.key && !item.value?.trim() && !isKindSecret
-              ? "Value is required"
-              : undefined;
+            const valueError =
+              showMissingValueError && item.key && !item.value?.trim() && !isKindSecret
+                ? "Value is required"
+                : undefined;
             return (
               <EnvVariableEditor
                 key={`env-${resetKey}-${index}`}

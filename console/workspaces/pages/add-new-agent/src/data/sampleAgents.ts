@@ -16,8 +16,13 @@
  * under the License.
  */
 
-import type { LucideIcon } from "@wso2/oxygen-ui-icons-react";
-import { Plane, Hotel, Headset, ShieldCheck } from "@wso2/oxygen-ui-icons-react";
+import {
+  Plane,
+  Hotel,
+  Headset,
+  ShieldCheck,
+  type LucideIcon,
+} from "@wso2/oxygen-ui-icons-react";
 
 export interface SampleAgentEnvVar {
   key: string;

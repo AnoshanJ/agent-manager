@@ -90,7 +90,12 @@ export const AddNewAgent: React.FC = () => {
 
   return (
     <Routes>
-      <Route index element={<NewAgentOptions onSelect={handleSelect} onSelectSample={handleSampleSelect} />} />
+      <Route
+        index
+        element={
+          <NewAgentOptions onSelect={handleSelect} onSelectSample={handleSampleSelect} />
+        }
+      />
         <Route
           path={
             relativeRouteMap.children.org.children.projects.children.newAgent

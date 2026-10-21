@@ -43,9 +43,15 @@ import {
   hasUnresolvedMCPSecurity,
   mcpEntryVarNames,
 } from "../utils/mcpEnvVarNames";
-import { getSampleAgentById, getSampleReadmeUrl, type SampleAgentDefinition } from "../data/sampleAgents";
+import {
+  getSampleAgentById,
+  getSampleReadmeUrl,
+  type SampleAgentDefinition,
+} from "../data/sampleAgents";
 
-const buildInitialFormValues = (sample: SampleAgentDefinition | undefined): CreateAgentFormValues => {
+const buildInitialFormValues = (
+  sample: SampleAgentDefinition | undefined,
+): CreateAgentFormValues => {
   const defaults: CreateAgentFormValues = {
     deploymentType: "new" as const,
     enableAutoInstrumentation: true,
