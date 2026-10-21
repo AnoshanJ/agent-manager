@@ -482,6 +482,10 @@ create_plane_cert_resources() {
 # output and fails if any failed. run_parallel_tasks is the common case of
 # forking several and collecting at once. Forking one, doing other work in the
 # foreground, then collecting is the same two calls spread apart.
+#
+# While tasks are outstanding the script's EXIT trap belongs to abandon_tasks,
+# so a script that fails before collecting stops the tasks (and everything they
+# forked) instead of leaving them running, and removes their log files.
 TASK_NAMES=()
 TASK_PIDS=()
 TASK_LOGS=()
@@ -498,10 +502,34 @@ start_task() {
     TASK_NAMES+=("$name")
     TASK_PIDS+=("$!")
     TASK_LOGS+=("$log_file")
+    trap abandon_tasks EXIT
     echo "   Started: $name (PID: $!)"
 }
 
+kill_process_tree() {
+    local pid="$1"
+    local child
+    for child in $(pgrep -P "$pid" 2>/dev/null); do
+        kill_process_tree "$child"
+    done
+    kill "$pid" 2>/dev/null || true
+}
+
+abandon_tasks() {
+    local i
+    for i in "${!TASK_PIDS[@]}"; do
+        echo "⚠️  Stopping unfinished background task: ${TASK_NAMES[$i]} (PID: ${TASK_PIDS[$i]})" >&2
+        kill_process_tree "${TASK_PIDS[$i]}"
+        wait "${TASK_PIDS[$i]}" 2>/dev/null || true
+        rm -f "${TASK_LOGS[$i]}"
+    done
+    TASK_NAMES=()
+    TASK_PIDS=()
+    TASK_LOGS=()
+}
+
 collect_tasks() {
+    trap - EXIT
     local failed=0
     local i status
     for i in "${!TASK_PIDS[@]}"; do
@@ -649,7 +677,8 @@ restart_crashlooping_pods() {
         | awk -F'\t' '$2 ~ /CrashLoopBackOff/ {print $1}' \
         | while read -r pod; do
             echo "   ↻ Restarting $pod (CrashLoopBackOff)"
-            kubectl delete pod "$pod" -n "$ns" --force --grace-period=0 --wait=false 2>/dev/null
+            kubectl delete pod "$pod" -n "$ns" --force --grace-period=0 --wait=false 2>/dev/null \
+                || echo "❌ Failed to delete $pod in $ns; it stays in CrashLoopBackOff until the kubelet retries" >&2
         done || true
 }
 
