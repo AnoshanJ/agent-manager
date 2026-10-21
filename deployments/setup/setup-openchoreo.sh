@@ -257,7 +257,8 @@ install_logs_module() {
       --namespace openchoreo-observability-plane \
       --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
       --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
-      --set adapter.openSearchSecretName="opensearch-admin-credentials"
+      --set adapter.openSearchSecretName="opensearch-admin-credentials" \
+      --timeout 10m
     echo "✅ OpenSearch based logs module installed"
 
     # Enable logs collection in the configured logs module.
@@ -276,7 +277,8 @@ install_logs_module() {
       --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
       --reuse-values \
       --set fluent-bit.enabled=true \
-      --set "fluent-bit.tolerations[0].operator=Exists"
+      --set "fluent-bit.tolerations[0].operator=Exists" \
+      --timeout 10m
     echo "✅ OpenSearch Log collection enabled"
 }
 
@@ -284,8 +286,9 @@ install_traces_module() {
     echo "Enabling opensearch based tracing module..."
     # This module reuses the OpenSearch that the logs module deploys
     # (openSearch.enabled=false). Its opensearch-setup-tracing hook polls for
-    # that OpenSearch, so the two modules can install side by side, but the
-    # poll outlasts helm's default 5m timeout when OpenSearch starts slowly.
+    # that OpenSearch, so the two modules can install side by side. Both
+    # modules get the same helm timeout so a slow OpenSearch start fails
+    # neither of them at helm's default 5m.
     helm upgrade --install observability-traces-opensearch \
     oci://ghcr.io/openchoreo/helm-charts/observability-tracing-opensearch \
         --create-namespace \
