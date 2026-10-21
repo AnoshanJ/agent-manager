@@ -55,6 +55,11 @@ export interface PrivateRepoSourceProps {
   onFieldChange: (field: keyof PrivateRepoSourceValues, value: string) => void;
   /** Current injected source binding; omitted by the built-in PAT flow. */
   sourceBinding?: GitHubAppSourceBinding;
+  /**
+   * Validation error for the source binding as a whole (any of its fields), so the
+   * component can show why submission is blocked. Undefined when the binding is valid.
+   */
+  sourceBindingError?: string;
   /** Updates the binding carried by the create request; this performs no network I/O. */
   onSourceBindingChange: (binding: GitHubAppSourceBinding | undefined) => void;
   /** Organization id (handle) for scoping repository and secret lookups. */

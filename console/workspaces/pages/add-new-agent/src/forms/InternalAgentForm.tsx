@@ -349,6 +349,7 @@ export const InternalAgentForm = ({
               }}
               onFieldChange={(field, value) => handleFieldChange(field, value)}
               sourceBinding={formData.githubApp}
+              sourceBindingError={errors.githubApp}
               onSourceBindingChange={(binding) =>
                 setFormData((previous) => ({ ...previous, githubApp: binding }))
               }

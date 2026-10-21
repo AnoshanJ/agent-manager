@@ -235,8 +235,13 @@ export function useNavigationItems(): Array<
   // gateway credentials for agent-api agents. Spread as a section only when it
   // has items, so disabling Agent ID for a non-agent-api agent leaves no empty
   // section header behind.
+  //
+  // This runs on every page the layout renders, including ones without an
+  // agent in the URL, and generatePath throws on a missing route param — so the
+  // items are built only when the org, project and agent are all present.
+  const hasAgentRoute = !!(orgId && projectId && agentId);
   const agentSecurityItems: NavigationItem[] = [
-    ...(agentIdEnabled
+    ...(agentIdEnabled && hasAgentRoute
       ? [
           {
             label: "Agent ID",
@@ -248,13 +253,13 @@ export function useNavigationItems(): Array<
             ),
             href: generatePath(agentsChildren.agentId?.path ?? "", {
               orgId,
-              projectId: projectId ?? "",
-              agentId: agentId ?? "",
+              projectId,
+              agentId,
             }),
           },
         ]
       : []),
-    ...(agent?.agentType?.type === "agent-api"
+    ...(hasAgentRoute && agent?.agentType?.type === "agent-api"
       ? [
           credentialsNavItem(pathname, {
             orgId,

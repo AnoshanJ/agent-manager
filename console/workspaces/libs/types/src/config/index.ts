@@ -147,7 +147,10 @@ export type FeatureFlags = {
   enableIdentityProviderManagedMode?: boolean;
   /**
    * When false, the Profile Settings text fields and Save Changes button are
-   * hidden/disabled, and the Change Password tab is disabled.
+   * hidden/disabled, and the Change Password tab is disabled. It also hides the
+   * organization Settings navigation (users, roles, groups) and the Profile
+   * Settings menu entry, for deployments where an external identity platform
+   * owns user and organization management.
    */
   enableProfileManagement?: boolean;
   /**
