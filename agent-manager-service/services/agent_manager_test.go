@@ -567,6 +567,7 @@ func TestDeployAgent_IdentityInjectionError_AbortsDeploy(t *testing.T) {
 		GetComponentConfigurationsFunc: func(context.Context, string, string, string, string) ([]models.EnvVars, error) {
 			return nil, nil
 		},
+		ListBuildsFunc:                  buildsProducing("registry.example.com/my-agent:v1"),
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		DeployFunc: func(context.Context, string, string, string, client.DeployRequest) error {
 			deployCalled = true
@@ -1900,6 +1901,7 @@ func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerServi
 			capturedDeployConfig = req
 			return nil
 		},
+		ListBuildsFunc:                  buildsProducing("registry.example.com/my-agent:v1"),
 		EnsureProjectReleaseBindingFunc: func(_ context.Context, _, _, _ string) error { return nil },
 		DeployFunc: func(context.Context, string, string, string, client.DeployRequest) error {
 			return nil

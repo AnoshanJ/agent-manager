@@ -32,6 +32,15 @@ import (
 	"github.com/wso2/agent-manager/agent-manager-service/utils"
 )
 
+// DeployableTestImages are the images the default mock reports as built by the
+// agent under test.
+var DeployableTestImages = []string{
+	"registry.example.com/myapp:v0.9.0",
+	"registry.example.com/myapp:v1.0.0",
+	"registry.example.com/myapp:v1.2.0",
+	"registry.example.com/a2a:v1.0.0",
+}
+
 // CreateMockOpenChoreoClient creates a mock OpenChoreo client with default behavior for testing
 func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 	return &clientmocks.OpenChoreoClientMock{
@@ -40,6 +49,15 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 		// realistic value rather than an empty string.
 		NamespaceForFunc: func(ouID string) string {
 			return config.GetConfig().OpenChoreo.DefaultNamespace
+		},
+		// DeployAgent only accepts an image the agent owns, so the agent "built"
+		// every image the API tests deploy. A test of the rejection path overrides it.
+		ListBuildsFunc: func(_ context.Context, _, _, _ string) ([]*models.BuildResponse, error) {
+			builds := make([]*models.BuildResponse, 0, len(DeployableTestImages))
+			for _, img := range DeployableTestImages {
+				builds = append(builds, &models.BuildResponse{ImageId: img})
+			}
+			return builds, nil
 		},
 		ListOrganizationsFunc: func(_ context.Context) ([]*models.OrganizationResponse, error) {
 			return []*models.OrganizationResponse{

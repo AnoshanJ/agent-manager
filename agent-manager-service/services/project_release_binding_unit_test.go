@@ -275,6 +275,7 @@ func TestDeployAgent_BindingFailureAbortsDeploy(t *testing.T) {
 			return threeEnvPipeline(), nil
 		},
 		GetEnvironmentFunc: nonProductionEnvStub(),
+		ListBuildsFunc:     buildsProducing("registry.example.com/my-agent:v1"),
 		EnsureProjectReleaseBindingFunc: func(context.Context, string, string, string) error {
 			return boom
 		},
