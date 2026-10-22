@@ -103,6 +103,7 @@ window.__RUNTIME_CONFIG__ = {
   footerLinks: {
     privacyPolicyUrl: 'https://wso2.com/agent-platform/agent-manager/',
     termsOfUseUrl: 'https://wso2.com/agent-platform/agent-manager/',
+    supportUrl: 'https://discord.com/invite/wso2',
   },
   instrumentationDocLinks: {
     manualInstrumentation: '/guides/amp-instrumentation/#manual-instrumentation',

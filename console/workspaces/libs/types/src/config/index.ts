@@ -123,6 +123,7 @@ export interface AppConfig {
   footerLinks?: {
     privacyPolicyUrl?: string;
     termsOfUseUrl?: string;
+    supportUrl?: string;
   };
   /** Documentation deep-link paths for AMP instrumentation, appended to docsUrl. */
   instrumentationDocLinks?: {
