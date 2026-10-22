@@ -1733,7 +1733,7 @@ if [[ "${SHOW_LOCALHOST_URLS:-true}" == "true" ]]; then
   # than tracked through the install. Wrappers that set SHOW_LOCALHOST_URLS=false
   # print their own reachable console URL and their own copy of this instead —
   # this localhost URL would be wrong there.
-  bash "${SCRIPT_DIR}/../scripts/print-admin-credentials.sh" \
+  bash "${DEPLOYMENTS_DIR}/scripts/print-admin-credentials.sh" \
     "http://console.amp.localhost:8080" "${THUNDER_NS}" || true
 fi
 
