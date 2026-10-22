@@ -743,6 +743,7 @@ export const InternalAgentForm = ({
             ...mcpProxies.flatMap((e, i) => mcpEntryVarNames(e, i, agentNameUpper)),
           ]);
         })()}
+        showMissingValueError={!!errors.env}
       />
       <FileMount
         formData={formData}

@@ -219,9 +219,21 @@ export const createAgentSchema = z.object({
           .max(2048, 'Environment variable value must be at most 2048 characters')
           .optional(),
         isSensitive: z.boolean().default(false),
+        // Set only by an Agent Kind's config schema (deriveCatalogEnvSeed) for a
+        // kind-declared secret that has a real default — the default itself is
+        // never sent to the client, so an empty value here means "use the kind's
+        // default", not "left blank by mistake", and must skip the check below.
+        isInherited: z.boolean().optional(),
       })
     )
-    .max(50, 'A maximum of 50 environment variables is allowed'),
+    .max(50, 'A maximum of 50 environment variables is allowed')
+    // A row with a name but no value would otherwise be silently dropped when
+    // the payload is built, deploying without a variable the user thought
+    // they'd set — surface it instead of dropping it.
+    .refine(
+      (rows) => rows.every((row) => row.isInherited || !row.key?.trim() || !!row.value?.trim()),
+      { message: 'Every environment variable with a name must also have a value' },
+    ),
   files: z
     .array(
       z.object({
