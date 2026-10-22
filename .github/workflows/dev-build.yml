@@ -30,7 +30,8 @@ jobs:
   # Pin the source commit once; every job builds that exact commit.
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     outputs:
       sha: ${{ steps.version.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
@@ -52,7 +53,8 @@ jobs:
   load-config:
     name: Load Config
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     outputs:
       images: ${{ steps.set-matrix.outputs.images }}
       charts: ${{ steps.set-matrix.outputs.charts }}
@@ -84,7 +86,8 @@ jobs:
   build-images:
     name: Build ${{ matrix.image.name }}
     needs: [prepare, load-config]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       packages: write
@@ -130,7 +133,8 @@ jobs:
   package-charts:
     name: Package ${{ matrix.chart.name }}
     needs: [prepare, load-config, build-images]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       packages: write
@@ -187,7 +191,8 @@ jobs:
   tag:
     name: Create Git Tag
     needs: [prepare, package-charts]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
     steps:

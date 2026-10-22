@@ -20,7 +20,8 @@ jobs:
   # Compute the dated version string once; all jobs consume it via needs.
   compute-version:
     name: Compute Version
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     outputs:
       dev-version: ${{ steps.version.outputs.dev-version }}
     steps:
@@ -39,7 +40,8 @@ jobs:
     # registry is GHCR. A build publishing elsewhere has nothing to clean here.
     if: ${{ vars.AMP_REGISTRY == '' || vars.AMP_REGISTRY == 'ghcr.io' }}
     needs: compute-version
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       packages: write
     strategy:
@@ -119,7 +121,8 @@ jobs:
   cleanup-git-tag:
     name: Cleanup Previous Nightly Git Tag
     needs: compute-version
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
     steps:
@@ -147,7 +150,8 @@ jobs:
   # Load release-config.json and emit job matrices (mirrors release.yml pattern).
   load-config:
     name: Load Config
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     outputs:
       images: ${{ steps.set-matrix.outputs.images }}
       charts: ${{ steps.set-matrix.outputs.charts }}
@@ -187,7 +191,8 @@ jobs:
       needs.compute-version.result == 'success' &&
       needs.load-config.result == 'success' &&
       (needs.cleanup-images.result == 'success' || needs.cleanup-images.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       packages: write
@@ -222,7 +227,8 @@ jobs:
   package-charts:
     name: Package ${{ matrix.chart.name }}
     needs: [compute-version, build-images, load-config]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       packages: write
@@ -280,7 +286,8 @@ jobs:
   update-dev-tag:
     name: Update Nightly Git Tag
     needs: [compute-version, cleanup-git-tag]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
     steps:
@@ -500,7 +507,8 @@ jobs:
   notify-google-chat:
     name: Notify Google Chat
     needs: [compute-version, e2e]
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-wso2_agent-manager-${{ github.run_id }}-${{ github.run_attempt }}
     if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
     steps:
       - name: Post failure alert
