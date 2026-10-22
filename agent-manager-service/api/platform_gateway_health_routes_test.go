@@ -69,6 +69,7 @@ func platformHealthMux(t *testing.T, total, failed, abandoned int64) *http.Serve
 	ctrl := controllers.NewGatewayController(
 		services.NewPlatformGatewayService(repo, nil),
 		&clientmocks.OpenChoreoClientMock{},
+		nil,
 	)
 
 	mux := http.NewServeMux()
