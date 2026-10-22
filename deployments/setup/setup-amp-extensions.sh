@@ -140,25 +140,6 @@ run_parallel_tasks \
 echo "✅ All AMP extensions installed successfully"
 echo ""
 
-# ============================================================================
-# Observability Extension (Agent Manager Observer)
-# ============================================================================
-echo "📦 Observability Extension (Agent Manager Observer)"
-if ! helm status wso2-amp-observability-extension -n openchoreo-observability-plane &>/dev/null; then
-    echo "Building and loading Agent Manager Observer Docker image into k3d cluster..."
-    make -C ${PROJECT_ROOT}/agent-manager-observer docker-load-k3d
-    sleep 10
-fi
-echo "   Installing/upgrading Agent Manager Observer (local dev: JWKS disabled, unverified JWT parse)..."
-helm upgrade --install wso2-amp-observability-extension ${PROJECT_ROOT}/deployments/helm-charts/wso2-amp-observability-extension \
-    --create-namespace \
-    --namespace openchoreo-observability-plane \
-    --timeout=10m \
-    --set amObserver.developmentMode=true \
-    --set amObserver.auth.isLocalDevEnv=true \
-    --set-string amObserver.auth.jwksUrl=""
-echo ""
-
 wait_for_namespace_ready amp-thunder 'Thunder Extension'
 
 # openchoreo-api caches Thunder's JWKS for an hour (openchoreo-api-config
