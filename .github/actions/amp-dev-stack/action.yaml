@@ -21,6 +21,14 @@ runs:
         curl -fsSL -o /tmp/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_amd64
         echo "b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69  /tmp/yq" | sha256sum -c -
         sudo install /tmp/yq /usr/local/bin/yq
+    # The Dockerfiles the setup chain below builds.
+    - name: Cache base images
+      uses: ./.github/actions/cache-base-images
+      with:
+        dockerfiles: |
+          agent-manager-observer/Dockerfile
+          agent-manager-service/Dockerfile.dev
+          evaluation-job/Dockerfile.dev
     - name: Bring up AMP (build-from-source)
       shell: bash
       run: |
