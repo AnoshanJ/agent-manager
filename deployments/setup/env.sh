@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Shared cluster environment variables — sourced by all scripts in this directory.
-OPENCHOREO_VERSION="1.2.0"
+OPENCHOREO_VERSION="1.2.8"
 CLUSTER_NAME="${CLUSTER_NAME:-openchoreo-local-setup}"
 CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
 
@@ -13,7 +13,7 @@ GATEWAY_IMAGE_VERSION="2026.09.24"
 GATEWAY_ENCRYPTION_SECRET_NAME="gateway-encryption-keys"
 GATEWAY_ENCRYPTION_SECRET_KEY="default-aesgcm256-v1.bin"
 
-# OpenChoreo community module versions compatible with OpenChoreo 1.2.0
+# OpenChoreo community module versions compatible with OpenChoreo 1.2.8
 OBSERVABILITY_LOGS_OPENSEARCH_VERSION="0.5.3"
 # Tracing MUST be 0.6.0: the 1.2.0 observer returns span status as an object
 # ({code,message}), but the tracing adapter 0.5.0/0.5.1 still return it as a
