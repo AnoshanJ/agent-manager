@@ -29,11 +29,20 @@ runs:
           [ -n "$dockerfile" ] || continue
           # Substitute ARG defaults, skip earlier stage names and scratch.
           awk '
+            # Replace each whole $NAME or ${NAME} reference in one pass.
+            function expand(s,   out, ref, name) {
+              while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/)) {
+                ref = substr(s, RSTART, RLENGTH)
+                name = ref; gsub(/[${}]/, "", name)
+                out = out substr(s, 1, RSTART - 1) ((name in args) ? args[name] : ref)
+                s = substr(s, RSTART + RLENGTH)
+              }
+              return out s
+            }
             toupper($1) == "ARG" { split($2, kv, "="); if (kv[2] != "") args[kv[1]] = kv[2]; next }
             toupper($1) == "FROM" {
               i = 2; if ($i ~ /^--platform=/) i++
-              image = $i
-              for (name in args) { gsub("\\$\\{" name "\\}", args[name], image); gsub("\\$" name, args[name], image) }
+              image = expand($i)
               if (tolower($(i + 1)) == "as") stages[$(i + 2)] = 1
               if (image != "scratch" && !(image in stages)) print image
             }
