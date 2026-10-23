@@ -3359,6 +3359,21 @@ func (s *agentManagerService) DeployAgent(ctx context.Context, ouID string, proj
 		return "", err
 	}
 
+	// Refuse a deploy the Component controller cannot act on. Every write below succeeds at the
+	// API regardless, and the restartedAt bump still rolls the pods, so without this the caller
+	// sees a successful deploy that silently kept running the previous image and env. Checked
+	// after the tier, so a caller without access to the target environment gets 403 rather
+	// than the component's state, and before any write.
+	if block, blockErr := s.ocClient.GetComponentReconcileBlock(ctx, ouID, agentName); blockErr != nil {
+		// Best-effort: a failed pre-flight must not block an otherwise valid deploy.
+		s.logger.Warn("deploy pre-flight: failed to read component conditions",
+			"agentName", agentName, "ouID", ouID, "error", blockErr)
+	} else if block != nil {
+		s.logger.Error("deploy rejected: component cannot be reconciled",
+			"agentName", agentName, "ouID", ouID, "reason", block.Reason, "message", block.Message)
+		return "", fmt.Errorf("%w: %s: %s", utils.ErrComponentNotReconcilable, block.Reason, block.Message)
+	}
+
 	// imageId is client-supplied and goes straight onto the Workload, so it has to
 	// be one this agent may run. Checked after the tier (an unauthorised caller
 	// learns nothing about which images exist) and before any write.
@@ -4565,6 +4580,23 @@ func (s *agentManagerService) PromoteAgent(ctx context.Context, ouID string, pro
 	targetEnv, err := s.requireEnvTier(ctx, ouID, req.TargetEnvironment)
 	if err != nil {
 		return err
+	}
+
+	// Refuse a promote the Component controller cannot act on, for the same reason DeployAgent
+	// does: PromoteComponent's writes land on the Component regardless, but no new release is
+	// cut for the target environment, so the caller sees a successful promote that changed
+	// nothing. The block is component-scoped, so a blocked component blocks every environment.
+	// Checked after the tier, so a caller without access to the target environment gets 403
+	// rather than the component's state, and before the first write.
+	if block, blockErr := s.ocClient.GetComponentReconcileBlock(ctx, ouID, agentName); blockErr != nil {
+		// Best-effort: a failed pre-flight must not block an otherwise valid promote.
+		s.logger.Warn("promote pre-flight: failed to read component conditions",
+			"agentName", agentName, "ouID", ouID, "error", blockErr)
+	} else if block != nil {
+		s.logger.Error("promote rejected: component cannot be reconciled",
+			"agentName", agentName, "ouID", ouID, "targetEnvironment", req.TargetEnvironment,
+			"reason", block.Reason, "message", block.Message)
+		return fmt.Errorf("%w: %s: %s", utils.ErrComponentNotReconcilable, block.Reason, block.Message)
 	}
 
 	// Check if a deployment is already in progress in target environment

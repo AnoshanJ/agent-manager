@@ -69,6 +69,11 @@ func newOwnershipFixture(kindName string) ownershipFixture {
 	reached := false
 	stop := errors.New("stop after ownership check")
 	oc := &clientmocks.OpenChoreoClientMock{
+		// The deploy/promote pre-flight reads the component's reconcile conditions;
+		// an unblocked component keeps this test on the path it actually covers.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: name}, nil
 		},

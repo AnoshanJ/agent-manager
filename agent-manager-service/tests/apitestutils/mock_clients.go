@@ -221,6 +221,11 @@ func CreateMockOpenChoreoClient() *clientmocks.OpenChoreoClientMock {
 		ReplaceComponentFileMountsFunc: func(ctx context.Context, namespaceName string, projectName string, componentName string, files []client.FileVar) error {
 			return nil
 		},
+		// nil means OpenChoreo can reconcile the component; deploy aborts early otherwise.
+		GetComponentReconcileBlockFunc: func(ctx context.Context, namespaceName string, componentName string) (*client.ComponentReconcileBlock, error) {
+			// A nil block is the "not blocked" signal this API defines.
+			return nil, nil
+		},
 		RemoveWorkloadEnvVarsFunc: func(ctx context.Context, namespaceName string, componentName string, envVarKeys []string) error {
 			return nil
 		},

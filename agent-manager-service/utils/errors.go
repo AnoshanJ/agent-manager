@@ -117,8 +117,15 @@ var (
 	// while a build is running. Argo Workflows resolves workflow.parameters once
 	// at WorkflowRun submission, so a config change written to the Component CR
 	// after that point is never picked up by the in-flight build. Maps to 409.
-	ErrBuildInProgress                = errors.New("a build is already in progress for this agent")
-	ErrProjectHasAssociatedAgents     = errors.New("project has associated agents")
+	ErrBuildInProgress            = errors.New("a build is already in progress for this agent")
+	ErrProjectHasAssociatedAgents = errors.New("project has associated agents")
+	// ErrComponentNotReconcilable reports that OpenChoreo cannot reconcile the agent's Component,
+	// so a deploy or promote would be silently discarded: the writes land on the Component and
+	// Workload, but no new ComponentRelease is cut, so the pods restart on the previous snapshot
+	// with the old image and env. Both operations are refused up front rather than reporting a
+	// success that did nothing. The wording says "deployed" for both, since a promote is the
+	// deploy of an existing release into the next environment.
+	ErrComponentNotReconcilable       = errors.New("agent cannot be deployed in its current state")
 	ErrMonitorNotFound                = errors.New("monitor not found")
 	ErrMonitorAlreadyExists           = errors.New("monitor already exists")
 	ErrMonitorRunNotFound             = errors.New("monitor run not found")

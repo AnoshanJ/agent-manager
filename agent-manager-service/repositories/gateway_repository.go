@@ -278,10 +278,12 @@ func (r *GatewayRepo) buildFilterQuery(filters GatewayFilterOptions) *gorm.DB {
 	return query
 }
 
-// Delete hard-deletes a gateway with organization isolation.
-// Uses Unscoped() to bypass GORM soft delete so FK ON DELETE CASCADE
-// fires and cleans up child tables (tokens, deployments, mappings).
-// API associations have no FK to gateways and must be cleaned up explicitly.
+// Delete soft-deletes a gateway with organization isolation (sets deleted_at).
+// Soft delete does not trigger FK ON DELETE CASCADE, so active tokens are
+// revoked and deployment history is removed explicitly here; other child tables
+// (environment mappings, identity providers) are left in place and must be
+// filtered by gateways.deleted_at at the read site. API associations have no FK
+// to gateways and must be cleaned up explicitly regardless of delete mode.
 func (r *GatewayRepo) Delete(gatewayID, ouID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("resource_uuid = ? AND association_type = ? AND ou_id = ?",
@@ -290,13 +292,30 @@ func (r *GatewayRepo) Delete(gatewayID, ouID string) error {
 			return err
 		}
 
-		result := tx.Unscoped().Where("uuid = ? AND ou_id = ?", gatewayID, ouID).
+		result := tx.Where("uuid = ? AND ou_id = ?", gatewayID, ouID).
 			Delete(&models.Gateway{})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
 			return utils.ErrGatewayNotFound
+		}
+
+		if err := tx.Model(&models.GatewayToken{}).
+			Where("gateway_uuid = ? AND status = ?", gatewayID, "active").
+			Updates(map[string]interface{}{
+				"status":     "revoked",
+				"revoked_at": time.Now(),
+			}).Error; err != nil {
+			return err
+		}
+
+		// DeleteGateway refuses a gateway that still has deployment_status rows, so
+		// only archived history is left. Without the cascade it would keep listing
+		// as ARCHIVED deployments on a gateway that no longer exists.
+		if err := tx.Where("gateway_uuid = ? AND ou_id = ?", gatewayID, ouID).
+			Delete(&models.Deployment{}).Error; err != nil {
+			return err
 		}
 
 		return nil
@@ -581,6 +600,7 @@ func (r *GatewayRepo) ListIdentityProvidersByGateway(gatewayID string) ([]models
 func (r *GatewayRepo) ListIdentityProvidersByEnvironment(environmentID string) ([]models.GatewayIdentityProvider, error) {
 	var rows []models.GatewayIdentityProvider
 	err := r.db.
+		Joins("JOIN gateways ON gateways.uuid = gateway_identity_providers.gateway_uuid AND gateways.deleted_at IS NULL").
 		Joins("JOIN gateway_environment_mappings ON gateway_environment_mappings.gateway_uuid = gateway_identity_providers.gateway_uuid").
 		Where("gateway_environment_mappings.environment_uuid = ? AND gateway_identity_providers.name <> ?", environmentID, models.ReservedIdentityProviderName).
 		Order("gateway_identity_providers.name ASC").
@@ -609,7 +629,7 @@ func (r *GatewayRepo) ListIdentityProvidersByOrg(ouID string) ([]IdentityProvide
 	var results []IdentityProviderWithContext
 	err := r.db.Table("gateway_identity_providers").
 		Select("gateway_identity_providers.*, gateways.name AS gateway_name, gateway_environment_mappings.environment_uuid::text AS environment_uuid").
-		Joins("JOIN gateways ON gateways.uuid = gateway_identity_providers.gateway_uuid").
+		Joins("JOIN gateways ON gateways.uuid = gateway_identity_providers.gateway_uuid AND gateways.deleted_at IS NULL").
 		Joins("LEFT JOIN gateway_environment_mappings ON gateway_environment_mappings.gateway_uuid = gateway_identity_providers.gateway_uuid").
 		Where("gateways.ou_id = ? AND gateway_identity_providers.name <> ?", ouID, models.ReservedIdentityProviderName).
 		Order("gateway_identity_providers.name ASC").
