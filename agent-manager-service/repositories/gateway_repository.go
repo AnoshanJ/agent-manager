@@ -280,10 +280,10 @@ func (r *GatewayRepo) buildFilterQuery(filters GatewayFilterOptions) *gorm.DB {
 
 // Delete soft-deletes a gateway with organization isolation (sets deleted_at).
 // Soft delete does not trigger FK ON DELETE CASCADE, so active tokens are
-// revoked explicitly here; other child tables (environment mappings, identity
-// providers) are left in place and must be filtered by gateways.deleted_at at
-// the read site. API associations have no FK to gateways and must be cleaned
-// up explicitly regardless of delete mode.
+// revoked and deployment history is removed explicitly here; other child tables
+// (environment mappings, identity providers) are left in place and must be
+// filtered by gateways.deleted_at at the read site. API associations have no FK
+// to gateways and must be cleaned up explicitly regardless of delete mode.
 func (r *GatewayRepo) Delete(gatewayID, ouID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("resource_uuid = ? AND association_type = ? AND ou_id = ?",
@@ -307,6 +307,14 @@ func (r *GatewayRepo) Delete(gatewayID, ouID string) error {
 				"status":     "revoked",
 				"revoked_at": time.Now(),
 			}).Error; err != nil {
+			return err
+		}
+
+		// DeleteGateway refuses a gateway that still has deployment_status rows, so
+		// only archived history is left. Without the cascade it would keep listing
+		// as ARCHIVED deployments on a gateway that no longer exists.
+		if err := tx.Where("gateway_uuid = ? AND ou_id = ?", gatewayID, ouID).
+			Delete(&models.Deployment{}).Error; err != nil {
 			return err
 		}
 
@@ -592,6 +600,7 @@ func (r *GatewayRepo) ListIdentityProvidersByGateway(gatewayID string) ([]models
 func (r *GatewayRepo) ListIdentityProvidersByEnvironment(environmentID string) ([]models.GatewayIdentityProvider, error) {
 	var rows []models.GatewayIdentityProvider
 	err := r.db.
+		Joins("JOIN gateways ON gateways.uuid = gateway_identity_providers.gateway_uuid AND gateways.deleted_at IS NULL").
 		Joins("JOIN gateway_environment_mappings ON gateway_environment_mappings.gateway_uuid = gateway_identity_providers.gateway_uuid").
 		Where("gateway_environment_mappings.environment_uuid = ? AND gateway_identity_providers.name <> ?", environmentID, models.ReservedIdentityProviderName).
 		Order("gateway_identity_providers.name ASC").
