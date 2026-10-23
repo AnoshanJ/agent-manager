@@ -17,7 +17,7 @@ set -euo pipefail
 # Configuration
 CLUSTER_NAME="amp-local"
 CLUSTER_CONTEXT="k3d-${CLUSTER_NAME}"
-OPENCHOREO_VERSION="1.2.0"
+OPENCHOREO_VERSION="1.2.8"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K3D_CONFIG="${K3D_CONFIG:-${SCRIPT_DIR}/k3d-config.yaml}"
 
