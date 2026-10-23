@@ -1078,31 +1078,6 @@ func TestPromoteAgent_ReconcileLookupFails_PromotesAnyway(t *testing.T) {
 	assert.True(t, *promoteCalled)
 }
 
-// The block is checked before the pipeline is fetched, so a blocked component is rejected
-// for the reason that actually applies rather than failing later on unrelated validation.
-func TestPromoteAgent_ReconcileBlockCheckedBeforePipelineLookup(t *testing.T) {
-	s, _ := promoteAgentTestFixture(t, []client.EnvVar{{Key: "AMP_AGENTID_CLIENT_ID", Value: "staging-client-id"}}, nil)
-	ocMock, ok := s.ocClient.(*clientmocks.OpenChoreoClientMock)
-	require.True(t, ok)
-	ocMock.GetComponentReconcileBlockFunc = func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
-		return &client.ComponentReconcileBlock{Reason: "WorkloadInvalid", Message: "bad workload"}, nil
-	}
-	pipelineCalled := false
-	ocMock.GetProjectDeploymentPipelineFunc = func(_ context.Context, _, _ string) (*models.DeploymentPipelineResponse, error) {
-		pipelineCalled = true
-		return nil, errors.New("pipeline lookup must not be reached")
-	}
-
-	err := s.PromoteAgent(tierGrantedCtx(t), "acme", "proj1", "my-agent", &spec.PromoteAgentRequest{
-		SourceEnvironment: "dev",
-		TargetEnvironment: "staging",
-	})
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, utils.ErrComponentNotReconcilable)
-	assert.False(t, pipelineCalled)
-}
-
 // The block reports what was actually checked — that the configuration has no
 // MCP server bound in the target — rather than asserting the server has no
 // endpoint there. Only the absent mapping row is observed; the server may well

@@ -168,3 +168,43 @@ func TestUpdateAgentDeploymentState_TiersAgainstTheRequestedEnvironment(t *testi
 	require.ErrorIs(t, err, utils.ErrForbidden)
 	require.Equal(t, tierProdEnv, *checked)
 }
+
+// blockComponent makes the reconcile pre-flight report the component as blocked.
+func blockComponent(svc *agentManagerService) {
+	svc.ocClient.(*clientmocks.OpenChoreoClientMock).GetComponentReconcileBlockFunc = func(context.Context, string, string) (*client.ComponentReconcileBlock, error) {
+		return &client.ComponentReconcileBlock{Reason: "InvalidConfiguration", Message: "trait not allowed"}, nil
+	}
+}
+
+// The reconcile pre-flight reports OpenChoreo's reason and message, so it must not run
+// for a caller the tier refuses: they get 403, not the component's state.
+func TestDeployAgent_TierDenialHidesComponentReconcileState(t *testing.T) {
+	svc, _ := wiringService(map[string]bool{"dev": true})
+	blockComponent(svc)
+
+	_, err := svc.DeployAgent(tierCtx(t, rbac.AgentEnvNonProduction), tierOUID, wiringProject, wiringAgent,
+		&spec.DeployAgentRequest{ImageId: "img:1"})
+	require.ErrorIs(t, err, utils.ErrForbidden)
+	require.NotErrorIs(t, err, utils.ErrComponentNotReconcilable)
+}
+
+func TestPromoteAgent_TierDenialHidesComponentReconcileState(t *testing.T) {
+	svc, _ := wiringService(map[string]bool{tierProdEnv: true})
+	blockComponent(svc)
+
+	err := svc.PromoteAgent(tierCtx(t, rbac.AgentEnvNonProduction), tierOUID, wiringProject, wiringAgent,
+		&spec.PromoteAgentRequest{SourceEnvironment: "staging", TargetEnvironment: tierProdEnv})
+	require.ErrorIs(t, err, utils.ErrForbidden)
+	require.NotErrorIs(t, err, utils.ErrComponentNotReconcilable)
+}
+
+// Once the tier allows it, a blocked component is refused before the first write:
+// reaching the release-binding call would surface as errStopAfterTier instead.
+func TestPromoteAgent_ReconcileBlockRefusedBeforeFirstWrite(t *testing.T) {
+	svc, _ := wiringService(map[string]bool{"staging": false})
+	blockComponent(svc)
+
+	err := svc.PromoteAgent(tierCtx(t, rbac.AgentEnvNonProduction), tierOUID, wiringProject, wiringAgent,
+		&spec.PromoteAgentRequest{SourceEnvironment: "dev", TargetEnvironment: "staging"})
+	require.ErrorIs(t, err, utils.ErrComponentNotReconcilable)
+}
