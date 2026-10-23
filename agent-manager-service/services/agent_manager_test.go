@@ -552,6 +552,11 @@ func TestDeployAgent_IdentityInjectionError_AbortsDeploy(t *testing.T) {
 	boom := errors.New("secret backend unavailable")
 	deployCalled := false
 	ocClient := &clientmocks.OpenChoreoClientMock{
+		// The deploy/promote pre-flight reads the component's reconcile conditions;
+		// an unblocked component keeps this test on the path it actually covers.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		GetEnvironmentFunc: nonProductionEnvStub(),
 		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: name}, nil
@@ -2060,6 +2065,11 @@ func TestResolveResilienceTimeoutSeconds(t *testing.T) {
 func deployAPIAgentMocks(existingConfig *models.AgentConfig) (*agentManagerService, *client.ComponentDeploymentConfigRequest) {
 	var capturedDeployConfig client.ComponentDeploymentConfigRequest
 	ocClient := &clientmocks.OpenChoreoClientMock{
+		// The deploy/promote pre-flight reads the component's reconcile conditions;
+		// an unblocked component keeps this test on the path it actually covers.
+		GetComponentReconcileBlockFunc: func(_ context.Context, _, _ string) (*client.ComponentReconcileBlock, error) {
+			return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked"
+		},
 		GetOrganizationFunc: func(_ context.Context, name string) (*models.OrganizationResponse, error) {
 			return &models.OrganizationResponse{Name: name}, nil
 		},

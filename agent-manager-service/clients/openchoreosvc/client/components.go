@@ -660,7 +660,7 @@ func (c *openChoreoClient) GetComponentReconcileBlock(ctx context.Context, ouID,
 		})
 	}
 	if resp.JSON200 == nil || resp.JSON200.Status == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // documented contract: a nil block means "not blocked", not an error
 	}
 	return reconcileBlockFromConditions(resp.JSON200.Status.Conditions), nil
 }
