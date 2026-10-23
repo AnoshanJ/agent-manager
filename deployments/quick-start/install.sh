@@ -37,7 +37,7 @@ else
 fi
 
 # WSO2 API Platform / Gateway Operator versions
-GATEWAY_OPERATOR_VERSION="0.11.0"
+GATEWAY_OPERATOR_VERSION="0.11.3"
 # gateway-controller/gateway-runtime 1.1.x reject every RestApi/LlmProvider
 # deployment with a bare 404 despite correctly-configured basic auth (confirmed
 # via a live tcpdump of the operator's request — same 404 across 1.1.0 and
