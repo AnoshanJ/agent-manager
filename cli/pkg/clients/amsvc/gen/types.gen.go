@@ -2511,7 +2511,7 @@ type CreateGroupRequest struct {
 
 // CreateLLMAPIKeyRequest defines model for CreateLLMAPIKeyRequest.
 type CreateLLMAPIKeyRequest struct {
-	// DisplayName Human-readable display name for the API key.
+	// DisplayName Human-readable display name for the API key. When name is omitted, the name generated from it (lowercase letters, digits and hyphens) must be at least 3 characters long.
 	DisplayName *string `json:"displayName,omitempty"`
 
 	// ExpiresAt Optional expiration time in ISO 8601 format (e.g. 2026-12-31T23:59:59Z).
