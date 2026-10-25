@@ -66,6 +66,7 @@ for filename in (
 ):
     role = yaml.safe_load(data[filename])
     ids = {entry["resourceServerId"] for entry in role["permissions"]}
+    assert all(isinstance(i, str) for i in ids), ids
     assert "amp-resource-server" in ids
     assert "amp-agent-manager-mcp-resource-srv" in ids
     assert "amp-observer-mcp-resource-server" in ids
