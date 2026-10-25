@@ -67,7 +67,7 @@ const MIN_API_KEY_NAME_LENGTH = 3;
  */
 function toAPIKeyName(displayName: string): string {
   return displayName
-    .toLowerCase()
+    .replace(/[A-Z]/g, (c) => c.toLowerCase())
     .replace(/[ _-]/g, "-")
     .replace(/[^a-z0-9-]/g, "")
     .replace(/^-+|-+$/g, "");

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -66,7 +67,7 @@ func (b *apiKeyBroadcaster) broadcastCreateToGateways(gateways []*models.Gateway
 			return nil, fmt.Errorf("failed to generate API key name: %w", err)
 		}
 	}
-	if len(keyName) < models.MinAPIKeyNameLength {
+	if utf8.RuneCountInString(keyName) < models.MinAPIKeyNameLength {
 		return nil, fmt.Errorf("%w: API key name %q must be at least %d characters",
 			utils.ErrBadRequest, keyName, models.MinAPIKeyNameLength)
 	}
