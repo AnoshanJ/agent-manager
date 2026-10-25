@@ -11647,10 +11647,11 @@ components:
       properties:
         name:
           type: string
+          minLength: 3
           description: Unique identifier for the API key. If omitted, generated from displayName.
         displayName:
           type: string
-          description: Human-readable display name for the API key.
+          description: Human-readable display name for the API key. When name is omitted, the name generated from it (lowercase letters, digits and hyphens) must be at least 3 characters long.
         expiresAt:
           type: string
           description: Optional expiration time in ISO 8601 format (e.g. 2026-12-31T23:59:59Z).
