@@ -30,7 +30,7 @@ func Test_NewCardCmd_registersSubcommands(t *testing.T) {
 	if cmd.Use != "card" {
 		t.Errorf("Use = %q, want card", cmd.Use)
 	}
-	want := map[string]bool{"set": false, "refresh": false}
+	want := map[string]bool{"set": false, "refresh": false, "get": false}
 	for _, c := range cmd.Commands() {
 		if _, ok := want[c.Name()]; ok {
 			want[c.Name()] = true

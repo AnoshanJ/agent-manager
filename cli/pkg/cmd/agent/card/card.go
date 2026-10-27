@@ -31,5 +31,23 @@ func NewCardCmd(f *cmdutil.Factory) *cobra.Command {
 	}
 	cmd.AddCommand(NewSetCmd(f))
 	cmd.AddCommand(NewRefreshCmd(f))
+	cmd.AddCommand(NewGetCmd(f))
 	return cmd
+}
+
+// completeAgentArg completes the optional agent positional with the project's agents.
+func completeAgentArg(f *cmdutil.Factory) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return cmdutil.CompleteAgents(cmd, f), cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func validateTarget(agent, env string) error {
+	if err := cmdutil.ValidatePathParam("agent name", agent); err != nil {
+		return err
+	}
+	return cmdutil.ValidatePathParam("environment", env)
 }

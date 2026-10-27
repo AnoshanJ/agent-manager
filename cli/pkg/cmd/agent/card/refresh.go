@@ -86,15 +86,6 @@ func NewRefreshCmd(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
-func completeAgentArg(f *cmdutil.Factory) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return cmdutil.CompleteAgents(cmd, f), cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
 func runRefresh(ctx context.Context, o *RefreshOptions) error {
 	if err := validateTarget(o.AgentName, o.Env); err != nil {
 		return render.Error(o.IO, o.Scope, err)
@@ -119,11 +110,4 @@ func runRefresh(ctx context.Context, o *RefreshOptions) error {
 	fmt.Fprintf(o.IO.ErrOut, "%s Card refresh queued for %s\n", cs.SuccessIcon(), o.Env)
 	fmt.Fprintf(o.IO.ErrOut, "  Check it with: amctl agent card get %s --env %s\n", o.AgentName, o.Env)
 	return nil
-}
-
-func validateTarget(agent, env string) error {
-	if err := cmdutil.ValidatePathParam("agent name", agent); err != nil {
-		return err
-	}
-	return cmdutil.ValidatePathParam("environment", env)
 }
