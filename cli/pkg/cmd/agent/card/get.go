@@ -58,8 +58,9 @@ type GetOptions struct {
 
 // CardStatus is the --json payload of card get.
 type CardStatus struct {
-	Card  *amsvc.AgentCardResponse `json:"card"`  // nil when no card row exists
-	Proxy *amsvc.A2AProxyResponse  `json:"proxy"` // nil when direct or internal
+	Card           *amsvc.AgentCardResponse `json:"card"`                     // nil when no card row exists
+	Proxy          *amsvc.A2AProxyResponse  `json:"proxy"`                    // nil when direct, internal or unknown
+	RoutingUnknown bool                     `json:"routingUnknown,omitempty"` // caller may not read the routing
 }
 
 // NewGetCmd returns the "agent card get" command.
@@ -125,9 +126,11 @@ func runGet(ctx context.Context, o *GetOptions) error {
 
 	var status CardStatus
 	if external {
-		if status.Proxy, err = fetchProxy(ctx, client, o); err != nil {
+		if status.Proxy, status.RoutingUnknown, err = fetchProxy(ctx, client, o); err != nil {
 			return render.Error(o.IO, o.Scope, err)
 		}
+	} else if err := requireEnvironment(ctx, client, o); err != nil {
+		return render.Error(o.IO, o.Scope, err)
 	}
 	if status.Card, err = fetchCard(ctx, client, o); err != nil {
 		return render.Error(o.IO, o.Scope, err)
@@ -140,20 +143,34 @@ func runGet(ctx context.Context, o *GetOptions) error {
 	return nil
 }
 
-// fetchProxy returns nil when the environment has no proxy (a direct agent).
-func fetchProxy(ctx context.Context, client *amsvc.ClientWithResponses, o *GetOptions) (*amsvc.A2AProxyResponse, error) {
+// fetchProxy returns nil when the environment is direct, and unknown when the caller lacks the environment scope.
+func fetchProxy(ctx context.Context, client *amsvc.ClientWithResponses, o *GetOptions) (proxy *amsvc.A2AProxyResponse, unknown bool, err error) {
 	resp, err := client.GetA2AProxyWithResponse(ctx, o.Org, o.Proj, o.AgentName, o.Env)
 	if err != nil {
-		return nil, clierr.Newf(clierr.Transport, "%v", err)
+		return nil, false, clierr.Newf(clierr.Transport, "%v", err)
 	}
 	switch {
 	case resp.JSON200 != nil:
-		return resp.JSON200, nil
+		return resp.JSON200, false, nil
+	case resp.StatusCode() == http.StatusForbidden:
+		return nil, true, nil
 	case resp.StatusCode() == http.StatusNotFound && (resp.JSON404 == nil || resp.JSON404.Code != envNotFoundCode):
-		return nil, nil
+		return nil, false, nil
 	}
-	return nil, cmdutil.ErrorFromServer(resp.HTTPResponse,
+	return nil, false, cmdutil.ErrorFromServer(resp.HTTPResponse,
 		cmdutil.FirstNonNil(resp.JSON401, resp.JSON404, resp.JSON500))
+}
+
+// requireEnvironment fails on an unknown environment, which the card read alone reports as "no card yet".
+func requireEnvironment(ctx context.Context, client *amsvc.ClientWithResponses, o *GetOptions) error {
+	resp, err := client.GetEnvironmentWithResponse(ctx, o.Org, o.Env)
+	if err != nil {
+		return clierr.Newf(clierr.Transport, "%v", err)
+	}
+	if resp.StatusCode() != http.StatusNotFound {
+		return nil // a forbidden lookup can't prove the env is missing, so the card read decides
+	}
+	return cmdutil.ErrorFromServer(resp.HTTPResponse, resp.JSON404)
 }
 
 // fetchCard returns nil when no card row exists.
@@ -176,7 +193,7 @@ func printCardStatus(ios *iostreams.IOStreams, o *GetOptions, external bool, s C
 	w := ios.Out
 	fmt.Fprintf(w, "Environment: %s\n", o.Env)
 	if external {
-		printRouting(w, s.Proxy)
+		printRouting(w, s.Proxy, s.RoutingUnknown)
 	}
 	if s.Card == nil {
 		if external {
@@ -198,7 +215,11 @@ func printCardStatus(ios *iostreams.IOStreams, o *GetOptions, external bool, s C
 	fmt.Fprintf(w, "Card: %s\n", cardSummary(s.Card.Card))
 }
 
-func printRouting(w io.Writer, proxy *amsvc.A2AProxyResponse) {
+func printRouting(w io.Writer, proxy *amsvc.A2AProxyResponse, unknown bool) {
+	if unknown {
+		fmt.Fprintln(w, "Routing: unknown (no permission to read gateway routing in this environment)")
+		return
+	}
 	if proxy == nil {
 		fmt.Fprintf(w, "Routing: %s\n", a2acard.RoutingDirect)
 		return

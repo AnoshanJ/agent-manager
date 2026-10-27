@@ -50,7 +50,7 @@ type SourceResult struct {
 // CheckProxyableURL refuses, before anything is saved, a URL the server's proxy step would refuse.
 func CheckProxyableURL(flag, raw string) error {
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return cmdutil.FlagErrorf("%s must be an http(s) URL", flag)
 	}
 	if u.RawQuery != "" || u.Fragment != "" || strings.Contains(raw, "?") || strings.Contains(raw, "#") {
