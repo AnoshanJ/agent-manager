@@ -1227,14 +1227,22 @@ else
 fi
 
 log_info "Installing OpenChoreo Observability Plane..."
-helm_install_idempotent \
-    "openchoreo-observability-plane" \
-    "oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane" \
-    "${OBSERVABILITY_NS}" \
-    "${TIMEOUT_OBSERVABILITY_PLANE}" \
+# upgrade --install, not helm_install_idempotent: a re-run must apply the
+# current values-op.yaml (the TLS passthrough listener Fluent Bit ships through
+# and the NetworkPolicy exemptions), not skip an existing release.
+if helm upgrade --install openchoreo-observability-plane \
+    oci://ghcr.io/openchoreo/helm-charts/openchoreo-observability-plane \
+    --namespace "${OBSERVABILITY_NS}" \
+    --create-namespace \
+    --timeout "${TIMEOUT_OBSERVABILITY_PLANE}s" \
     --version "${OPENCHOREO_VERSION}" \
     --set observer.extraEnv.AUTH_SERVER_BASE_URL=http://thunder-service.openchoreo-control-plane.svc.cluster.local:8090 \
-    --values "${DEPLOYMENTS_DIR}/single-cluster/values-op.yaml"
+    --values "${DEPLOYMENTS_DIR}/single-cluster/values-op.yaml"; then
+    log_success "openchoreo-observability-plane installed successfully"
+else
+    log_error "Failed to install openchoreo-observability-plane"
+    exit 1
+fi
 
 # Install Observability Modules
 log_info "Installing Observability Modules..."
@@ -1318,19 +1326,28 @@ if helm upgrade --install observability-logs-opensearch \
     --set adapter.openSearchSecretName="opensearch-admin-credentials" \
     --timeout 10m; then
     log_success "observability-logs-opensearch installed successfully"
+    LOGS_MODULE_INSTALLED=true
 else
     log_error "Failed to install observability-logs-opensearch (non-fatal)"
+    LOGS_MODULE_INSTALLED=false
 fi
 
-# Enable log collection with fluent-bit
-log_info "Enabling log collection with fluent-bit..."
-if helm upgrade observability-logs-opensearch \
+# Enable log collection with fluent-bit — only once the logs module is in.
+if [ "${LOGS_MODULE_INSTALLED}" != "true" ]; then
+    log_error "Skipping log collection: the logs module did not install (non-fatal)"
+elif log_info "Enabling log collection with fluent-bit..." \
+    && kubectl apply -f "${DEPLOYMENTS_DIR}/values/opensearch-tls-route.yaml" \
+    && helm upgrade observability-logs-opensearch \
     oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
     --namespace openchoreo-observability-plane \
     --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
     --reuse-values \
+    --values "${DEPLOYMENTS_DIR}/values/observability-logs-opensearch.yaml" \
     --set fluent-bit.enabled=true \
-    --timeout 10m; then
+    --timeout 10m \
+    && kubectl rollout restart daemonset/fluent-bit -n openchoreo-observability-plane; then
+    # The restart: the chart's checksum/config annotation hashes an empty
+    # string, so a changed Fluent Bit config never rolls the pods on its own.
     log_success "Log collection enabled with fluent-bit"
 else
     log_error "Failed to enable log collection (non-fatal)"
