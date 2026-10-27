@@ -50,6 +50,12 @@ const (
 	writeAheadUpsertRetryDelay = 100 * time.Millisecond
 )
 
+// awaitEnvProvisionTimeout caps how long ProvisionForAgent holds its caller
+// (agent creation) waiting for the awaitEnv attempt. A healthy attempt takes
+// well under a second, but each Thunder call may take up to 30s, so a slow
+// Thunder must not hold the create request near the server's write timeout.
+const awaitEnvProvisionTimeout = 10 * time.Second
+
 // provisionRetryDelay is the flat delay before every retry (no escalation to
 // longer delays; a real outage is retried just as promptly on attempt 4 as
 // attempt 1, since env-Thunder recovering doesn't get less likely over
@@ -81,10 +87,18 @@ const provisionRetryDelay = 3 * time.Minute
 type AgentThunderProvisioningService interface {
 	// ProvisionForAgent writes a PENDING binding for every environment in
 	// envNames (write-ahead — Section 6.2), then attempts all of them
-	// best-effort in the background. Never blocks the caller. requestedBy is
+	// best-effort in the background. It never blocks the caller for longer
+	// than awaitEnvProvisionTimeout (see awaitEnv below). requestedBy is
 	// the calling user's own subject, captured for audit only (see
 	// models.AgentThunderClient.RequestedBy) — it is never sent to Thunder.
-	ProvisionForAgent(ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy string)
+	// When awaitEnv names one of envNames, ProvisionForAgent waits for that
+	// environment's attempt before returning (the rest stay in the
+	// background), so its credentials exist in time to go into the agent's
+	// first ReleaseBinding write instead of rolling the pod a second time
+	// later. The wait gives up after awaitEnvProvisionTimeout; the attempt
+	// itself keeps running and is never cancelled part-way. A failed or late
+	// attempt is left to the reconciler, exactly like a background one.
+	ProvisionForAgent(ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy, awaitEnv string)
 
 	// AttemptProvision performs one provisioning attempt for a single binding.
 	// Exported so the retry reconciler can call it directly for PENDING rows
@@ -220,6 +234,8 @@ type agentThunderProvisioningService struct {
 	logger             *slog.Logger
 	endpointResolver   *agentThunderEndpointResolver
 	bindingLocks       keyedMutex
+	// awaitTimeout is awaitEnvProvisionTimeout; a field so tests can shorten it.
+	awaitTimeout time.Duration
 }
 
 func (s *agentThunderProvisioningService) SetEnvThunderEndpointResolver(resolver thundersvc.EnvThunderEndpointResolver) {
@@ -431,6 +447,7 @@ func NewAgentThunderProvisioningService(
 		secretMgmtClient: secretMgmtClient,
 		workloadInjector: workloadInjector,
 		logger:           logger,
+		awaitTimeout:     awaitEnvProvisionTimeout,
 	}
 }
 
@@ -515,7 +532,7 @@ func bindingLockKey(ouID, projectName, agentName, envName string) string {
 }
 
 func (s *agentThunderProvisioningService) ProvisionForAgent(
-	ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy string,
+	ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy, awaitEnv string,
 ) {
 	bindings := make([]models.AgentThunderClient, 0, len(envNames))
 	for _, env := range envNames {
@@ -548,7 +565,40 @@ func (s *agentThunderProvisioningService) ProvisionForAgent(
 	// Detach from the request context so the background attempt survives the
 	// HTTP handler returning, mirroring the existing deleteAgentLLMConfigurations
 	// pattern in agent_manager.go.
-	go s.attemptAll(context.WithoutCancel(ctx), bindings)
+	detached := context.WithoutCancel(ctx)
+	if awaitEnv != "" {
+		background := make([]models.AgentThunderClient, 0, len(bindings))
+		for _, b := range bindings {
+			if b.EnvironmentName == awaitEnv {
+				s.awaitAttempt(detached, b)
+				continue
+			}
+			background = append(background, b)
+		}
+		bindings = background
+	}
+	go s.attemptAll(detached, bindings)
+}
+
+// awaitAttempt runs one attempt on its own goroutine and waits up to
+// s.awaitTimeout for it. Only the wait is bounded: the attempt holds a binding
+// lock and writes its outcome to the DB, so cancelling it part-way could leave
+// the binding claimed with no recorded result. On timeout it finishes in the
+// background and the reconciler injects its credentials once they exist.
+func (s *agentThunderProvisioningService) awaitAttempt(ctx context.Context, b models.AgentThunderClient) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.AttemptProvision(ctx, b)
+	}()
+	timer := time.NewTimer(s.awaitTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		s.logger.Warn("Agent thunder provisioning still running after the create wait; it continues in the background",
+			"agentName", b.AgentName, "envName", b.EnvironmentName, "timeout", s.awaitTimeout)
+	}
 }
 
 func (s *agentThunderProvisioningService) attemptAll(ctx context.Context, bindings []models.AgentThunderClient) {
@@ -568,7 +618,7 @@ func (s *agentThunderProvisioningService) ProvisionForEnvironmentIfMissing(
 		return false, fmt.Errorf("check existing agent thunder binding: %w", err)
 	}
 
-	s.ProvisionForAgent(ctx, ouID, projectName, agentName, ownership, []string{envName}, requestedBy)
+	s.ProvisionForAgent(ctx, ouID, projectName, agentName, ownership, []string{envName}, requestedBy, "")
 	return false, nil
 }
 

@@ -1797,7 +1797,11 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 		}
 	}
 
+	identityProvisioned := false
 	rollbackAgentCreate := func(reason string) {
+		if identityProvisioned {
+			go s.agentThunderProvisioning.DeleteAllBindings(context.WithoutCancel(ctx), ouID, projectName, req.Name)
+		}
 		// Best-effort cleanup of any LLM/MCP configurations created before the failure.
 		// Each per-config create rolls back only its own in-flight resources, so configs
 		// completed earlier in the loop (and their proxies/mappings/keys/secrets) would
@@ -1870,6 +1874,12 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 			s.logger.Info("Attached traits", "agentName", req.Name, "count", len(traitRequests))
 		}
 
+		// AgentID is provisioned here, ahead of the first ReleaseBinding write, so
+		// the first environment's identity env vars go into that write. Left to
+		// the reconciler, they would land a minute later and roll the pod again.
+		identityProvisioned = s.provisionAgentIdentities(ctx, ouID, projectName, req, firstEnv)
+		identityEnvVars := s.firstBindingIdentityEnvVars(ctx, ouID, projectName, req.Name, firstEnv)
+
 		if isFromKind {
 			var kindEnvVars []client.EnvVar
 			var kindFileVars []client.FileVar
@@ -1889,6 +1899,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 				rollbackAgentCreate("system env var resolution failure")
 				return envErr
 			}
+			kindEnvVars = append(kindEnvVars, identityEnvVars...)
 			kindEndpoints := inputInterfaceToEndpoints(createAgentReq.InputInterface, req.Name)
 			// Env/Files are carried to the binding below, not the Workload: a value on the
 			// Workload is inherited by every environment and a binding can replace but never
@@ -1927,7 +1938,7 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 					return fmt.Errorf("failed to persist GitHub App source binding: %w", err)
 				}
 			}
-			if err := s.triggerInitialBuild(ctx, ouID, projectName, req); err != nil {
+			if err := s.triggerInitialBuild(ctx, ouID, projectName, req, identityEnvVars); err != nil {
 				s.logger.Warn("Failed to trigger initial build for agent, build can be triggered manually", "agentName", req.Name, "error", err)
 			} else {
 				s.logger.Debug("Triggered initial build for agent", "agentName", req.Name)
@@ -1947,39 +1958,72 @@ func (s *agentManagerService) createComponentAgent(ctx context.Context, ouID, pr
 		s.enqueueCreatedA2AAgent(ctx, utils.StrPointerAsStr(req.AgentType.SubType, ""), ouID, projectName, req.Name, firstEnv, firstEnvUUID, agentAPIArtifact)
 	}
 
-	// AgentID provisioning: one Thunder identity per org-level environment (not
-	// just this project's deployment pipeline — see the AgentID architecture
-	// doc, which project-level UIs filter down to their own pipeline
-	// environments when displaying bindings). Runs after every step above has
-	// succeeded, so a Thunder hiccup never rolls back an otherwise-successful
-	// agent creation; the write-ahead + retry reconciler make it durable
-	// without needing a place in the rollback chain above. Skipped when this
-	// deployment injects no provisioning implementation.
-	if s.agentThunderProvisioning != nil {
-		if envs, envErr := s.ocClient.ListEnvironments(ctx, ouID); envErr != nil {
-			s.logger.Warn("Failed to list org environments for agent thunder provisioning", "agentName", req.Name, "error", envErr)
-		} else if len(envs) > 0 {
-			envNames := make([]string, 0, len(envs))
-			for _, e := range envs {
-				envNames = append(envNames, e.Name)
-			}
-			ownership := models.AgentProvisioningType(req.Provisioning.Type)
-			// requestedBy is captured now, synchronously, because the retry reconciler
-			// may not attempt some of these bindings until minutes or hours later, long
-			// after this request's own caller identity would otherwise be gone. It is
-			// AMS's own audit record only — never sent to Thunder (see
-			// models.AgentThunderClient.RequestedBy for why Thunder's own "owner" field
-			// cannot carry this).
-			var requestedBy string
-			if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
-				requestedBy = callerClaims.Sub
-			}
-			s.agentThunderProvisioning.ProvisionForAgent(ctx, ouID, projectName, req.Name, ownership, envNames, requestedBy)
-		}
+	// External agents have no ReleaseBinding to wait for, so their AgentID is
+	// provisioned last; internal agents were provisioned above.
+	if !isInternal {
+		s.provisionAgentIdentities(ctx, ouID, projectName, req, "")
 	}
 
 	s.logger.Info("Agent created successfully", "agentName", req.Name, "ouID", ouID, "projectName", projectName, "provisioningType", req.Provisioning.Type)
 	return nil
+}
+
+// provisionAgentIdentities starts AgentID provisioning for the agent: one Thunder
+// identity per org-level environment (not just this project's deployment
+// pipeline — see the AgentID architecture doc, which project-level UIs filter
+// down to their own pipeline environments when displaying bindings). A Thunder
+// hiccup never fails agent creation; the write-ahead + retry reconciler make it
+// durable. awaitEnv, when set, is provisioned inline (see
+// AgentThunderProvisioningService.ProvisionForAgent). Returns whether
+// provisioning was started, false when this deployment injects no provisioning
+// implementation or the environments could not be listed.
+func (s *agentManagerService) provisionAgentIdentities(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest, awaitEnv string) bool {
+	if s.agentThunderProvisioning == nil {
+		return false
+	}
+	envs, envErr := s.ocClient.ListEnvironments(ctx, ouID)
+	if envErr != nil {
+		s.logger.Warn("Failed to list org environments for agent thunder provisioning", "agentName", req.Name, "error", envErr)
+		return false
+	}
+	if len(envs) == 0 {
+		return false
+	}
+	envNames := make([]string, 0, len(envs))
+	for _, e := range envs {
+		envNames = append(envNames, e.Name)
+	}
+	ownership := models.AgentProvisioningType(req.Provisioning.Type)
+	// requestedBy is captured now, synchronously, because the retry reconciler
+	// may not attempt some of these bindings until minutes or hours later, long
+	// after this request's own caller identity would otherwise be gone. It is
+	// AMS's own audit record only — never sent to Thunder (see
+	// models.AgentThunderClient.RequestedBy for why Thunder's own "owner" field
+	// cannot carry this).
+	var requestedBy string
+	if callerClaims := jwtassertion.GetTokenClaims(ctx); callerClaims != nil {
+		requestedBy = callerClaims.Sub
+	}
+	s.agentThunderProvisioning.ProvisionForAgent(ctx, ouID, projectName, req.Name, ownership, envNames, requestedBy, awaitEnv)
+	return true
+}
+
+// firstBindingIdentityEnvVars returns the AgentID env vars for the agent's first
+// environment, to be written with its first ReleaseBinding. Best-effort: nil
+// when there is nothing to inject yet (external agent, provisioning still
+// pending or failed) or on error, in which case the reconciler injects them
+// once they are available, as it always has.
+func (s *agentManagerService) firstBindingIdentityEnvVars(ctx context.Context, ouID, projectName, agentName, envName string) []client.EnvVar {
+	if s.agentIdentityInjection == nil || envName == "" {
+		return nil
+	}
+	envVars, err := s.agentIdentityInjection.EnvVarsForEnvironment(ctx, ouID, projectName, agentName, envName)
+	if err != nil {
+		s.logger.Warn("Failed to resolve agent identity env vars for first release binding; the reconciler will inject them",
+			"agentName", agentName, "environment", envName, "error", err)
+		return nil
+	}
+	return envVars
 }
 
 // prepareBuild creates the WorkflowRun name and provisions its clone secret when the
@@ -2005,7 +2049,9 @@ func (s *agentManagerService) prepareBuild(ctx context.Context, ouID, projectNam
 	return workflowRunName, nil
 }
 
-func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest) error {
+// identityEnvVars ride on this run only, so the first ReleaseBinding the build creates
+// already carries them (see firstBindingIdentityEnvVars).
+func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, projectName string, req *spec.CreateAgentRequest, identityEnvVars []client.EnvVar) error {
 	// Get the latest commit from the repository
 	commitId := ""
 	if req.Provisioning.Repository != nil {
@@ -2027,7 +2073,7 @@ func (s *agentManagerService) triggerInitialBuild(ctx context.Context, ouID, pro
 		return fmt.Errorf("failed to prepare initial build: %w", err)
 	}
 	// Trigger build only after any deployment-specific per-run secret exists.
-	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, req.Name, commitId, workflowRunName)
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, req.Name, commitId, workflowRunName, identityEnvVars)
 	if err != nil {
 		return fmt.Errorf("failed to trigger initial build: agentName %s, error: %w", req.Name, err)
 	}
@@ -3296,7 +3342,13 @@ func (s *agentManagerService) BuildAgent(ctx context.Context, ouID string, proje
 	s.logger.Debug("Triggering build in OpenChoreo", "agentName", agentName, "ouID", ouID, "projectName", projectName, "commitId", commitId)
 	// Builds are frequent and produce no credential, so this is recorded after
 	// the fact rather than refusing the build when the trail is unavailable.
-	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId, workflowRunName)
+	// Only takes effect when this build creates the first ReleaseBinding (the
+	// initial build failed, say); otherwise the build leaves the binding's env alone.
+	var identityEnvVars []client.EnvVar
+	if pipeline, pipeErr := s.ocClient.GetProjectDeploymentPipeline(ctx, ouID, projectName); pipeErr == nil {
+		identityEnvVars = s.firstBindingIdentityEnvVars(ctx, ouID, projectName, agentName, findLowestEnvironment(pipeline.PromotionPaths))
+	}
+	build, err := s.ocClient.TriggerBuild(ctx, ouID, projectName, agentName, commitId, workflowRunName, identityEnvVars)
 	audit.Record(
 		ctx, audit.ActionAgentBuild,
 		audit.Org(ouID),

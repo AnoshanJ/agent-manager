@@ -625,7 +625,7 @@ func TestProvisionForAgent_WritesAheadPendingForEveryEnvironment(t *testing.T) {
 	repo.UpdateAfterAttemptFunc = func(_ context.Context, _ uuid.UUID, _ repositories.AgentThunderAttemptUpdate) error { return nil }
 
 	svc := newTestProvisioningService(repo, resolver, store)
-	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeInternal, []string{"dev", "staging", "prod"}, "platform-thunder-subject-abc123")
+	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeInternal, []string{"dev", "staging", "prod"}, "platform-thunder-subject-abc123", "")
 
 	require.Len(t, upserted, 3, "must write one PENDING row per environment, synchronously, before returning")
 	envs := []string{upserted[0].EnvironmentName, upserted[1].EnvironmentName, upserted[2].EnvironmentName}
@@ -635,6 +635,80 @@ func TestProvisionForAgent_WritesAheadPendingForEveryEnvironment(t *testing.T) {
 		assert.Equal(t, models.AgentProvisioningTypeInternal, u.ProvisioningType)
 		assert.Equal(t, "platform-thunder-subject-abc123", u.RequestedBy,
 			"the caller's identity must be captured on every environment's write-ahead row, for audit — never sent to Thunder itself")
+	}
+}
+
+// TestProvisionForAgent_AwaitEnvAttemptsInline guards the first-deploy single
+// rollout: the awaited environment must be attempted before ProvisionForAgent
+// returns, so its credentials can go into the agent's first ReleaseBinding.
+// staging's attempt blocks until the test ends, so "dev" can only have been
+// resolved by the awaited attempt, not by the background goroutine.
+func TestProvisionForAgent_AwaitEnvAttemptsInline(t *testing.T) {
+	var mu sync.Mutex
+	var resolvedEnvs []string
+	releaseStaging := make(chan struct{})
+	defer close(releaseStaging)
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		ClaimForAttemptFunc:    func(_ context.Context, _ uuid.UUID) (bool, error) { return true, nil },
+		UpsertFunc:             func(_ context.Context, _ *models.AgentThunderClient) error { return nil },
+		UpdateAfterAttemptFunc: func(_ context.Context, _ uuid.UUID, _ repositories.AgentThunderAttemptUpdate) error { return nil },
+	}
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, envName string) (thundersvc.ThunderClient, error) {
+			if envName == "staging" {
+				<-releaseStaging
+			}
+			mu.Lock()
+			resolvedEnvs = append(resolvedEnvs, envName)
+			mu.Unlock()
+			return nil, errors.New("unused in this test")
+		},
+	}
+	store := &clientmocks.SecretManagementClientMock{}
+
+	svc := newTestProvisioningService(repo, resolver, store)
+	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeInternal, []string{"dev", "staging"}, "", "dev")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"dev"}, resolvedEnvs,
+		"the awaited environment must finish before ProvisionForAgent returns, and the others must not be waited on")
+}
+
+// TestProvisionForAgent_AwaitEnvGivesUpAfterTimeout guards the create request
+// against a slow Thunder: ProvisionForAgent stops waiting after the timeout
+// and leaves the attempt running in the background.
+func TestProvisionForAgent_AwaitEnvGivesUpAfterTimeout(t *testing.T) {
+	releaseDev := make(chan struct{})
+	attemptFinished := make(chan struct{})
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		ClaimForAttemptFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return true, nil },
+		UpsertFunc:          func(_ context.Context, _ *models.AgentThunderClient) error { return nil },
+		UpdateAfterAttemptFunc: func(_ context.Context, _ uuid.UUID, _ repositories.AgentThunderAttemptUpdate) error {
+			close(attemptFinished)
+			return nil
+		},
+	}
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, _ string) (thundersvc.ThunderClient, error) {
+			<-releaseDev
+			return nil, errors.New("unused in this test")
+		},
+	}
+	store := &clientmocks.SecretManagementClientMock{}
+
+	svc := newTestProvisioningService(repo, resolver, store)
+	svc.(*agentThunderProvisioningService).awaitTimeout = 50 * time.Millisecond
+
+	start := time.Now()
+	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeInternal, []string{"dev"}, "", "dev")
+	assert.Less(t, time.Since(start), 5*time.Second, "ProvisionForAgent must stop waiting once the timeout passes")
+
+	close(releaseDev)
+	select {
+	case <-attemptFinished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the attempt must keep running after the wait times out and record its outcome")
 	}
 }
 
@@ -665,7 +739,7 @@ func TestProvisionForAgent_TransientUpsertBlip_RecoveredOnRetry(t *testing.T) {
 	store := &clientmocks.SecretManagementClientMock{}
 
 	svc := newTestProvisioningService(repo, resolver, store)
-	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeExternal, []string{"staging"}, "")
+	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeExternal, []string{"staging"}, "", "")
 
 	assert.Equal(t, writeAheadUpsertAttempts, attemptsForStaging,
 		"a transient Upsert failure must be retried, not silently drop the environment with no row for the reconciler to find")
