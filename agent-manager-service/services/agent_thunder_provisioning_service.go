@@ -81,7 +81,8 @@ const provisionRetryDelay = 3 * time.Minute
 type AgentThunderProvisioningService interface {
 	// ProvisionForAgent writes a PENDING binding for every environment in
 	// envNames (write-ahead — Section 6.2), then attempts all of them
-	// best-effort in the background. Never blocks the caller. requestedBy is
+	// best-effort in the background. It never blocks the caller unless
+	// awaitEnv is set (see below). requestedBy is
 	// the calling user's own subject, captured for audit only (see
 	// models.AgentThunderClient.RequestedBy) — it is never sent to Thunder.
 	// When awaitEnv names one of envNames, that environment's attempt runs
