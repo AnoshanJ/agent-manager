@@ -31,3 +31,9 @@ gateway:
   httpsPort: 11085
   tls:
     enabled: false
+networkPolicy:
+  unrestrictedIngressAppNames:
+    - gateway-default
+    - opentelemetry-collector
+    - wso2-amp-observability-extension
+    - opensearch
