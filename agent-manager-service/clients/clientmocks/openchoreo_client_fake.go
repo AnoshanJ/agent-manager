@@ -219,7 +219,7 @@ import (
 //			ReplaceReleaseBindingWorkloadOverridesFunc: func(ctx context.Context, ouID string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error {
 //				panic("mock out the ReplaceReleaseBindingWorkloadOverrides method")
 //			},
-//			TriggerBuildFunc: func(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string) (*models.BuildResponse, error) {
+//			TriggerBuildFunc: func(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string, runEnvVars []client.EnvVar) (*models.BuildResponse, error) {
 //				panic("mock out the TriggerBuild method")
 //			},
 //			UpdateComponentBasicInfoFunc: func(ctx context.Context, ouID string, projectName string, componentName string, req client.UpdateComponentBasicInfoRequest) error {
@@ -467,7 +467,7 @@ type OpenChoreoClientMock struct {
 	ReplaceReleaseBindingWorkloadOverridesFunc func(ctx context.Context, ouID string, componentName string, environment string, envOverrides []client.EnvVar, fileOverrides []client.FileVar) error
 
 	// TriggerBuildFunc mocks the TriggerBuild method.
-	TriggerBuildFunc func(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string) (*models.BuildResponse, error)
+	TriggerBuildFunc func(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string, runEnvVars []client.EnvVar) (*models.BuildResponse, error)
 
 	// UpdateComponentBasicInfoFunc mocks the UpdateComponentBasicInfo method.
 	UpdateComponentBasicInfoFunc func(ctx context.Context, ouID string, projectName string, componentName string, req client.UpdateComponentBasicInfoRequest) error
@@ -1242,6 +1242,8 @@ type OpenChoreoClientMock struct {
 			CommitID string
 			// WorkflowRunName is the workflowRunName argument value.
 			WorkflowRunName string
+			// RunEnvVars is the runEnvVars argument value.
+			RunEnvVars []client.EnvVar
 		}
 		// UpdateComponentBasicInfo holds details about calls to the UpdateComponentBasicInfo method.
 		UpdateComponentBasicInfo []struct {
@@ -4403,7 +4405,7 @@ func (mock *OpenChoreoClientMock) ReplaceReleaseBindingWorkloadOverridesCalls() 
 }
 
 // TriggerBuild calls TriggerBuildFunc.
-func (mock *OpenChoreoClientMock) TriggerBuild(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string) (*models.BuildResponse, error) {
+func (mock *OpenChoreoClientMock) TriggerBuild(ctx context.Context, ouID string, projectName string, componentName string, commitID string, workflowRunName string, runEnvVars []client.EnvVar) (*models.BuildResponse, error) {
 	if mock.TriggerBuildFunc == nil {
 		panic("OpenChoreoClientMock.TriggerBuildFunc: method is nil but OpenChoreoClient.TriggerBuild was just called")
 	}
@@ -4414,6 +4416,7 @@ func (mock *OpenChoreoClientMock) TriggerBuild(ctx context.Context, ouID string,
 		ComponentName   string
 		CommitID        string
 		WorkflowRunName string
+		RunEnvVars      []client.EnvVar
 	}{
 		Ctx:             ctx,
 		OuID:            ouID,
@@ -4421,11 +4424,12 @@ func (mock *OpenChoreoClientMock) TriggerBuild(ctx context.Context, ouID string,
 		ComponentName:   componentName,
 		CommitID:        commitID,
 		WorkflowRunName: workflowRunName,
+		RunEnvVars:      runEnvVars,
 	}
 	mock.lockTriggerBuild.Lock()
 	mock.calls.TriggerBuild = append(mock.calls.TriggerBuild, callInfo)
 	mock.lockTriggerBuild.Unlock()
-	return mock.TriggerBuildFunc(ctx, ouID, projectName, componentName, commitID, workflowRunName)
+	return mock.TriggerBuildFunc(ctx, ouID, projectName, componentName, commitID, workflowRunName, runEnvVars)
 }
 
 // TriggerBuildCalls gets all the calls that were made to TriggerBuild.
@@ -4439,6 +4443,7 @@ func (mock *OpenChoreoClientMock) TriggerBuildCalls() []struct {
 	ComponentName   string
 	CommitID        string
 	WorkflowRunName string
+	RunEnvVars      []client.EnvVar
 } {
 	var calls []struct {
 		Ctx             context.Context
@@ -4447,6 +4452,7 @@ func (mock *OpenChoreoClientMock) TriggerBuildCalls() []struct {
 		ComponentName   string
 		CommitID        string
 		WorkflowRunName string
+		RunEnvVars      []client.EnvVar
 	}
 	mock.lockTriggerBuild.RLock()
 	calls = mock.calls.TriggerBuild

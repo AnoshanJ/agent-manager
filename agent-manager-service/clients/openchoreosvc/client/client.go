@@ -122,8 +122,10 @@ type OpenChoreoClient interface {
 	// Build Operations
 	// workflowRunName may be supplied by the service when deployment-specific work must
 	// happen before the run is created. An empty value preserves the default behavior and
-	// lets the client generate the name.
-	TriggerBuild(ctx context.Context, ouID, projectName, componentName, commitID, workflowRunName string) (*models.BuildResponse, error)
+	// lets the client generate the name. runEnvVars are added to this run's environment
+	// variables only, never to the component; the build applies them only if it creates the
+	// first environment's ReleaseBinding, so they don't change a binding that already exists.
+	TriggerBuild(ctx context.Context, ouID, projectName, componentName, commitID, workflowRunName string, runEnvVars []EnvVar) (*models.BuildResponse, error)
 	GetBuild(ctx context.Context, ouID, projectName, componentName, buildName string) (*models.BuildDetailsResponse, error)
 	ListBuilds(ctx context.Context, ouID, projectName, componentName string) ([]*models.BuildResponse, error)
 	UpdateComponentBuildParameters(ctx context.Context, ouID, projectName, componentName string, req UpdateComponentBuildParametersRequest) error

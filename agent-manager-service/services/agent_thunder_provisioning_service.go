@@ -84,7 +84,12 @@ type AgentThunderProvisioningService interface {
 	// best-effort in the background. Never blocks the caller. requestedBy is
 	// the calling user's own subject, captured for audit only (see
 	// models.AgentThunderClient.RequestedBy) — it is never sent to Thunder.
-	ProvisionForAgent(ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy string)
+	// When awaitEnv names one of envNames, that environment's attempt runs
+	// inline before returning (the rest stay in the background), so its
+	// credentials exist in time to go into the agent's first ReleaseBinding
+	// write instead of rolling the pod a second time later. A failed inline
+	// attempt is left to the reconciler, exactly like a background one.
+	ProvisionForAgent(ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy, awaitEnv string)
 
 	// AttemptProvision performs one provisioning attempt for a single binding.
 	// Exported so the retry reconciler can call it directly for PENDING rows
@@ -515,7 +520,7 @@ func bindingLockKey(ouID, projectName, agentName, envName string) string {
 }
 
 func (s *agentThunderProvisioningService) ProvisionForAgent(
-	ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy string,
+	ctx context.Context, ouID, projectName, agentName string, ownership models.AgentProvisioningType, envNames []string, requestedBy, awaitEnv string,
 ) {
 	bindings := make([]models.AgentThunderClient, 0, len(envNames))
 	for _, env := range envNames {
@@ -548,7 +553,19 @@ func (s *agentThunderProvisioningService) ProvisionForAgent(
 	// Detach from the request context so the background attempt survives the
 	// HTTP handler returning, mirroring the existing deleteAgentLLMConfigurations
 	// pattern in agent_manager.go.
-	go s.attemptAll(context.WithoutCancel(ctx), bindings)
+	detached := context.WithoutCancel(ctx)
+	if awaitEnv != "" {
+		background := make([]models.AgentThunderClient, 0, len(bindings))
+		for _, b := range bindings {
+			if b.EnvironmentName == awaitEnv {
+				s.AttemptProvision(detached, b)
+				continue
+			}
+			background = append(background, b)
+		}
+		bindings = background
+	}
+	go s.attemptAll(detached, bindings)
 }
 
 func (s *agentThunderProvisioningService) attemptAll(ctx context.Context, bindings []models.AgentThunderClient) {
@@ -568,7 +585,7 @@ func (s *agentThunderProvisioningService) ProvisionForEnvironmentIfMissing(
 		return false, fmt.Errorf("check existing agent thunder binding: %w", err)
 	}
 
-	s.ProvisionForAgent(ctx, ouID, projectName, agentName, ownership, []string{envName}, requestedBy)
+	s.ProvisionForAgent(ctx, ouID, projectName, agentName, ownership, []string{envName}, requestedBy, "")
 	return false, nil
 }
 
