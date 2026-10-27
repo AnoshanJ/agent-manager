@@ -42,6 +42,7 @@ func TestCheckProxyableURL(t *testing.T) {
 	const m3 = "--url must end in /.well-known/agent-card.json to use --proxy"
 	tests := []struct{ name, url, want string }{
 		{"ok", cardURL, ""},
+		{"nested path", "https://a.example/agents/x/.well-known/agent-card.json", ""},
 		{"wrong path", "https://a.example/card.json", m3},
 		{"query", cardURL + "?x=1", m2},
 		{"fragment", cardURL + "#f", m2},

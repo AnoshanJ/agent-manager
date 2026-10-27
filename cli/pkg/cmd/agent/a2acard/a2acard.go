@@ -54,7 +54,7 @@ func CheckProxyableURL(flag, raw string) error {
 	if u.RawQuery != "" || u.Fragment != "" || strings.Contains(raw, "?") || strings.Contains(raw, "#") {
 		return cmdutil.FlagErrorf("%s must not have a query or fragment to use --proxy", flag)
 	}
-	if u.Path != wellKnownCardPath {
+	if !strings.HasSuffix(u.Path, wellKnownCardPath) {
 		return cmdutil.FlagErrorf("%s must end in %s to use --proxy", flag, wellKnownCardPath)
 	}
 	return nil
