@@ -63,7 +63,8 @@ func NewSetCmd(f *cmdutil.Factory) *cobra.Command {
 		Use:   "set [agent] --url <card-url> [--proxy]",
 		Short: "Register an agent's card URL in an environment",
 		Long: "Register the URL the agent's A2A card is fetched from in one environment. " +
-			"With --proxy the environment is routed through its gateway.",
+			"With --proxy the environment is routed through its gateway. " +
+			"Callers of a proxied environment need a gateway API key, created in the console.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			org, proj, err := opts.ResolveScope(cmd, true, true)
@@ -84,7 +85,7 @@ func NewSetCmd(f *cmdutil.Factory) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.URL, "url", "", "URL the agent card is served from (required)")
-	cmd.Flags().BoolVar(&opts.Proxy, "proxy", false, "Route the environment through its gateway")
+	cmd.Flags().BoolVar(&opts.Proxy, "proxy", false, "Route the environment through its gateway (URL must end in /.well-known/agent-card.json)")
 	_ = cmd.MarkFlagRequired("url")
 	cmdutil.AddEnvFlag(cmd)
 	cmd.ValidArgsFunction = completeAgentArg(f)

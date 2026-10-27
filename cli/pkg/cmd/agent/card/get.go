@@ -174,6 +174,7 @@ func fetchCard(ctx context.Context, client *amsvc.ClientWithResponses, o *GetOpt
 
 func printCardStatus(ios *iostreams.IOStreams, o *GetOptions, external bool, s CardStatus) {
 	w := ios.Out
+	fmt.Fprintf(w, "Environment: %s\n", o.Env)
 	if external {
 		printRouting(w, s.Proxy)
 	}
@@ -185,10 +186,11 @@ func printCardStatus(ios *iostreams.IOStreams, o *GetOptions, external bool, s C
 		}
 		return
 	}
-	fmt.Fprintf(w, "Card source: %s\n", s.Card.Source)
-	if s.Card.SourceUrl != "" {
-		fmt.Fprintf(w, "Card URL: %s\n", s.Card.SourceUrl)
+	source := s.Card.SourceUrl
+	if source == "" {
+		source = string(s.Card.Source)
 	}
+	fmt.Fprintf(w, "Card source: %s\n", source)
 	fmt.Fprintf(w, "Card status: %s\n", s.Card.Status)
 	if s.Card.LastError != "" {
 		fmt.Fprintf(w, "Card error: %s\n", s.Card.LastError)
@@ -219,18 +221,26 @@ func cardSummary(card *map[string]interface{}) string {
 	}
 	stringField := func(key string) string {
 		v, _ := (*card)[key].(string)
-		return v
+		return strings.Map(dropControl, v)
 	}
 	var parts []string
 	if name := stringField("name"); name != "" {
 		parts = append(parts, name)
 	}
 	if version := strings.TrimPrefix(stringField("version"), "v"); version != "" {
-		parts = append(parts, version)
+		parts = append(parts, "v"+version)
 	}
 	summary := strings.Join(parts, " ")
 	if desc := stringField("description"); desc != "" {
 		summary += " - " + desc
 	}
 	return strings.TrimPrefix(summary, " - ")
+}
+
+// dropControl removes C0/C1 control runes so third-party card text can't inject terminal escapes.
+func dropControl(r rune) rune {
+	if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+		return -1
+	}
+	return r
 }

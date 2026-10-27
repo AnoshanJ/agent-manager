@@ -67,7 +67,7 @@ func Test_runGet_direct(t *testing.T) {
 	if err := runGet(context.Background(), o); err != nil {
 		t.Fatalf("runGet: %v", err)
 	}
-	for _, want := range []string{"direct", "https://agent.example/card", "Echo"} {
+	for _, want := range []string{"Environment: dev", "direct", "Card source: https://agent.example/card", "Echo"} {
 		if !strings.Contains(got(), want) {
 			t.Errorf("out missing %q:\n%s", want, got())
 		}
@@ -254,8 +254,24 @@ func Test_runGet_untypedCardFields(t *testing.T) {
 	if err := runGet(context.Background(), o); err != nil {
 		t.Fatalf("runGet: %v", err)
 	}
-	if !strings.Contains(got(), "1.2") || strings.Contains(got(), "42") {
+	if !strings.Contains(got(), "v1.2") || strings.Contains(got(), "vv1.2") || strings.Contains(got(), "42") {
 		t.Errorf("out = %s", got())
+	}
+}
+
+func Test_runGet_stripsControlCharsFromCardText(t *testing.T) {
+	o, got := getOpts(newClient(t, map[string]route{
+		agentKey: okJSON(a2aInternal()),
+		cardKey: okJSON(amsvc.AgentCardResponse{
+			Status: "fetched",
+			Card:   &map[string]interface{}{"name": "Echo", "description": "\x1b[31mred\u009b"},
+		}),
+	}), false)
+	if err := runGet(context.Background(), o); err != nil {
+		t.Fatalf("runGet: %v", err)
+	}
+	if strings.ContainsAny(got(), "\x1b\u009b") || !strings.Contains(got(), "[31mred") {
+		t.Errorf("out = %q", got())
 	}
 }
 

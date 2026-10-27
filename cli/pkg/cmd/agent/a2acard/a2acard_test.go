@@ -12,6 +12,7 @@
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
+// under the License.
 
 package a2acard
 
@@ -40,8 +41,12 @@ func TestCheckProxyableURL(t *testing.T) {
 	const m1 = "--url must be an http(s) URL"
 	const m2 = "--url must not have a query or fragment to use --proxy"
 	const m3 = "--url must end in /.well-known/agent-card.json to use --proxy"
+	const m4 = "--url must have a canonical path (no \"//\", \"..\", trailing \"/\" or escaped characters before /.well-known/agent-card.json) to use --proxy"
 	tests := []struct{ name, url, want string }{
 		{"ok", cardURL, ""},
+		{"double slash", "https://a.example//.well-known/agent-card.json", m4},
+		{"dot dot", "https://a.example/a/../b/.well-known/agent-card.json", m4},
+		{"escaped", "https://a.example/a%2Fb/.well-known/agent-card.json", m4},
 		{"nested path", "https://a.example/agents/x/.well-known/agent-card.json", ""},
 		{"wrong path", "https://a.example/card.json", m3},
 		{"query", cardURL + "?x=1", m2},

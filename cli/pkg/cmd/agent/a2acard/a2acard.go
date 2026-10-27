@@ -12,6 +12,7 @@
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
+// under the License.
 
 // Package a2acard holds the card-source flow shared by agent card set and agent create.
 package a2acard
@@ -20,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	amsvc "github.com/wso2/agent-manager/cli/pkg/clients/amsvc/gen"
@@ -56,6 +58,10 @@ func CheckProxyableURL(flag, raw string) error {
 	}
 	if !strings.HasSuffix(u.Path, wellKnownCardPath) {
 		return cmdutil.FlagErrorf("%s must end in %s to use --proxy", flag, wellKnownCardPath)
+	}
+	base := strings.TrimSuffix(u.Path, wellKnownCardPath)
+	if base != "" && (strings.HasSuffix(base, "/") || path.Clean(base) != base || u.RawPath != "") {
+		return cmdutil.FlagErrorf("%s must have a canonical path (no \"//\", \"..\", trailing \"/\" or escaped characters before %s) to use --proxy", flag, wellKnownCardPath)
 	}
 	return nil
 }

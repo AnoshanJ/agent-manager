@@ -19,6 +19,7 @@ package create
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -218,7 +219,7 @@ func runCreate(ctx context.Context, opts *CreateOptions, req amsvc.CreateAgentRe
 
 	env, err := cmdutil.ResolveEntryEnvironment(ctx, client, opts.Org, opts.Proj)
 	if err != nil {
-		fmt.Fprintf(opts.IO.ErrOut, "warning: agent created but could not resolve the entry environment: %v\n", err)
+		fmt.Fprintf(opts.IO.ErrOut, "warning: agent created but could not resolve the entry environment (token and card setup skipped): %v\n", err)
 		var card *cardOutcome
 		if opts.CardURL != "" {
 			card = &cardOutcome{SourceResult: a2acard.SourceResult{URL: opts.CardURL}, Error: err.Error()}
@@ -268,12 +269,16 @@ func applyCardURL(ctx context.Context, opts *CreateOptions, client *amsvc.Client
 	}
 	card.Error = err.Error()
 	fmt.Fprintf(opts.IO.ErrOut, "warning: agent created but card setup failed: %v\n", err)
-	retry := fmt.Sprintf("amctl agent card set %s --env %s --url %s", name, env, opts.CardURL)
+	retry := fmt.Sprintf("amctl agent card set %s --env %s --url %s", name, env, shellQuote(opts.CardURL))
 	if opts.CardProxy {
 		retry += " --proxy"
 	}
 	fmt.Fprintf(opts.IO.ErrOut, "  finish with: %s\n", retry)
 	return card
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func printAgentSummary(io *iostreams.IOStreams, a *amsvc.AgentResponse) {
