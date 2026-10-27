@@ -641,9 +641,13 @@ func TestProvisionForAgent_WritesAheadPendingForEveryEnvironment(t *testing.T) {
 // TestProvisionForAgent_AwaitEnvAttemptsInline guards the first-deploy single
 // rollout: the awaited environment must be attempted before ProvisionForAgent
 // returns, so its credentials can go into the agent's first ReleaseBinding.
+// staging's attempt blocks until the test ends, so "dev" can only have been
+// resolved by the awaited attempt, not by the background goroutine.
 func TestProvisionForAgent_AwaitEnvAttemptsInline(t *testing.T) {
 	var mu sync.Mutex
 	var resolvedEnvs []string
+	releaseStaging := make(chan struct{})
+	defer close(releaseStaging)
 	repo := &repomocks.AgentThunderClientRepositoryMock{
 		ClaimForAttemptFunc:    func(_ context.Context, _ uuid.UUID) (bool, error) { return true, nil },
 		UpsertFunc:             func(_ context.Context, _ *models.AgentThunderClient) error { return nil },
@@ -651,6 +655,9 @@ func TestProvisionForAgent_AwaitEnvAttemptsInline(t *testing.T) {
 	}
 	resolver := &clientmocks.EnvThunderResolverMock{
 		ResolveFunc: func(_ context.Context, _, _, envName string) (thundersvc.ThunderClient, error) {
+			if envName == "staging" {
+				<-releaseStaging
+			}
 			mu.Lock()
 			resolvedEnvs = append(resolvedEnvs, envName)
 			mu.Unlock()
@@ -664,7 +671,45 @@ func TestProvisionForAgent_AwaitEnvAttemptsInline(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Contains(t, resolvedEnvs, "dev", "the awaited environment must be attempted before ProvisionForAgent returns")
+	assert.Equal(t, []string{"dev"}, resolvedEnvs,
+		"the awaited environment must finish before ProvisionForAgent returns, and the others must not be waited on")
+}
+
+// TestProvisionForAgent_AwaitEnvGivesUpAfterTimeout guards the create request
+// against a slow Thunder: ProvisionForAgent stops waiting after the timeout
+// and leaves the attempt running in the background.
+func TestProvisionForAgent_AwaitEnvGivesUpAfterTimeout(t *testing.T) {
+	releaseDev := make(chan struct{})
+	attemptFinished := make(chan struct{})
+	repo := &repomocks.AgentThunderClientRepositoryMock{
+		ClaimForAttemptFunc: func(_ context.Context, _ uuid.UUID) (bool, error) { return true, nil },
+		UpsertFunc:          func(_ context.Context, _ *models.AgentThunderClient) error { return nil },
+		UpdateAfterAttemptFunc: func(_ context.Context, _ uuid.UUID, _ repositories.AgentThunderAttemptUpdate) error {
+			close(attemptFinished)
+			return nil
+		},
+	}
+	resolver := &clientmocks.EnvThunderResolverMock{
+		ResolveFunc: func(_ context.Context, _, _, _ string) (thundersvc.ThunderClient, error) {
+			<-releaseDev
+			return nil, errors.New("unused in this test")
+		},
+	}
+	store := &clientmocks.SecretManagementClientMock{}
+
+	svc := newTestProvisioningService(repo, resolver, store)
+	svc.(*agentThunderProvisioningService).awaitTimeout = 50 * time.Millisecond
+
+	start := time.Now()
+	svc.ProvisionForAgent(context.Background(), "acme", "proj1", "my-agent", models.AgentProvisioningTypeInternal, []string{"dev"}, "", "dev")
+	assert.Less(t, time.Since(start), 5*time.Second, "ProvisionForAgent must stop waiting once the timeout passes")
+
+	close(releaseDev)
+	select {
+	case <-attemptFinished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the attempt must keep running after the wait times out and record its outcome")
+	}
 }
 
 // TestProvisionForAgent_TransientUpsertBlip_RecoveredOnRetry guards against a
