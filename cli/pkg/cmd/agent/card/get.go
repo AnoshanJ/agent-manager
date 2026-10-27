@@ -167,10 +167,12 @@ func requireEnvironment(ctx context.Context, client *amsvc.ClientWithResponses, 
 	if err != nil {
 		return clierr.Newf(clierr.Transport, "%v", err)
 	}
-	if resp.StatusCode() != http.StatusNotFound {
+	switch resp.StatusCode() {
+	case http.StatusOK, http.StatusForbidden:
 		return nil // a forbidden lookup can't prove the env is missing, so the card read decides
 	}
-	return cmdutil.ErrorFromServer(resp.HTTPResponse, resp.JSON404)
+	return cmdutil.ErrorFromServer(resp.HTTPResponse,
+		cmdutil.FirstNonNil(resp.JSON400, resp.JSON401, resp.JSON404, resp.JSON500))
 }
 
 // fetchCard returns nil when no card row exists.

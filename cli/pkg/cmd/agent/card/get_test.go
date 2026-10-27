@@ -250,6 +250,7 @@ func Test_runGet_notA2A(t *testing.T) {
 func Test_runGet_untypedCardFields(t *testing.T) {
 	o, got := getOpts(newClient(t, map[string]route{
 		agentKey: okJSON(a2aInternal()),
+		envKey:   envOK,
 		cardKey: okJSON(amsvc.AgentCardResponse{
 			Status: "fetched",
 			Card:   &map[string]interface{}{"name": 42, "version": "v1.2"},
@@ -266,6 +267,7 @@ func Test_runGet_untypedCardFields(t *testing.T) {
 func Test_runGet_stripsControlCharsFromCardText(t *testing.T) {
 	o, got := getOpts(newClient(t, map[string]route{
 		agentKey: okJSON(a2aInternal()),
+		envKey:   envOK,
 		cardKey: okJSON(amsvc.AgentCardResponse{
 			Status: "fetched",
 			Card:   &map[string]interface{}{"name": "Echo", "description": "\x1b[31mred\u009b"},
@@ -342,5 +344,18 @@ func Test_runGet_internalEnvForbiddenStillReadsCard(t *testing.T) {
 	}
 	if !strings.Contains(got(), "Echo") {
 		t.Errorf("out = %s", got())
+	}
+}
+
+func Test_runGet_internalEnvLookupFailure(t *testing.T) {
+	o, got := getOpts(newClient(t, map[string]route{
+		agentKey: okJSON(a2aInternal()),
+		envKey:   {status: http.StatusInternalServerError, body: map[string]any{"code": "INTERNAL", "message": "boom"}},
+	}), true)
+	if err := runGet(context.Background(), o); err == nil {
+		t.Fatal("expected error")
+	}
+	if e := decodeEnvelope(t, got())["error"].(map[string]any); e["code"] != "INTERNAL" {
+		t.Errorf("error = %v, want the environment lookup's INTERNAL", e)
 	}
 }
