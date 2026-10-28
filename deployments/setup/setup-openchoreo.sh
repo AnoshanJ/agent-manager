@@ -251,14 +251,17 @@ install_workflow_plane() {
 
 install_logs_module() {
     echo "Installing OpenSearch based logs module..."
-    helm upgrade --install observability-logs-opensearch \
+    if ! helm upgrade --install observability-logs-opensearch \
       oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
       --create-namespace \
       --namespace openchoreo-observability-plane \
       --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
       --set openSearchSetup.openSearchSecretName="opensearch-admin-credentials" \
       --set adapter.openSearchSecretName="opensearch-admin-credentials" \
-      --timeout 10m
+      --timeout 10m; then
+        echo "❌ OpenSearch based logs module install failed; not enabling log collection"
+        return 1
+    fi
     echo "✅ OpenSearch based logs module installed"
 
     # Enable logs collection in the configured logs module.
@@ -269,6 +272,9 @@ install_logs_module() {
     # because no collector tails that node's container logs. operator=Exists tolerates
     # any taint, so both the gvisor and kata taints are covered. Harmless for all-runc
     # clusters (the toleration just matches nothing).
+    # Fluent Bit ships through the gateway's TLS passthrough listener, so the
+    # route must exist before Fluent Bit starts sending.
+    kubectl apply -f "${PROJECT_ROOT}/deployments/values/opensearch-tls-route.yaml" || return 1
     echo "Enabling log collection in Observability Plane..."
     helm upgrade observability-logs-opensearch \
       oci://ghcr.io/openchoreo/helm-charts/observability-logs-opensearch \
@@ -276,9 +282,13 @@ install_logs_module() {
       --namespace openchoreo-observability-plane \
       --version "${OBSERVABILITY_LOGS_OPENSEARCH_VERSION}" \
       --reuse-values \
+      --values "${PROJECT_ROOT}/deployments/values/observability-logs-opensearch.yaml" \
       --set fluent-bit.enabled=true \
       --set "fluent-bit.tolerations[0].operator=Exists" \
-      --timeout 10m
+      --timeout 10m || return 1
+    # The chart's checksum/config annotation hashes an empty string, so a changed
+    # Fluent Bit config never rolls the pods; restart so a re-run picks it up.
+    kubectl rollout restart daemonset/fluent-bit -n openchoreo-observability-plane || return 1
     echo "✅ OpenSearch Log collection enabled"
 }
 
@@ -328,7 +338,7 @@ install_metrics_module() {
                 crd/podmonitors.monitoring.coreos.com \
                 crd/prometheuses.monitoring.coreos.com \
                 crd/alertmanagers.monitoring.coreos.com 2>/dev/null || true
-            install_metrics_prometheus
+            install_metrics_prometheus || return 1
         else
             echo "❌ Prometheus based metrics module install failed"
             return 1
